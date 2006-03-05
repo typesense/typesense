@@ -1506,7 +1506,7 @@ TEST_F(CollectionTest, SortOnFloatFields) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
-        EXPECT_STREQ(id.c_str(), result_id.c_str());
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
     std::vector<sort_by> sort_fields_asc = { sort_by("score", "ASC"), sort_by("average", "ASC") };

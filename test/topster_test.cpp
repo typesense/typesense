@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <index.h>
 #include "topster.h"
 #include "match_score.h"
 
@@ -30,10 +31,10 @@ TEST(TopsterTest, MaxIntValues) {
     };
 
     for(int i = 0; i < 14; i++) {
-        number_t scores[3];
-        scores[0] = number_t(int64_t(data[i].match_score));
-        scores[1] = number_t(data[i].primary_attr);
-        scores[2] = number_t(data[i].secondary_attr);
+        int64_t scores[3];
+        scores[0] = int64_t(data[i].match_score);
+        scores[1] = data[i].primary_attr;
+        scores[2] = data[i].secondary_attr;
 
         topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score, scores);
     }
@@ -81,10 +82,10 @@ TEST(TopsterTest, MaxFloatValues) {
     };
 
     for(int i = 0; i < 12; i++) {
-        number_t scores[3];
-        scores[0] = number_t(int64_t(data[i].match_score));
-        scores[1] = number_t(data[i].primary_attr);
-        scores[2] = number_t(data[i].secondary_attr);
+        int64_t scores[3];
+        scores[0] = int64_t(data[i].match_score);
+        scores[1] = Index::float_to_in64_t(data[i].primary_attr);
+        scores[2] = data[i].secondary_attr;
 
         topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score, scores);
     }

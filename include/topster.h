@@ -14,7 +14,7 @@ struct KV {
     uint16_t array_index;
     uint64_t key;
     uint64_t match_score;
-    number_t scores[3];  // match score + 2 custom attributes
+    int64_t scores[3];  // match score + 2 custom attributes
 };
 
 /*
@@ -58,7 +58,7 @@ struct Topster {
     }
 
     void add(const uint64_t &key, const uint8_t &field_id, const uint16_t &query_index, const uint64_t &match_score,
-             const number_t scores[3]) {
+             const int64_t scores[3]) {
         if (size >= MAX_SIZE) {
             if(!is_greater(kvs[0], scores)) {
                 // when incoming value is less than the smallest in the heap, ignore
@@ -169,7 +169,7 @@ struct Topster {
         }
     }
 
-    static bool is_greater(const struct KV* i, const number_t scores[3]) {
+    static bool is_greater(const struct KV* i, const int64_t scores[3]) {
         return std::tie(scores[0], scores[1], scores[2]) >
                std::tie(i->scores[0], i->scores[1], i->scores[2]);
     }

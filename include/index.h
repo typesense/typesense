@@ -129,7 +129,7 @@ private:
 
     spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
     StringUtils string_utils;
 
@@ -196,6 +196,7 @@ private:
     uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
     void compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type);
+
 
 public:
     Index() = delete;
@@ -276,5 +277,7 @@ public:
                                                const art_leaf *token_leaf, uint32_t doc_index);
 
     int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
+
+    static int64_t float_to_in64_t(float n);
 };
 

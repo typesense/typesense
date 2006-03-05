@@ -28,7 +28,7 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
     }
 
     for(const auto & pair: sort_schema) {
-        spp::sparse_hash_map<uint32_t, number_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, number_t>();
+        spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
         sort_index.emplace(pair.first, doc_to_score);
     }
 
@@ -72,6 +72,16 @@ int32_t Index::get_points_from_doc(const nlohmann::json &document, const std::st
     }
 
     return points;
+}
+
+int64_t Index::float_to_in64_t(float f) {
+    // https://stackoverflow.com/questions/60530255/convert-float-to-int64-t-while-preserving-ordering
+    int32_t i;
+    memcpy(&i, &f, sizeof i);
+    if (i < 0) {
+        i ^= INT32_MAX;
+    }
+    return i;
 }
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
@@ -177,12 +187,13 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         // add numerical values automatically into sort index
         if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64 ||
                 field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL) {
-            spp::sparse_hash_map<uint32_t, number_t> *doc_to_score = sort_index.at(field_pair.first);
+            spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(field_pair.first);
 
             if(field_pair.second.is_integer() ) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<int64_t>());
             } else if(field_pair.second.is_float()) {
-                doc_to_score->emplace(seq_id, document[field_pair.first].get<float>());
+                int64_t ifloat = float_to_in64_t(document[field_pair.first].get<float>());
+                doc_to_score->emplace(seq_id, ifloat);
             } else if(field_pair.second.is_bool()) {
                 doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
             }
@@ -1120,10 +1131,10 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
             }
         }
 
-        number_t scores[3];
-        scores[0] = number_t(int64_t(match_score));
-        scores[1] = number_t(int64_t(1));
-        scores[2] = number_t(int64_t(1));
+        int64_t scores[3];
+        scores[0] = int64_t(match_score);
+        scores[1] = int64_t(1);
+        scores[2] = int64_t(1);
 
         curated_topster.add(seq_id, field_id, searched_queries.size(), match_score, scores);
 
@@ -1433,12 +1444,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         leaf_to_indices.emplace(token_leaf, indices);
     }
 
-    // Used for asc/desc ordering. NOTE: Topster keeps biggest keys (i.e. it's desc in nature)
-    number_t primary_rank_factor;
-    number_t secondary_rank_factor;
-
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
-    spp::sparse_hash_map<uint32_t, number_t>* field_values[3];
+    spp::sparse_hash_map<uint32_t, int64_t>* field_values[3];
 
     for(size_t i = 0; i < sort_fields.size(); i++) {
         sort_order[i] = 1;
@@ -1491,39 +1498,41 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         const int64_t default_score = 0;
-        number_t scores[3];
+        int64_t scores[3];
 
         // avoiding loop
         if(sort_fields.size() > 0) {
             if (field_values[0] != nullptr) {
                 auto it = field_values[0]->find(seq_id);
-                scores[0] = (it == field_values[0]->end()) ? number_t(default_score) : number_t(it->second);
+                scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
             } else {
-                scores[0] = number_t(int64_t(match_score));
+                scores[0] = int64_t(match_score);
             }
             if (sort_order[0] == -1) {
                 scores[0] = -scores[0];
             }
+            scores[1] = 0;
         }
 
         if(sort_fields.size() > 1) {
             if (field_values[1] != nullptr) {
                 auto it = field_values[1]->find(seq_id);
-                scores[1] = (it == field_values[1]->end()) ? number_t(default_score) : number_t(it->second);
+                scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             } else {
-                scores[1] = number_t(int64_t(match_score));
+                scores[1] = int64_t(match_score);
             }
             if (sort_order[1] == -1) {
                 scores[1] = -scores[1];
             }
+            scores[2] = 0;
         }
 
         if(sort_fields.size() > 2) {
             if(field_values[2] != nullptr) {
                 auto it = field_values[2]->find(seq_id);
-                scores[2] = (it == field_values[2]->end()) ? number_t(default_score) : number_t(it->second);
+                scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             } else {
-                scores[2] = number_t(int64_t(match_score));
+                scores[2] = int64_t(match_score);
             }
             if(sort_order[2] == -1) {
                 scores[2] = -scores[2];
