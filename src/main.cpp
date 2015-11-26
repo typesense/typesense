@@ -6,7 +6,9 @@
 using namespace std;
 
 static int test_prefix_cb(void *data, const unsigned char *k, uint32_t k_len, void *val) {
-    cout << ">>>>Key: " << k << ", Value: " << (uintptr_t) val << endl;
+    cout << ">>>>Key: ";
+    printf("%.*s", k_len, k);
+    cout << ", Value: " << (uintptr_t) val << endl;
     return 0;
 }
 
@@ -28,7 +30,7 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "hawshan";
+    const unsigned char *prefix = (const unsigned char *) "aboutr";
     art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 2, test_prefix_cb, NULL);
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 

@@ -16,7 +16,7 @@
 
 #define MIN3(a, b, c) ((a) < (b) ? ((a) < (c) ? (a) : (c)) : ((b) < (c) ? (b) : (c)))
 
-#define IGNORE_PRINTF 1
+//#define IGNORE_PRINTF 1
 
 #ifdef IGNORE_PRINTF
 #define printf(fmt, ...) (0)
@@ -908,7 +908,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
             return 0;
         }
 
-        printf("IS INTERNAL\n");
+        printf("IS_INTERNAL\n");
         printf("Prefix len: %d, children: %d, value: %s\n", n->partial_len, n->num_children, n->partial);
 
         // If the depth matches the prefix, we need to handle this node
@@ -946,13 +946,15 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     return 0;
 }
 
-#define comp_child_char_recurse(node, cmp_char) {\
-    if(term[tidx] == cmp_char || IS_LEAF(node)) {\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, 0, max_cost, cost_so_far, cb, data);\
+#define comp_child_char_recurse(node, cmp_char, next_pidx) {\
+    if(cmp_char == 0){\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx, next_pidx, max_cost, cost_so_far, cb, data);\
+    } else if(term[tidx] == cmp_char || IS_LEAF(node)) {\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, next_pidx, max_cost, cost_so_far, cb, data);\
     } else {\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx, 0, max_cost, cost_so_far+1, cb, data);\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, 0, max_cost, cost_so_far+1, cb, data);\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+2, 0, max_cost, cost_so_far+1, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx, next_pidx, max_cost, cost_so_far+1, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, next_pidx, max_cost, cost_so_far+1, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+2, next_pidx, max_cost, cost_so_far+1, cb, data);\
     }\
 }\
 
@@ -1011,7 +1013,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                     char child_char = ((art_node4*)n)->keys[i];
                     art_node* child = ((art_node4*)n)->children[i];
                     printf("child_char: %c\n", child_char);
-                    comp_child_char_recurse(child, child_char);
+                    comp_child_char_recurse(child, child_char, 0);
                 }
                 break;
 
@@ -1019,7 +1021,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 for (int i=0; i < n->num_children; i++) {
                     char child_char = ((art_node16*)n)->keys[i];
                     art_node* child = ((art_node16*)n)->children[i];
-                    comp_child_char_recurse(child, child_char);
+                    comp_child_char_recurse(child, child_char, 0);
                 }
                 break;
 
@@ -1030,7 +1032,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 
                     char child_char = ((art_node48*)n)->keys[ix - 1];
                     art_node* child = ((art_node48*)n)->children[ix - 1];
-                    comp_child_char_recurse(child, child_char);
+                    comp_child_char_recurse(child, child_char, 0);
                 }
                 break;
 
@@ -1049,11 +1051,11 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         return 0;
     }
 
-    printf("IS INTERNAL\n");
+    printf("IS_INTERNAL\n");
     printf("cost_so_far: %d, tidx: %d, term[tidx]: %c, partial[pidx]: %c, pidx: %d, partial: %s partial_len: %d, term_len: %d\n", cost_so_far, tidx, term[tidx], n->partial[pidx], pidx, n->partial, n->partial_len, term_len);
 
     // handle partial
-    comp_child_char_recurse(n, n->partial[pidx]);
+    comp_child_char_recurse(n, n->partial[pidx], pidx+1);
     return 0;
 }
 
