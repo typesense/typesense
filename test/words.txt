@@ -1,4 +1,2 @@
-hello
 hat
-hell
 shawshank

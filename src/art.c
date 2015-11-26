@@ -35,6 +35,9 @@ static int levenshtein(const unsigned char *s1, unsigned int s1len, const unsign
             lastdiag = olddiag;
         }
     }
+
+    //printf("s1: %s, s1len: %d, s2: %s, s2len: %d, diff: %d\n\n", s1, s1len, s2, s2len, column[s1len]);
+
     return(column[s1len]);
 }
 
@@ -860,11 +863,13 @@ static int leaf_prefix_matches(const art_leaf *n, const unsigned char *prefix, i
 }
 
 /**
- * Check if a leaf prefix matches the key within a given threshold
+ * Check if a leaf value matches the term within a given threshold
  * @return true if the fuzzy match succeeds, false otherwise
  */
-static int leaf_prefix_mismatch(const art_leaf *l, const unsigned char *term, int term_len, int tidx) {
-    // We have to compare the full key here since we are at the leaf
+static int leaf_mismatch(const art_leaf *l, const unsigned char *term, int term_len, int max_cost) {
+    // cheaper to first check if sequences vary greater than max_cost
+    if(abs(l->key_len - term_len) > max_cost) return abs(l->key_len - term_len);
+
     int min_len = min(term_len, l->key_len);
     return min_len == 0 ? 0 : levenshtein(l->key, min_len, term, min_len);
 }
@@ -942,13 +947,12 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
 }
 
 #define comp_child_char_recurse(node, cmp_char) {\
-    if(term[tidx] == cmp_char) {\
+    if(term[tidx] == cmp_char || IS_LEAF(node)) {\
         art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, 0, max_cost, cost_so_far, cb, data);\
     } else {\
-        cost_so_far++;\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx, 0, max_cost, cost_so_far, cb, data);\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, 0, max_cost, cost_so_far, cb, data);\
-        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+2, 0, max_cost, cost_so_far, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx, 0, max_cost, cost_so_far+1, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+1, 0, max_cost, cost_so_far+1, cb, data);\
+        art_iter_fuzzy_prefix_recurse(node, term, term_len, tidx+2, 0, max_cost, cost_so_far+1, cb, data);\
     }\
 }\
 
@@ -974,21 +978,19 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         return recursive_iter(n, cb, NULL);
     }
 
+    // We haven't fully finished traversing the search term
+
     if (IS_LEAF(n)) {
-        printf("IS LEAF\n");
+        printf("IS_LEAF\n");
+
         n = LEAF_RAW(n);
-
-        // check if the key matches term within given cost_so_far
         art_leaf *l = (art_leaf *) n;
-        int mismatch_len = leaf_prefix_mismatch(l, term, term_len, tidx);
-        cost_so_far += mismatch_len;
+        int mismatch_len = leaf_mismatch(l, term, term_len, max_cost);
 
-        printf("LEAF tidx: %d, mismatch_len: %d, term: %s, cost_so_far: %d, key_len: %d, key: %s\n", tidx, mismatch_len, term, cost_so_far, l->key_len, l->key);
-        printf("max_cost: %d\n", max_cost);
+        printf("LEAF tidx: %d, mismatch_len: %d, term: %s, tidx: %d, cost_so_far: %d, key_len: %d, key: %s\n", tidx, mismatch_len, term, tidx, cost_so_far, l->key_len, l->key);
 
-        if (cost_so_far <= max_cost) {
+        if (mismatch_len <= max_cost) {
             art_leaf *l = (art_leaf*)n;
-            printf("FROM MAIN CB\n");
             return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
         }
 
@@ -1001,7 +1003,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         // end of partial - look to children
 
         printf("END OF INTERNAL\n");
-        printf("tidx: %d, partial_len: %d, children: %d, value: %s\n", tidx, n->partial_len, n->num_children, n->partial);
+        printf("tidx: %d, cost_so_far: %d, partial_len: %d, children: %d, partial: %s\n", tidx, cost_so_far, n->partial_len, n->num_children, n->partial);
 
         switch (n->type) {
             case NODE4:
