@@ -214,8 +214,8 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
 int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len, int max_cost, art_callback cb,
                           void *data);
 
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int tidx,
-                                         int pidx, int max_cost, int cost_so_far, art_callback cb, void *data);
+static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost,
+                                         int depth, int* previous_row, art_callback cb, void *data);
 
 #ifdef __cplusplus
 }

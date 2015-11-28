@@ -958,8 +958,43 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     }\
 }\
 
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int tidx,
-                                         int pidx, int max_cost, int cost_so_far, art_callback cb, void *data) {
+void print_row(int* row, int row_len) {
+    for(int i=0; i<=row_len; i++) {
+        printf("%d ", row[i]);
+    }
+
+    printf("\n");
+}
+
+int levenshtein_score(char ch, const unsigned char* term, const int term_len, int* previous_row, int* current_row) {
+    int row_min = 12;
+    int insert_or_del, replace;
+
+    printf("\nPREVIOUS ROW: ");
+    print_row(previous_row, term_len);
+
+    // calculate the min cost of insertion, deletion, match or replace
+    for (int i = 1; i <= term_len; i++) {
+        insert_or_del = min(current_row[i-1] + 1, previous_row[i] + 1);
+        replace = (term[i - 1] == ch) ? previous_row[i - 1] : (previous_row[i - 1] + 1);
+        current_row[i] = min(insert_or_del, replace);
+
+        if(current_row[i] < row_min) row_min = current_row[i];
+    }
+
+    printf("\nCURRENT ROW: ");
+    print_row(current_row, term_len);
+    return row_min;
+}
+
+int copyIntArray(int *dest, int *src, int len) {
+    for(int t=0; t<len; t++) {
+        dest[t] = src[t];
+    }
+}
+
+static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost,
+                                         int depth, int* previous_row, art_callback cb, void *data) {
     /*
     Pass a "cost_so_far" through the recursive function along with an index of current position within the word.
     If the letter at that position doesn't match the current trie node's letter then adjust the "cost so far"
@@ -972,90 +1007,148 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 
     //printf("partial_len: %d\n", n->num_children);
 
-    if(cost_so_far > max_cost) return 0;
-
-    if(tidx >= term_len) {
-        // return this node - it could be either child or internal
-        printf("CALLLING recursive_iter: cost_so_far: %d\n", cost_so_far);
-        return recursive_iter(n, cb, NULL);
-    }
-
-    // We haven't fully finished traversing the search term
-
     if (IS_LEAF(n)) {
         printf("IS_LEAF\n");
 
         n = LEAF_RAW(n);
         art_leaf *l = (art_leaf *) n;
-        int mismatch_len = leaf_mismatch(l, term, term_len, max_cost);
 
-        printf("LEAF tidx: %d, mismatch_len: %d, term: %s, tidx: %d, cost_so_far: %d, key_len: %d, key: %s\n", tidx, mismatch_len, term, tidx, cost_so_far, l->key_len, l->key);
+        int row_min = 0;
+        int current_row[term_len+1];
+        current_row[0] = previous_row[0] + 1;
 
-        if (mismatch_len <= max_cost) {
-            art_leaf *l = (art_leaf*)n;
+        printf("LEAF KEY: %s\n", l->key);
+        //depth = 0;
+
+        // FIXME: should search only from depth, not full key len
+        for(int idx=depth; idx<l->key_len && depth < term_len && row_min <= max_cost; idx++) {
+            row_min = levenshtein_score(l->key[idx], term, term_len, previous_row, current_row);
+            printf("leaf char: %c\n", l->key[idx]);
+            printf("score: %d, depth: %d, term_len: %d, row_min: %d\n", current_row[term_len], depth, term_len, row_min);
+
+            //printf("CURRENT RETURNED\n");
+            //print_row(current_row, term_len);
+
+            copyIntArray(previous_row, current_row, term_len+1);
+            current_row[0] = previous_row[0] + 1;
+            depth   += 1;
+            //printf("PREVIOUS BEFORE CALLING\n");
+            //print_row(previous_row, term_len);
+        }
+
+        printf("OUT OF LOOP\n");
+
+        //printf("\nscore: %d\n", current_row[term_len]);
+
+        if(current_row[term_len] <= max_cost) {
             return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
         }
 
+        //printf("LEAF tidx: %d, mismatch_len: %d, term: %s, tidx: %d, cost_so_far: %d, key_len: %d, key: %s\n", tidx, mismatch_len, term, tidx, cost_so_far, l->key_len, l->key);
         return 0;
     }
 
-    // Internal node - recalculate cost based on partial
+    printf("START PARTIAL\n");
 
-    if(pidx == min(MAX_PREFIX_LEN, n->partial_len)) {
-        // end of partial - look to children
+    // internal node - first we check partial (via path compression) and then child index
+    int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
+    int row_min = 0;
+    int current_row[term_len+1];
+    current_row[0] = previous_row[0] + 1;
 
-        printf("END OF INTERNAL\n");
-        printf("tidx: %d, cost_so_far: %d, partial_len: %d, children: %d, partial: %s\n", tidx, cost_so_far, n->partial_len, n->num_children, n->partial);
+    for(int idx=0; idx<partial_len && depth < term_len && row_min <= max_cost; idx++) {
+        printf("partial: %c ", n->partial[idx]);
+        current_row[0] = previous_row[0] + 1;
+        row_min = levenshtein_score(n->partial[idx], term, term_len, previous_row, current_row);
+        depth   += 1;
+        copyIntArray(previous_row, current_row, term_len+1);
+        current_row[0] = previous_row[0] + 1;
+    }
 
-        switch (n->type) {
-            case NODE4:
-                for (int i=0; i < n->num_children; i++) {
-                    char child_char = ((art_node4*)n)->keys[i];
-                    art_node* child = ((art_node4*)n)->children[i];
-                    printf("child_char: %c\n", child_char);
-                    comp_child_char_recurse(child, child_char, 0);
-                }
-                break;
+    printf("\n");
 
-            case NODE16:
-                for (int i=0; i < n->num_children; i++) {
-                    char child_char = ((art_node16*)n)->keys[i];
-                    art_node* child = ((art_node16*)n)->children[i];
-                    comp_child_char_recurse(child, child_char, 0);
-                }
-                break;
-
-            case NODE48:
-                for (int i=0; i < 256; i++) {
-                    char ix = ((art_node48*)n)->keys[i];
-                    if (!ix) continue;
-
-                    char child_char = ((art_node48*)n)->keys[ix - 1];
-                    art_node* child = ((art_node48*)n)->children[ix - 1];
-                    comp_child_char_recurse(child, child_char, 0);
-                }
-                break;
-
-            case NODE256:
-                for (int i=0; i < 256; i++) {
-                    if (!((art_node256*)n)->children[i]) continue;
-                    art_node* child = ((art_node256*)n)->children[i];
-                    art_iter_fuzzy_prefix_recurse(child, term, term_len, tidx, 0, max_cost, cost_so_far, cb, data);
-                }
-                break;
-
-            default:
-                abort();
+    if(depth == term_len) {
+        if(current_row[term_len] <= max_cost) {
+            return recursive_iter(n, cb, NULL);
         }
 
         return 0;
     }
 
-    printf("IS_INTERNAL\n");
-    printf("cost_so_far: %d, tidx: %d, term[tidx]: %c, partial[pidx]: %c, pidx: %d, partial: %s partial_len: %d, term_len: %d\n", cost_so_far, tidx, term[tidx], n->partial[pidx], pidx, n->partial, n->partial_len, term_len);
+    // end of partial - look to children
 
-    // handle partial
-    comp_child_char_recurse(n, n->partial[pidx], pidx+1);
+    printf("END OF PARTIAL\n");
+    printf("children: %d\n", n->num_children);
+
+    switch (n->type) {
+        case NODE4:
+            for (int i=0; i < n->num_children; i++) {
+                char child_char = ((art_node4*)n)->keys[i];
+                printf("!child_char: %c, depth: %d", child_char, depth);
+                art_node* child = ((art_node4*)n)->children[i];
+
+                int current_row[term_len+1];
+                current_row[0] = previous_row[0] + 1;
+
+                row_min = levenshtein_score(child_char, term, term_len, previous_row, current_row);
+                int new_depth = (child_char != 0) ? depth+1 : depth;
+
+                if(depth == term_len) {
+                    if(current_row[term_len] <= max_cost) {
+                        return recursive_iter(n, cb, NULL);
+                    }
+                    return 0;
+                }
+                if(row_min <= max_cost) art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, current_row, cb, data);
+            }
+            break;
+
+        case NODE16:
+            for (int i=0; i < n->num_children; i++) {
+                char child_char = ((art_node16*)n)->keys[i];
+                art_node* child = ((art_node16*)n)->children[i];
+                row_min = levenshtein_score(child_char, term, term_len, previous_row, current_row);
+                if(depth+1 == term_len) {
+                    if(current_row[term_len] <= max_cost) {
+                        return recursive_iter(n, cb, NULL);
+                    }
+                    return 0;
+                }
+                if(row_min <= max_cost) art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, depth, current_row, cb, data);
+            }
+            break;
+
+        case NODE48:
+            for (int i=0; i < 256; i++) {
+                char ix = ((art_node48*)n)->keys[i];
+                if (!ix) continue;
+
+                char child_char = ((art_node48*)n)->keys[ix - 1];
+                art_node* child = ((art_node48*)n)->children[ix - 1];
+                row_min = levenshtein_score(child_char, term, term_len, previous_row, current_row);
+                if(depth+1 == term_len) {
+                    if(current_row[term_len] <= max_cost) {
+                        return recursive_iter(n, cb, NULL);
+                    }
+                    return 0;
+                }
+
+                if(row_min <= max_cost) art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, depth, current_row, cb, data);
+            }
+            break;
+
+        case NODE256:
+            for (int i=0; i < 256; i++) {
+                if (!((art_node256*)n)->children[i]) continue;
+                art_node* child = ((art_node256*)n)->children[i];
+                if(row_min <= max_cost) art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, depth, current_row, cb, data);
+            }
+            break;
+
+        default:
+            abort();
+    }
+
     return 0;
 }
 
@@ -1075,5 +1168,11 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
                           int max_cost, art_callback cb, void *data) {
 
-    return art_iter_fuzzy_prefix_recurse(t->root, term, term_len, 0, 0, max_cost, 0, cb, data);
+    int current_row[term_len+1];
+
+    for (int i = 0; i <= term_len; i++){
+        current_row[i] = i;
+    }
+
+    return art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, 0, current_row, cb, data);
 }
