@@ -30,7 +30,7 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "catm";
+    const unsigned char *prefix = (const unsigned char *) "enlig";
     art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 2, test_prefix_cb, NULL);
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 
