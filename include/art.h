@@ -4,6 +4,8 @@
 #ifndef ART_H
 #define ART_H
 
+#define IGNORE_PRINTF 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif

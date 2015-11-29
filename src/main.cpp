@@ -19,7 +19,7 @@ int main() {
     art_tree t;
     art_tree_init(&t);
 
-    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/words.txt");
+    std::ifstream infile("/usr/share/dict/words");
 
     std::string line;
     uintptr_t num = 1;
@@ -30,7 +30,7 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "enlig";
+    const unsigned char *prefix = (const unsigned char *) "amzsign";
     art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 2, test_prefix_cb, NULL);
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 
