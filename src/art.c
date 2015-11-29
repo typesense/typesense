@@ -907,7 +907,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
         }
 
         printf("IS_INTERNAL\n");
-        printf("Prefix len: %d, children: %d, value: %s\n", n->partial_len, n->num_children, n->partial);
+        printf("Prefix len: %d, children: %d, depth: %d, partial: %s\n", n->partial_len, n->num_children, depth, n->partial);
 
         // If the depth matches the prefix, we need to handle this node
         if (depth == key_len) {
@@ -949,7 +949,8 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
 \
-    printf("child char: %c, cost: %d, depth: %d, term_len: %d \n", child_char, new_current_row[term_len], depth, term_len);\
+    printf("fuzzy_recurse - child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
+            child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
 \
     if(depth == term_len-1) {\
       /* if reach end of term, and cost is below threshold, print children of this node as matches*/\
@@ -1037,7 +1038,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         return 0;
     }
 
-    printf("START PARTIAL: %s\n", n->partial);
+    printf("START PARTIAL: partial_len: %d, partial: %s, term_len: %d, depth: %d\n", n->partial_len, n->partial, term_len, depth);
 
     // internal node - first we check partial (via path compression) and then child index
     int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
@@ -1094,12 +1095,12 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 
         case NODE48:
             printf("NODE48\n");
-            for (int i=0; i < n->num_children; i++) {
-                char ix = ((art_node48*)n)->keys[i];
+            for (int i=0; i < 256; i++) {
+                int ix = ((art_node48*)n)->keys[i];
                 if (!ix) continue;
-                char child_char = ((art_node48*)n)->keys[ix - 1];
-                printf("!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node48*)n)->children[ix - 1];
+                char child_char = (char)i;
+                printf("!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
                 fuzzy_recurse(child_char, term, term_len, depth, previous_row);
             }
             break;
