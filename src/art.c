@@ -953,15 +953,12 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
             child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
 \
     if(depth == term_len-1) {\
-      /* if reach end of term, and cost is below threshold, print children of this node as matches*/\
+      /* reached end of term, and cost is below threshold, print children of this node as matches*/\
       if(new_current_row[term_len] <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
-        return recursive_iter(child, cb, NULL);\
+        recursive_iter(child, cb, NULL);\
       }\
-      return 0;\
-    }\
-\
-    if(row_min <= max_cost) {\
+    } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
       art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, new_current_row, cb, data);\
     }\
@@ -1077,7 +1074,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
             printf("NODE4\n");
             for (int i=0; i < n->num_children; i++) {
                 char child_char = ((art_node4*)n)->keys[i];
-                printf("!child_char: %c, depth: %d", child_char, depth);
+                printf("4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
                 art_node* child = ((art_node4*)n)->children[i];
                 fuzzy_recurse(child_char, term, term_len, depth, previous_row);
             }
@@ -1087,7 +1084,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
             printf("NODE16\n");
             for (int i=0; i < n->num_children; i++) {
                 char child_char = ((art_node16*)n)->keys[i];
-                printf("!child_char: %c, depth: %d", child_char, depth);
+                printf("16!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node16*)n)->children[i];
                 fuzzy_recurse(child_char, term, term_len, depth, previous_row);
             }
@@ -1100,7 +1097,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 if (!ix) continue;
                 art_node* child = ((art_node48*)n)->children[ix - 1];
                 char child_char = (char)i;
-                printf("!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
+                printf("48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
                 fuzzy_recurse(child_char, term, term_len, depth, previous_row);
             }
             break;
@@ -1110,7 +1107,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
             for (int i=0; i < 256; i++) {
                 if (!((art_node256*)n)->children[i]) continue;
                 char child_char = (char) i;
-                printf("!child_char: %c, depth: %d", child_char, depth);
+                printf("256!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node256*)n)->children[i];
                 fuzzy_recurse(child_char, term, term_len, depth, previous_row);
             }
