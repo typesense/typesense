@@ -1087,19 +1087,24 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 printf("!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node4*)n)->children[i];
 
-                int current_row[term_len+1];
-                current_row[0] = previous_row[0] + 1;
+                int new_current_row[term_len+1];
+                new_current_row[0] = previous_row[0] + 1;
 
-                row_min = levenshtein_score(child_char, term, term_len, previous_row, current_row);
+                row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);
                 int new_depth = (child_char != 0) ? depth+1 : depth;
 
-                if(depth == term_len) {
-                    if(current_row[term_len] <= max_cost) {
+                printf("child cost: %d, depth: %d, term_len: %d \n", new_current_row[term_len], depth, term_len);
+
+                if(new_depth == term_len) {
+                    // if reach end of term, and cost is below threshold, print children of this node as matches
+                    if(new_current_row[term_len] <= max_cost) {
                         return recursive_iter(n, cb, NULL);
                     }
                     return 0;
                 }
-                if(row_min <= max_cost) art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, current_row, cb, data);
+                if(row_min <= max_cost) {
+                    art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, new_current_row, cb, data);
+                }
             }
             break;
 
