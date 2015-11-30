@@ -1014,7 +1014,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 
         printf("LEAF KEY: %s, depth: %d\n", l->key, depth);
 
-        for(int idx=depth; idx<l->key_len && depth < term_len && row_min <= max_cost; idx++) {
+        for(int idx=depth; idx<l->key_len && row_min <= max_cost; idx++) {
             row_min = levenshtein_score(l->key[idx], term, term_len, previous_row, current_row);
             printf("leaf char: %c\n", l->key[idx]);
             printf("score: %d, depth: %d, term_len: %d, row_min: %d\n", current_row[term_len], depth, term_len, row_min);
