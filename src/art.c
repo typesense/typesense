@@ -345,9 +345,10 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
-static art_leaf* make_leaf(const unsigned char *key, int key_len, void *value) {
+static art_leaf* make_leaf(const unsigned char *key, int key_len, int score, void *value) {
     art_leaf *l = malloc(sizeof(art_leaf)+key_len);
     l->value = value;
+    l->score = (uint16_t) score;
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
     return l;
@@ -510,10 +511,10 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, int key_len, void *value, int depth, int *old) {
+static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, int key_len, int score, void *value, int depth, int *old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
-        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, value));
+        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, score, value));
         return NULL;
     }
 
@@ -526,6 +527,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
             *old = 1;
             void *old_val = l->value;
             l->value = value;
+            l->score = (uint16_t) score;
             return old_val;
         }
 
@@ -533,7 +535,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new = (art_node4*)alloc_node(NODE4);
 
         // Create a new leaf
-        art_leaf *l2 = make_leaf(key, key_len, value);
+        art_leaf *l2 = make_leaf(key, key_len, score, value);
 
         // Determine longest prefix
         int longest_prefix = longest_common_prefix(l, l2, depth);
@@ -551,6 +553,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Determine if the prefixes differ, since we need to split
         int prefix_diff = prefix_mismatch(n, key, key_len, depth);
         if ((uint32_t)prefix_diff >= n->partial_len) {
+            n->max_score = (uint16_t) min(n->max_score, score);
             depth += n->partial_len;
             goto RECURSE_SEARCH;
         }
@@ -559,6 +562,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new;
         new->n.partial_len = prefix_diff;
+        new->n.max_score = (uint16_t) score;
         memcpy(new->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -575,8 +579,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
                    min(MAX_PREFIX_LEN, n->partial_len));
         }
 
+        n->max_score = (uint16_t) min(n->max_score, score);
+
         // Insert the new leaf
-        art_leaf *l = make_leaf(key, key_len, value);
+        art_leaf *l = make_leaf(key, key_len, score, value);
         add_child4(new, ref, key[depth+prefix_diff], SET_LEAF(l));
         return NULL;
     }
@@ -586,11 +592,11 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, value, depth+1, old);
+        return recursive_insert(*child, child, key, key_len, score, value, depth+1, old);
     }
 
     // No child, node goes within us
-    art_leaf *l = make_leaf(key, key_len, value);
+    art_leaf *l = make_leaf(key, key_len, score, value);
     add_child(n, ref, key[depth], SET_LEAF(l));
     return NULL;
 }
@@ -604,9 +610,9 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, void *value) {
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, int score, void *value) {
     int old_val = 0;
-    void *old = recursive_insert(t->root, &t->root, key, key_len, value, 0, &old_val);
+    void *old = recursive_insert(t->root, &t->root, key, key_len, score, value, 0, &old_val);
     if (!old_val) t->size++;
     return old;
 }

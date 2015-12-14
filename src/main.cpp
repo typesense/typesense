@@ -26,11 +26,11 @@ int main() {
 
     while (std::getline(infile, line)) {
         //cout << "Line: " << line << ", number = " << line << endl;
-        art_insert(&t, (const unsigned char *) line.c_str(), line.length(), (void*)num);
+        art_insert(&t, (const unsigned char *) line.c_str(), line.length(), line.length(), (void*)num);
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "amzfing";
+    const unsigned char *prefix = (const unsigned char *) "ama";
     art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 2, test_prefix_cb, NULL);
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 

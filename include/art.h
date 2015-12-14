@@ -39,6 +39,7 @@ typedef struct {
     uint8_t num_children;
     uint32_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
+    uint16_t max_score;
 } art_node;
 
 /**
@@ -83,6 +84,7 @@ typedef struct {
  */
 typedef struct {
     void *value;
+    uint16_t score;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;
@@ -141,7 +143,7 @@ inline uint64_t art_size(art_tree *t) {
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, void *value);
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, int score, void *value);
 
 /**
  * Deletes a value from the ART tree
