@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <queue>
 
 #ifndef ART_H
 #define ART_H

@@ -12,9 +12,18 @@ static int test_prefix_cb(void *data, const unsigned char *k, uint32_t k_len, vo
     return 0;
 }
 
+typedef struct {
+    uint16_t max_score;
+    uint8_t type;
+    uint8_t num_children;
+    uint32_t partial_len;
+    unsigned char partial[MAX_PREFIX_LEN];
+} X;
+
 
 int main() {
     cout << "Running demo...\n\n";
+    //cout << "SIZE OF: " << sizeof(X) << endl;
 
     art_tree t;
     art_tree_init(&t);
@@ -30,8 +39,8 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "ama";
-    art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 2, test_prefix_cb, NULL);
+    const unsigned char *prefix = (const unsigned char *) "amaz";
+    art_iter_fuzzy_prefix(&t, prefix, strlen((const char *) prefix), 0, test_prefix_cb, NULL);
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 
 //    art_iter(&t, test_prefix_cb, NULL);

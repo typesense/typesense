@@ -5,6 +5,7 @@
 #include <emmintrin.h>
 #include <assert.h>
 #include <art.h>
+#include <iostream>
 #include "art.h"
 
 /**
@@ -372,6 +373,7 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
+    n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -380,6 +382,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
+        n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -420,6 +423,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
+        n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -453,6 +457,14 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
                 (n->n.num_children - idx)*sizeof(void*));
 
         // Insert element
+        if (IS_LEAF(child)) {
+            n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
+        } else {
+            n->n.max_score = std::max(n->n.max_score, ((art_node *) child)->max_score);
+        }
+
+        printf("INSERT_SCORE: %d\n", n->n.max_score);
+
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -540,6 +552,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Determine longest prefix
         int longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
+        new_n->n.max_score = l->score;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -548,13 +561,15 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
+    n->max_score = (uint16_t) std::max(n->max_score, (const uint16_t &) score);
+
     // Check if given node has a prefix
     if (n->partial_len) {
         // Determine if the prefixes differ, since we need to split
         int prefix_diff = prefix_mismatch(n, key, key_len, depth);
         if ((uint32_t)prefix_diff >= n->partial_len) {
-            n->max_score = (uint16_t) min(n->max_score, score);
             depth += n->partial_len;
+            n->max_score = (uint16_t) std::max(n->max_score, (const uint16_t &) score);
             goto RECURSE_SEARCH;
         }
 
@@ -578,8 +593,6 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
             memcpy(n->partial, l->key+depth+prefix_diff+1,
                    min(MAX_PREFIX_LEN, n->partial_len));
         }
-
-        n->max_score = (uint16_t) min(n->max_score, score);
 
         // Insert the new leaf
         art_leaf *l = make_leaf(key, key_len, score, value);
@@ -787,6 +800,93 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     return NULL;
 }
 
+static int topk_iter(art_node *root) {
+    printf("INSIDE topk_iter: root->type: %d\n", root->type);
+
+    auto cmp = [](art_node * left, art_node * right) {
+        int lscore, rscore;
+        if (IS_LEAF(left)) {
+            art_leaf *l = (art_leaf *) LEAF_RAW(left);
+            lscore = l->score;
+        } else {
+            lscore = left->max_score;
+        }
+
+        if(IS_LEAF(right)) {
+            art_leaf *r = (art_leaf *) LEAF_RAW(right);
+            rscore = r->score;
+        } else {
+            rscore = right->max_score;
+        }
+
+        return lscore < rscore;
+    };
+    std::priority_queue<art_node *, std::vector<art_node *>, decltype(cmp)> q(cmp);
+    std::vector<unsigned char*> results;
+
+    q.push(root);
+    std::cout << "ROOT SCORE: " << root->max_score << std::endl;
+
+    while(!q.empty() && results.size() < 10) {
+        art_node *n = (art_node *) q.top();
+        q.pop();
+
+        if (!n) continue;
+        if (IS_LEAF(n)) {
+            art_leaf *l = (art_leaf *) LEAF_RAW(n);
+            std::cout << "SCORE: " << l->score << std::endl;
+            results.push_back(l->key);
+            continue;
+        }
+
+        int idx;
+        switch (n->type) {
+            case NODE4:
+                std::cout << "NODE4: " << std::endl;
+                for (int i=0; i < n->num_children; i++) {
+                    q.push(((art_node4*)n)->children[i]);
+                }
+                break;
+
+            case NODE16:
+                std::cout << "NODE16: " << std::endl;
+                for (int i=0; i < n->num_children; i++) {
+                    q.push(((art_node16*)n)->children[i]);
+                }
+                break;
+
+            case NODE48:
+                std::cout << "NODE48: " << std::endl;
+                for (int i=0; i < 256; i++) {
+                    idx = ((art_node48*)n)->keys[i];
+                    if (!idx) continue;
+                    q.push(((art_node48*)n)->children[idx-1]);
+                }
+                break;
+
+            case NODE256:
+                for (int i=0; i < 256; i++) {
+                    if (!((art_node256*)n)->children[i]) continue;
+                    q.push(((art_node256*)n)->children[i]);
+                }
+                break;
+
+            default:
+                printf("ABORTING COS OF UNKNOW NODE TYPE: %d\n", n->type);
+                abort();
+        }
+    }
+
+    printf("OUTSIDE topk_iter: results size: %d\n", results.size());
+
+    for(auto res: results) {
+        std::cout << ">>>>!Key: " << res;
+        std::cout << ", Value: " << std::endl;
+    }
+
+    return 0;
+}
+
 // Recursively iterates over the tree
 static int recursive_iter(art_node *n, art_callback cb, void *data) {
     // Handle base cases
@@ -955,14 +1055,14 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
 \
-    printf("fuzzy_recurse - child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
-            child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
+    printf("fuzzy_recurse - max_score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
+            child->max_score, child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
 \
     if(depth == term_len-1) {\
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
       if(new_current_row[term_len] <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
-        recursive_iter(child, cb, NULL);\
+        topk_iter(child);\
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
@@ -1042,7 +1142,8 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         return 0;
     }
 
-    printf("START PARTIAL: partial_len: %d, partial: %s, term_len: %d, depth: %d\n", n->partial_len, n->partial, term_len, depth);
+    printf("START PARTIAL: max_score: %d, partial_len: %d, partial: %s, term_len: %d, depth: %d\n",
+           n->max_score, n->partial_len, n->partial, term_len, depth);
 
     // internal node - first we check partial (via path compression) and then child index
     int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
@@ -1066,8 +1167,8 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
 
     if(depth == term_len) {
         if(current_row[term_len] <= max_cost) {
-            printf("PARTIAL START RECURSIVE ITER\n");\
-            return recursive_iter(n, cb, NULL);
+            printf("PARTIAL START RECURSIVE ITER\n");
+            return topk_iter(n);
         }
 
         return 0;
