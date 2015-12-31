@@ -366,6 +366,7 @@ static int longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
 }
 
 static void copy_header(art_node *dest, art_node *src) {
+    dest->score = src->score;
     dest->num_children = src->num_children;
     dest->partial_len = src->partial_len;
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
@@ -373,7 +374,7 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
-    n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
+    n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -382,7 +383,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
-        n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
+        n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -423,7 +424,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
-        n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
+        n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -458,12 +459,10 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 
         // Insert element
         if (IS_LEAF(child)) {
-            n->n.max_score = std::max(n->n.max_score, ((art_leaf *) child)->score);
+            n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
         } else {
-            n->n.max_score = std::max(n->n.max_score, ((art_node *) child)->max_score);
+            n->n.score = std::max(n->n.score, ((art_node *) child)->score);
         }
-
-        printf("INSERT_SCORE: %d\n", n->n.max_score);
 
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
@@ -552,7 +551,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Determine longest prefix
         int longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
-        new_n->n.max_score = l->score;
+        new_n->n.score = (uint16_t) std::max(l->score, (const uint16_t &) score);;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -561,7 +560,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->max_score = (uint16_t) std::max(n->max_score, (const uint16_t &) score);
+    n->score = (uint16_t) std::max(n->score, (const uint16_t &) score);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -569,7 +568,6 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         int prefix_diff = prefix_mismatch(n, key, key_len, depth);
         if ((uint32_t)prefix_diff >= n->partial_len) {
             depth += n->partial_len;
-            n->max_score = (uint16_t) std::max(n->max_score, (const uint16_t &) score);
             goto RECURSE_SEARCH;
         }
 
@@ -577,7 +575,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new_n;
         new_n->n.partial_len = prefix_diff;
-        new_n->n.max_score = (uint16_t) score;
+        new_n->n.score = (uint16_t) std::max(n->score, (const uint16_t &) score);
         memcpy(new_n->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -803,20 +801,21 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 static int topk_iter(art_node *root) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
 
+    // FIXME: try to avoid branching
     auto cmp = [](art_node * left, art_node * right) {
         int lscore, rscore;
         if (IS_LEAF(left)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(left);
             lscore = l->score;
         } else {
-            lscore = left->max_score;
+            lscore = left->score;
         }
 
         if(IS_LEAF(right)) {
             art_leaf *r = (art_leaf *) LEAF_RAW(right);
             rscore = r->score;
         } else {
-            rscore = right->max_score;
+            rscore = right->score;
         }
 
         return lscore < rscore;
@@ -825,7 +824,7 @@ static int topk_iter(art_node *root) {
     std::vector<unsigned char*> results;
 
     q.push(root);
-    std::cout << "ROOT SCORE: " << root->max_score << std::endl;
+    std::cout << "ROOT SCORE: " << root->score << std::endl;
 
     while(!q.empty() && results.size() < 10) {
         art_node *n = (art_node *) q.top();
@@ -834,7 +833,6 @@ static int topk_iter(art_node *root) {
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-            std::cout << "SCORE: " << l->score << std::endl;
             results.push_back(l->key);
             continue;
         }
@@ -842,21 +840,29 @@ static int topk_iter(art_node *root) {
         int idx;
         switch (n->type) {
             case NODE4:
-                std::cout << "NODE4: " << std::endl;
+                std::cout << "\nNODE4, SCORE: " << n->score << std::endl;
                 for (int i=0; i < n->num_children; i++) {
-                    q.push(((art_node4*)n)->children[i]);
+                    art_node* child = ((art_node4*)n)->children[i];
+                    if(IS_LEAF(child)) {
+                        art_leaf* l = (art_leaf*)LEAF_RAW(child);
+                        std::cout << "LSCORE: " << l->score << std::endl;
+                    } else {
+                        std::cout << "SCORE: " << child->score << std::endl;
+                    }
+                    q.push(child);
                 }
+                std::cout << "---" << std::endl;
                 break;
 
             case NODE16:
-                std::cout << "NODE16: " << std::endl;
+                std::cout << "\nNODE16, SCORE: " << n->score << std::endl;
                 for (int i=0; i < n->num_children; i++) {
                     q.push(((art_node16*)n)->children[i]);
                 }
                 break;
 
             case NODE48:
-                std::cout << "NODE48: " << std::endl;
+                std::cout << "\nNODE48, SCORE: " << n->score << std::endl;
                 for (int i=0; i < 256; i++) {
                     idx = ((art_node48*)n)->keys[i];
                     if (!idx) continue;
@@ -865,6 +871,7 @@ static int topk_iter(art_node *root) {
                 break;
 
             case NODE256:
+                std::cout << "\nNODE256, SCORE: " << n->score << std::endl;
                 for (int i=0; i < 256; i++) {
                     if (!((art_node256*)n)->children[i]) continue;
                     q.push(((art_node256*)n)->children[i]);
@@ -1055,8 +1062,8 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
 \
-    printf("fuzzy_recurse - max_score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
-            child->max_score, child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
+    printf("fuzzy_recurse - score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
+            child->score, child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
 \
     if(depth == term_len-1) {\
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
@@ -1142,8 +1149,8 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         return 0;
     }
 
-    printf("START PARTIAL: max_score: %d, partial_len: %d, partial: %s, term_len: %d, depth: %d\n",
-           n->max_score, n->partial_len, n->partial, term_len, depth);
+    printf("START PARTIAL: score: %d, partial_len: %d, partial: %s, term_len: %d, depth: %d\n",
+           n->score, n->partial_len, n->partial, term_len, depth);
 
     // internal node - first we check partial (via path compression) and then child index
     int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
