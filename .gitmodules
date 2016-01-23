@@ -1,0 +1,6 @@
+[submodule "external/croaring"]
+	path = external/croaring
+	url = git@github.com:RoaringBitmap/CRoaring.git
+[submodule "external/for"]
+	path = external/for
+	url = git@github.com:cruppstahl/for.git
