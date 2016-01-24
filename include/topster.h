@@ -1,36 +1,37 @@
 #pragma once
 
-template <typename T> inline void swapMe(T& a, T& b){
-    T c = a;
-    a = b;
-    b = c;
-}
+template <size_t MAX_SIZE>
+struct Topster {
 
-struct HeapArray {
-    enum{maxSize = 5000};
+    uint32_t data[MAX_SIZE];
+    int size = 0;
 
-    int size;
-    uint32_t data[maxSize];
+    Topster(){ }
+
+    template <typename T> inline void swapMe(T& a, T& b){
+        T c = a;
+        a = b;
+        b = c;
+    }
 
     void add(const uint32_t& val){
-        if (size >= maxSize){
-            if(data[0] <= val)
-                return;
+        if (size >= MAX_SIZE) {
+            if(data[0] <= val) return;
 
             data[0] = val;
+            int i = 0;
 
-            for (int i = 0; (2*i+1) < maxSize; ){
+            while ((2*i+1) < MAX_SIZE){
                 int next = 2*i + 1;
                 if (data[next] < data[next+1])
                     next++;
-                if (data[i] < data[next])
-                    swapMe(data[i], data[next]);
-                else
-                    break;
+
+                if (data[i] < data[next]) swapMe(data[i], data[next]);
+                else break;
+
                 i = next;
             }
-        }
-        else {
+        } else{
             data[size++] = val;
             for (int i = size - 1; i > 0;){
                 int parent = (i-1)/2;
@@ -38,8 +39,7 @@ struct HeapArray {
                     swapMe(data[parent], data[i]);
                     i = parent;
                 }
-                else
-                    break;
+                else break;
             }
         }
     }
@@ -48,6 +48,4 @@ struct HeapArray {
         size = 0;
     }
 
-    HeapArray() :size(0){
-    }
 };

@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <art.h>
 #include <iostream>
+#include <queue>
 #include "art.h"
 
 /**
