@@ -1,12 +1,4 @@
-[submodule "external/croaring"]
-	path = external/croaring
-	url = git@github.com:RoaringBitmap/CRoaring.git
-	ignore = dirty
 [submodule "external/for"]
 	path = external/for
 	url = git@github.com:cruppstahl/for.git
-	ignore = dirty
-[submodule "external/EWAHBoolArray"]
-	path = external/EWAHBoolArray
-	url = git@github.com:lemire/EWAHBoolArray.git
 	ignore = dirty

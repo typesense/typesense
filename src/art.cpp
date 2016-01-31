@@ -260,7 +260,7 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len) {
             n = (art_node *) LEAF_RAW(n);
             // Check if the expanded path matches
             if (!leaf_matches((art_leaf*)n, key, key_len, depth)) {
-                return ((art_leaf*)n)->value;
+                return ((art_leaf*)n)->values;
             }
             return NULL;
         }
@@ -347,18 +347,19 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
-static art_leaf* make_leaf(const unsigned char *key, int key_len, int score, void *value) {
+static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
-    l->value = value;
-    l->score = (uint16_t) score;
+    l->values = new art_values;
+    l->values->ids.append_sorted(document->id);
+    l->score = std::max(l->score, document->score);
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
     return l;
 }
 
-static int longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
+static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
     int max_cmp = min(l1->key_len, l2->key_len) - depth;
-    int idx;
+    uint32_t idx;
     for (idx=0; idx < max_cmp; idx++) {
         if (l1->key[depth+idx] != l2->key[depth+idx])
             return idx;
@@ -523,10 +524,10 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, int key_len, int score, void *value, int depth, int *old) {
+static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, int depth, int *old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
-        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, score, value));
+        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
         return NULL;
     }
 
@@ -537,9 +538,9 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
             *old = 1;
-            void *old_val = l->value;
-            l->value = value;
-            l->score = (uint16_t) score;
+            art_values *old_val = l->values;
+            l->values->ids.append_sorted(document->id);
+            l->score = std::max(l->score, document->score);
             return old_val;
         }
 
@@ -547,12 +548,12 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
 
         // Create a new leaf
-        art_leaf *l2 = make_leaf(key, key_len, score, value);
+        art_leaf *l2 = make_leaf(key, key_len, document);
 
         // Determine longest prefix
-        int longest_prefix = longest_common_prefix(l, l2, depth);
+        uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
-        new_n->n.score = (uint16_t) std::max(l->score, (const uint16_t &) score);;
+        new_n->n.score = (uint16_t) std::max(l->score, (const uint16_t &) document->score);;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -561,7 +562,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->score = (uint16_t) std::max(n->score, (const uint16_t &) score);
+    n->score = (uint16_t) std::max(n->score, (const uint16_t &) document->score);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -576,7 +577,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new_n;
         new_n->n.partial_len = prefix_diff;
-        new_n->n.score = (uint16_t) std::max(n->score, (const uint16_t &) score);
+        new_n->n.score = (uint16_t) std::max(n->score, (const uint16_t &) document->score);
         memcpy(new_n->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -594,7 +595,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         }
 
         // Insert the new leaf
-        art_leaf *l = make_leaf(key, key_len, score, value);
+        art_leaf *l = make_leaf(key, key_len, document);
         add_child4(new_n, ref, key[depth+prefix_diff], SET_LEAF(l));
         return NULL;
     }
@@ -604,11 +605,11 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, score, value, depth+1, old);
+        return recursive_insert(*child, child, key, key_len, document, depth+1, old);
     }
 
     // No child, node goes within us
-    art_leaf *l = make_leaf(key, key_len, score, value);
+    art_leaf *l = make_leaf(key, key_len, document);
     add_child(n, ref, key[depth], SET_LEAF(l));
     return NULL;
 }
@@ -622,9 +623,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, int score, void *value) {
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document) {
     int old_val = 0;
-    void *old = recursive_insert(t->root, &t->root, key, key_len, score, value, 0, &old_val);
+
+    void *old = recursive_insert(t->root, &t->root, key, key_len, document, 0, &old_val);
     if (!old_val) t->size++;
     return old;
 }
@@ -792,7 +794,7 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     art_leaf *l = recursive_delete(t->root, &t->root, key, key_len, 0);
     if (l) {
         t->size--;
-        void *old = l->value;
+        void *old = l->values;
         free(l);
         return old;
     }
@@ -822,7 +824,7 @@ static int topk_iter(art_node *root) {
         return lscore < rscore;
     };
     std::priority_queue<art_node *, std::vector<art_node *>, decltype(cmp)> q(cmp);
-    std::vector<unsigned char*> results;
+    std::vector<art_leaf*> results;
 
     q.push(root);
     std::cout << "ROOT SCORE: " << root->score << std::endl;
@@ -834,7 +836,7 @@ static int topk_iter(art_node *root) {
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-            results.push_back(l->key);
+            results.push_back(l);
             continue;
         }
 
@@ -887,9 +889,9 @@ static int topk_iter(art_node *root) {
 
     printf("OUTSIDE topk_iter: results size: %d\n", results.size());
 
-    for(auto res: results) {
-        std::cout << ">>>>!Key: " << res;
-        std::cout << ", Value: " << std::endl;
+    for(auto leaf: results) {
+        std::cout << ">>>>!Key: " << leaf->key;
+        std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }
 
     return 0;
@@ -902,7 +904,7 @@ static int recursive_iter(art_node *n, art_callback cb, void *data) {
     if (IS_LEAF(n)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
         //printf("REC LEAF len: %d, key: %s\n", l->key_len, l->key);
-        return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
+        return cb(data, (const unsigned char*)l->key, l->key_len, l->values);
     }
 
     //printf("INTERNAL LEAF children: %d, partial_len: %d, partial: %s\n", n->num_children, n->partial_len, n->partial);
@@ -1015,7 +1017,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
             // Check if the expanded path matches
             if (!leaf_prefix_matches((art_leaf*)n, key, key_len)) {
                 art_leaf *l = (art_leaf*)n;
-                return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
+                return cb(data, (const unsigned char*)l->key, l->key_len, l->values);
             }
             return 0;
         }
@@ -1118,8 +1120,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
     if (IS_LEAF(n)) {
         printf("IS_LEAF\n");
 
-        n = (art_node *) LEAF_RAW(n);
-        art_leaf *l = (art_leaf *) n;
+        art_leaf *l = (art_leaf *) LEAF_RAW(n);
 
         int row_min = 0;
         int current_row[term_len+1];
@@ -1144,7 +1145,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         }
 
         if(current_row[term_len] <= max_cost) {
-            return cb(data, (const unsigned char*)l->key, l->key_len, l->value);
+            topk_iter(n);
         }
 
         return 0;

@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "forarray.h"
 
 #define IGNORE_PRINTF 1
 
@@ -79,13 +80,30 @@ typedef struct {
 } art_node256;
 
 /**
+ * Container for holding the documents that belong to a leaf.
+ */
+typedef struct {
+    forarray ids;
+    forarray offset_index;
+    forarray offsets;
+} art_values;
+
+/*
+ * Represents a document to be indexed.
+ */
+typedef struct {
+    uint16_t score;
+    uint32_t id;
+} art_document;
+
+/**
  * Represents a leaf. These are
  * of arbitrary size, as they include the key.
  */
 typedef struct {
     uint16_t score;
     uint32_t key_len;
-    void *value;
+    art_values* values;
     unsigned char key[];
 } art_leaf;
 
@@ -143,7 +161,7 @@ inline uint64_t art_size(art_tree *t) {
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, int score, void *value);
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document);
 
 /**
  * Deletes a value from the ART tree
