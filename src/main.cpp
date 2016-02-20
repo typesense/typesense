@@ -16,7 +16,11 @@ using namespace std;
 static int test_prefix_cb(void *data, const unsigned char *k, uint32_t k_len, void *val) {
     cout << "#>>>>Key: ";
     printf("%.*s", k_len, k);
-    cout << ", ID: " << ((art_values*)val)->ids.at(0) << endl;
+    cout << "LENGTH OF IDS: " << ((art_values*)val)->ids.getLength() << endl;
+
+    for(uint32_t i=0; i<((art_values*)val)->ids.getLength(); i++) {
+        cout << ", ID: " << ((art_values*)val)->ids.at(i) << endl;
+    }
     return 0;
 }
 
@@ -84,17 +88,26 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "propellants";
+    const unsigned char *prefix = (const unsigned char *) "launch";
     size_t prefix_len = strlen((const char *) prefix);
+    std::vector<art_leaf*> results;
 
     auto begin = std::chrono::high_resolution_clock::now();
-    art_iter_fuzzy_prefix(&t, prefix, prefix_len, 2, test_prefix_cb, NULL);
+    art_iter_fuzzy_prefix(&t, prefix, prefix_len, 0, results);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
 //    art_iter(&t, test_prefix_cb, NULL);
 
     cout << "Time taken: " << timeMillis << "us" << endl;
+
+    for(auto leaf: results) {
+        std::cout << ">>>>/Key: " << leaf->key << std::endl;
+        for(uint32_t i=0; i<leaf->values->ids.getLength(); i++) {
+            std::cout << ", ID: " << leaf->values->ids.at(i) << std::endl;
+        }
+        //std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
+    }
 
     art_tree_destroy(&t);
     return 0;

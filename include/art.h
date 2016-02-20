@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <vector>
 #include "forarray.h"
 
 #define IGNORE_PRINTF 1
@@ -233,11 +234,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
  * @arg data Opaque handle passed to the callback
  * @return 0 on success, or the return of the callback.
  */
-int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len, int max_cost, art_callback cb,
-                          void *data);
-
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost,
-                                         int depth, int* previous_row, art_callback cb, void *data);
+int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len, int max_cost, std::vector<art_leaf*> & results);
 
 #ifdef __cplusplus
 }
