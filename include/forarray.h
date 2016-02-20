@@ -6,7 +6,7 @@
 
 #define FOR_GROWTH_FACTOR 1.3
 #define FOR_ELE_SIZE sizeof(uint32_t)
-#define FOR_LOAD_FACTOR 0.90
+#define SORTED_METADATA_OVERHEAD 5
 
 class forarray {
 private:
@@ -20,11 +20,23 @@ public:
         in = new uint8_t[size_bytes];
     }
 
+    static inline uint32_t required_bits(const uint32_t v) {
+        return v == 0 ? 0 : 32 - __builtin_clz(v);
+    }
+
+    uint32_t inline sorted_append_size_required(uint32_t value) {
+        uint32_t m = *(uint32_t *)(in + 0);
+        uint32_t bnew = required_bits(value - m);
+        return SORTED_METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
+    }
+
     // returns false if malloc fails
     bool append_sorted(uint32_t value) {
-        if(length_bytes > size_bytes*FOR_LOAD_FACTOR) {
+        uint32_t size_required = sorted_append_size_required(value);
+
+        if(size_required > size_bytes) {
             // grow the array first
-            size_t new_size = (size_t) (size_bytes * FOR_GROWTH_FACTOR);
+            size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
             uint8_t *new_location = (uint8_t *) realloc(in, new_size);
             if(new_location == NULL) return false;
             in = new_location;
@@ -32,7 +44,6 @@ public:
         }
 
         uint32_t new_length_bytes = for_append_sorted(in, length, value);
-        //printf("new_length_bytes: %d, size_bytes: %d\n", new_length_bytes, size_bytes);
         if(new_length_bytes == 0) return false;
 
         length_bytes = new_length_bytes;
@@ -46,6 +57,10 @@ public:
 
     uint32_t getSizeInBytes() {
         return size_bytes;
+    }
+
+    uint32_t getLength() {
+        return length;
     }
 
     void print_stats() {
