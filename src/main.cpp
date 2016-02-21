@@ -86,7 +86,7 @@ void find_documents(art_tree & t, string q) {
       std::vector<art_leaf*> results;
 
       do {
-          art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, results);
+          art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 2, results);
           max_cost++;
       } while(results.size() != 0 && max_cost <= 2);
 
@@ -121,7 +121,7 @@ int main() {
     std::vector<art_leaf*> results;
 
     auto begin = std::chrono::high_resolution_clock::now();
-    art_iter_fuzzy_prefix(&t, prefix, prefix_len, 0, results);
+    art_iter_fuzzy_prefix(&t, prefix, prefix_len, 0, 2, results);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
 //    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);

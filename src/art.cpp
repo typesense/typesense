@@ -782,7 +782,7 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     return NULL;
 }
 
-static int topk_iter(art_node *root, std::vector<art_leaf*> & results) {
+static int topk_iter(art_node *root, int k, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
 
     // FIXME: try to avoid branching
@@ -809,7 +809,7 @@ static int topk_iter(art_node *root, std::vector<art_leaf*> & results) {
     q.push(root);
     //std::cout << "ROOT SCORE: " << root->score << std::endl;
 
-    while(!q.empty() && results.size() < 10) {
+    while(!q.empty() && results.size() < k) {
         art_node *n = (art_node *) q.top();
         q.pop();
 
@@ -1022,7 +1022,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     return 0;
 }
 
-#define fuzzy_recurse(child_char, term, term_len, depth, previous_row, results) {\
+#define fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results) {\
     int new_current_row[term_len+1];\
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
@@ -1034,11 +1034,11 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
       if(new_current_row[term_len] <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
-        topk_iter(child, results);\
+        topk_iter(child, max_words, results);\
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
-      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, new_current_row, results);\
+      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, max_words, new_current_row, results);\
     }\
 }\
 
@@ -1077,7 +1077,7 @@ void copyIntArray(int *dest, int *src, int len) {
     }
 }
 
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost,
+static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost, int max_words,
                                          int depth, int* previous_row, std::vector<art_leaf*> & results) {
     if (IS_LEAF(n)) {
         printf("IS_LEAF\n");
@@ -1107,7 +1107,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         }
 
         if(current_row[term_len] <= max_cost) {
-            topk_iter(n, results);
+            topk_iter(n, max_words, results);
         }
 
         return 0;
@@ -1139,7 +1139,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
     if(depth == term_len) {
         if(current_row[term_len] <= max_cost) {
             printf("PARTIAL START RECURSIVE ITER\n");
-            return topk_iter(n, results);
+            return topk_iter(n, max_words, results);
         }
 
         return 0;
@@ -1155,7 +1155,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = ((art_node4*)n)->keys[i];
                 printf("4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
                 art_node* child = ((art_node4*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, previous_row, results);
+                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
             }
             break;
 
@@ -1165,7 +1165,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = ((art_node16*)n)->keys[i];
                 printf("16!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node16*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, previous_row, results);
+                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
             }
             break;
 
@@ -1177,7 +1177,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 art_node* child = ((art_node48*)n)->children[ix - 1];
                 char child_char = (char)i;
                 printf("48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
-                fuzzy_recurse(child_char, term, term_len, depth, previous_row, results);
+                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
             }
             break;
 
@@ -1188,7 +1188,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = (char) i;
                 printf("256!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node256*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, previous_row, results);
+                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
             }
             break;
 
@@ -1213,7 +1213,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
  * @return 0 on success, or the return of the callback.
  */
 int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
-                          int max_cost, std::vector<art_leaf*> & results) {
+                          int max_cost, int max_words, std::vector<art_leaf*> & results) {
 
     int previous_row[term_len + 1];
 
@@ -1221,5 +1221,5 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
         previous_row[i] = i;
     }
 
-    return art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, 0, previous_row, results);
+    return art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, max_words, 0, previous_row, results);
 }
