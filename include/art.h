@@ -19,6 +19,8 @@ extern "C" {
 
 #define MAX_PREFIX_LEN 10
 
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+
 #if defined(__GNUC__) && !defined(__clang__)
 # if __STDC_VERSION__ >= 199901L && 402 == (__GNUC__ * 100 + __GNUC_MINOR__)
 /*

@@ -70,6 +70,34 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint1
     }
 }
 
+void find_documents(art_tree & t, string q) {
+  /*
+    1. Split q into tokens
+    2. For each token, look up ids using exact lookup
+        a. If a token has no result, try again with edit distance of 1, and then 2
+    3. Intersect the lists to find docs that match all results
+    4. Sort the docs based on some ranking criteria
+  */
+  vector<string> tokens;
+  tokenize(q, tokens, " ", true);
+
+  for(auto token: tokens) {
+      int max_cost = 0;
+      std::vector<art_leaf*> results;
+
+      do {
+          art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, results);
+          max_cost++;
+      } while(results.size() != 0 && max_cost <= 2);
+
+      for(auto leaf: results) {
+          for(auto i=0; i<leaf->values->ids.getLength(); i++) {
+
+          }
+      }
+  }
+}
+
 int main() {
     art_tree t;
     art_tree_init(&t);
@@ -88,7 +116,7 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "launch";
+    const unsigned char *prefix = (const unsigned char *) "l";
     size_t prefix_len = strlen((const char *) prefix);
     std::vector<art_leaf*> results;
 
@@ -102,7 +130,7 @@ int main() {
     cout << "Time taken: " << timeMillis << "us" << endl;
 
     for(auto leaf: results) {
-        std::cout << ">>>>/Key: " << leaf->key << std::endl;
+        std::cout << ">>>>/Key: " << leaf->key << " - score: " << leaf->score << std::endl;
         for(uint32_t i=0; i<leaf->values->ids.getLength(); i++) {
             std::cout << ", ID: " << leaf->values->ids.at(i) << std::endl;
         }

@@ -22,25 +22,6 @@
 #define printf(fmt, ...) (0)
 #endif
 
-static int levenshtein(const unsigned char *s1, unsigned int s1len, const unsigned char *s2, unsigned int s2len) {
-    unsigned int x, y, lastdiag, olddiag;
-    unsigned int column[s1len+1];
-    for (y = 1; y <= s1len; y++)
-        column[y] = y;
-    for (x = 1; x <= s2len; x++) {
-        column[0] = x;
-        for (y = 1, lastdiag = x-1; y <= s1len; y++) {
-            olddiag = column[y];
-            column[y] = MIN3(column[y] + 1, column[y-1] + 1, lastdiag + (s1[y-1] == s2[x-1] ? 0 : 1));
-            lastdiag = olddiag;
-        }
-    }
-
-    //printf("s1: %s, s1len: %d, s2: %s, s2len: %d, diff: %d\n\n", s1, s1len, s2, s2len, column[s1len]);
-
-    return(column[s1len]);
-}
-
 /**
  * Allocates a node of the given type,
  * initializes to zero and sets the type.
@@ -351,7 +332,7 @@ static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_docum
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->values = new art_values;
     l->values->ids.append_sorted(document->id);
-    l->score = std::max(l->score, document->score);
+    l->score = MAX(l->score, document->score);  // somehow std::max does not seem to work here - always returns 0
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
     return l;
@@ -376,7 +357,7 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
-    n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
+    n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -385,7 +366,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
-        n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
+        n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -426,7 +407,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
-        n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
+        n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -461,9 +442,9 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 
         // Insert element
         if (IS_LEAF(child)) {
-            n->n.score = std::max(n->n.score, ((art_leaf *) child)->score);
+            n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
         } else {
-            n->n.score = std::max(n->n.score, ((art_node *) child)->score);
+            n->n.score = MAX(n->n.score, ((art_node *) child)->score);
         }
 
         n->keys[idx] = c;
@@ -540,7 +521,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
             *old = 1;
             art_values *old_val = l->values;
             l->values->ids.append_sorted(document->id);
-            l->score = std::max(l->score, document->score);
+            l->score = MAX(l->score, document->score);
             return old_val;
         }
 
@@ -553,7 +534,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Determine longest prefix
         uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
-        new_n->n.score = (uint16_t) std::max(l->score, (const uint16_t &) document->score);;
+        new_n->n.score = (uint16_t) MAX(l->score, (const uint16_t &) document->score);;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -562,7 +543,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->score = (uint16_t) std::max(n->score, (const uint16_t &) document->score);
+    n->score = (uint16_t) MAX(n->score, (const uint16_t &) document->score);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -577,7 +558,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new_n;
         new_n->n.partial_len = prefix_diff;
-        new_n->n.score = (uint16_t) std::max(n->score, (const uint16_t &) document->score);
+        new_n->n.score = (uint16_t) MAX(n->score, (const uint16_t &) document->score);
         memcpy(new_n->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -826,7 +807,7 @@ static int topk_iter(art_node *root, std::vector<art_leaf*> & results) {
     std::priority_queue<art_node *, std::vector<art_node *>, decltype(cmp)> q(cmp);
 
     q.push(root);
-    std::cout << "ROOT SCORE: " << root->score << std::endl;
+    //std::cout << "ROOT SCORE: " << root->score << std::endl;
 
     while(!q.empty() && results.size() < 10) {
         art_node *n = (art_node *) q.top();
@@ -842,18 +823,18 @@ static int topk_iter(art_node *root, std::vector<art_leaf*> & results) {
         int idx;
         switch (n->type) {
             case NODE4:
-                std::cout << "\nNODE4, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE4, SCORE: " << n->score << std::endl;
                 for (int i=0; i < n->num_children; i++) {
                     art_node* child = ((art_node4*)n)->children[i];
                     if(IS_LEAF(child)) {
                         art_leaf* l = (art_leaf*)LEAF_RAW(child);
-                        std::cout << "LSCORE: " << l->score << std::endl;
+                        //std::cout << "LSCORE: " << l->score << std::endl;
                     } else {
-                        std::cout << "SCORE: " << child->score << std::endl;
+                        //std::cout << "SCORE: " << child->score << std::endl;
                     }
                     q.push(child);
                 }
-                std::cout << "---" << std::endl;
+                //std::cout << "---" << std::endl;
                 break;
 
             case NODE16:
@@ -881,7 +862,7 @@ static int topk_iter(art_node *root, std::vector<art_leaf*> & results) {
                 break;
 
             default:
-                printf("ABORTING COS OF UNKNOW NODE TYPE: %d\n", n->type);
+                printf("ABORTING BECAUSE OF UNKNOWN NODE TYPE: %d\n", n->type);
                 abort();
         }
     }
@@ -969,19 +950,6 @@ static int leaf_prefix_matches(const art_leaf *n, const unsigned char *prefix, i
     // Compare the keys
     return memcmp(n->key, prefix, prefix_len);
 }
-
-/**
- * Check if a leaf value matches the term within a given threshold
- * @return true if the fuzzy match succeeds, false otherwise
- */
-static int leaf_mismatch(const art_leaf *l, const unsigned char *term, int term_len, int max_cost) {
-    // cheaper to first check if sequences vary greater than max_cost
-    if(abs(l->key_len - term_len) > max_cost) return abs(l->key_len - term_len);
-
-    int min_len = min(term_len, l->key_len);
-    return min_len == 0 ? 0 : levenshtein(l->key, min_len, term, min_len);
-}
-
 
 /**
  * Iterates through the entries pairs in the map,

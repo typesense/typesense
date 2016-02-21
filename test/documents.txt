@@ -12,4 +12,4 @@ What do they exactly look for when searching for extraterrestrial intelligence?	
 What were emergency procedures for failure of launch vehicles with nuclear upper stages?	11
 Mathematics used for F9R flyback and landing	11
 What considerations have been made for waste produced during colonisation?	11
-Do the propellants ionize in chemical rockets?	11
+Do late do the propellants ionize in chemical rockets?	10
