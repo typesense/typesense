@@ -4,6 +4,8 @@
 #include <fstream>
 #include <chrono>
 #include <vector>
+#include <cstdlib>
+#include <numeric>
 #include <time.h>
 #include <art.h>
 #include "art.h"
@@ -62,11 +64,11 @@ void benchmark_heap_array() {
 
 void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint16_t score) {
     for(auto & token: tokens){
-        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
-        art_document document;
-        document.id = doc_id;
-        document.score = score;
-        art_insert(&t, (const unsigned char *) token.c_str(), token.length(), &document);
+      std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+      art_document document;
+      document.id = doc_id;
+      document.score = score;
+      art_insert(&t, (const unsigned char *) token.c_str(), token.length(), &document);
     }
 }
 
@@ -75,26 +77,43 @@ void find_documents(art_tree & t, string q) {
     1. Split q into tokens
     2. For each token, look up ids using exact lookup
         a. If a token has no result, try again with edit distance of 1, and then 2
-    3. Intersect the lists to find docs that match all results
-    4. Sort the docs based on some ranking criteria
+    3. Do a limited cartesian product of the word suggestions for each token to form possible corrected search phrases
+    4. Intersect the lists to find docs that match each phrase
+    5. Sort the docs based on some ranking criteria
   */
   vector<string> tokens;
   tokenize(q, tokens, " ", true);
 
+  vector<vector<art_leaf*>> token_leaves;
   for(auto token: tokens) {
-      int max_cost = 0;
-      std::vector<art_leaf*> results;
-
-      do {
-          art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 2, results);
-          max_cost++;
-      } while(results.size() != 0 && max_cost <= 2);
-
-      for(auto leaf: results) {
-          for(auto i=0; i<leaf->values->ids.getLength(); i++) {
-
-          }
+      for(int max_cost=0; max_cost<2; max_cost++) {
+        vector<art_leaf*> leaves;
+        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 3, leaves);
+        if(!leaves.empty()) {
+          token_leaves.push_back(leaves);
+          break;
+        }
       }
+  }
+
+  cout << "token_leaves.size(): " << token_leaves.size() << endl;
+
+  const size_t combination_limit = 10;
+  auto product = []( long long a, vector<art_leaf*>& b ) { return a*b.size(); };
+  long long int N = accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
+  vector<art_leaf*> u(token_leaves.size());
+
+  for(long long n=0; n<N && n<combination_limit; ++n) {
+    lldiv_t q { n, 0 };
+    for(long long i=token_leaves.size()-1; 0<=i; --i) {
+        q = div(q.quot, token_leaves[i].size());
+        u[i] = token_leaves[i][q.rem];
+    }
+    // Do what you want here with u.
+    for(art_leaf* x : u) {
+        cout << x->key << ' ';
+    }
+    cout << '\n';
   }
 }
 
@@ -116,7 +135,7 @@ int main() {
         num++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "l";
+    const unsigned char *prefix = (const unsigned char *) "the";
     size_t prefix_len = strlen((const char *) prefix);
     std::vector<art_leaf*> results;
 
@@ -136,6 +155,8 @@ int main() {
         }
         //std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }
+
+    find_documents(t, "are the");
 
     art_tree_destroy(&t);
     return 0;
