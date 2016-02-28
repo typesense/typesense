@@ -1038,7 +1038,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
-      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, max_words, new_current_row, results);\
+      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, max_words, new_depth, new_current_row, results);\
     }\
 }\
 
