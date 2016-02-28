@@ -328,10 +328,20 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
+static void add_document_to_leaf(const art_document *document, const art_leaf *l) {
+    l->values->ids.append_sorted(document->id);
+    uint32_t curr_index = l->values->offsets.getLength();
+    l->values->offsets.append_sorted(document->offsets_len);
+    for(uint32_t i=0; i<document->offsets_len; i++) {
+        l->values->offsets.append_sorted(document->offsets[i]);
+    }
+    l->values->offset_index.append_sorted(curr_index);
+}
+
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->values = new art_values;
-    l->values->ids.append_sorted(document->id);
+    add_document_to_leaf(document, l);
     l->score = MAX(l->score, document->score);  // somehow std::max does not seem to work here - always returns 0
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
@@ -518,9 +528,12 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
 
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
+            // updates are not supported
+            if(l->values->ids.contains(document->id)) return NULL;
+
             *old = 1;
             art_values *old_val = l->values;
-            l->values->ids.append_sorted(document->id);
+            add_document_to_leaf(document, l);
             l->score = MAX(l->score, document->score);
             return old_val;
         }

@@ -93,10 +93,13 @@ typedef struct {
 
 /*
  * Represents a document to be indexed.
+ * `offsets` refer to the index locations where a token appeared in the document
  */
 typedef struct {
     uint16_t score;
     uint32_t id;
+    uint32_t offsets_len;
+    uint32_t* offsets;
 } art_document;
 
 /**

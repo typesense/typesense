@@ -8,6 +8,7 @@
 #include <numeric>
 #include <time.h>
 #include <art.h>
+#include <unordered_map>
 #include "art.h"
 #include "topster.h"
 #include "forarray.h"
@@ -63,24 +64,41 @@ void benchmark_heap_array() {
 }
 
 void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint16_t score) {
-    for(auto & token: tokens){
-      std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+    unordered_map<string, vector<uint32_t>> token_to_offsets;
+
+    for(uint32_t i=0; i<tokens.size(); i++) {
+      auto token = tokens[i];
+      if(token_to_offsets.count(token) > 0) {
+        token_to_offsets[token].push_back(i);
+      } else {
+        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+        token_to_offsets[token] = vector<uint32_t>{i};
+      }
+    }
+
+    for(auto & kv: token_to_offsets) {
       art_document document;
       document.id = doc_id;
       document.score = score;
-      art_insert(&t, (const unsigned char *) token.c_str(), token.length(), &document);
+      document.offsets_len = (uint32_t) kv.second.size();
+      document.offsets = new uint32_t[kv.second.size()];
+      for(auto i=0; i<kv.second.size(); i++) {
+        document.offsets[i] = kv.second[i];
+      }
+      art_insert(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), &document);
+      delete document.offsets;
     }
 }
 
+/*
+   1. Split q into tokens
+   2. For each token, look up ids using exact lookup
+       a. If a token has no result, try again with edit distance of 1, and then 2
+   3. Do a limited cartesian product of the word suggestions for each token to form possible corrected search phrases
+   4. Intersect the lists to find docs that match each phrase
+   5. Sort the docs based on some ranking criteria
+ */
 void find_documents(art_tree & t, string q) {
-  /*
-    1. Split q into tokens
-    2. For each token, look up ids using exact lookup
-        a. If a token has no result, try again with edit distance of 1, and then 2
-    3. Do a limited cartesian product of the word suggestions for each token to form possible corrected search phrases
-    4. Intersect the lists to find docs that match each phrase
-    5. Sort the docs based on some ranking criteria
-  */
   vector<string> tokens;
   tokenize(q, tokens, " ", true);
 
@@ -96,7 +114,7 @@ void find_documents(art_tree & t, string q) {
       }
   }
 
-  cout << "token_leaves.size(): " << token_leaves.size() << endl;
+  //cout << "token_leaves.size(): " << token_leaves.size() << endl;
 
   const size_t combination_limit = 10;
   auto product = []( long long a, vector<art_leaf*>& b ) { return a*b.size(); };

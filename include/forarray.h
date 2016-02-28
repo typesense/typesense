@@ -55,6 +55,12 @@ public:
         return for_select(in, index);
     }
 
+    bool contains(uint32_t value) {
+        uint32_t actual;
+        for_lower_bound_search(in, length, value, &actual);
+        return actual == value;
+    }
+
     uint32_t getSizeInBytes() {
         return size_bytes;
     }
