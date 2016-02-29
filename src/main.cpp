@@ -12,6 +12,7 @@
 #include "art.h"
 #include "topster.h"
 #include "forarray.h"
+#include "intersection.h"
 #include "util.h"
 
 using namespace std;
@@ -127,11 +128,30 @@ void find_documents(art_tree & t, string q) {
         q = div(q.quot, token_leaves[i].size());
         u[i] = token_leaves[i][q.rem];
     }
-    // Do what you want here with u.
+
     for(art_leaf* x : u) {
-        cout << x->key << ' ';
+      cout << x->key << ' ';
     }
-    cout << '\n';
+
+    // sort based on matched document size to perform effective intersection
+    sort(u.begin(), u.end(), [](const art_leaf* left, const art_leaf* right) {
+      return left->values->ids.getLength() < right->values->ids.getLength();
+    });
+
+    uint32_t* result = u[0]->values->ids.uncompress();
+    size_t result_size = u[0]->values->ids.getLength();
+
+    for(auto i=1; i<u.size(); i++) {
+        uint32_t* out = new uint32_t[result_size];
+        uint32_t* curr = u[i]->values->ids.uncompress();
+        result_size = Intersection::scalar(result, result_size, curr, u[i]->values->ids.getLength(), out);
+        delete result;
+        delete curr;
+        result = out;
+    }
+
+    cout << "RESULT SIZE: " << result_size << endl;
+    delete result;
   }
 }
 

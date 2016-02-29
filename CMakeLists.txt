@@ -7,5 +7,5 @@ include_directories(include)
 
 include_directories(external/for)
 
-add_executable(search external/for/libfor.a src/art.cpp src/main.cpp)
+add_executable(search external/for/libfor.a src/art.cpp src/intersection.cpp src/main.cpp)
 target_link_libraries(search for)

@@ -61,6 +61,12 @@ public:
         return actual == value;
     }
 
+    uint32_t* uncompress() {
+        uint32_t *out = new uint32_t[length];
+        for_uncompress(in, out, length);
+        return out;
+    }
+
     uint32_t getSizeInBytes() {
         return size_bytes;
     }
