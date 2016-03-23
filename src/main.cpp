@@ -13,6 +13,7 @@
 #include "topster.h"
 #include "forarray.h"
 #include "intersection.h"
+#include "matchscore.h"
 #include "util.h"
 
 using namespace std;
@@ -99,7 +100,7 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint1
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
  */
-void find_documents(art_tree & t, string q) {
+void find_documents(art_tree & t, string q, size_t max_results) {
   vector<string> tokens;
   tokenize(q, tokens, " ", true);
 
@@ -117,6 +118,9 @@ void find_documents(art_tree & t, string q) {
 
   //cout << "token_leaves.size(): " << token_leaves.size() << endl;
 
+  std::vector<std::vector<uint32_t>> word_positions;
+  Topster<100> topster;
+  size_t total_results = 0;
   const size_t combination_limit = 10;
   auto product = []( long long a, vector<art_leaf*>& b ) { return a*b.size(); };
   long long int N = accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
@@ -141,6 +145,8 @@ void find_documents(art_tree & t, string q) {
     uint32_t* result = u[0]->values->ids.uncompress();
     size_t result_size = u[0]->values->ids.getLength();
 
+    if(result_size == 0) continue;
+
     for(auto i=1; i<u.size(); i++) {
         uint32_t* out = new uint32_t[result_size];
         uint32_t* curr = u[i]->values->ids.uncompress();
@@ -150,9 +156,31 @@ void find_documents(art_tree & t, string q) {
         result = out;
     }
 
+    // go through each document and calculate match score
+    for(auto i=0; i<result_size; i++) {
+      for (art_leaf *token_leaf : u) {
+        vector<uint32_t> positions;
+        uint32_t doc_index = token_leaf->values->ids.indexOf(result[i]);
+        uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
+        uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
+        for (auto offset_count = 0; offset_count < num_offsets; offset_count++) {
+          positions.push_back(token_leaf->values->offsets.at(offset_index + offset_count));
+        }
+        word_positions.push_back(positions);
+      }
+
+      MatchScore score = match_score(word_positions);
+      topster.add((const uint32_t &) (score.words_present * 16 + score.distance));
+    }
+
+    total_results += result_size;
     cout << "RESULT SIZE: " << result_size << endl;
     delete result;
+
+    if(total_results >= max_results) break;
   }
+
+  //std::sort(topster.data);
 }
 
 int main() {
@@ -194,7 +222,7 @@ int main() {
         //std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }
 
-    find_documents(t, "are the");
+    find_documents(t, "are the", 10);
 
     art_tree_destroy(&t);
     return 0;

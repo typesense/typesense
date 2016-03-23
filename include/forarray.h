@@ -61,6 +61,11 @@ public:
         return actual == value;
     }
 
+    uint32_t indexOf(uint32_t value) {
+      uint32_t actual;
+      return for_binary_search(in, length);
+    }
+
     uint32_t* uncompress() {
         uint32_t *out = new uint32_t[length];
         for_uncompress(in, out, length);
