@@ -45,7 +45,7 @@ struct MatchScore {
  *  We use a priority queue to read the position vectors in a sorted manner, slide a window of a given size, and
  *  compute the max_match and min_displacement of target tokens across the windows.
  */
-MatchScore match_score(std::vector<std::vector<uint32_t>> &word_positions) {
+MatchScore match_score(std::vector<std::vector<uint16_t>> &word_positions) {
   std::priority_queue<WordPosition, std::vector<WordPosition>, WordPosition> heap;
 
   for(uint8_t word=0; word < word_positions.size(); word++) {

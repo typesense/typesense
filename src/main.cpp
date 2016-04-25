@@ -118,7 +118,7 @@ void find_documents(art_tree & t, string q, size_t max_results) {
 
   //cout << "token_leaves.size(): " << token_leaves.size() << endl;
 
-  std::vector<std::vector<uint32_t>> word_positions;
+  std::vector<std::vector<uint16_t>> word_positions;
   Topster<100> topster;
   size_t total_results = 0;
   const size_t combination_limit = 10;
@@ -137,7 +137,7 @@ void find_documents(art_tree & t, string q, size_t max_results) {
       cout << x->key << ' ';
     }
 
-    // sort based on matched document size to perform effective intersection
+    // sort ascending based on matched document size to perform effective intersection
     sort(u.begin(), u.end(), [](const art_leaf* left, const art_leaf* right) {
       return left->values->ids.getLength() < right->values->ids.getLength();
     });
@@ -159,7 +159,8 @@ void find_documents(art_tree & t, string q, size_t max_results) {
     // go through each document and calculate match score
     for(auto i=0; i<result_size; i++) {
       for (art_leaf *token_leaf : u) {
-        vector<uint32_t> positions;
+        vector<uint16_t> positions;
+        // by using the document id, locate the positions where the token occurs
         uint32_t doc_index = token_leaf->values->ids.indexOf(result[i]);
         uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
         uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);

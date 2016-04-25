@@ -62,8 +62,7 @@ public:
     }
 
     uint32_t indexOf(uint32_t value) {
-      uint32_t actual;
-      return for_binary_search(in, length);
+      return for_binary_search(in, length, value);
     }
 
     uint32_t* uncompress() {
