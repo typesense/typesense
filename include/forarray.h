@@ -62,7 +62,10 @@ public:
     }
 
     uint32_t indexOf(uint32_t value) {
-      return for_binary_search(in, length, value);
+      uint32_t actual;
+      uint32_t index = for_lower_bound_search(in, length, value, &actual);
+      if(actual == value) return index;
+      return length;
     }
 
     uint32_t* uncompress() {
