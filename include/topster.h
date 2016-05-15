@@ -1,27 +1,54 @@
 #pragma once
 
-template <size_t MAX_SIZE>
+#include <cstdint>
+#include <climits>
+#include <cstdio>
+
+template <size_t MAX_SIZE=100>
 struct Topster {
+    // A bounded max heap that remembers the top-K elements seen so far
 
-    uint32_t data[MAX_SIZE];
-    int size = 0;
+    uint64_t data[MAX_SIZE];
+    uint32_t smallest_index = 0;
+    uint32_t size = 0;
 
-    Topster(){ }
+    Topster(){
+        data[smallest_index]= UINT_MAX;
+    }
 
-    template <typename T> inline void swapMe(T& a, T& b){
+    template <typename T> inline void swapMe(T& a, T& b) {
         T c = a;
         a = b;
         b = c;
     }
 
-    void add(const uint32_t& val){
-        if (size >= MAX_SIZE) {
-            if(data[0] <= val) return;
+    static inline uint64_t pack(const uint32_t&key, const uint32_t& val) {
+        uint64_t kv;
+        kv = key;
+        kv = (kv << 32) + val;
+        return kv;
+    }
 
-            data[0] = val;
+    static inline void unpack(const uint64_t& kv, uint32_t&key, uint32_t& val) {
+        key = (uint32_t) (kv >> 32);
+        val = (uint32_t) (kv & 0xFFFFFFFF);
+    }
+
+    void add(const uint32_t&key, const uint32_t& val){
+        uint32_t smallest_key, smallest_value;
+        unpack(data[smallest_index], smallest_key, smallest_value);
+
+        if (size >= MAX_SIZE) {
+            if(val < smallest_value) {
+                // when incoming value is less than the smallest in the heap, ignore
+                return;
+            }
+
+            data[smallest_index] = pack(key, val);
             int i = 0;
 
-            while ((2*i+1) < MAX_SIZE){
+            // sift to maintain heap property
+            while ((2*i+1) < MAX_SIZE) {
                 int next = 2*i + 1;
                 if (data[next] < data[next+1])
                     next++;
@@ -31,11 +58,17 @@ struct Topster {
 
                 i = next;
             }
-        } else{
-            data[size++] = val;
-            for (int i = size - 1; i > 0;){
+        } else {
+            // keep track of the smallest element's index
+            if(val < smallest_value) {
+                smallest_index = size;
+            }
+
+            // insert at the end of the array, and sift it up to maintain heap property
+            data[size++] = pack(key, val);
+            for (int i = size - 1; i > 0;) {
                 int parent = (i-1)/2;
-                if (data[parent] < data[i]){
+                if (data[parent] < data[i]) {
                     swapMe(data[parent], data[i]);
                     i = parent;
                 }
@@ -44,8 +77,21 @@ struct Topster {
         }
     }
 
+    static bool compare_values(uint64_t i, uint64_t j) {
+        uint32_t ikey, ival;
+        uint32_t jkey, jval;
+
+        unpack(i, ikey, ival);
+        unpack(j, jkey, jval);
+
+        return ival < jval;
+    }
+
+    void sort() {
+        std::stable_sort(std::begin(data), std::end(data), compare_values);
+    }
+
     void clear(){
         size = 0;
     }
-
 };

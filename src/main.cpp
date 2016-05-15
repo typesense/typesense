@@ -51,7 +51,7 @@ void benchmark_heap_array() {
     Topster<4000> heapArray;
 
     for(uint32_t i=0; i<hits.size(); i++) {
-        heapArray.add(records[hits[i]]);
+        heapArray.add(i, records[hits[i]]);
     }
 
     std::sort(std::begin(heapArray.data), std::end(heapArray.data));
@@ -174,7 +174,7 @@ void find_documents(art_tree & t, string query, size_t max_results) {
       }
 
       MatchScore score = match_score(word_positions);
-      topster.add((const uint32_t &) (score.words_present * 16 + score.distance));
+      topster.add(result_ids[i], (const uint32_t &) (score.words_present * 16 + score.distance));
     }
 
     total_results += result_size;
