@@ -6,7 +6,7 @@
 
 #define FOR_GROWTH_FACTOR 1.3
 #define FOR_ELE_SIZE sizeof(uint32_t)
-#define SORTED_METADATA_OVERHEAD 5
+#define METADATA_OVERHEAD 5
 
 class forarray {
 private:
@@ -27,7 +27,7 @@ public:
     uint32_t inline sorted_append_size_required(uint32_t value) {
         uint32_t m = *(uint32_t *)(in + 0);
         uint32_t bnew = required_bits(value - m);
-        return SORTED_METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
+        return METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
     }
 
     // returns false if malloc fails
@@ -49,6 +49,50 @@ public:
         length_bytes = new_length_bytes;
         length++;
         return true;
+    }
+
+    uint32_t inline unsorted_append_size_required(uint32_t value) {
+      if (length == 0) {
+          return METADATA_OVERHEAD+FOR_ELE_SIZE;
+      }
+
+      // calculate min/max
+      uint32_t m = in[0];
+      uint32_t M = m;
+
+      for (uint32_t i = 1; i < length; i++) {
+          if (in[i] < m)
+              m = in[i];
+          if (in[i] > M)
+              M = in[i];
+      }
+
+      m = std::min(m, value);
+      M = std::max(M, value);
+
+      uint32_t bnew = required_bits(M - m);
+
+      return METADATA_OVERHEAD + for_compressed_size_bits(length, bnew);
+    }
+
+    bool append_unsorted(uint32_t value) {
+      uint32_t size_required = unsorted_append_size_required(value);
+
+      if(size_required > size_bytes) {
+          // grow the array first
+          size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
+          uint8_t *new_location = (uint8_t *) realloc(in, new_size);
+          if(new_location == NULL) return false;
+          in = new_location;
+          size_bytes = (uint32_t) new_size;
+      }
+
+      uint32_t new_length_bytes = for_append_unsorted(in, length, value);
+      if(new_length_bytes == 0) return false;
+
+      length_bytes = new_length_bytes;
+      length++;
+      return true;
     }
 
     uint32_t at(uint32_t index) {
