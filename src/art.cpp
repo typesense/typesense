@@ -328,14 +328,14 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
-static void add_document_to_leaf(const art_document *document, const art_leaf *l) {
-    l->values->ids.append_sorted(document->id);
-    uint32_t curr_index = l->values->offsets.getLength();
-    l->values->offsets.append_sorted(document->offsets_len);
+static void add_document_to_leaf(const art_document *document, const art_leaf *leaf) {
+    leaf->values->ids.append_sorted(document->id);
+    uint32_t curr_index = leaf->values->offsets.getLength();
+    leaf->values->offsets.append_sorted(document->offsets_len);
     for(uint32_t i=0; i<document->offsets_len; i++) {
-        l->values->offsets.append_sorted(document->offsets[i]);
+        leaf->values->offsets.append_unsorted(document->offsets[i]);
     }
-    l->values->offset_index.append_sorted(curr_index);
+    leaf->values->offset_index.append_sorted(curr_index);
 }
 
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
