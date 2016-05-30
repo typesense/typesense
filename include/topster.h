@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <climits>
 #include <cstdio>
+#include <algorithm>
 
 template <size_t MAX_SIZE=100>
 struct Topster {
@@ -84,14 +85,21 @@ struct Topster {
         unpack(i, ikey, ival);
         unpack(j, jkey, jval);
 
-        return ival < jval;
+        return jval < ival;
     }
 
     void sort() {
-        std::stable_sort(std::begin(data), std::end(data), compare_values);
+        std::stable_sort(std::begin(data), std::begin(data)+size, compare_values);
     }
 
     void clear(){
         size = 0;
+    }
+
+    uint32_t getKeyAt(uint32_t& index) {
+        uint32_t key;
+        uint32_t value;
+        unpack(data[index], key, value);
+        return key;
     }
 };
