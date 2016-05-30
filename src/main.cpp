@@ -65,17 +65,13 @@ void benchmark_heap_array() {
     cout << "Time taken: " << timeMillis << endl;
 }
 
-void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint16_t score) {
+void index_document(art_tree& t, uint32_t doc_id, vector<string> tokens, uint16_t score) {
     unordered_map<string, vector<uint32_t>> token_to_offsets;
 
     for(uint32_t i=0; i<tokens.size(); i++) {
       auto token = tokens[i];
-      if(token_to_offsets.count(token) > 0) {
-        token_to_offsets[token].push_back(i);
-      } else {
-        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
-        token_to_offsets[token] = vector<uint32_t>{i};
-      }
+      std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+      token_to_offsets[token].push_back(i);
     }
 
     for(auto & kv: token_to_offsets) {
@@ -97,6 +93,7 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> & tokens, uint1
    2. For each token, look up ids using exact lookup
        a. If a token has no result, try again with edit distance of 1, and then 2
    3. Do a limited cartesian product of the word suggestions for each token to form possible corrected search phrases
+      (adapted from: http://stackoverflow.com/a/31169617/131050)
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
  */
@@ -116,75 +113,81 @@ void find_documents(art_tree & t, string query, size_t max_results) {
       }
   }
 
-  cout << "token_leaves.size(): " << token_leaves.size() << endl;
-
   std::vector<std::vector<uint16_t>> word_positions;
   Topster<100> topster;
   size_t total_results = 0;
   const size_t combination_limit = 10;
   auto product = []( long long a, vector<art_leaf*>& b ) { return a*b.size(); };
   long long int N = accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
-  vector<art_leaf*> token_to_hits(token_leaves.size());
 
   for(long long n=0; n<N && n<combination_limit; ++n) {
+    // every element in vector `query_suggestion` represents a token and its associated hits
+    vector<art_leaf*> query_suggestion(token_leaves.size());
+
+    // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
-    for(unsigned long i= token_leaves.size() - 1; 0 <= i; --i) {
+    for( long long i=token_leaves.size()-1 ; 0<=i ; --i ) {
         q = div(q.quot, token_leaves[i].size());
-        token_to_hits[i] = token_leaves[i][q.rem];
+        query_suggestion[i] = token_leaves[i][q.rem];
     }
 
-    for(art_leaf* x : token_to_hits) {
-      cout << x->key << ', ';
-    }
-
-    // every element in vector `u` represents a token and its associated hits
-    // sort ascending based on matched document size to perform effective intersection
-    sort(token_to_hits.begin(), token_to_hits.end(), [](const art_leaf* left, const art_leaf* right) {
+    // sort ascending based on matched documents for each token to perform effective intersection
+    sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
       return left->values->ids.getLength() < right->values->ids.getLength();
     });
 
-    uint32_t*result_ids = token_to_hits[0]->values->ids.uncompress();
-    size_t result_size = token_to_hits[0]->values->ids.getLength();
+    // initialize results with the starting element (for further intersection)
+    uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
+    size_t result_size = query_suggestion[0]->values->ids.getLength();
 
     if(result_size == 0) continue;
 
     // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
-    for(auto i=1; i < token_to_hits.size(); i++) {
+    for(auto i=1; i < query_suggestion.size(); i++) {
         uint32_t* out = new uint32_t[result_size];
-        uint32_t* curr = token_to_hits[i]->values->ids.uncompress();
-        result_size = Intersection::scalar(result_ids, result_size, curr, token_to_hits[i]->values->ids.getLength(), out);
+        uint32_t* curr = query_suggestion[i]->values->ids.uncompress();
+        result_size = Intersection::scalar(result_ids, result_size, curr, query_suggestion[i]->values->ids.getLength(), out);
         delete result_ids;
         delete curr;
         result_ids = out;
     }
 
-    // go through each document id and calculate match score
+    // go through each matching document id and calculate match score
     for(auto i=0; i<result_size; i++) {
       // we look up the doc_id in the token's doc index
       // and then arrive at the positions where the token occurs in every document
-      for (art_leaf *token_leaf : token_to_hits) {
+      for (art_leaf *token_leaf : query_suggestion) {
         vector<uint16_t> positions;
         uint32_t doc_index = token_leaf->values->ids.indexOf(result_ids[i]);
         uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
         uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
-        for (auto offset_count = 0; offset_count < num_offsets; offset_count++) {
+        for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
           positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
         }
         word_positions.push_back(positions);
       }
 
       MatchScore score = match_score(word_positions);
-      topster.add(result_ids[i], (const uint32_t &) (score.words_present * 16 + score.distance));
+      const uint16_t cumulativeScore = (const uint16_t) (score.words_present * 16 + score.distance);
+
+      //cout << "result_ids[i]: " << result_ids[i] << " - cumulativeScore: " << cumulativeScore << endl;
+      topster.add(result_ids[i], cumulativeScore);
     }
 
     total_results += result_size;
-    cout << endl << "RESULT SIZE: " << result_size << endl;
     delete result_ids;
 
     if(total_results >= max_results) break;
   }
 
-  //std::sort(topster.data);
+  topster.sort();
+
+  cout << "RESULTS: " << endl << endl;
+
+  for(uint32_t i=0; i<topster.size; i++) {
+    uint32_t id = topster.getKeyAt(i);
+    cout << "ID: " << id << endl;
+  }
 }
 
 int main() {
@@ -194,18 +197,18 @@ int main() {
     std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
 
     std::string line;
-    uint32_t num = 1;
+    uint32_t doc_id = 1;
 
     while (std::getline(infile, line)) {
         vector<string> parts;
         tokenize(line, parts, "\t", true);
         vector<string> tokens;
         tokenize(parts[0], tokens, " ", true);
-        index_document(t, num, tokens, stoi(parts[1]));
-        num++;
+        index_document(t, doc_id, tokens, stoi(parts[1]));
+        doc_id++;
     }
 
-    const unsigned char *prefix = (const unsigned char *) "the";
+    /*const unsigned char *prefix = (const unsigned char *) "the";
     size_t prefix_len = strlen((const char *) prefix);
     std::vector<art_leaf*> results;
 
@@ -213,8 +216,8 @@ int main() {
     art_iter_fuzzy_prefix(&t, prefix, prefix_len, 0, 2, results);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
-//    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
-//    art_iter(&t, test_prefix_cb, NULL);
+    art_iter_prefix(&t, prefix, strlen((const char *) prefix), test_prefix_cb, NULL);
+    art_iter(&t, test_prefix_cb, NULL);
 
     cout << "Time taken: " << timeMillis << "us" << endl;
 
@@ -223,8 +226,8 @@ int main() {
         for(uint32_t i=0; i<leaf->values->ids.getLength(); i++) {
             std::cout << ", ID: " << leaf->values->ids.at(i) << std::endl;
         }
-        //std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
-    }
+        std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
+    }*/
 
     find_documents(t, "are the", 10);
 
