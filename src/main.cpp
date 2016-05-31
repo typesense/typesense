@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <iostream>
-#include <check.h>
 #include <fstream>
 #include <chrono>
 #include <vector>
@@ -113,7 +112,6 @@ void find_documents(art_tree & t, string query, size_t max_results) {
       }
   }
 
-  std::vector<std::vector<uint16_t>> word_positions;
   Topster<100> topster;
   size_t total_results = 0;
   const size_t combination_limit = 10;
@@ -154,24 +152,26 @@ void find_documents(art_tree & t, string query, size_t max_results) {
 
     // go through each matching document id and calculate match score
     for(auto i=0; i<result_size; i++) {
-      // we look up the doc_id in the token's doc index
-      // and then arrive at the positions where the token occurs in every document
-      for (art_leaf *token_leaf : query_suggestion) {
-        vector<uint16_t> positions;
-        uint32_t doc_index = token_leaf->values->ids.indexOf(result_ids[i]);
-        uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
-        uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
-        for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
-          positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
+        uint32_t doc_id = result_ids[i];
+        std::vector<std::vector<uint16_t>> token_positions;
+
+        // for each token in the query, find the positions that it appears in this document
+        for (art_leaf *token_leaf : query_suggestion) {
+            vector<uint16_t> positions;
+            uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
+            uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
+            uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
+            for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
+              positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
+            }
+            token_positions.push_back(positions);
         }
-        word_positions.push_back(positions);
-      }
 
-      MatchScore score = match_score(word_positions);
-      const uint16_t cumulativeScore = (const uint16_t) (score.words_present * 16 + score.distance);
+        MatchScore score = match_score(token_positions);
+        const uint16_t cumulativeScore = (const uint16_t) (score.words_present * 16 + score.distance);
 
-      //cout << "result_ids[i]: " << result_ids[i] << " - cumulativeScore: " << cumulativeScore << endl;
-      topster.add(result_ids[i], cumulativeScore);
+        cout << "result_ids[i]: " << result_ids[i] << " - score.words_present: " << score.words_present << endl;
+        topster.add(doc_id, cumulativeScore);
     }
 
     total_results += result_size;
