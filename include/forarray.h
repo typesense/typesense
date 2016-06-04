@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <cstdlib>
 #include <for.h>
+#include <limits>
 
 #define FOR_GROWTH_FACTOR 1.3
 #define FOR_ELE_SIZE sizeof(uint32_t)
@@ -10,10 +11,12 @@
 
 class forarray {
 private:
+    uint8_t* in;
     uint32_t size_bytes = 0;
     uint32_t length_bytes = 0;
     uint32_t length = 0;
-    uint8_t* in;
+    uint32_t min = std::numeric_limits<uint32_t>::max();
+    uint32_t max = std::numeric_limits<uint32_t>::min();
 public:
     forarray(const uint32_t n=2) {
         size_bytes = n * FOR_ELE_SIZE;
@@ -48,6 +51,10 @@ public:
 
         length_bytes = new_length_bytes;
         length++;
+
+        if(value < min) min = value;
+        if(value > max) max = value;
+
         return true;
     }
 
@@ -56,19 +63,8 @@ public:
           return METADATA_OVERHEAD+FOR_ELE_SIZE;
       }
 
-      // calculate min/max
-      uint32_t m = in[0];
-      uint32_t M = m;
-
-      for (uint32_t i = 1; i < length; i++) {
-          if (in[i] < m)
-              m = in[i];
-          if (in[i] > M)
-              M = in[i];
-      }
-
-      m = std::min(m, value);
-      M = std::max(M, value);
+      uint32_t m = std::min(min, value);
+      uint32_t M = std::max(max, value);
 
       uint32_t bnew = required_bits(M - m);
 
@@ -82,16 +78,26 @@ public:
           // grow the array first
           size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
           uint8_t *new_location = (uint8_t *) realloc(in, new_size);
-          if(new_location == NULL) return false;
+          if(new_location == NULL) {
+              abort();
+              return false;
+          }
           in = new_location;
           size_bytes = (uint32_t) new_size;
       }
 
       uint32_t new_length_bytes = for_append_unsorted(in, length, value);
-      if(new_length_bytes == 0) return false;
+      if(new_length_bytes == 0) {
+          abort();
+          return false;
+      }
+
+      if (in[length] < min) min = in[length];
+      if (in[length] > max) max = in[length];
 
       length_bytes = new_length_bytes;
       length++;
+
       return true;
     }
 

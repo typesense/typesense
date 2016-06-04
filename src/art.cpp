@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <art.h>
 #include <iostream>
+#include <limits>
 #include <queue>
 #include "art.h"
 
@@ -331,11 +332,12 @@ art_leaf* art_maximum(art_tree *t) {
 static void add_document_to_leaf(const art_document *document, const art_leaf *leaf) {
     leaf->values->ids.append_sorted(document->id);
     uint32_t curr_index = leaf->values->offsets.getLength();
-    leaf->values->offsets.append_sorted(document->offsets_len);
+    leaf->values->offset_index.append_sorted(curr_index);
+
+    leaf->values->offsets.append_unsorted(document->offsets_len);
     for(uint32_t i=0; i<document->offsets_len; i++) {
         leaf->values->offsets.append_unsorted(document->offsets[i]);
     }
-    leaf->values->offset_index.append_sorted(curr_index);
 }
 
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
@@ -795,22 +797,31 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     return NULL;
 }
 
-static int topk_iter(art_node *root, int k, std::vector<art_leaf*> & results) {
+static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
 
     // FIXME: try to avoid branching
-    auto cmp = [](art_node * left, art_node * right) {
+    auto cmp = [term_len](art_node * left, art_node * right) {
         int lscore, rscore;
         if (IS_LEAF(left)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(left);
-            lscore = l->score;
+            // Exact matches should be boosted ahead of others
+            if(l->key_len == term_len) {
+                lscore = std::numeric_limits<uint16_t>::max();
+            } else {
+                lscore = l->score;
+            }
         } else {
             lscore = left->score;
         }
 
         if(IS_LEAF(right)) {
             art_leaf *r = (art_leaf *) LEAF_RAW(right);
-            rscore = r->score;
+            if(r->key_len == term_len) {
+                rscore = std::numeric_limits<uint16_t>::max();
+            } else {
+                rscore = r->score;
+            }
         } else {
             rscore = right->score;
         }
@@ -851,14 +862,14 @@ static int topk_iter(art_node *root, int k, std::vector<art_leaf*> & results) {
                 break;
 
             case NODE16:
-                std::cout << "\nNODE16, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE16, SCORE: " << n->score << std::endl;
                 for (int i=0; i < n->num_children; i++) {
                     q.push(((art_node16*)n)->children[i]);
                 }
                 break;
 
             case NODE48:
-                std::cout << "\nNODE48, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE48, SCORE: " << n->score << std::endl;
                 for (int i=0; i < 256; i++) {
                     idx = ((art_node48*)n)->keys[i];
                     if (!idx) continue;
@@ -867,7 +878,7 @@ static int topk_iter(art_node *root, int k, std::vector<art_leaf*> & results) {
                 break;
 
             case NODE256:
-                std::cout << "\nNODE256, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE256, SCORE: " << n->score << std::endl;
                 for (int i=0; i < 256; i++) {
                     if (!((art_node256*)n)->children[i]) continue;
                     q.push(((art_node256*)n)->children[i]);
@@ -1047,7 +1058,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
       if(new_current_row[term_len] <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
-        topk_iter(child, max_words, results);\
+        topk_iter(child, term_len, max_words, results);\
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
@@ -1120,7 +1131,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         }
 
         if(current_row[term_len] <= max_cost) {
-            topk_iter(n, max_words, results);
+            topk_iter(n, term_len, max_words, results);
         }
 
         return 0;
@@ -1152,7 +1163,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
     if(depth == term_len) {
         if(current_row[term_len] <= max_cost) {
             printf("PARTIAL START RECURSIVE ITER\n");
-            return topk_iter(n, max_words, results);
+            return topk_iter(n, term_len, max_words, results);
         }
 
         return 0;

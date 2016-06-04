@@ -8,9 +8,7 @@
 #include <time.h>
 #include <art.h>
 #include <unordered_map>
-#include "art.h"
 #include "topster.h"
-#include "forarray.h"
 #include "intersection.h"
 #include "matchscore.h"
 #include "util.h"
@@ -83,6 +81,7 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> tokens, uint16_
         document.offsets[i] = kv.second[i];
       }
       art_insert(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), &document);
+
       delete document.offsets;
     }
 }
@@ -96,7 +95,7 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> tokens, uint16_
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
  */
-void find_documents(art_tree & t, string query, size_t max_results) {
+void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, string query, size_t max_results) {
   vector<string> tokens;
   tokenize(query, tokens, " ", true);
 
@@ -167,10 +166,10 @@ void find_documents(art_tree & t, string query, size_t max_results) {
             token_positions.push_back(positions);
         }
 
-        MatchScore score = match_score(token_positions);
-        const uint16_t cumulativeScore = (const uint16_t) (score.words_present * 16 + score.distance);
+        MatchScore mscore = match_score(doc_id, token_positions);
+        const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + docscores[doc_id];
 
-        cout << "result_ids[i]: " << result_ids[i] << " - score.words_present: " << score.words_present << endl;
+        //cout << "result_ids[i]: " << result_ids[i] << " - score.words_present: " << mscore.words_present << endl;
         topster.add(doc_id, cumulativeScore);
     }
 
@@ -188,13 +187,17 @@ void find_documents(art_tree & t, string query, size_t max_results) {
     uint32_t id = topster.getKeyAt(i);
     cout << "ID: " << id << endl;
   }
+
+  //cin.get();
 }
 
 int main() {
     art_tree t;
     art_tree_init(&t);
 
-    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
+    unordered_map<uint32_t, uint16_t> docscores;
+
+    std::ifstream infile("/data/hnstories.tsv");
 
     std::string line;
     uint32_t doc_id = 1;
@@ -204,9 +207,15 @@ int main() {
         tokenize(line, parts, "\t", true);
         vector<string> tokens;
         tokenize(parts[0], tokens, " ", true);
+
+        if(parts.size() != 2) continue;
+
+        docscores[doc_id] = (uint16_t) stoi(parts[1]);
         index_document(t, doc_id, tokens, stoi(parts[1]));
         doc_id++;
     }
+
+    cout << "FINISHED INDEXING!" << endl << flush;
 
     /*const unsigned char *prefix = (const unsigned char *) "the";
     size_t prefix_len = strlen((const char *) prefix);
@@ -229,7 +238,7 @@ int main() {
         std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }*/
 
-    find_documents(t, "are the", 10);
+    find_documents(t, docscores, "the apple", 10);
 
     art_tree_destroy(&t);
     return 0;
