@@ -39,9 +39,9 @@ typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_le
  * of all the various node sizes
  */
 typedef struct {
-    uint16_t score;
     uint8_t type;
     uint8_t num_children;
+    uint16_t max_score;
     uint32_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
 } art_node;
@@ -107,7 +107,7 @@ typedef struct {
  * of arbitrary size, as they include the key.
  */
 typedef struct {
-    uint16_t score;
+    uint16_t max_score;
     uint32_t key_len;
     art_values* values;
     unsigned char key[];

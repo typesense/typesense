@@ -77,6 +77,19 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> tokens, uint16_
       document.score = score;
       document.offsets_len = (uint32_t) kv.second.size();
       document.offsets = new uint32_t[kv.second.size()];
+
+      uint32_t num_docs = 0;
+
+      vector<art_leaf*> results;
+      art_iter_fuzzy_prefix(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), 0, 1, results);
+      if(results.size() == 1) {
+        num_docs = results[0]->values->ids.getLength();
+      }
+
+      document.score = (uint16_t) (((uint16_t) num_docs) + 1);
+
+      //cout << "Inserting " << kv.first << " with score: " << document.score << endl;
+
       for(auto i=0; i<kv.second.size(); i++) {
         document.offsets[i] = kv.second[i];
       }
@@ -191,13 +204,23 @@ void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, 
   //cin.get();
 }
 
+std::string ReplaceAll(std::string str, const std::string& from, const std::string& to) {
+  size_t start_pos = 0;
+  while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+    str.replace(start_pos, from.length(), to);
+    start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
+  }
+  return str;
+}
+
 int main() {
     art_tree t;
     art_tree_init(&t);
 
     unordered_map<uint32_t, uint16_t> docscores;
 
-    std::ifstream infile("/data/hnstories.tsv");
+    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
+    //std::ifstream infile("/data/hnstories.tsv");
 
     std::string line;
     uint32_t doc_id = 1;
@@ -205,6 +228,8 @@ int main() {
     while (std::getline(infile, line)) {
         vector<string> parts;
         tokenize(line, parts, "\t", true);
+        line = ReplaceAll(line, "\"", "");
+
         vector<string> tokens;
         tokenize(parts[0], tokens, " ", true);
 
@@ -238,7 +263,20 @@ int main() {
         std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }*/
 
-    find_documents(t, docscores, "the apple", 10);
+//    find_documents(t, docscores, "lanch", 10);
+
+    string token = "lanch";
+    vector<art_leaf*> leaves;
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), 1, 4, leaves);
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    for(auto leaf: leaves) {
+      cout << "Word: " << leaf->key << " - score: " << leaf->max_score << endl;
+    }
+
+    cout << "Time taken: " << timeMillis << "us" << endl;
+
 
     art_tree_destroy(&t);
     return 0;

@@ -28,7 +28,7 @@
  * We order the leaves descending based on the score.
  */
 bool compare_art_leaf(const art_leaf* a, const art_leaf* b) {
-    return a->score > b->score;
+    return a->max_score > b->max_score;
 }
 
 /**
@@ -352,7 +352,7 @@ static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_docum
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->values = new art_values;
     add_document_to_leaf(document, l);
-    l->score = MAX(l->score, document->score);  // somehow std::max does not seem to work here - always returns 0
+    l->max_score = MAX(l->max_score, document->score);  // somehow std::max does not seem to work here - always returns 0
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
     return l;
@@ -369,7 +369,7 @@ static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
 }
 
 static void copy_header(art_node *dest, art_node *src) {
-    dest->score = src->score;
+    dest->max_score = src->max_score;
     dest->num_children = src->num_children;
     dest->partial_len = src->partial_len;
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
@@ -377,7 +377,7 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
-    n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
+    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -386,7 +386,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
-        n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -427,7 +427,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
-        n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -462,9 +462,9 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
 
         // Insert element
         if (IS_LEAF(child)) {
-            n->n.score = MAX(n->n.score, ((art_leaf *) child)->score);
+            n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
         } else {
-            n->n.score = MAX(n->n.score, ((art_node *) child)->score);
+            n->n.max_score = MAX(n->n.max_score, ((art_node *) child)->max_score);
         }
 
         n->keys[idx] = c;
@@ -544,7 +544,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
             *old = 1;
             art_values *old_val = l->values;
             add_document_to_leaf(document, l);
-            l->score = MAX(l->score, document->score);
+            l->max_score = MAX(l->max_score, document->score);
             return old_val;
         }
 
@@ -557,7 +557,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Determine longest prefix
         uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
-        new_n->n.score = (uint16_t) MAX(l->score, (const uint16_t &) document->score);;
+        new_n->n.max_score = (uint16_t) MAX(l->max_score, (const uint16_t &) document->score);;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -566,7 +566,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->score = (uint16_t) MAX(n->score, (const uint16_t &) document->score);
+    n->max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -581,7 +581,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new_n;
         new_n->n.partial_len = prefix_diff;
-        new_n->n.score = (uint16_t) MAX(n->score, (const uint16_t &) document->score);
+        new_n->n.max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
         memcpy(new_n->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -817,10 +817,10 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
             if(l->key_len == term_len) {
                 lscore = std::numeric_limits<uint16_t>::max();
             } else {
-                lscore = l->score;
+                lscore = l->max_score;
             }
         } else {
-            lscore = left->score;
+            lscore = left->max_score;
         }
 
         if(IS_LEAF(right)) {
@@ -828,10 +828,10 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
             if(r->key_len == term_len) {
                 rscore = std::numeric_limits<uint16_t>::max();
             } else {
-                rscore = r->score;
+                rscore = r->max_score;
             }
         } else {
-            rscore = right->score;
+            rscore = right->max_score;
         }
 
         return lscore < rscore;
