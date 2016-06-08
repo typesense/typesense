@@ -86,14 +86,14 @@ void index_document(art_tree& t, uint32_t doc_id, vector<string> tokens, uint16_
         num_docs = results[0]->values->ids.getLength();
       }
 
-      document.score = (uint16_t) (((uint16_t) num_docs) + 1);
+      //document.score = (uint16_t) (num_docs + 1);
 
       //cout << "Inserting " << kv.first << " with score: " << document.score << endl;
 
       for(auto i=0; i<kv.second.size(); i++) {
         document.offsets[i] = kv.second[i];
       }
-      art_insert(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), &document);
+      art_insert(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), &document, num_docs+1);
 
       delete document.offsets;
     }
@@ -219,8 +219,8 @@ int main() {
 
     unordered_map<uint32_t, uint16_t> docscores;
 
-    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
-    //std::ifstream infile("/data/hnstories.tsv");
+//    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
+    std::ifstream infile("/data/hnstories.tsv");
 
     std::string line;
     uint32_t doc_id = 1;

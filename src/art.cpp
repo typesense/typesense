@@ -337,7 +337,9 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
-static void add_document_to_leaf(const art_document *document, const art_leaf *leaf) {
+static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
+    leaf->max_score = MAX(leaf->max_score, document->score);
+    leaf->token_count += document->offsets_len;
     leaf->values->ids.append_sorted(document->id);
     uint32_t curr_index = leaf->values->offsets.getLength();
     leaf->values->offset_index.append_sorted(curr_index);
@@ -352,7 +354,6 @@ static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_docum
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->values = new art_values;
     add_document_to_leaf(document, l);
-    l->max_score = MAX(l->max_score, document->score);  // somehow std::max does not seem to work here - always returns 0
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
     return l;
@@ -377,7 +378,8 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
-    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
+    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+    n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->token_count);
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -386,7 +388,8 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+        n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->token_count);
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -427,7 +430,8 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
+        n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->token_count);
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -460,12 +464,11 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         memmove(n->children+idx+1, n->children+idx,
                 (n->n.num_children - idx)*sizeof(void*));
 
-        // Insert element
-        if (IS_LEAF(child)) {
-            n->n.max_score = MAX(n->n.max_score, ((art_leaf *) child)->max_score);
-        } else {
-            n->n.max_score = MAX(n->n.max_score, ((art_node *) child)->max_score);
-        }
+        uint16_t child_max_score = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->max_score : ((art_node *) child)->max_score;
+        uint32_t child_token_count = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->token_count : ((art_node *) child)->max_token_count;
+
+        n->n.max_score = MAX(n->n.max_score, child_max_score);
+        n->n.max_token_count = MAX(n->n.max_token_count, child_token_count);
 
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
@@ -525,7 +528,7 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, int depth, int *old) {
+static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, uint32_t num_hits, int depth, int *old_val) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
         *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
@@ -539,12 +542,13 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
             // updates are not supported
-            if(l->values->ids.contains(document->id)) return NULL;
+            if(l->values->ids.contains(document->id)) {
+                return NULL;
+            }
 
-            *old = 1;
+            *old_val = 1;
             art_values *old_val = l->values;
             add_document_to_leaf(document, l);
-            l->max_score = MAX(l->max_score, document->score);
             return old_val;
         }
 
@@ -554,11 +558,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Create a new leaf
         art_leaf *l2 = make_leaf(key, key_len, document);
 
-        // Determine longest prefix
         uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
-        new_n->n.max_score = (uint16_t) MAX(l->max_score, (const uint16_t &) document->score);;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
+
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
         add_child4(new_n, ref, l->key[depth+longest_prefix], SET_LEAF(l));
@@ -567,6 +570,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     }
 
     n->max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
+    n->max_token_count = (uint16_t) MAX(n->max_token_count, num_hits);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -581,7 +585,6 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
         *ref = (art_node*)new_n;
         new_n->n.partial_len = prefix_diff;
-        new_n->n.max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
         memcpy(new_n->n.partial, n->partial, min(MAX_PREFIX_LEN, prefix_diff));
 
         // Adjust the prefix of the old node
@@ -609,7 +612,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, document, depth+1, old);
+        return recursive_insert(*child, child, key, key_len, document, num_hits, depth + 1, old_val);
     }
 
     // No child, node goes within us
@@ -627,10 +630,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document) {
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document, uint32_t num_hits) {
     int old_val = 0;
 
-    void *old = recursive_insert(t->root, &t->root, key, key_len, document, 0, &old_val);
+    void *old = recursive_insert(t->root, &t->root, key, key_len, document, num_hits, 0, &old_val);
     if (!old_val) t->size++;
     return old;
 }
