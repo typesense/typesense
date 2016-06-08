@@ -23,6 +23,14 @@
 #define printf(fmt, ...) (0)
 #endif
 
+/*
+ * Comparator for art_leaf struct.
+ * We order the leaves descending based on the score.
+ */
+bool compare_art_leaf(const art_leaf* a, const art_leaf* b) {
+    return a->score > b->score;
+}
+
 /**
  * Allocates a node of the given type,
  * initializes to zero and sets the type.
@@ -840,6 +848,7 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
+            //std::cout << "\nLEAF, SCORE: " << l->score << std::endl;
             results.push_back(l);
             continue;
         }
@@ -891,6 +900,7 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
         }
     }
 
+    std::sort(results.begin(), results.end(), compare_art_leaf);
     printf("OUTSIDE topk_iter: results size: %d\n", results.size());
 
     return 0;
@@ -1103,6 +1113,8 @@ void copyIntArray(int *dest, int *src, int len) {
 
 static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost, int max_words,
                                          int depth, int* previous_row, std::vector<art_leaf*> & results) {
+    if (!n) return 0;
+
     if (IS_LEAF(n)) {
         printf("IS_LEAF\n");
 
