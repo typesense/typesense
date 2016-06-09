@@ -59,16 +59,10 @@ public:
     }
 
     uint32_t inline unsorted_append_size_required(uint32_t value) {
-      if (length == 0) {
-          return METADATA_OVERHEAD+FOR_ELE_SIZE;
-      }
-
       uint32_t m = std::min(min, value);
       uint32_t M = std::max(max, value);
-
       uint32_t bnew = required_bits(M - m);
-
-      return METADATA_OVERHEAD + for_compressed_size_bits(length, bnew);
+      return METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
     }
 
     bool append_unsorted(uint32_t value) {
