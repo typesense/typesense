@@ -108,10 +108,10 @@ typedef struct {
  * of arbitrary size, as they include the key.
  */
 typedef struct {
+    art_values* values;
     uint16_t max_score;
     uint32_t token_count;
     uint32_t key_len;
-    art_values* values;
     unsigned char key[];
 } art_leaf;
 

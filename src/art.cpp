@@ -371,6 +371,7 @@ static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
 
 static void copy_header(art_node *dest, art_node *src) {
     dest->max_score = src->max_score;
+    dest->max_token_count = src->max_token_count;
     dest->num_children = src->num_children;
     dest->partial_len = src->partial_len;
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
