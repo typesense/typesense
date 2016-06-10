@@ -28,7 +28,27 @@
  * We order the leaves descending based on the score.
  */
 bool compare_art_leaf(const art_leaf* a, const art_leaf* b) {
-    return a->max_score > b->max_score;
+    return a->token_count > b->token_count;
+}
+
+bool compare_art_node(const art_node* a, const art_node* b) {
+    uint32_t a_score = 0, b_score = 0;
+
+    if(IS_LEAF(a)) {
+        art_leaf* al = (art_leaf *) LEAF_RAW(a);
+        a_score = al->token_count;
+    } else {
+        a_score = a->max_token_count;
+    }
+
+    if(IS_LEAF(b)) {
+        art_leaf* bl = (art_leaf *) LEAF_RAW(b);
+        b_score = bl->token_count;
+    } else {
+        b_score = b->max_token_count;
+    }
+
+    return a_score > b_score;
 }
 
 /**
@@ -54,6 +74,8 @@ static art_node* alloc_node(uint8_t type) {
             abort();
     }
     n->type = type;
+    n->max_score = 0;
+    n->max_token_count = 0;
     return n;
 }
 
@@ -250,7 +272,7 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len) {
             n = (art_node *) LEAF_RAW(n);
             // Check if the expanded path matches
             if (!leaf_matches((art_leaf*)n, key, key_len, depth)) {
-                return ((art_leaf*)n)->values;
+                return ((art_leaf*)n);
             }
             return NULL;
         }
@@ -353,9 +375,11 @@ static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->values = new art_values;
-    add_document_to_leaf(document, l);
+    l->token_count = 0;
+    l->max_score = 0;
     l->key_len = key_len;
     memcpy(l->key, key, key_len);
+    add_document_to_leaf(document, l);
     return l;
 }
 
@@ -571,7 +595,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     }
 
     n->max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
-    n->max_token_count = (uint16_t) MAX(n->max_token_count, num_hits);
+    n->max_token_count = MAX(n->max_token_count, num_hits);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -809,41 +833,41 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     return NULL;
 }
 
+static uint32_t get_score(art_node* child) {
+    if (IS_LEAF(child)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(child);
+        return l->token_count;
+    }
+
+    return child->max_token_count;
+}
+
 static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
 
-    // FIXME: try to avoid branching
     auto cmp = [term_len](art_node * left, art_node * right) {
         int lscore, rscore;
         if (IS_LEAF(left)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(left);
-            // Exact matches should be boosted ahead of others
-            if(l->key_len == term_len) {
-                lscore = std::numeric_limits<uint16_t>::max();
-            } else {
-                lscore = l->max_score;
-            }
+            lscore = l->token_count;
         } else {
-            lscore = left->max_score;
+            lscore = left->max_token_count;
         }
 
         if(IS_LEAF(right)) {
             art_leaf *r = (art_leaf *) LEAF_RAW(right);
-            if(r->key_len == term_len) {
-                rscore = std::numeric_limits<uint16_t>::max();
-            } else {
-                rscore = r->max_score;
-            }
+            rscore = r->token_count;
         } else {
-            rscore = right->max_score;
+            rscore = right->max_token_count;
         }
 
+        // priority queue sorts based on priority (so use < for sorting descending order by score)
         return lscore < rscore;
     };
+
     std::priority_queue<art_node *, std::vector<art_node *>, decltype(cmp)> q(cmp);
 
     q.push(root);
-    //std::cout << "ROOT SCORE: " << root->score << std::endl;
 
     while(!q.empty() && results.size() < k) {
         art_node *n = (art_node *) q.top();
@@ -852,7 +876,8 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-            //std::cout << "\nLEAF, SCORE: " << l->score << std::endl;
+            //printf("\nLEAF: %.*s", leaf->key_len, leaf->key);
+            //std::cout << ", SCORE: " << l->token_count << std::endl;
             results.push_back(l);
             continue;
         }
@@ -860,38 +885,33 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
         int idx;
         switch (n->type) {
             case NODE4:
-                //std::cout << "\nNODE4, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE4, SCORE: " << n->max_token_count << std::endl;
                 for (int i=0; i < n->num_children; i++) {
                     art_node* child = ((art_node4*)n)->children[i];
-                    if(IS_LEAF(child)) {
-                        art_leaf* l = (art_leaf*)LEAF_RAW(child);
-                        //std::cout << "LSCORE: " << l->score << std::endl;
-                    } else {
-                        //std::cout << "SCORE: " << child->score << std::endl;
-                    }
                     q.push(child);
                 }
-                //std::cout << "---" << std::endl;
                 break;
 
             case NODE16:
-                //std::cout << "\nNODE16, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE16, SCORE: " << n->max_token_count << std::endl;
                 for (int i=0; i < n->num_children; i++) {
                     q.push(((art_node16*)n)->children[i]);
                 }
                 break;
 
             case NODE48:
-                //std::cout << "\nNODE48, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE48, SCORE: " << n->max_token_count << std::endl;
                 for (int i=0; i < 256; i++) {
                     idx = ((art_node48*)n)->keys[i];
                     if (!idx) continue;
-                    q.push(((art_node48*)n)->children[idx-1]);
+                    art_node *child = ((art_node48*)n)->children[idx - 1];
+                    //std::cout << "--PUSHING NODE48 CHILD WITH SCORE: " << get_score(child) << std::endl;
+                    q.push(child);
                 }
                 break;
 
             case NODE256:
-                //std::cout << "\nNODE256, SCORE: " << n->score << std::endl;
+                //std::cout << "\nNODE256, SCORE: " << n->max_token_count << std::endl;
                 for (int i=0; i < 256; i++) {
                     if (!((art_node256*)n)->children[i]) continue;
                     q.push(((art_node256*)n)->children[i]);
@@ -1072,7 +1092,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
       if(new_current_row[term_len] <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
-        topk_iter(child, term_len, max_words, results);\
+        results.push_back(child);\
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
@@ -1089,7 +1109,7 @@ void print_row(int* row, int row_len) {
 }
 
 int levenshtein_score(char ch, const unsigned char* term, const int term_len, int* previous_row, int* current_row) {
-    int row_min = 12;
+    int row_min = std::numeric_limits<int>::max();
     int insert_or_del, replace;
 
     printf("\nPREVIOUS ROW: ");
@@ -1116,7 +1136,7 @@ void copyIntArray(int *dest, int *src, int len) {
 }
 
 static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost, int max_words,
-                                         int depth, int* previous_row, std::vector<art_leaf*> & results) {
+                                         int depth, int* previous_row, std::vector<art_node*> & results) {
     if (!n) return 0;
 
     if (IS_LEAF(n)) {
@@ -1147,7 +1167,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
         }
 
         if(current_row[term_len] <= max_cost) {
-            topk_iter(n, term_len, max_words, results);
+            results.push_back(n);
         }
 
         return 0;
@@ -1179,7 +1199,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
     if(depth == term_len) {
         if(current_row[term_len] <= max_cost) {
             printf("PARTIAL START RECURSIVE ITER\n");
-            return topk_iter(n, term_len, max_words, results);
+            results.push_back(n);
         }
 
         return 0;
@@ -1261,5 +1281,13 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
         previous_row[i] = i;
     }
 
-    return art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, max_words, 0, previous_row, results);
+    std::vector<art_node*> nodes;
+    art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, max_words, 0, previous_row, nodes);
+    std::sort(nodes.begin(), nodes.end(), compare_art_node);
+
+    for(auto node: nodes) {
+        topk_iter(node, term_len, max_words, results);
+    }
+
+    return 0;
 }

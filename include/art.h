@@ -243,6 +243,8 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
  */
 int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len, int max_cost, int max_words, std::vector<art_leaf*> & results);
 
+static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results);
+
 #ifdef __cplusplus
 }
 #endif
