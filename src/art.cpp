@@ -1085,12 +1085,12 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
 \
-    printf("fuzzy_recurse - score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term_len: %d \n",\
-            child->score, child_char, new_current_row[term_len], max_cost, row_min, depth, term_len);\
+    printf("fuzzy_recurse - score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term[depth]: %c \n",\
+            child->max_score, child_char, new_current_row[term_len], max_cost, row_min, depth, term[depth]);\
 \
     if(depth == term_len-1) {\
       /* reached end of term, and cost is below threshold, print children of this node as matches*/\
-      if(new_current_row[term_len] <= max_cost) {\
+      if(row_min <= max_cost) {\
         printf("START RECURSIVE ITER\n");\
         results.push_back(child);\
       }\
@@ -1174,7 +1174,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
     }
 
     printf("START PARTIAL: score: %d, partial_len: %d, partial: %s, term_len: %d, depth: %d\n",
-           n->score, n->partial_len, n->partial, term_len, depth);
+           n->max_score, n->partial_len, n->partial, term_len, depth);
 
     // internal node - first we check partial (via path compression) and then child index
     int partial_len = min(MAX_PREFIX_LEN, n->partial_len);

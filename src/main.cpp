@@ -110,11 +110,13 @@ void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, 
   for(auto token: tokens) {
       for(int max_cost=0; max_cost<2; max_cost++) {
         vector<art_leaf*> leaves;
-        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 20, leaves);
+        //cout << "For token: " << token << endl;
+        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 10, leaves);
         if(!leaves.empty()) {
-          for(auto i=0; i<leaves.size(); i++) {
-            cout << leaves[i]->key << " / " << leaves[i]->token_count << endl;
-          }
+          /*for(auto i=0; i<leaves.size(); i++) {
+            printf("%.*s", leaves[i]->key_len, leaves[i]->key);
+            printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->token_count);
+          }*/
           token_leaves.push_back(leaves);
           break;
         }
@@ -233,6 +235,10 @@ int main() {
 
         if(parts.size() != 2) continue;
 
+        /*if(doc_id == 108028 || doc_id == 592504 || doc_id == 51876) {
+          cout << "Doc " << doc_id << ": " << line << endl;
+        }*/
+
         docscores[doc_id] = (uint16_t) stoi(parts[1]);
         index_document(t, doc_id, tokens, stoi(parts[1]));
         doc_id++;
@@ -261,9 +267,9 @@ int main() {
         std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }*/
 
-    ///find_documents(t, docscores, "app;e", 10);
+//    find_documents(t, docscores, "thei nternet", 10);
 
-    string token = "app;e";
+    string token = "nternet";
     vector<art_leaf*> leaves;
 
     auto begin = std::chrono::high_resolution_clock::now();
