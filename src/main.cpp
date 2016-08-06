@@ -107,20 +107,18 @@ void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, 
   tokenize(query, tokens, " ", true);
 
   vector<vector<art_leaf*>> token_leaves;
-  for(auto token: tokens) {
-      for(int max_cost=0; max_cost<2; max_cost++) {
-        vector<art_leaf*> leaves;
-        //cout << "For token: " << token << endl;
-        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 10, leaves);
-        if(!leaves.empty()) {
-          /*for(auto i=0; i<leaves.size(); i++) {
-            printf("%.*s", leaves[i]->key_len, leaves[i]->key);
-            printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->token_count);
-          }*/
-          token_leaves.push_back(leaves);
-          break;
-        }
+  for(string token: tokens) {
+    vector<art_leaf*> leaves;
+    int max_cost = 2;
+    art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 10, leaves);
+    if(!leaves.empty()) {
+      for(auto i=0; i<leaves.size(); i++) {
+        //printf("%s - ", token.c_str());
+        //printf("%.*s", leaves[i]->key_len, leaves[i]->key);
+        //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->token_count);
       }
+      token_leaves.push_back(leaves);
+    }
   }
 
   Topster<100> topster;
@@ -161,6 +159,8 @@ void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, 
         result_ids = out;
     }
 
+    //cout << "2result_size: " << result_size << endl;
+
     // go through each matching document id and calculate match score
     for(auto i=0; i<result_size; i++) {
         uint32_t doc_id = result_ids[i];
@@ -194,7 +194,7 @@ void find_documents(art_tree & t, unordered_map<uint32_t, uint16_t>& docscores, 
 
   topster.sort();
 
-  cout << "RESULTS: " << endl << endl;
+  //cout << "RESULTS: " << endl << endl;
 
   for(uint32_t i=0; i<topster.size; i++) {
     uint32_t id = topster.getKeyAt(i);
@@ -219,8 +219,8 @@ int main() {
 
     unordered_map<uint32_t, uint16_t> docscores;
 
-//    std::ifstream infile("/Users/kishorenc/others/wreally/search/test/documents.txt");
-    std::ifstream infile("/data/hnstories.tsv");
+//    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
 
     std::string line;
     uint32_t doc_id = 1;
@@ -235,9 +235,11 @@ int main() {
 
         if(parts.size() != 2) continue;
 
-        /*if(doc_id == 108028 || doc_id == 592504 || doc_id == 51876) {
+        if(doc_id == 857622 || doc_id == 52838 || doc_id == 56961) {
           cout << "Doc " << doc_id << ": " << line << endl;
-        }*/
+        }
+
+        //cout << "Doc " << doc_id << ": " << line << endl;
 
         docscores[doc_id] = (uint16_t) stoi(parts[1]);
         index_document(t, doc_id, tokens, stoi(parts[1]));
@@ -267,18 +269,18 @@ int main() {
         std::cout << ", Value: " << leaf->values->ids.at(0) << std::endl;
     }*/
 
-//    find_documents(t, docscores, "thei nternet", 10);
-
-    string token = "nternet";
-    vector<art_leaf*> leaves;
-
     auto begin = std::chrono::high_resolution_clock::now();
-    art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), 1, 10, leaves);
+    find_documents(t, docscores, "thei rserch", 10);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    for(auto leaf: leaves) {
-      printf("Word: %.*s", leaf->key_len, leaf->key);
-      cout << " - score: " << leaf->token_count << endl;
-    }
+
+//    string token = "nternet";
+//    vector<art_leaf*> leaves;
+//
+//    art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), 1, 10, leaves);
+//    for(auto leaf: leaves) {
+//      printf("Word: %.*s", leaf->key_len, leaf->key);
+//      cout << " - score: " << leaf->token_count << endl;
+//    }
 
     cout << "Time taken: " << timeMillis << "us" << endl;
 

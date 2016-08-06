@@ -1080,7 +1080,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     return 0;
 }
 
-#define fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results) {\
+#define fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results) {\
     int new_current_row[term_len+1];\
     new_current_row[0] = previous_row[0] + 1;\
     row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
@@ -1096,11 +1096,11 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
       }\
     } else if(row_min <= max_cost) {\
       int new_depth = (child_char != 0) ? depth+1 : depth;\
-      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, max_words, new_depth, new_current_row, results);\
+      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, new_current_row, results);\
     }\
 }\
 
-void print_row(int* row, int row_len) {
+void print_row(const int* row, const int row_len) {
     for(int i=0; i<=row_len; i++) {
         printf("%d ", row[i]);
     }
@@ -1108,7 +1108,7 @@ void print_row(int* row, int row_len) {
     printf("\n");
 }
 
-int levenshtein_score(char ch, const unsigned char* term, const int term_len, int* previous_row, int* current_row) {
+int levenshtein_score(const char ch, const unsigned char* term, const int term_len, const int* previous_row, int* current_row) {
     int row_min = std::numeric_limits<int>::max();
     int insert_or_del, replace;
 
@@ -1135,7 +1135,7 @@ void copyIntArray(int *dest, int *src, int len) {
     }
 }
 
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, int term_len, int max_cost, int max_words,
+static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, const int term_len, const int max_cost,
                                          int depth, int* previous_row, std::vector<art_node*> & results) {
     if (!n) return 0;
 
@@ -1215,7 +1215,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = ((art_node4*)n)->keys[i];
                 printf("4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
                 art_node* child = ((art_node4*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
+                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
             }
             break;
 
@@ -1225,7 +1225,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = ((art_node16*)n)->keys[i];
                 printf("16!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node16*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
+                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
             }
             break;
 
@@ -1237,7 +1237,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 art_node* child = ((art_node48*)n)->children[ix - 1];
                 char child_char = (char)i;
                 printf("48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
-                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
+                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
             }
             break;
 
@@ -1248,7 +1248,7 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
                 char child_char = (char) i;
                 printf("256!child_char: %c, depth: %d", child_char, depth);
                 art_node* child = ((art_node256*)n)->children[i];
-                fuzzy_recurse(child_char, term, term_len, depth, max_words, previous_row, results);
+                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
             }
             break;
 
@@ -1282,12 +1282,20 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
     }
 
     std::vector<art_node*> nodes;
-    art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, max_words, 0, previous_row, nodes);
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, 0, previous_row, nodes);
     std::sort(nodes.begin(), nodes.end(), compare_art_node);
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken for fuzz: " << timeMillis << "us" << std::endl;
+
+    begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
         topk_iter(node, term_len, max_words, results);
     }
 
+    timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken 2 iter: " << timeMillis << "us" << std::endl;
     return 0;
 }

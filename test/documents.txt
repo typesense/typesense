@@ -6,7 +6,8 @@ The heaviest martian spacecraft	13
 To what extent are the US modules of ISS based on the Spacelab design?	13
 Could future astronauts eat during EVAs?	12
 What is the power requirement of a spacesuit?	12
-How does plant growing medium not scatter around?12Is there research for the optimal small crew size for a long space voyage?	12
+How does plant growing medium not scatter around?12
+Is there research for the optimal small crew size for a long space voyage?	12
 Do long term missions receive insurance coverage?	12
 What do they exactly look for when searching for extraterrestrial intelligence?	12
 What were emergency procedures for failure of launch vehicles with nuclear upper stages?	11
