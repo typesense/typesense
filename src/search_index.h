@@ -4,6 +4,7 @@
 #include <vector>
 #include <art.h>
 #include <unordered_map>
+#include <topster.h>
 
 class SearchIndex {
 private:
@@ -14,5 +15,12 @@ public:
     ~SearchIndex();
     void add(uint32_t doc_id, std::vector<std::string> tokens, uint16_t score);
     void search(std::string query, size_t max_results);
+
+    static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
+                                             long long int n);
+
+    void score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
+                       const uint32_t *result_ids,
+                       size_t result_size) const;
 };
 

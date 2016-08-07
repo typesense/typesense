@@ -50,14 +50,14 @@ void SearchIndex::add(uint32_t doc_id, std::vector<std::string> tokens, uint16_t
 
 
 /*
-   1. Split q into tokens
+   1. Split the query into tokens
    2. For each token, look up ids using exact lookup
        a. If a token has no result, try again with edit distance of 1, and then 2
    3. Do a limited cartesian product of the word suggestions for each token to form possible corrected search phrases
       (adapted from: http://stackoverflow.com/a/31169617/131050)
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
- */
+*/
 void SearchIndex::search(std::string query, size_t max_results) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
@@ -84,20 +84,8 @@ void SearchIndex::search(std::string query, size_t max_results) {
     long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
 
     for(long long n=0; n<N && n<combination_limit; ++n) {
-        // every element in vector `query_suggestion` represents a token and its associated hits
-        std::vector<art_leaf*> query_suggestion(token_leaves.size());
-
-        // generate the next combination from `token_leaves` and store it in `query_suggestion`
-        ldiv_t q { n, 0 };
-        for(long long i=token_leaves.size()-1 ; 0<=i ; --i ) {
-            q = ldiv(q.quot, token_leaves[i].size());
-            query_suggestion[i] = token_leaves[i][q.rem];
-        }
-
-        // sort ascending based on matched documents for each token to perform effective intersection
-        sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
-            return left->values->ids.getLength() < right->values->ids.getLength();
-        });
+        // every element in `query_suggestion` represents a token and its associated hits
+        std::vector<art_leaf *> query_suggestion = _next_suggestion(token_leaves, n);
 
         // initialize results with the starting element (for further intersection)
         uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
@@ -115,32 +103,8 @@ void SearchIndex::search(std::string query, size_t max_results) {
             result_ids = out;
         }
 
-        //cout << "2result_size: " << result_size << endl;
-
         // go through each matching document id and calculate match score
-        for(auto i=0; i<result_size; i++) {
-            uint32_t doc_id = result_ids[i];
-            std::vector<std::vector<uint16_t>> token_positions;
-
-            // for each token in the query, find the positions that it appears in this document
-            for (art_leaf *token_leaf : query_suggestion) {
-                std::vector<uint16_t> positions;
-                uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
-                uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
-                uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
-                for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
-                    positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
-                }
-                token_positions.push_back(positions);
-            }
-
-            MatchScore mscore = MatchScore::match_score(doc_id, token_positions);
-            const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + doc_scores[doc_id];
-
-//        cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: " << (int)mscore.distance << " - mscore.words_present: " << (int)mscore.words_present
-//             << " - docscores[doc_id]: " << (int)docscores[doc_id] << "  - cumulativeScore: " << cumulativeScore << endl;
-            topster.add(doc_id, cumulativeScore);
-        }
+        score_results(topster, query_suggestion, result_ids, result_size);
 
         total_results += result_size;
         delete result_ids;
@@ -150,10 +114,58 @@ void SearchIndex::search(std::string query, size_t max_results) {
 
     topster.sort();
 
-    //cout << "RESULTS: " << endl << endl;
-
     for(uint32_t i=0; i<topster.size; i++) {
         uint32_t id = topster.getKeyAt(i);
         std::cout << "ID: " << id << std::endl;
     }
+}
+
+void SearchIndex::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
+                                const uint32_t *result_ids, size_t result_size) const {
+    for(auto i=0; i<result_size; i++) {
+        uint32_t doc_id = result_ids[i];
+        std::__1::vector<std::__1::vector<uint16_t>> token_positions;
+
+        // for each token in the query, find the positions that it appears in this document
+        for (art_leaf *token_leaf : query_suggestion) {
+            std::__1::vector<uint16_t> positions;
+            uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
+            uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
+            uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
+            for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
+                positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
+            }
+            token_positions.push_back(positions);
+        }
+
+        MatchScore mscore = MatchScore::match_score(doc_id, token_positions);
+        const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + doc_scores.at(doc_id);
+
+        /*std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "
+                  << (int)mscore.distance << " - mscore.words_present: " << (int)mscore.words_present
+                  << " - doc_scores[doc_id]: " << (int)doc_scores[doc_id] << "  - cumulativeScore: "
+                  << cumulativeScore << std::endl;*/
+
+        topster.add(doc_id, cumulativeScore);
+    }
+}
+
+inline std::vector<art_leaf *> SearchIndex::_next_suggestion(
+        const std::vector<std::vector<art_leaf *>> &token_leaves,
+        long long int n) {
+    std::vector<art_leaf*> query_suggestion(token_leaves.size());
+
+    // generate the next combination from `token_leaves` and store it in `query_suggestion`
+    ldiv_t q { n, 0 };
+    for(long long i=token_leaves.size()-1 ; 0<=i ; --i ) {
+        q = ldiv(q.quot, token_leaves[i].size());
+        query_suggestion[i] = token_leaves[i][q.rem];
+    }
+
+    // sort ascending based on matched documents for each token for faster intersection
+    sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
+        return left->values->ids.getLength() < right->values->ids.getLength();
+    });
+
+    return query_suggestion;
 }
