@@ -5,10 +5,11 @@
 #include <cstdio>
 #include <algorithm>
 
+/*
+* A bounded max heap that remembers the top-K elements seen so far
+*/
 template <size_t MAX_SIZE=100>
 struct Topster {
-    // A bounded max heap that remembers the top-K elements seen so far
-
     uint64_t data[MAX_SIZE];
     uint32_t smallest_index = 0;
     uint32_t size = 0;
