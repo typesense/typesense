@@ -2,3 +2,7 @@
 	path = external/for
 	url = git@github.com:cruppstahl/for.git
 	ignore = dirty
+[submodule "external/crow"]
+	path = external/crow
+	url = git@github.com:ipkn/crow.git
+	ignore = dirty
