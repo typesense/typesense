@@ -6,7 +6,6 @@
 #include <art.h>
 #include <unordered_map>
 #include "string_utils.h"
-#include "crow_all.h"
 #include "search_index.h"
 
 using namespace std;
