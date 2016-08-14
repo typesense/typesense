@@ -1,14 +1,25 @@
 # Typesense
 
-A typo tolerant, open source search engine that helps you build delightful search experiences.
+Typesense is an open source search engine for building delightful search experiences.
+
+- **Typo tolerance:** Handles typographical errors out-of-the-box
+- **Tunable ranking + relevancy:** Tailor your search results to perfection
+- **Blazing fast:** Meticulously designed and optimized for speed
+- **Simple and delightful:** Dead simple API, delightful out-of-the-box experience
+
+## Quick start
+
+TODO
 
 ## Dependencies
 
 * [libfor](https://github.com/cruppstahl/for/)
+* [h2o](https://github.com/h2o/h2o)
+* OpenSSL
+* Boost
 
-## Building
+## Building `libfor`
 
 * Switch to `external/libfor` and build libfor
-* Install `boost`
 
 &copy; 2016 Wreally Studios Inc.
