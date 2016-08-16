@@ -14,5 +14,5 @@ include_directories(/usr/local/opt/openssl/include)
 add_executable(search src/art.cpp src/intersection.cpp src/main.cpp src/search_index.cpp)
 add_executable(typesense-server src/art.cpp src/intersection.cpp src/search_index.cpp src/search_server.cpp)
 
-target_link_libraries(search ${CMAKE_SOURCE_DIR}/external/for/libfor.a boost_system)
-target_link_libraries(typesense-server ${CMAKE_SOURCE_DIR}/external/for/libfor.a boost_system curl h2o-evloop pthread /usr/local/opt/openssl/lib/libssl.a /usr/local/opt/openssl/lib/libcrypto.a)
+target_link_libraries(search ${CMAKE_SOURCE_DIR}/external/for/libfor.a)
+target_link_libraries(typesense-server ${CMAKE_SOURCE_DIR}/external/for/libfor.a curl h2o-evloop pthread /usr/local/opt/openssl/lib/libssl.a /usr/local/opt/openssl/lib/libcrypto.a)
