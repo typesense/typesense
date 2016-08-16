@@ -1,6 +1,6 @@
 # Typesense
 
-Typesense is an open source search engine for building delightful search experiences.
+Typesense is an open source search engine for building a delightful search experience.
 
 - **Typo tolerance:** Handles typographical errors out-of-the-box
 - **Tunable ranking + relevancy:** Tailor your search results to perfection
@@ -16,7 +16,6 @@ TODO
 * [libfor](https://github.com/cruppstahl/for/)
 * [h2o](https://github.com/h2o/h2o)
 * OpenSSL
-* Boost
 
 ## Building `libfor`
 
