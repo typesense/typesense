@@ -1,21 +1,25 @@
-#include "search_index.h"
+#include "collection.h"
 
 #include <iostream>
 #include <numeric>
+#include <unordered_map>
 #include <topster.h>
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
+#include <art.h>
 
-SearchIndex::SearchIndex() {
+Collection::Collection() {
+    state = CollectionState();
     art_tree_init(&t);
 }
 
-SearchIndex::~SearchIndex() {
+Collection::~Collection() {
     art_tree_destroy(&t);
 }
 
-void SearchIndex::add(uint32_t doc_id, std::vector<std::string> tokens, uint16_t score) {
+void Collection::add(std::vector<std::string> tokens, uint16_t score) {
+    uint32_t doc_id = state.nextId();
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
     for(uint32_t i=0; i<tokens.size(); i++) {
@@ -31,11 +35,13 @@ void SearchIndex::add(uint32_t doc_id, std::vector<std::string> tokens, uint16_t
         document.offsets_len = (uint32_t) kv.second.size();
         document.offsets = new uint32_t[kv.second.size()];
 
-        uint32_t num_hits = document.offsets_len;
+        uint32_t num_hits = 0;
         art_leaf* leaf = (art_leaf *) art_search(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length());
         if(leaf != NULL) {
-            num_hits += leaf->token_count;
+            num_hits = leaf->values->ids.getLength();
         }
+
+        num_hits += 1;
 
         for(auto i=0; i<kv.second.size(); i++) {
             document.offsets[i] = kv.second[i];
@@ -58,7 +64,7 @@ void SearchIndex::add(uint32_t doc_id, std::vector<std::string> tokens, uint16_t
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-void SearchIndex::search(std::string query, size_t max_results) {
+void Collection::search(std::string query, size_t max_results) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
 
@@ -120,7 +126,7 @@ void SearchIndex::search(std::string query, size_t max_results) {
     }
 }
 
-void SearchIndex::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
+void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
                                 const uint32_t *result_ids, size_t result_size) const {
     for(auto i=0; i<result_size; i++) {
         uint32_t doc_id = result_ids[i];
@@ -150,7 +156,7 @@ void SearchIndex::score_results(Topster<100> &topster, const std::vector<art_lea
     }
 }
 
-inline std::vector<art_leaf *> SearchIndex::_next_suggestion(
+inline std::vector<art_leaf *> Collection::_next_suggestion(
         const std::vector<std::vector<art_leaf *>> &token_leaves,
         long long int n) {
     std::vector<art_leaf*> query_suggestion(token_leaves.size());

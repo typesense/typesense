@@ -6,18 +6,17 @@
 #include <art.h>
 #include <unordered_map>
 #include "string_utils.h"
-#include "search_index.h"
+#include "collection.h"
 
 using namespace std;
 
 int main() {
-    SearchIndex *index = new SearchIndex();
+    Collection *index = new Collection();
 
     //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
     std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
 
     std::string line;
-    uint32_t doc_id = 1;
 
     while (std::getline(infile, line)) {
         vector<string> parts;
@@ -28,8 +27,7 @@ int main() {
         StringUtils::tokenize(parts[0], tokens, " ", true);
 
         if(parts.size() != 2) continue;
-        index->add(doc_id, tokens, stoi(parts[1]));
-        doc_id++;
+        index->add(tokens, stoi(parts[1]));
     }
 
     cout << "FINISHED INDEXING!" << endl << flush;

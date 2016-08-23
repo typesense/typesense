@@ -15,7 +15,8 @@
 #include <map>
 #include <regex>
 #include "string_utils.h"
-#include "search_index.h"
+#include "collection.h"
+#include "json.hpp"
 
 #include "h2o.h"
 #include "h2o/http1.h"
@@ -25,7 +26,7 @@
 static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
-static SearchIndex *search_index = new SearchIndex();
+static Collection *collection = new Collection();
 
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
@@ -54,14 +55,21 @@ std::map<std::string, std::string> parse_query(const std::string& query) {
 
 
 static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
-//    auto begin = std::chrono::high_resolution_clock::now();
-//    search_index->search("thei rserch", 100);
-//    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-//    std::cout << "Time taken: " << timeMillis << "us" << std::endl;
+    /*
+        nlohmann::json_j;
+
+        // add a number that is stored as double (note the implicit conversion of j to an object)
+        j["pi"] = 3.141;
+
+        // add a Boolean that is stored as bool
+        j["happy"] = true;
+     */
+
     static h2o_generator_t generator = {NULL, NULL};
 
-    if (!h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET")))
+    if (!h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET"))) {
         return -1;
+    }
 
     h2o_iovec_t query = req->query_at != SIZE_MAX ?
                         h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
@@ -72,7 +80,10 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
     std::string query_str(query.base, query.len);
     std::map<std::string, std::string> query_map = parse_query(query_str);
 
-    std::cout << "foo=" << query_map["foo"] << std::endl << std::flush;
+    auto begin = std::chrono::high_resolution_clock::now();
+    collection->search(query_map["q"], 100);
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken: " << timeMillis << "us" << std::endl;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, "hello world\n", SIZE_MAX);
     req->res.status = 200;
@@ -134,11 +145,10 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
+    //std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
 
     std::string line;
-    uint32_t doc_id = 1;
 
     while (std::getline(infile, line)) {
         std::vector<std::string> parts;
@@ -149,8 +159,7 @@ void index_documents() {
         StringUtils::tokenize(parts[0], tokens, " ", true);
 
         if(parts.size() != 2) continue;
-        search_index->add(doc_id, tokens, stoi(parts[1]));
-        doc_id++;
+        collection->add(tokens, stoi(parts[1]));
     }
 
     std::cout << "FINISHED INDEXING!" << std::endl << std::flush;
@@ -159,12 +168,12 @@ void index_documents() {
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
-    //index_documents();
+    index_documents();
 
     h2o_config_init(&config);
     h2o_hostconf_t *hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/post-test", post_test);
-    register_handler(hostconf, "/chunked-test", chunked_test);
+    register_handler(hostconf, "/search", chunked_test);
     h2o_file_register(h2o_config_register_path(hostconf, "/", 0), "examples/doc_root", NULL, NULL, 0);
 
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
@@ -179,6 +188,6 @@ int main(int argc, char **argv) {
 
     while (h2o_evloop_run(ctx.loop) == 0);
 
-    delete search_index;
+    delete collection;
     return 0;
 }
