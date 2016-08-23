@@ -83,6 +83,8 @@ void Collection::search(std::string query, size_t max_results) {
         }
     }
 
+    //std::cout << "token_leaves.size = " << token_leaves.size() << std::endl;
+
     Topster<100> topster;
     size_t total_results = 0;
     const size_t combination_limit = 10;
