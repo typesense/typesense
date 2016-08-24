@@ -36,7 +36,10 @@ void Collection::add(std::vector<std::string> tokens, uint16_t score) {
         document.offsets = new uint32_t[kv.second.size()];
 
         uint32_t num_hits = 0;
-        art_leaf* leaf = (art_leaf *) art_search(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length());
+        const unsigned char *key = (const unsigned char *) kv.first.c_str();
+        int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
+
+        art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
         if(leaf != NULL) {
             num_hits = leaf->values->ids.getLength();
         }
@@ -47,7 +50,7 @@ void Collection::add(std::vector<std::string> tokens, uint16_t score) {
             document.offsets[i] = kv.second[i];
         }
 
-        art_insert(&t, (const unsigned char *) kv.first.c_str(), (int) kv.first.length(), &document, num_hits);
+        art_insert(&t, key, key_len, &document, num_hits);
         delete document.offsets;
     }
 
@@ -136,11 +139,11 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
                                 const uint32_t *result_ids, size_t result_size) const {
     for(auto i=0; i<result_size; i++) {
         uint32_t doc_id = result_ids[i];
-        std::__1::vector<std::__1::vector<uint16_t>> token_positions;
+        std::vector<std::vector<uint16_t>> token_positions;
 
         // for each token in the query, find the positions that it appears in this document
         for (art_leaf *token_leaf : query_suggestion) {
-            std::__1::vector<uint16_t> positions;
+            std::vector<uint16_t> positions;
             uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
             uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
             uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
