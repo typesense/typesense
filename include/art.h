@@ -110,7 +110,6 @@ typedef struct {
 typedef struct {
     art_values* values;
     uint16_t max_score;
-    uint32_t token_count;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;

@@ -28,5 +28,5 @@
 
 **Refactoring**
 
-- `token_count` in leaf is redundant: can be accessed from value
-- ~~storing length in `offsets` is redundant: it can be found by looking up value of the next index in `offset_index`~~
+- ~~`token_count` in leaf is redundant: can be accessed from value~~
+- ~~storing length in `offsets` is redundant: it can be found by looking up value of the next index in offset_index~~
