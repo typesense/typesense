@@ -83,6 +83,10 @@ void Collection::search(std::string query, size_t max_results) {
         }
     }
 
+    if(token_leaves.size() == 0) {
+        return ;
+    }
+
     //std::cout << "token_leaves.size = " << token_leaves.size() << std::endl;
 
     Topster<100> topster;
@@ -138,11 +142,16 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
         for (art_leaf *token_leaf : query_suggestion) {
             std::__1::vector<uint16_t> positions;
             uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
-            uint32_t offset_index = token_leaf->values->offset_index.at(doc_index);
-            uint32_t num_offsets = token_leaf->values->offsets.at(offset_index);
-            for (auto offset_count = 1; offset_count <= num_offsets; offset_count++) {
-                positions.push_back((uint16_t) token_leaf->values->offsets.at(offset_index + offset_count));
+            uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
+            uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
+                                  (token_leaf->values->offsets.getLength() - 1) :
+                                  token_leaf->values->offset_index.at(doc_index+1);
+
+            while(start_offset <= end_offset) {
+                positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
+                start_offset++;
             }
+
             token_positions.push_back(positions);
         }
 

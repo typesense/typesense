@@ -366,7 +366,6 @@ static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
     uint32_t curr_index = leaf->values->offsets.getLength();
     leaf->values->offset_index.append_sorted(curr_index);
 
-    leaf->values->offsets.append_unsorted(document->offsets_len);
     for(uint32_t i=0; i<document->offsets_len; i++) {
         leaf->values->offsets.append_unsorted(document->offsets[i]);
     }
