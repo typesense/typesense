@@ -283,6 +283,8 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len) {
             if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
                 return NULL;
             depth = depth + n->partial_len;
+            if(depth > key_len-1)
+                return NULL;
         }
 
         // Recursively search

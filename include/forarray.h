@@ -19,8 +19,9 @@ private:
     uint32_t max = std::numeric_limits<uint32_t>::min();
 public:
     forarray(const uint32_t n=2) {
-        size_bytes = n * FOR_ELE_SIZE;
+        size_bytes = METADATA_OVERHEAD + (n * FOR_ELE_SIZE);
         in = new uint8_t[size_bytes];
+        memset(in, 0, size_bytes);
     }
 
     static inline uint32_t required_bits(const uint32_t v) {
@@ -28,8 +29,9 @@ public:
     }
 
     uint32_t inline sorted_append_size_required(uint32_t value) {
-        uint32_t m = *(uint32_t *)(in + 0);
-        uint32_t bnew = required_bits(value - m);
+        uint32_t m = std::min(min, value);
+        uint32_t M = std::max(max, value);
+        uint32_t bnew = required_bits(M - m);
         return METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
     }
 
@@ -37,11 +39,13 @@ public:
     bool append_sorted(uint32_t value) {
         uint32_t size_required = sorted_append_size_required(value);
 
-        if(size_required > size_bytes) {
+        if(size_required+4 > size_bytes) {
             // grow the array first
             size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
             uint8_t *new_location = (uint8_t *) realloc(in, new_size);
-            if(new_location == NULL) return false;
+            if(new_location == NULL) {
+                abort();
+            }
             in = new_location;
             size_bytes = (uint32_t) new_size;
         }
@@ -68,13 +72,12 @@ public:
     bool append_unsorted(uint32_t value) {
       uint32_t size_required = unsorted_append_size_required(value);
 
-      if(size_required > size_bytes) {
+      if(size_required+4 > size_bytes) {
           // grow the array first
           size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
           uint8_t *new_location = (uint8_t *) realloc(in, new_size);
           if(new_location == NULL) {
               abort();
-              return false;
           }
           in = new_location;
           size_bytes = (uint32_t) new_size;
@@ -83,11 +86,10 @@ public:
       uint32_t new_length_bytes = for_append_unsorted(in, length, value);
       if(new_length_bytes == 0) {
           abort();
-          return false;
       }
 
-      if (in[length] < min) min = in[length];
-      if (in[length] > max) max = in[length];
+      if(value < min) min = value;
+      if(value > max) max = value;
 
       length_bytes = new_length_bytes;
       length++;
