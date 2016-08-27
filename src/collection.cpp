@@ -37,11 +37,10 @@ void Collection::add(std::vector<std::string> tokens, uint16_t score) {
 
         uint32_t num_hits = 0;
 
+        const unsigned char *key = (const unsigned char *) kv.first.c_str();
         int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
-        char *key = new char[key_len];
-        strcpy(key, kv.first.c_str());
 
-        art_leaf* leaf = (art_leaf *) art_search(&t, (const unsigned char *) key, key_len);
+        art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
         if(leaf != NULL) {
             num_hits = leaf->values->ids.getLength();
         }

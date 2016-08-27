@@ -75,10 +75,10 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
                         h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
                         h2o_iovec_init(H2O_STRLIT(""));
 
-    printf("Query: %.*s\n", (int) query.len, query.base);
-
     std::string query_str(query.base, query.len);
     std::map<std::string, std::string> query_map = parse_query(query_str);
+
+    printf("Query: %s\n", query_map["q"].c_str());
 
     auto begin = std::chrono::high_resolution_clock::now();
     collection->search(query_map["q"], 100);
@@ -145,8 +145,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
-    //std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
+    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
 
     std::string line;
 

@@ -96,7 +96,9 @@ static void destroy_node(art_node *n) {
 
     // Special case leafs
     if (IS_LEAF(n)) {
-        free(LEAF_RAW(n));
+        art_leaf *leaf = (art_leaf *) LEAF_RAW(n);
+        delete leaf->values;
+        free(leaf);
         return;
     }
 

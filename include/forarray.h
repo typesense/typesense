@@ -24,6 +24,10 @@ public:
         memset(in, 0, size_bytes);
     }
 
+    ~forarray() {
+        delete in;
+    }
+
     static inline uint32_t required_bits(const uint32_t v) {
         return v == 0 ? 0 : 32 - __builtin_clz(v);
     }
