@@ -13,12 +13,34 @@ TODO
 
 ## Dependencies
 
+* [RocksDB](https://github.com/facebook/rocksdb)
 * [libfor](https://github.com/cruppstahl/for/)
 * [h2o](https://github.com/h2o/h2o)
-* OpenSSL
 
-## Building `libfor`
+## Building Typesense from source
 
-* Switch to `external/libfor` and build libfor
+### OS X
 
-&copy; 2016 Wreally Studios Inc.
+Homebrew dependencies:
+
+```
+brew install cmake
+brew install openssl
+brew install h2o
+brew install rocksdb
+```
+
+Building libfor:
+
+```
+cd external/libfor
+make
+```
+
+Finally, building Typsense:
+
+```
+./build.sh
+```
+
+&copy; 2016-2017 Wreally Studios Inc.
