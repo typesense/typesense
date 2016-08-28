@@ -4,20 +4,28 @@
 #include <vector>
 #include <art.h>
 #include <unordered_map>
-#include <collection_state.h>
+#include <store.h>
 #include <topster.h>
 #include <json.hpp>
 
 class Collection {
 private:
-    CollectionState state;
+    Store* store;
+
+    // Integer ID used internally for bitmaps - not exposed to the client
+    uint32_t seq_id;
+
     art_tree t;
     std::unordered_map<uint32_t, uint16_t> doc_scores;
+
+    uint32_t next_seq_id();
+
 public:
-    Collection();
+    Collection() = delete;
+    Collection(std::string state_dir_path);
     ~Collection();
-    void add(nlohmann::json document);
-    void search(std::string query, size_t max_results);
+    void add(std::string json_str);
+    std::vector<nlohmann::json> search(std::string query, size_t max_results);
 
     static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                              long long int n);

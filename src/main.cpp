@@ -7,21 +7,19 @@
 #include <unordered_map>
 #include "string_utils.h"
 #include "collection.h"
-#include "json.hpp"
 
 using namespace std;
 
 int main() {
-    Collection *collection = new Collection();
+    Collection *collection = new Collection("/tmp/typesense-data");
 
     std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
     //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
-    std::string jsonline;
+    std::string json_line;
 
-    while (std::getline(infile, jsonline)) {
-        nlohmann::json document = nlohmann::json::parse(jsonline);
-        collection->add(document);
+    while (std::getline(infile, json_line)) {
+        collection->add(json_line);
     }
 
     infile.close();

@@ -16,7 +16,6 @@
 #include <regex>
 #include "string_utils.h"
 #include "collection.h"
-#include "json.hpp"
 
 #include "h2o.h"
 #include "h2o/http1.h"
@@ -26,8 +25,7 @@
 static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
-static Collection *collection = new Collection();
-
+static Collection *collection = new Collection("/tmp/typesense-data");
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                         int (*on_req)(h2o_handler_t *, h2o_req_t *)) {
@@ -81,17 +79,26 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
     printf("Query: %s\n", query_map["q"].c_str());
 
     auto begin = std::chrono::high_resolution_clock::now();
-    collection->search(query_map["q"], 100);
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken: " << timeMillis << "us" << std::endl;
 
-    h2o_iovec_t body = h2o_strdup(&req->pool, "hello world\n", SIZE_MAX);
+    std::vector<nlohmann::json> results = collection->search(query_map["q"], 100);
+    nlohmann::json json_array = nlohmann::json::array();
+    for(nlohmann::json& result: results) {
+        json_array.push_back(result);
+    }
+
+    std::string json_str = json_array.dump();
+
+    std::cout << "JSON:" << json_str << std::endl;
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, json_str.c_str(), SIZE_MAX);
     req->res.status = 200;
     req->res.reason = "OK";
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("text/plain"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, 1);
 
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken: " << timeMillis << "us" << std::endl;
     return 0;
 }
 
@@ -148,11 +155,10 @@ void index_documents() {
     //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
     std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
-    std::string jsonline;
+    std::string json_line;
 
-    while (std::getline(infile, jsonline)) {
-        nlohmann::json document = nlohmann::json::parse(jsonline);
-        collection->add(document);
+    while (std::getline(infile, json_line)) {
+        collection->add(json_line);
     }
 
     infile.close();

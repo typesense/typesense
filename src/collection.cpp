@@ -6,24 +6,40 @@
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
+#include "sole.hpp"
+#include "json.hpp"
 
-Collection::Collection() {
-    state = CollectionState();
+Collection::Collection(std::string state_dir_path) {
+    store = new Store(state_dir_path);
     art_tree_init(&t);
 }
 
 Collection::~Collection() {
+    delete store;
     art_tree_destroy(&t);
 }
 
-void Collection::add(nlohmann::json document) {
-    uint32_t doc_id = state.nextId();
+uint32_t Collection::next_seq_id() {
+    return ++seq_id;
+}
 
-    uint16_t score = document["points"];
+void Collection::add(std::string json_str) {
+    nlohmann::json document = nlohmann::json::parse(json_str);
+
+    if(document.count("id") == 0) {
+        sole::uuid u1 = sole::uuid1();
+        document["id"] = u1.base62();
+    }
+
+    uint32_t seq_id = next_seq_id();
+
+    store->insert(std::to_string(seq_id), document.dump());
+    store->insert(document["id"], std::to_string(seq_id));
+
     std::vector<std::string> tokens;
     StringUtils::tokenize(document["title"], tokens, " ", true);
-    std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
+    std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
     for(uint32_t i=0; i<tokens.size(); i++) {
         auto token = tokens[i];
         std::transform(token.begin(), token.end(), token.begin(), ::tolower);
@@ -32,8 +48,8 @@ void Collection::add(nlohmann::json document) {
 
     for(auto & kv: token_to_offsets) {
         art_document art_doc;
-        art_doc.id = doc_id;
-        art_doc.score = score;
+        art_doc.id = seq_id;
+        art_doc.score = document["points"];
         art_doc.offsets_len = (uint32_t) kv.second.size();
         art_doc.offsets = new uint32_t[kv.second.size()];
 
@@ -57,9 +73,8 @@ void Collection::add(nlohmann::json document) {
         delete art_doc.offsets;
     }
 
-    doc_scores[doc_id] = score;
+    doc_scores[seq_id] = document["points"];
 }
-
 
 /*
    1. Split the query into tokens
@@ -70,15 +85,15 @@ void Collection::add(nlohmann::json document) {
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-void Collection::search(std::string query, size_t max_results) {
+std::vector<nlohmann::json> Collection::search(std::string query, size_t max_results) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
 
     std::vector<std::vector<art_leaf*>> token_leaves;
     for(std::string token: tokens) {
         std::vector<art_leaf*> leaves;
-        int max_cost = 2;
-        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length(), max_cost, 10, leaves);
+        int max_cost = 0;
+        art_iter_fuzzy_prefix(&t, (const unsigned char *) token.c_str(), (int) token.length()+1, max_cost, 10, leaves);
         if(!leaves.empty()) {
             for(auto i=0; i<leaves.size(); i++) {
                 //printf("%s - ", token.c_str());
@@ -90,7 +105,7 @@ void Collection::search(std::string query, size_t max_results) {
     }
 
     if(token_leaves.size() == 0) {
-        return ;
+        return std::vector<nlohmann::json>();
     }
 
     //std::cout << "token_leaves.size = " << token_leaves.size() << std::endl;
@@ -132,10 +147,18 @@ void Collection::search(std::string query, size_t max_results) {
 
     topster.sort();
 
+    std::vector<nlohmann::json> results;
+
     for(uint32_t i=0; i<topster.size; i++) {
         uint32_t id = topster.getKeyAt(i);
         std::cout << "ID: " << id << std::endl;
+
+        const std::string value = store->get(std::to_string(id));
+        nlohmann::json document = nlohmann::json::parse(value);
+        results.push_back(document);
     }
+
+    return results;
 }
 
 void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
