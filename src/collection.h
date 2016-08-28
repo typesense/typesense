@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <collection_state.h>
 #include <topster.h>
+#include <json.hpp>
 
 class Collection {
 private:
@@ -15,7 +16,7 @@ private:
 public:
     Collection();
     ~Collection();
-    void add(std::vector<std::string> tokens, uint16_t score);
+    void add(nlohmann::json document);
     void search(std::string query, size_t max_results);
 
     static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,

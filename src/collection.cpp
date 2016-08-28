@@ -2,12 +2,10 @@
 
 #include <iostream>
 #include <numeric>
-#include <unordered_map>
 #include <topster.h>
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
-#include <art.h>
 
 Collection::Collection() {
     state = CollectionState();
@@ -18,8 +16,12 @@ Collection::~Collection() {
     art_tree_destroy(&t);
 }
 
-void Collection::add(std::vector<std::string> tokens, uint16_t score) {
+void Collection::add(nlohmann::json document) {
     uint32_t doc_id = state.nextId();
+
+    uint16_t score = document["points"];
+    std::vector<std::string> tokens;
+    StringUtils::tokenize(document["title"], tokens, " ", true);
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
     for(uint32_t i=0; i<tokens.size(); i++) {
@@ -29,11 +31,11 @@ void Collection::add(std::vector<std::string> tokens, uint16_t score) {
     }
 
     for(auto & kv: token_to_offsets) {
-        art_document document;
-        document.id = doc_id;
-        document.score = score;
-        document.offsets_len = (uint32_t) kv.second.size();
-        document.offsets = new uint32_t[kv.second.size()];
+        art_document art_doc;
+        art_doc.id = doc_id;
+        art_doc.score = score;
+        art_doc.offsets_len = (uint32_t) kv.second.size();
+        art_doc.offsets = new uint32_t[kv.second.size()];
 
         uint32_t num_hits = 0;
 
@@ -48,11 +50,11 @@ void Collection::add(std::vector<std::string> tokens, uint16_t score) {
         num_hits += 1;
 
         for(auto i=0; i<kv.second.size(); i++) {
-            document.offsets[i] = kv.second[i];
+            art_doc.offsets[i] = kv.second[i];
         }
 
-        art_insert(&t, (const unsigned char *) key, key_len, &document, num_hits);
-        delete document.offsets;
+        art_insert(&t, key, key_len, &art_doc, num_hits);
+        delete art_doc.offsets;
     }
 
     doc_scores[doc_id] = score;

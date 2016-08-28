@@ -7,29 +7,24 @@
 #include <unordered_map>
 #include "string_utils.h"
 #include "collection.h"
+#include "json.hpp"
 
 using namespace std;
 
 int main() {
     Collection *collection = new Collection();
 
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.txt");
-    //std::ifstream infile("/Users/kishore/Downloads/hnstories.tsv");
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+    //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
-    std::string line;
+    std::string jsonline;
 
-    while (std::getline(infile, line)) {
-        vector<string> parts;
-        StringUtils::tokenize(line, parts, "\t", true);
-        line = StringUtils::replace_all(line, "\"", "");
-
-        vector<string> tokens;
-        StringUtils::tokenize(parts[0], tokens, " ", true);
-
-        if(parts.size() != 2) continue;
-        collection->add(tokens, stoi(parts[1]));
+    while (std::getline(infile, jsonline)) {
+        nlohmann::json document = nlohmann::json::parse(jsonline);
+        collection->add(document);
     }
 
+    infile.close();
     cout << "FINISHED INDEXING!" << endl << flush;
 
     auto begin = std::chrono::high_resolution_clock::now();

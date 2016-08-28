@@ -4,7 +4,7 @@
 
 **Search index**
 
-- Proper JSON as input
+- ~~Proper JSON as input~~
 - Storing raw JSON input to RocksDB
 - ART for every indexed field
 - UTF-8 support for fuzzy search
