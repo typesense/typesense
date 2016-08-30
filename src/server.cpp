@@ -45,7 +45,7 @@ std::map<std::string, std::string> parse_query(const std::string& query) {
     for (std::sregex_iterator i = words_begin; i != words_end; i++) {
         std::string key = (*i)[1].str();
         std::string value = (*i)[2].str();
-        query_map[key] = value;
+        query_map[key] = StringUtils::replace_all(value, "%20", " ");
     }
 
     return query_map;
@@ -53,16 +53,6 @@ std::map<std::string, std::string> parse_query(const std::string& query) {
 
 
 static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
-    /*
-        nlohmann::json_j;
-
-        // add a number that is stored as double (note the implicit conversion of j to an object)
-        j["pi"] = 3.141;
-
-        // add a Boolean that is stored as bool
-        j["happy"] = true;
-     */
-
     static h2o_generator_t generator = {NULL, NULL};
 
     if (!h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET"))) {
@@ -152,8 +142,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+    //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
 
