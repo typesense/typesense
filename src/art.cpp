@@ -843,30 +843,10 @@ static uint32_t get_score(art_node* child) {
     return child->max_token_count;
 }
 
-static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results) {
+static int topk_iter(const art_node *root, int term_len, int k, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
-
-    auto cmp = [term_len](art_node * left, art_node * right) {
-        int lscore, rscore;
-        if (IS_LEAF(left)) {
-            art_leaf *l = (art_leaf *) LEAF_RAW(left);
-            lscore = l->values->ids.getLength();
-        } else {
-            lscore = left->max_token_count;
-        }
-
-        if(IS_LEAF(right)) {
-            art_leaf *r = (art_leaf *) LEAF_RAW(right);
-            rscore = r->values->ids.getLength();
-        } else {
-            rscore = right->max_token_count;
-        }
-
-        // priority queue sorts based on priority (so use < for sorting descending order by score)
-        return lscore < rscore;
-    };
-
-    std::priority_queue<art_node *, std::vector<art_node *>, decltype(cmp)> q(cmp);
+    std::priority_queue<art_node *, std::vector<const art_node *>,
+                        std::function<bool(const art_node*, const art_node*)>> q(compare_art_node);
 
     q.push(root);
 
@@ -879,7 +859,11 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
             //printf("\nLEAF: %.*s", leaf->key_len, leaf->key);
             //std::cout << ", SCORE: " << l->token_count << std::endl;
-            results.push_back(l);
+            // This basically ignores tokens whose prefix match perfectly, but exceeding overal threshold
+            int diff = term_len - (int) l->key_len;
+            if(diff >= -2 && diff <= 2) {
+                results.push_back(l);
+            }
             continue;
         }
 
@@ -925,9 +909,7 @@ static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*>
         }
     }
 
-    std::sort(results.begin(), results.end(), compare_art_leaf);
     printf("OUTSIDE topk_iter: results size: %d\n", results.size());
-
     return 0;
 }
 
@@ -1114,7 +1096,7 @@ int levenshtein_score(const char ch, const unsigned char* term, const int term_l
     int insert_or_del, replace;
 
     printf("\nPREVIOUS ROW: ");
-    print_row(previous_row, term_len);
+    //print_row(previous_row, term_len);
 
     // calculate the min cost of insertion, deletion, match or replace
     for (int i = 1; i <= term_len; i++) {
@@ -1126,7 +1108,7 @@ int levenshtein_score(const char ch, const unsigned char* term, const int term_l
     }
 
     printf("\nCURRENT ROW: ");
-    print_row(current_row, term_len);
+    //print_row(current_row, term_len);
     return row_min;
 }
 
@@ -1136,8 +1118,8 @@ void copyIntArray(int *dest, int *src, int len) {
     }
 }
 
-static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term, const int term_len, const int max_cost,
-                                         int depth, int* previous_row, std::vector<art_node*> & results) {
+static int art_iter_fuzzy_prefix_recurse(const art_node *n, const unsigned char *term, const int term_len, const int max_cost,
+                                         int depth, int* previous_row, std::vector<const art_node*> & results) {
     if (!n) return 0;
 
     if (IS_LEAF(n)) {
@@ -1273,8 +1255,8 @@ static int art_iter_fuzzy_prefix_recurse(art_node *n, const unsigned char *term,
  * @arg data Opaque handle passed to the callback
  * @return 0 on success, or the return of the callback.
  */
-int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
-                          int max_cost, int max_words, std::vector<art_leaf*> & results) {
+int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, const int term_len,
+                          const int max_cost, const int max_words, std::vector<art_leaf*> & results) {
 
     int previous_row[term_len + 1];
 
@@ -1282,7 +1264,7 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
         previous_row[i] = i;
     }
 
-    std::vector<art_node*> nodes;
+    std::vector<const art_node*> nodes;
 
     auto begin = std::chrono::high_resolution_clock::now();
     art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, 0, previous_row, nodes);
@@ -1296,7 +1278,8 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, int term_len,
         topk_iter(node, term_len, max_words, results);
     }
 
+    std::sort(results.begin(), results.end(), compare_art_leaf);
     timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken 2 iter: " << timeMillis << "us" << std::endl;
+    std::cout << "Time taken for topk_iter: " << timeMillis << "us" << std::endl;
     return 0;
 }

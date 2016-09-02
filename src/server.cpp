@@ -142,8 +142,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-    //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
 
