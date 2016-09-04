@@ -23,6 +23,8 @@
 #define printf(fmt, ...) (0)
 #endif
 
+#define microseconds std::chrono::duration_cast<std::chrono::microseconds>
+
 /*
  * Comparator for art_leaf struct.
  * We order the leaves descending based on the score.
@@ -1118,6 +1120,146 @@ void copyIntArray(int *dest, int *src, int len) {
     }
 }
 
+static inline void copyIntArray2(const int *src, int *dest, const int len) {
+    for(int t=0; t<len; t++) {
+        dest[t] = src[t];
+    }
+}
+
+static inline int levenshtein_dist(const char c, const unsigned char* term, const int term_len,
+                     const int* previous_row, int* current_row) {
+    int row_min = std::numeric_limits<int>::max();
+    const int columns = term_len+1;
+    current_row[0] = previous_row[0] + 1;
+
+    // calculate levenshtein distance incrementally
+    for(int column=1; column<columns; column++) {
+        int insert_cost = current_row[column - 1] + 1;
+        int delete_cost = previous_row[column] + 1;
+        int replace_cost = 0;
+
+        if(term[column-1] != c) {
+            replace_cost = previous_row[column - 1] + 1;
+        } else {
+            replace_cost = previous_row[column - 1];
+        }
+
+        current_row[column] = min(min(insert_cost, delete_cost), replace_cost);
+        if(current_row[column] < row_min) row_min = current_row[column];
+    }
+
+    return row_min;
+}
+
+static inline void art_fuzzy_children(const art_node *n, int depth, const unsigned char *term, const int term_len,
+                                      const int *previous_row, const int max_cost, std::vector<const art_node *> &results) {
+    char child_char;
+    art_node* child;
+
+    switch (n->type) {
+        case NODE4:
+            printf("\nNODE4\n");
+            for (int i=n->num_children-1; i >= 0; i--) {
+                child_char = ((art_node4*)n)->keys[i];
+                printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
+                child = ((art_node4*)n)->children[i];
+                art_fuzzy_recurse(child_char, child, depth, term, term_len, previous_row, max_cost, results);
+            }
+            break;
+        case NODE16:
+            printf("\nNODE16\n");
+            for (int i=n->num_children-1; i >= 0; i--) {
+                child_char = ((art_node16*)n)->keys[i];
+                printf("\n16!child_char: %c, depth: %d", child_char, depth);
+                child = ((art_node16*)n)->children[i];
+                art_fuzzy_recurse(child_char, child, depth, term, term_len, previous_row, max_cost, results);
+            }
+            break;
+        case NODE48:
+            printf("\nNODE48\n");
+            for (int i=255; i >= 0; i--) {
+                int ix = ((art_node48*)n)->keys[i];
+                if (!ix) continue;
+                child = ((art_node48*)n)->children[ix - 1];
+                child_char = (char)i;
+                printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
+                art_fuzzy_recurse(child_char, child, depth, term, term_len, previous_row, max_cost, results);
+            }
+            break;
+        case NODE256:
+            printf("\nNODE256\n");
+            for (int i=255; i >= 0; i--) {
+                if (!((art_node256*)n)->children[i]) continue;
+                child_char = (char) i;
+                printf("\n256!child_char: %c, depth: %d", child_char, depth);
+                child = ((art_node256*)n)->children[i];
+                art_fuzzy_recurse(child_char, child, depth, term, term_len, previous_row, max_cost, results);
+            }
+            break;
+        default:
+            abort();
+    }
+}
+
+// e.g. CATAPULT against CORATAPULT
+static void art_fuzzy_recurse(char c, const art_node *n, int depth, const unsigned char *term,
+                              const int term_len, const int *previous_row, const int max_cost,
+                              std::vector<const art_node *> &results) {
+    const int columns = term_len+1;
+    int current_row[columns];
+    int local_prev_row[columns];
+
+    int row_min = levenshtein_dist(c, term, term_len, previous_row, current_row);
+    copyIntArray2(current_row, local_prev_row, columns);
+    depth++;
+
+    printf("\nrecurse char: %c, row_min: %d", c, row_min);
+
+    if (!n) return ;
+
+    if(IS_LEAF(n)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(n);
+        printf("\nIS_LEAF\nLEAF KEY: %s, depth: %d\n", l->key, depth);
+
+        for(int idx=depth; idx<l->key_len; idx++) {
+            row_min = levenshtein_dist(l->key[idx], term, term_len, local_prev_row, current_row);
+            printf("leaf char: %c\n", l->key[idx]);
+            printf("row_min: %d, depth: %d, term_len: %d\n", row_min, depth, term_len);
+            copyIntArray2(current_row, local_prev_row, columns);
+            depth++;
+        }
+
+        if(row_min <= max_cost) {
+            results.push_back(n);
+        }
+
+        return ;
+    }
+
+    const int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
+
+    printf("\npartial_len: %d", partial_len);
+
+    for(int idx=0; idx<partial_len; idx++) {
+        printf("partial: %c ", n->partial[idx]);
+        current_row[0] = local_prev_row[0] + 1;
+        row_min = levenshtein_dist(n->partial[idx], term, term_len, local_prev_row, current_row);
+        copyIntArray2(current_row, local_prev_row, columns);
+    }
+
+    depth += n->partial_len;
+    printf("\nrow_min: %d", row_min);
+
+    if(depth >= term_len-1 && row_min <= max_cost) {
+        results.push_back(n);
+        return ;
+    }
+
+    if( (depth < term_len-1 && row_min <= max_cost) || (depth <= term_len-1+max_cost && row_min > max_cost) ) {
+        art_fuzzy_children(n, depth, term, term_len, current_row, max_cost, results);
+    }
+}
+
 static int art_iter_fuzzy_prefix_recurse(const art_node *n, const unsigned char *term, const int term_len, const int max_cost,
                                          int depth, int* previous_row, std::vector<const art_node*> & results) {
     if (!n) return 0;
@@ -1243,34 +1385,22 @@ static int art_iter_fuzzy_prefix_recurse(const art_node *n, const unsigned char 
 }
 
 /**
- * Iterates through the entries pairs in the map,
- * invoking a callback for each that matches a given prefix within a fuzzy distance of 2.
- * The call back gets a key, value for each and returns an integer stop value.
- * If the callback returns non-zero, then the iteration stops.
- * @arg t The tree to iterate over
- * @arg prefix The prefix of keys to read
- * @arg prefix_len The length of the prefix
- * @arg max_cost Maximum fuzzy edit distance
- * @arg cb The callback function to invoke
- * @arg data Opaque handle passed to the callback
- * @return 0 on success, or the return of the callback.
+ * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
-int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, const int term_len,
-                          const int max_cost, const int max_words, std::vector<art_leaf*> & results) {
+int art_fuzzy_results(art_tree *t, const unsigned char *term, const int term_len,
+                      const int max_cost, const int max_words, std::vector<art_leaf *> &results) {
 
+    std::vector<const art_node*> nodes;
     int previous_row[term_len + 1];
-
     for (int i = 0; i <= term_len; i++){
         previous_row[i] = i;
     }
 
-    std::vector<const art_node*> nodes;
-
     auto begin = std::chrono::high_resolution_clock::now();
-    art_iter_fuzzy_prefix_recurse(t->root, term, term_len, max_cost, 0, previous_row, nodes);
+    art_fuzzy_children(t->root, 0, term, term_len, previous_row, max_cost, nodes);
     std::sort(nodes.begin(), nodes.end(), compare_art_node);
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken for fuzz: " << timeMillis << "us" << std::endl;
+    long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size() << std::endl;
 
     begin = std::chrono::high_resolution_clock::now();
 
@@ -1279,7 +1409,7 @@ int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, const int term
     }
 
     std::sort(results.begin(), results.end(), compare_art_leaf);
-    timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken for topk_iter: " << timeMillis << "us" << std::endl;
+    time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken for topk_iter: " << time_micro << "us" << std::endl;
     return 0;
 }

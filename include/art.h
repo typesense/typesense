@@ -229,18 +229,14 @@ int art_iter(art_tree *t, art_callback cb, void *data);
 int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, art_callback cb, void *data);
 
 /**
- * Iterates through the entries pairs in the map,
- * invoking a callback for each that matches a given prefix within a fuzzy distance of 2.
- * The call back gets a key, value for each and returns an integer stop value.
- * If the callback returns non-zero, then the iteration stops.
- * @arg t The tree to iterate over
- * @arg prefix The prefix of keys to read
- * @arg prefix_len The length of the prefix
- * @arg cb The callback function to invoke
- * @arg data Opaque handle passed to the callback
- * @return 0 on success, or the return of the callback.
+ * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
-int art_iter_fuzzy_prefix(art_tree *t, const unsigned char *term, const int term_len, const int max_cost, const int max_words, std::vector<art_leaf*> & results);
+int art_fuzzy_results(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
+                      const int max_words, std::vector<art_leaf *> &results);
+
+static void art_fuzzy_recurse(char c, const art_node *n, int depth, const unsigned char *term,
+                              const int term_len, const int *previous_row, const int max_cost,
+                              std::vector<const art_node *> &results);
 
 static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results);
 
