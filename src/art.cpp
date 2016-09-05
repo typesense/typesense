@@ -1235,7 +1235,8 @@ static void art_fuzzy_recurse(char c, const art_node *n, int depth, const unsign
             depth++;
         }
 
-        if(cost <= max_cost) {
+        // current_row[columns-1] holds the final cost
+        if(current_row[columns-1] <= max_cost) {
             results.push_back(n);
         }
 
@@ -1257,7 +1258,7 @@ static void art_fuzzy_recurse(char c, const art_node *n, int depth, const unsign
     depth += n->partial_len;
     printf("\ncost: %d", cost);
 
-    if(depth >= term_len-1 && cost <= max_cost) {
+    if(depth >= term_len-1 && current_row[columns-1] <= max_cost) {
         results.push_back(n);
         return ;
     }

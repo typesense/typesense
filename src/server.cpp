@@ -65,12 +65,16 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
 
     std::string query_str(query.base, query.len);
     std::map<std::string, std::string> query_map = parse_query(query_str);
+    const char *NUM_TYPOS = "num_typos";
+
+    if(query_map.count(NUM_TYPOS) == 0) {
+        query_map[NUM_TYPOS] = "2";
+    }
 
     printf("Query: %s\n", query_map["q"].c_str());
-
     auto begin = std::chrono::high_resolution_clock::now();
 
-    std::vector<nlohmann::json> results = collection->search(query_map["q"], 100);
+    std::vector<nlohmann::json> results = collection->search(query_map["q"], std::stoi(query_map[NUM_TYPOS]), 100);
     nlohmann::json json_array = nlohmann::json::array();
     for(nlohmann::json& result: results) {
         json_array.push_back(result);

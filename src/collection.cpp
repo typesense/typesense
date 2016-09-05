@@ -9,7 +9,7 @@
 #include "sole.hpp"
 #include "json.hpp"
 
-Collection::Collection(std::string state_dir_path) {
+Collection::Collection(std::string state_dir_path): seq_id(0) {
     store = new Store(state_dir_path);
     art_tree_init(&t);
 }
@@ -85,14 +85,17 @@ void Collection::add(std::string json_str) {
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-std::vector<nlohmann::json> Collection::search(std::string query, size_t max_results) {
+std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t max_results) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
+
+    const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
+
+    std::cout << "Searching with max_cost=" << max_cost << std::endl;
 
     std::vector<std::vector<art_leaf*>> token_leaves;
     for(std::string token: tokens) {
         std::vector<art_leaf*> leaves;
-        int max_cost = 2;
         art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, max_cost, 10, leaves);
         if(!leaves.empty()) {
             for(auto i=0; i<leaves.size(); i++) {
