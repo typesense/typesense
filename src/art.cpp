@@ -1065,59 +1065,12 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
     return 0;
 }
 
-#define fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results) {\
-    int new_current_row[term_len+1];\
-    new_current_row[0] = previous_row[0] + 1;\
-    row_min = levenshtein_score(child_char, term, term_len, previous_row, new_current_row);\
-\
-    printf("fuzzy_recurse - max_score: %d, child char: %c, cost: %d, max_cost: %d, row_min: %d, depth: %d, term[depth]: %c \n",\
-            child->max_score, child_char, row_min, max_cost, row_min, depth, term[depth]);\
-\
-    if(depth == term_len-1) {\
-      /* reached end of term, and cost is below threshold, print children of this node as matches*/\
-      if(row_min <= max_cost) {\
-        printf("START RECURSIVE ITER\n");\
-        results.push_back(child);\
-      }\
-    } else if(row_min <= max_cost) {\
-      int new_depth = (child_char != 0) ? depth+1 : depth;\
-      art_iter_fuzzy_prefix_recurse(child, term, term_len, max_cost, new_depth, new_current_row, results);\
-    }\
-}\
-
 void print_row(const int* row, const int row_len) {
     for(int i=0; i<=row_len; i++) {
         printf("%d ", row[i]);
     }
 
     printf("\n");
-}
-
-int levenshtein_score(const char ch, const unsigned char* term, const int term_len, const int* previous_row, int* current_row) {
-    int row_min = std::numeric_limits<int>::max();
-    int insert_or_del, replace;
-
-    printf("\nPREVIOUS ROW: ");
-    //print_row(previous_row, term_len);
-
-    // calculate the min cost of insertion, deletion, match or replace
-    for (int i = 1; i <= term_len; i++) {
-        insert_or_del = min(current_row[i-1] + 1, previous_row[i] + 1);
-        replace = (term[i - 1] == ch) ? previous_row[i - 1] : (previous_row[i - 1] + 1);
-        current_row[i] = min(insert_or_del, replace);
-
-        if(current_row[i] < row_min) row_min = current_row[i];
-    }
-
-    printf("\nCURRENT ROW: ");
-    //print_row(current_row, term_len);
-    return row_min;
-}
-
-void copyIntArray(int *dest, int *src, int len) {
-    for(int t=0; t<len; t++) {
-        dest[t] = src[t];
-    }
 }
 
 static inline void copyIntArray2(const int *src, int *dest, const int len) {
@@ -1264,130 +1217,6 @@ static void art_fuzzy_recurse(char c, const art_node *n, int depth, const unsign
     }
 
     art_fuzzy_children(n, depth, term, term_len, current_row, max_cost, results);
-}
-
-static int art_iter_fuzzy_prefix_recurse(const art_node *n, const unsigned char *term, const int term_len, const int max_cost,
-                                         int depth, int* previous_row, std::vector<const art_node*> & results) {
-    if (!n) return 0;
-
-    if (IS_LEAF(n)) {
-        printf("IS_LEAF\n");
-
-        art_leaf *l = (art_leaf *) LEAF_RAW(n);
-
-        int row_min = 0;
-        int current_row[term_len+1];
-        copyIntArray(current_row, previous_row, term_len+1);
-        current_row[0] = previous_row[0] + 1;
-
-        printf("LEAF KEY: %s, depth: %d\n", l->key, depth);
-
-        for(int idx=depth; idx<l->key_len && row_min <= max_cost; idx++) {
-            row_min = levenshtein_score(l->key[idx], term, term_len, previous_row, current_row);
-            printf("leaf char: %c\n", l->key[idx]);
-            printf("score: %d, depth: %d, term_len: %d, row_min: %d\n", current_row[term_len], depth, term_len, row_min);
-
-            //printf("CURRENT RETURNED\n");
-            //print_row(current_row, term_len);
-
-            copyIntArray(previous_row, current_row, term_len+1);
-            current_row[0] = previous_row[0] + 1;
-            depth   += 1;
-            //printf("PREVIOUS BEFORE CALLING\n");
-            //print_row(previous_row, term_len);
-        }
-
-        if(current_row[term_len] <= max_cost) {
-            results.push_back(n);
-        }
-
-        return 0;
-    }
-
-    printf("START PARTIAL: max_score: %d, partial_len: %d, partial: %s, term_len: %d, depth: %d\n",
-           n->max_score, n->partial_len, n->partial, term_len, depth);
-
-    // internal node - first we check partial (via path compression) and then child index
-    int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
-    int row_min = 0;
-    int current_row[term_len+1];
-
-    for(int idx=0; idx<partial_len && depth < term_len && row_min <= max_cost; idx++) {
-        printf("partial: %c ", n->partial[idx]);
-        current_row[0] = previous_row[0] + 1;
-        row_min = levenshtein_score(n->partial[idx], term, term_len, previous_row, current_row);
-        copyIntArray(previous_row, current_row, term_len+1);
-        depth += 1;
-    }
-
-    printf("CURRENT ROW PARTIAL:\n");
-    print_row(current_row, term_len);
-
-    printf("PREVIOUS ROW PARTIAL:\n");
-    print_row(previous_row, term_len);
-    printf("\n");
-
-    if(depth == term_len) {
-        if(current_row[term_len] <= max_cost) {
-            printf("PARTIAL START RECURSIVE ITER\n");
-            results.push_back(n);
-        }
-
-        return 0;
-    }
-
-    printf("END PARTIAL\n");
-    printf("Children: %d\n", n->num_children);
-
-    switch (n->type) {
-        case NODE4:
-            printf("NODE4\n");
-            for (int i=0; i < n->num_children; i++) {
-                char child_char = ((art_node4*)n)->keys[i];
-                printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
-                art_node* child = ((art_node4*)n)->children[i];
-                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
-            }
-            break;
-
-        case NODE16:
-            printf("NODE16\n");
-            for (int i=0; i < n->num_children; i++) {
-                char child_char = ((art_node16*)n)->keys[i];
-                printf("\n16!child_char: %c, depth: %d", child_char, depth);
-                art_node* child = ((art_node16*)n)->children[i];
-                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
-            }
-            break;
-
-        case NODE48:
-            printf("NODE48\n");
-            for (int i=0; i < 256; i++) {
-                int ix = ((art_node48*)n)->keys[i];
-                if (!ix) continue;
-                art_node* child = ((art_node48*)n)->children[ix - 1];
-                char child_char = (char)i;
-                printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
-                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
-            }
-            break;
-
-        case NODE256:
-            printf("NODE256\n");
-            for (int i=0; i < 256; i++) {
-                if (!((art_node256*)n)->children[i]) continue;
-                char child_char = (char) i;
-                printf("\n256!child_char: %c, depth: %d", child_char, depth);
-                art_node* child = ((art_node256*)n)->children[i];
-                fuzzy_recurse(child, child_char, term, term_len, depth, previous_row, results);
-            }
-            break;
-
-        default:
-            abort();
-    }
-
-    return 0;
 }
 
 /**
