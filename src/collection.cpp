@@ -101,7 +101,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             for(auto i=0; i<leaves.size(); i++) {
                 //printf("%s - ", token.c_str());
                 //printf("%.*s", leaves[i]->key_len, leaves[i]->key);
-                //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->token_count);
+                //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->values->ids.getLength());
             }
             token_leaves.push_back(leaves);
         }

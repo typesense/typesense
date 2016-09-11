@@ -859,9 +859,9 @@ static int topk_iter(const art_node *root, int term_len, int k, std::vector<art_
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-            //printf("\nLEAF: %.*s", leaf->key_len, leaf->key);
+            //printf("\nTOPK LEAF: %.*s", l->key_len, l->key);
             //std::cout << ", SCORE: " << l->token_count << std::endl;
-            // This basically ignores tokens whose prefix match perfectly, but exceeding overal threshold
+            // This basically ignores tokens whose prefix match perfectly, but exceeding overall threshold
             int diff = term_len - (int) l->key_len;
             if(diff >= -2 && diff <= 2) {
                 results.push_back(l);
@@ -1234,11 +1234,6 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
 
     depth += n->partial_len;
     printf("\ncost: %d", cost);
-
-    if(depth >= term_len-1 && rows[j][columns-1] <= max_cost) {
-        results.push_back(n);
-        return ;
-    }
 
     art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], max_cost, results);
 }
