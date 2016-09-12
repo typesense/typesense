@@ -16,6 +16,7 @@
 #include <regex>
 #include "string_utils.h"
 #include "collection.h"
+#include <sys/resource.h>
 
 #include "h2o.h"
 #include "h2o/http1.h"
@@ -82,6 +83,10 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
 
     std::string json_str = json_array.dump();
 
+    struct rusage r_usage;
+    getrusage(RUSAGE_SELF,&r_usage);
+
+    std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
     std::cout << "JSON:" << json_str << std::endl;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, json_str.c_str(), SIZE_MAX);

@@ -5,7 +5,7 @@
 **Search index**
 
 - ~~Proper JSON as input~~
-- Storing raw JSON input to RocksDB
+- ~~Storing raw JSON input to RocksDB~~
 - ART for every indexed field
 - UTF-8 support for fuzzy search
 - Facets
@@ -30,3 +30,7 @@
 
 - ~~`token_count` in leaf is redundant: can be accessed from value~~
 - ~~storing length in `offsets` is redundant: it can be found by looking up value of the next index in offset_index~~
+
+**Tech debt**
+
+- Use GLOB file pattern for CMake (better IDE refactoring support)

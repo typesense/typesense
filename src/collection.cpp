@@ -7,6 +7,7 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include "sole.hpp"
+#include "art.h"
 #include "json.hpp"
 
 Collection::Collection(std::string state_dir_path): seq_id(0) {
@@ -85,80 +86,90 @@ void Collection::add(std::string json_str) {
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t max_results) {
+std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t num_results) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
 
     const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
+    const size_t max_results = std::min(num_results, (size_t) 100);
 
-    std::cout << "Searching with max_cost=" << max_cost << std::endl;
-
-    std::vector<std::vector<art_leaf*>> token_leaves;
-    for(std::string token: tokens) {
-        std::vector<art_leaf*> leaves;
-        art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, max_cost, 10, leaves);
-        if(!leaves.empty()) {
-            for(auto i=0; i<leaves.size(); i++) {
-                //printf("%s - ", token.c_str());
-                //printf("%.*s", leaves[i]->key_len, leaves[i]->key);
-                //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->values->ids.getLength());
-            }
-            token_leaves.push_back(leaves);
-        }
-    }
-
-    if(token_leaves.size() == 0) {
-        return std::vector<nlohmann::json>();
-    }
-
-    //std::cout << "token_leaves.size = " << token_leaves.size() << std::endl;
-
-    Topster<100> topster;
+    int cost = 0;
     size_t total_results = 0;
-    const size_t combination_limit = 10;
-    auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
-    long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
-
-    for(long long n=0; n<N && n<combination_limit; ++n) {
-        // every element in `query_suggestion` represents a token and its associated hits
-        std::vector<art_leaf *> query_suggestion = _next_suggestion(token_leaves, n);
-
-        // initialize results with the starting element (for further intersection)
-        uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
-        size_t result_size = query_suggestion[0]->values->ids.getLength();
-
-        if(result_size == 0) continue;
-
-        // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
-        for(auto i=1; i < query_suggestion.size(); i++) {
-            uint32_t* out = new uint32_t[result_size];
-            uint32_t* curr = query_suggestion[i]->values->ids.uncompress();
-            result_size = Intersection::scalar(result_ids, result_size, curr, query_suggestion[i]->values->ids.getLength(), out);
-            delete result_ids;
-            delete curr;
-            result_ids = out;
-        }
-
-        // go through each matching document id and calculate match score
-        score_results(topster, query_suggestion, result_ids, result_size);
-
-        total_results += result_size;
-        delete result_ids;
-
-        if(total_results >= max_results) break;
-    }
-
-    topster.sort();
-
     std::vector<nlohmann::json> results;
 
-    for(uint32_t i=0; i<topster.size; i++) {
-        uint32_t id = topster.getKeyAt(i);
-        std::cout << "ID: " << id << std::endl;
+    while(cost <= max_cost) {
+        std::cout << "Searching with cost=" << cost << std::endl;
 
-        const std::string value = store->get(std::to_string(id));
-        nlohmann::json document = nlohmann::json::parse(value);
-        results.push_back(document);
+        std::vector<std::vector<art_leaf*>> token_leaves;
+        for(std::string token: tokens) {
+            std::vector<art_leaf*> leaves;
+            art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, cost, 3, leaves);
+            if(!leaves.empty()) {
+                for(auto i=0; i<leaves.size(); i++) {
+                    //printf("%s - ", token.c_str());
+                    //printf("%.*s", leaves[i]->key_len, leaves[i]->key);
+                    //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->values->ids.getLength());
+                }
+                token_leaves.push_back(leaves);
+            }
+        }
+
+        if(token_leaves.size() != tokens.size()) {
+            //std::cout << "token_leaves.size() != tokens.size(), continuing..." << std::endl << std::endl;
+            cost++;
+            continue;
+        }
+
+        Topster<100> topster;
+        const size_t combination_limit = 10;
+        auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
+        long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
+
+        for(long long n=0; n<N && n<combination_limit; ++n) {
+            // every element in `query_suggestion` represents a token and its associated hits
+            std::vector<art_leaf *> query_suggestion = _next_suggestion(token_leaves, n);
+
+            // initialize results with the starting element (for further intersection)
+            uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
+            size_t result_size = query_suggestion[0]->values->ids.getLength();
+
+            if(result_size == 0) continue;
+
+            // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
+            for(auto i=1; i < query_suggestion.size(); i++) {
+                uint32_t* out = new uint32_t[result_size];
+                uint32_t* curr = query_suggestion[i]->values->ids.uncompress();
+                result_size = Intersection::scalar(result_ids, result_size, curr, query_suggestion[i]->values->ids.getLength(), out);
+                delete result_ids;
+                delete curr;
+                result_ids = out;
+            }
+
+            // go through each matching document id and calculate match score
+            score_results(topster, query_suggestion, result_ids, result_size);
+
+            total_results += result_size;
+            delete result_ids;
+
+            if(total_results >= max_results) break;
+        }
+
+        topster.sort();
+
+        for(uint32_t i=0; i<topster.size; i++) {
+            uint32_t id = topster.getKeyAt(i);
+            std::cout << "ID: " << id << std::endl;
+
+            const std::string value = store->get(std::to_string(id));
+            nlohmann::json document = nlohmann::json::parse(value);
+            results.push_back(document);
+        }
+
+        if(total_results > 0) {
+            break;
+        }
+
+        cost++;
     }
 
     return results;
@@ -176,10 +187,10 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
             uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
             uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
             uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                                  (token_leaf->values->offsets.getLength() - 1) :
+                                  token_leaf->values->offsets.getLength() :
                                   token_leaf->values->offset_index.at(doc_index+1);
 
-            while(start_offset <= end_offset) {
+            while(start_offset < end_offset) {
                 positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
                 start_offset++;
             }
@@ -190,10 +201,12 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
         MatchScore mscore = MatchScore::match_score(doc_id, token_positions);
         const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + doc_scores.at(doc_id);
 
-        /*std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "
-                  << (int)mscore.distance << " - mscore.words_present: " << (int)mscore.words_present
-                  << " - doc_scores[doc_id]: " << (int)doc_scores[doc_id] << "  - cumulativeScore: "
-                  << cumulativeScore << std::endl;*/
+        /*
+          std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "
+                  << (int) mscore.distance << " - mscore.words_present: " << (int) mscore.words_present
+                  << " - doc_scores[doc_id]: " << (int) doc_scores.at(doc_id) << "  - cumulativeScore: "
+                  << cumulativeScore << std::endl;
+        */
 
         topster.add(doc_id, cumulativeScore);
     }
