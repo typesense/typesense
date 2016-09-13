@@ -8,11 +8,11 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++11 -O0")
 # FIXME: build libfor as part of the build process
 
 include_directories(include)
-include_directories(external/for)
+include_directories(external/libfor)
 include_directories(/usr/local/opt/openssl/include)
 
 add_executable(search src/art.cpp src/intersection.cpp src/main.cpp src/collection.cpp)
 add_executable(typesense-server src/art.cpp src/intersection.cpp src/collection.cpp src/server.cpp)
 
-target_link_libraries(search ${CMAKE_SOURCE_DIR}/external/for/libfor.a rocksdb)
-target_link_libraries(typesense-server ${CMAKE_SOURCE_DIR}/external/for/libfor.a curl h2o-evloop pthread /usr/local/opt/openssl/lib/libssl.a /usr/local/opt/openssl/lib/libcrypto.a rocksdb)
+target_link_libraries(search ${CMAKE_SOURCE_DIR}/external/libfor/libfor.a rocksdb)
+target_link_libraries(typesense-server ${CMAKE_SOURCE_DIR}/external/libfor/libfor.a curl h2o-evloop pthread /usr/local/opt/openssl/lib/libssl.a /usr/local/opt/openssl/lib/libcrypto.a rocksdb)

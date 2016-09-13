@@ -1,4 +1,4 @@
-[submodule "external/for"]
-	path = external/for
-	url = git@github.com:cruppstahl/for.git
+[submodule "external/libfor"]
+	path = external/libfor
+	url = git@github.com:cruppstahl/libfor.git
 	ignore = dirty

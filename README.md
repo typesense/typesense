@@ -5,23 +5,21 @@ Typesense is an open source search engine for building a delightful search exper
 - **Typo tolerance:** Handles typographical errors out-of-the-box
 - **Tunable ranking + relevancy:** Tailor your search results to perfection
 - **Blazing fast:** Meticulously designed and optimized for speed
-- **Simple and delightful:** Dead simple API, delightful out-of-the-box experience
-
-## Quick start
-
-TODO
+- **Simple and delightful:** Simple API, delightful out-of-the-box experience
 
 ## Dependencies
 
 * [RocksDB](https://github.com/facebook/rocksdb)
-* [libfor](https://github.com/cruppstahl/for/)
+* [libfor](https://github.com/cruppstahl/libfor/)
 * [h2o](https://github.com/h2o/h2o)
 
 ## Building Typesense from source
 
+First, clone the git repository with `--recursive` option.
+
 ### OS X
 
-Homebrew dependencies:
+Install the following Homebrew dependencies:
 
 ```
 brew install cmake
@@ -33,11 +31,10 @@ brew install rocksdb
 Building libfor:
 
 ```
-cd external/libfor
-make
+make -C external/libfor 
 ```
 
-Finally, building Typsense:
+Finally, build Typesense:
 
 ```
 ./build.sh
