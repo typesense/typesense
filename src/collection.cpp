@@ -24,7 +24,7 @@ uint32_t Collection::next_seq_id() {
     return ++seq_id;
 }
 
-void Collection::add(std::string json_str) {
+std::string Collection::add(std::string json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
     if(document.count("id") == 0) {
@@ -75,6 +75,8 @@ void Collection::add(std::string json_str) {
     }
 
     doc_scores[seq_id] = document["points"];
+
+    return document["id"];
 }
 
 /*
@@ -102,6 +104,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
         std::vector<std::vector<art_leaf*>> token_leaves;
         for(std::string token: tokens) {
+            std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+
             std::vector<art_leaf*> leaves;
             art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, cost, 3, leaves);
             if(!leaves.empty()) {

@@ -53,13 +53,8 @@ std::map<std::string, std::string> parse_query(const std::string& query) {
 }
 
 
-static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
+static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     static h2o_generator_t generator = {NULL, NULL};
-
-    if (!h2o_memis(req->method.base, req->method.len, H2O_STRLIT("GET"))) {
-        return -1;
-    }
-
     h2o_iovec_t query = req->query_at != SIZE_MAX ?
                         h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
                         h2o_iovec_init(H2O_STRLIT(""));
@@ -92,7 +87,7 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
     h2o_iovec_t body = h2o_strdup(&req->pool, json_str.c_str(), SIZE_MAX);
     req->res.status = 200;
     req->res.reason = "OK";
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("text/plain"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, 1);
 
@@ -101,19 +96,23 @@ static int chunked_test(h2o_handler_t *self, h2o_req_t *req) {
     return 0;
 }
 
-static int post_test(h2o_handler_t *self, h2o_req_t *req) {
-    if (h2o_memis(req->method.base, req->method.len, H2O_STRLIT("POST")) &&
-        h2o_memis(req->path_normalized.base, req->path_normalized.len, H2O_STRLIT("/post-test/"))) {
-        static h2o_generator_t generator = {NULL, NULL};
-        req->res.status = 200;
-        req->res.reason = "OK";
-        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("text/plain; charset=utf-8"));
-        h2o_start_response(req, &generator);
-        h2o_send(req, &req->entity, 1, 1);
-        return 0;
-    }
+static int post_add_document(h2o_handler_t *self, h2o_req_t *req) {
+    std::string document(req->entity.base, req->entity.len);
+    std::string inserted_id = collection->add(document);
 
-    return -1;
+    static h2o_generator_t generator = {NULL, NULL};
+    req->res.status = 200;
+    req->res.reason = "OK";
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_start_response(req, &generator);
+
+    nlohmann::json json_response;
+    json_response["id"] = inserted_id;
+    json_response["status"] = "SUCCESS";
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, json_response.dump().c_str(), SIZE_MAX);
+    h2o_send(req, &body, 1, 1);
+    return 0;
 }
 
 static void on_accept(h2o_socket_t *listener, const char *err) {
@@ -136,7 +135,7 @@ static int create_listener(void) {
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(0x7f000001);
-    addr.sin_port = htons(7890);
+    addr.sin_port = htons(1088);
 
     if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
@@ -151,8 +150,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+    //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
 
@@ -171,9 +170,8 @@ int main(int argc, char **argv) {
 
     h2o_config_init(&config);
     h2o_hostconf_t *hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
-    register_handler(hostconf, "/post-test", post_test);
-    register_handler(hostconf, "/search", chunked_test);
-    h2o_file_register(h2o_config_register_path(hostconf, "/", 0), "examples/doc_root", NULL, NULL, 0);
+    register_handler(hostconf, "/add", post_add_document);
+    register_handler(hostconf, "/search", get_search);
 
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
@@ -181,7 +179,7 @@ int main(int argc, char **argv) {
     accept_ctx.hosts = config.hosts;
 
     if (create_listener() != 0) {
-        fprintf(stderr, "failed to listen to 127.0.0.1:7890:%s\n", strerror(errno));
+        fprintf(stderr, "failed to listen to 127.0.0.1:1088:%s\n", strerror(errno));
         return 1;
     }
 
