@@ -25,8 +25,10 @@ int main() {
     infile.close();
     cout << "FINISHED INDEXING!" << endl << flush;
 
+    collection->remove("foo");
+
     auto begin = std::chrono::high_resolution_clock::now();
-    collection->search("platn growing", 1, 100);
+    collection->search("the", 1, 100);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
     delete collection;

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <for.h>
 #include <limits>
+#include <iostream>
 
 #define FOR_GROWTH_FACTOR 1.3
 #define FOR_ELE_SIZE sizeof(uint32_t)
@@ -12,8 +13,8 @@
 class forarray {
 private:
     uint8_t* in;
-    uint32_t size_bytes = 0;
-    uint32_t length_bytes = 0;
+    uint32_t size_bytes = 0;    // allocated size
+    uint32_t length_bytes = 0;  // actual size
     uint32_t length = 0;
     uint32_t min = std::numeric_limits<uint32_t>::max();
     uint32_t max = std::numeric_limits<uint32_t>::min();
@@ -28,22 +29,38 @@ public:
         delete in;
     }
 
+    void load_sorted(const uint32_t *sorted_array, const uint32_t array_length) {
+        min = sorted_array[0];
+        max = array_length > 1 ? sorted_array[array_length-1] : min;
+
+        uint32_t size_required = (uint32_t) (sorted_append_size_required(max, array_length) * FOR_GROWTH_FACTOR);
+        uint8_t *out = new uint8_t[size_required];
+        uint32_t actual_size = for_compress_sorted(sorted_array, out, array_length);
+
+        delete in;
+
+        in = out;
+        length = array_length;
+        size_bytes = size_required;
+        length_bytes = actual_size;
+    }
+
     static inline uint32_t required_bits(const uint32_t v) {
         return v == 0 ? 0 : 32 - __builtin_clz(v);
     }
 
-    uint32_t inline sorted_append_size_required(uint32_t value) {
+    uint32_t inline sorted_append_size_required(uint32_t value, uint32_t new_length) {
         uint32_t m = std::min(min, value);
         uint32_t M = std::max(max, value);
         uint32_t bnew = required_bits(M - m);
-        return METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
+        return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
     }
 
     // returns false if malloc fails
     bool append_sorted(uint32_t value) {
-        uint32_t size_required = sorted_append_size_required(value);
+        uint32_t size_required = sorted_append_size_required(value, length+1);
 
-        if(size_required+4 > size_bytes) {
+        if(size_required+FOR_ELE_SIZE > size_bytes) {
             // grow the array first
             size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
             uint8_t *new_location = (uint8_t *) realloc(in, new_size);
@@ -66,17 +83,17 @@ public:
         return true;
     }
 
-    uint32_t inline unsorted_append_size_required(uint32_t value) {
+    uint32_t inline unsorted_append_size_required(uint32_t value, uint32_t new_length) {
       uint32_t m = std::min(min, value);
       uint32_t M = std::max(max, value);
       uint32_t bnew = required_bits(M - m);
-      return METADATA_OVERHEAD + for_compressed_size_bits(length+1, bnew);
+      return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
     }
 
     bool append_unsorted(uint32_t value) {
-      uint32_t size_required = unsorted_append_size_required(value);
+      uint32_t size_required = unsorted_append_size_required(value, length+1);
 
-      if(size_required+4 > size_bytes) {
+      if(size_required+FOR_ELE_SIZE > size_bytes) {
           // grow the array first
           size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
           uint8_t *new_location = (uint8_t *) realloc(in, new_size);
@@ -122,6 +139,64 @@ public:
         uint32_t *out = new uint32_t[length];
         for_uncompress(in, out, length);
         return out;
+    }
+
+    void remove_index_unsorted(uint32_t start_index, uint32_t end_index) {
+        uint32_t *curr_array = uncompress();
+
+        uint32_t *new_array = new uint32_t[length];
+        uint32_t new_index = 0;
+        uint32_t curr_index = 0;
+
+        min = std::numeric_limits<uint32_t>::max();
+        max = std::numeric_limits<uint32_t>::min();
+
+        while(curr_index < length) {
+            if(curr_index < start_index || curr_index >= end_index) {
+                new_array[new_index++] = curr_array[curr_index];
+                if(curr_array[curr_index] < min) min = curr_array[curr_index];
+                if(curr_array[curr_index] > max) max = curr_array[curr_index];
+            }
+            curr_index++;
+        }
+
+        uint32_t size_required = (uint32_t) (unsorted_append_size_required(max, new_index) * FOR_GROWTH_FACTOR);
+        uint8_t *out = new uint8_t[size_required];
+        uint32_t actual_size = for_compress_unsorted(new_array, out, new_index);
+
+        delete curr_array;
+        delete[] new_array;
+        delete in;
+
+        in = out;
+        length = new_index;
+        size_bytes = size_required;
+        length_bytes = actual_size;
+    }
+
+    void remove_values_sorted(uint32_t *sorted_values, uint32_t values_length) {
+        uint32_t *curr_array = uncompress();
+
+        uint32_t *new_array = new uint32_t[length];
+        uint32_t new_index = 0;
+        uint32_t curr_index = 0;
+        uint32_t sorted_values_index = 0;
+
+        while(curr_index < length) {
+            if(sorted_values_index < values_length && curr_array[curr_index] >= sorted_values[sorted_values_index]) {
+                // skip copying
+                if(curr_array[curr_index] == sorted_values[sorted_values_index]) {
+                    curr_index++;
+                }
+                sorted_values_index++;
+            } else {
+                new_array[new_index++] = curr_array[curr_index++];
+            }
+        }
+
+        load_sorted(new_array, new_index);
+        delete[] curr_array;
+        delete[] new_array;
     }
 
     uint32_t getSizeInBytes() {

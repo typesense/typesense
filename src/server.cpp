@@ -115,6 +115,36 @@ static int post_add_document(h2o_handler_t *self, h2o_req_t *req) {
     return 0;
 }
 
+static int delete_remove_document(h2o_handler_t *self, h2o_req_t *req) {
+    h2o_iovec_t query = req->query_at != SIZE_MAX ?
+                        h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
+                        h2o_iovec_init(H2O_STRLIT(""));
+
+    std::string query_str(query.base, query.len);
+    std::map<std::string, std::string> query_map = parse_query(query_str);
+
+    std::string doc_id = query_map["id"];
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    collection->remove(doc_id);
+    long long int time_micro = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken: " << time_micro << "us" << std::endl;
+
+    nlohmann::json json_response;
+    json_response["id"] = doc_id;
+    json_response["status"] = "SUCCESS";
+
+    static h2o_generator_t generator = {NULL, NULL};
+    req->res.status = 200;
+    req->res.reason = "OK";
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_start_response(req, &generator);
+    h2o_iovec_t body = h2o_strdup(&req->pool, json_response.dump().c_str(), SIZE_MAX);
+    h2o_send(req, &body, 1, 1);
+    return 0;
+}
+
 static void on_accept(h2o_socket_t *listener, const char *err) {
     h2o_socket_t *sock;
 
@@ -150,8 +180,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-    //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
 
@@ -171,6 +201,7 @@ int main(int argc, char **argv) {
     h2o_config_init(&config);
     h2o_hostconf_t *hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/add", post_add_document);
+    register_handler(hostconf, "/delete", delete_remove_document);
     register_handler(hostconf, "/search", get_search);
 
     h2o_context_init(&ctx, h2o_evloop_create(), &config);

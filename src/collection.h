@@ -26,6 +26,7 @@ public:
     ~Collection();
     std::string add(std::string json_str);
     std::vector<nlohmann::json> search(std::string query, const int num_typos, const size_t num_results);
+    void remove(std::string id);
 
     static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                              long long int n);

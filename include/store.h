@@ -38,14 +38,13 @@ public:
         delete db;
     }
 
-    bool insert(std::string&& key, std::string&& value) {
+    bool insert(const std::string& key, const std::string& value) {
         rocksdb::Status status = db->Put(rocksdb::WriteOptions(), key, value);
         return status.ok();
     }
 
-    std::string get(std::string&& key) {
-        std::string value;
+    bool get(const std::string& key, std::string& value) {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
-        return value;
+        return status.ok();
     }
 };

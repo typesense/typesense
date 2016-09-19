@@ -6,6 +6,7 @@
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
+#include <art.h>
 #include "sole.hpp"
 #include "art.h"
 #include "json.hpp"
@@ -110,9 +111,9 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, cost, 3, leaves);
             if(!leaves.empty()) {
                 for(auto i=0; i<leaves.size(); i++) {
-                    //printf("%s - ", token.c_str());
-                    //printf("%.*s", leaves[i]->key_len, leaves[i]->key);
-                    //printf(" - max_cost: %d, - score: %d\n", max_cost, leaves[i]->values->ids.getLength());
+                    printf("%s - ", token.c_str());
+                    printf("%.*s", leaves[i]->key_len, leaves[i]->key);
+                    printf(" - max_cost: %d, - num_ids: %d\n", max_cost, leaves[i]->values->ids.getLength());
                 }
                 token_leaves.push_back(leaves);
             }
@@ -164,7 +165,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             uint32_t id = topster.getKeyAt(i);
             std::cout << "ID: " << id << std::endl;
 
-            const std::string value = store->get(std::to_string(id));
+            std::string value;
+            store->get(std::to_string(id), value);
             nlohmann::json document = nlohmann::json::parse(value);
             results.push_back(document);
         }
@@ -234,4 +236,87 @@ inline std::vector<art_leaf *> Collection::_next_suggestion(
     });
 
     return query_suggestion;
+}
+
+void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indices_sorted, const uint32_t indices_length) {
+    uint32_t *curr_array = offset_index.uncompress();
+    uint32_t *new_array = new uint32_t[offset_index.getLength()];
+
+    uint32_t new_index = 0;
+    uint32_t curr_index = 0;
+    uint32_t indices_counter = 0;
+    uint32_t shift_value = 0;
+
+    while(curr_index < offset_index.getLength()) {
+        if(indices_counter < indices_length && curr_index >= indices_sorted[indices_counter]) {
+            // skip copying
+            if(curr_index == indices_sorted[indices_counter]) {
+                curr_index++;
+                const uint32_t diff = curr_index == offset_index.getLength() ?
+                                0 : (offset_index.at(curr_index) - offset_index.at(curr_index-1));
+
+                shift_value += diff;
+            }
+            indices_counter++;
+        } else {
+            new_array[new_index++] = curr_array[curr_index++] - shift_value;
+        }
+    }
+
+    offset_index.load_sorted(new_array, new_index);
+
+    delete[] curr_array;
+    delete[] new_array;
+}
+
+void Collection::remove(std::string id) {
+    std::string seq_id;
+    store->get(id, seq_id);
+
+    std::string parsed_document;
+    store->get(seq_id, parsed_document);
+
+    nlohmann::json document = nlohmann::json::parse(parsed_document);
+
+    std::vector<std::string> tokens;
+    StringUtils::tokenize(document["title"], tokens, " ", true);
+
+    for(auto token: tokens) {
+        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+
+        const unsigned char *key = (const unsigned char *) token.c_str();
+        int key_len = (int) (token.length() + 1);
+
+        art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
+        if(leaf != NULL) {
+            uint32_t int_seq_id = (uint32_t) std::stoi(seq_id);
+            uint32_t seq_id_values[1] = {int_seq_id};
+
+            uint32_t doc_index = leaf->values->ids.indexOf(int_seq_id);
+
+            /*
+            auto len = leaf->values->offset_index.getLength();
+            for(auto i=0; i<len; i++) {
+                std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+            }
+            std::cout << "----" << std::endl;
+            */
+            uint32_t start_offset = leaf->values->offset_index.at(doc_index);
+            uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
+                                  leaf->values->offsets.getLength() :
+                                  leaf->values->offset_index.at(doc_index+1);
+
+            uint32_t doc_indices[1] = {doc_index};
+            _remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
+
+            leaf->values->offsets.remove_index_unsorted(start_offset, end_offset);
+            leaf->values->ids.remove_values_sorted(seq_id_values, 1);
+
+            /*len = leaf->values->offset_index.getLength();
+            for(auto i=0; i<len; i++) {
+                std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+            }
+            std::cout << "----" << std::endl;*/
+        }
+    }
 }
