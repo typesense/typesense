@@ -99,6 +99,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
     int cost = 0;
     size_t total_results = 0;
     std::vector<nlohmann::json> results;
+    Topster<100> topster;
 
     while(cost <= max_cost) {
         std::cout << "Searching with cost=" << cost << std::endl;
@@ -125,7 +126,6 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             continue;
         }
 
-        Topster<100> topster;
         const size_t combination_limit = 10;
         auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
         long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product );
@@ -187,24 +187,31 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
         uint32_t doc_id = result_ids[i];
         std::vector<std::vector<uint16_t>> token_positions;
 
-        // for each token in the query, find the positions that it appears in this document
-        for (art_leaf *token_leaf : query_suggestion) {
-            std::vector<uint16_t> positions;
-            uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
-            uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-            uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                                  token_leaf->values->offsets.getLength() :
-                                  token_leaf->values->offset_index.at(doc_index+1);
+        MatchScore mscore;
 
-            while(start_offset < end_offset) {
-                positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
-                start_offset++;
+        if(query_suggestion.size() == 1) {
+            mscore = MatchScore{1, 1};
+        } else {
+            // for each token in the query, find the positions that it appears in this document
+            for (art_leaf *token_leaf : query_suggestion) {
+                std::vector<uint16_t> positions;
+                uint32_t doc_index = token_leaf->values->ids.indexOf(doc_id);
+                uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
+                uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
+                                      token_leaf->values->offsets.getLength() :
+                                      token_leaf->values->offset_index.at(doc_index+1);
+
+                while(start_offset < end_offset) {
+                    positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
+                    start_offset++;
+                }
+
+                token_positions.push_back(positions);
             }
 
-            token_positions.push_back(positions);
+            mscore = MatchScore::match_score(doc_id, token_positions);
         }
 
-        MatchScore mscore = MatchScore::match_score(doc_id, token_positions);
         const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + doc_scores.at(doc_id);
 
         /*

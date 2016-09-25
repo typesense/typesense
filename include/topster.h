@@ -6,16 +6,15 @@
 #include <algorithm>
 
 /*
-* A bounded max heap that remembers the top-K elements seen so far
+* Remembers the max-K elements seen so far using a min-heap
 */
 template <size_t MAX_SIZE=100>
 struct Topster {
     uint64_t data[MAX_SIZE];
-    uint32_t smallest_index = 0;
-    uint32_t size = 0;
+    uint32_t size;
 
-    Topster(){
-        data[smallest_index]= UINT_MAX;
+    Topster(): size(0){
+
     }
 
     template <typename T> inline void swapMe(T& a, T& b) {
@@ -37,44 +36,40 @@ struct Topster {
     }
 
     void add(const uint32_t&key, const uint32_t& val){
-        uint32_t smallest_key, smallest_value;
-        unpack(data[smallest_index], smallest_key, smallest_value);
-
         if (size >= MAX_SIZE) {
-            if(val < smallest_value) {
+            if(val <= getValueAt(0)) {
                 // when incoming value is less than the smallest in the heap, ignore
                 return;
             }
 
-            data[smallest_index] = pack(key, val);
-            int i = 0;
+            data[0] = pack(key, val);
+            uint32_t i = 0;
 
             // sift to maintain heap property
             while ((2*i+1) < MAX_SIZE) {
-                int next = 2*i + 1;
-                if (data[next] < data[next+1])
+                uint32_t next = (uint32_t) (2 * i + 1);
+                if (next+1 < MAX_SIZE && getValueAt(next) > getValueAt(next+1)) {
                     next++;
+                }
 
-                if (data[i] < data[next]) swapMe(data[i], data[next]);
-                else break;
+                if (getValueAt(i) > getValueAt(next)) {
+                    swapMe(data[i], data[next]);
+                } else {
+                    break;
+                }
 
                 i = next;
             }
         } else {
-            // keep track of the smallest element's index
-            if(val < smallest_value) {
-                smallest_index = size;
-            }
-
-            // insert at the end of the array, and sift it up to maintain heap property
             data[size++] = pack(key, val);
-            for (int i = size - 1; i > 0;) {
-                int parent = (i-1)/2;
-                if (data[parent] < data[i]) {
+            for (uint32_t i = size - 1; i > 0;) {
+                uint32_t parent = (i-1)/2;
+                if (getValueAt(parent) > getValueAt(i)) {
                     swapMe(data[parent], data[i]);
                     i = parent;
+                } else {
+                    break;
                 }
-                else break;
             }
         }
     }
@@ -97,10 +92,17 @@ struct Topster {
         size = 0;
     }
 
-    uint32_t getKeyAt(uint32_t& index) {
+    uint32_t getKeyAt(uint32_t index) {
         uint32_t key;
         uint32_t value;
         unpack(data[index], key, value);
         return key;
+    }
+
+    uint32_t getValueAt(uint32_t index) {
+        uint32_t key;
+        uint32_t value;
+        unpack(data[index], key, value);
+        return value;
     }
 };
