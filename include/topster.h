@@ -10,49 +10,42 @@
 */
 template <size_t MAX_SIZE=100>
 struct Topster {
-    uint64_t data[MAX_SIZE];
+    struct KV {
+        uint64_t key;
+        uint64_t value;
+    } data[MAX_SIZE];
+
     uint32_t size;
 
     Topster(): size(0){
 
     }
 
-    template <typename T> inline void swapMe(T& a, T& b) {
+    template <typename T> static inline void swapMe(T& a, T& b) {
         T c = a;
         a = b;
         b = c;
     }
 
-    static inline uint64_t pack(const uint32_t&key, const uint32_t& val) {
-        uint64_t kv;
-        kv = key;
-        kv = (kv << 32) + val;
-        return kv;
-    }
-
-    static inline void unpack(const uint64_t& kv, uint32_t&key, uint32_t& val) {
-        key = (uint32_t) (kv >> 32);
-        val = (uint32_t) (kv & 0xFFFFFFFF);
-    }
-
-    void add(const uint32_t&key, const uint32_t& val){
+    void add(const uint32_t&key, const uint32_t& value){
         if (size >= MAX_SIZE) {
-            if(val <= getValueAt(0)) {
+            if(value <= data[0].value) {
                 // when incoming value is less than the smallest in the heap, ignore
                 return;
             }
 
-            data[0] = pack(key, val);
+            data[0].key = key;
+            data[0].value = value;
             uint32_t i = 0;
 
             // sift to maintain heap property
             while ((2*i+1) < MAX_SIZE) {
                 uint32_t next = (uint32_t) (2 * i + 1);
-                if (next+1 < MAX_SIZE && getValueAt(next) > getValueAt(next+1)) {
+                if (next+1 < MAX_SIZE && data[next].value > data[next+1].value) {
                     next++;
                 }
 
-                if (getValueAt(i) > getValueAt(next)) {
+                if (data[i].value > data[next].value) {
                     swapMe(data[i], data[next]);
                 } else {
                     break;
@@ -61,11 +54,14 @@ struct Topster {
                 i = next;
             }
         } else {
-            data[size++] = pack(key, val);
+            data[size].key = key;
+            data[size].value = value;
+            size++;
+
             for (uint32_t i = size - 1; i > 0;) {
                 uint32_t parent = (i-1)/2;
-                if (getValueAt(parent) > getValueAt(i)) {
-                    swapMe(data[parent], data[i]);
+                if (data[parent].value > data[i].value) {
+                    swapMe(data[i], data[parent]);
                     i = parent;
                 } else {
                     break;
@@ -74,14 +70,8 @@ struct Topster {
         }
     }
 
-    static bool compare_values(uint64_t i, uint64_t j) {
-        uint32_t ikey, ival;
-        uint32_t jkey, jval;
-
-        unpack(i, ikey, ival);
-        unpack(j, jkey, jval);
-
-        return jval < ival;
+    static bool compare_values(const struct KV& i, const struct KV& j) {
+        return j.value < i.value;
     }
 
     void sort() {
@@ -92,17 +82,7 @@ struct Topster {
         size = 0;
     }
 
-    uint32_t getKeyAt(uint32_t index) {
-        uint32_t key;
-        uint32_t value;
-        unpack(data[index], key, value);
-        return key;
-    }
-
-    uint32_t getValueAt(uint32_t index) {
-        uint32_t key;
-        uint32_t value;
-        unpack(data[index], key, value);
-        return value;
+    uint64_t getKeyAt(uint32_t index) {
+        return data[index].key;
     }
 };

@@ -162,7 +162,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         topster.sort();
 
         for(uint32_t i=0; i<topster.size; i++) {
-            uint32_t id = topster.getKeyAt(i);
+            uint64_t id = topster.getKeyAt(i);
             std::cout << "ID: " << id << std::endl;
 
             std::string value;
