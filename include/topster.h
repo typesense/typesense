@@ -27,7 +27,7 @@ struct Topster {
         b = c;
     }
 
-    void add(const uint32_t&key, const uint32_t& value){
+    void add(const uint64_t &key, const uint64_t &value){
         if (size >= MAX_SIZE) {
             if(value <= data[0].value) {
                 // when incoming value is less than the smallest in the heap, ignore

@@ -101,6 +101,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
     std::vector<nlohmann::json> results;
     Topster<100> topster;
 
+    auto begin = std::chrono::high_resolution_clock::now();
+
     while(cost <= max_cost) {
         std::cout << "Searching with cost=" << cost << std::endl;
 
@@ -163,7 +165,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
         for(uint32_t i=0; i<topster.size; i++) {
             uint64_t id = topster.getKeyAt(i);
-            std::cout << "ID: " << id << std::endl;
+            //std::cout << "ID: " << id << std::endl;
 
             std::string value;
             store->get(std::to_string(id), value);
@@ -177,6 +179,9 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
         cost++;
     }
+
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
 
     return results;
 }
@@ -212,16 +217,17 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
             mscore = MatchScore::match_score(doc_id, token_positions);
         }
 
-        const uint32_t cumulativeScore = ((uint32_t)(mscore.words_present * 16 + (20 - mscore.distance)) * 64000) + doc_scores.at(doc_id);
+        const uint64_t final_score = ((uint64_t)(mscore.words_present * 32 + (20 - mscore.distance)) * UINT32_MAX) +
+                                     doc_scores.at(doc_id);
 
         /*
           std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "
                   << (int) mscore.distance << " - mscore.words_present: " << (int) mscore.words_present
-                  << " - doc_scores[doc_id]: " << (int) doc_scores.at(doc_id) << "  - cumulativeScore: "
-                  << cumulativeScore << std::endl;
+                  << " - doc_scores[doc_id]: " << (int) doc_scores.at(doc_id) << "  - final_score: "
+                  << final_score << std::endl;
         */
 
-        topster.add(doc_id, cumulativeScore);
+        topster.add(doc_id, final_score);
     }
 }
 

@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 #include <art.h>
-#include <unordered_map>
+#include <sparsepp.h>
 #include <store.h>
 #include <topster.h>
 #include <json.hpp>
@@ -16,7 +16,7 @@ private:
     uint32_t seq_id;
 
     art_tree t;
-    std::unordered_map<uint32_t, uint16_t> doc_scores;
+    spp::sparse_hash_map<uint32_t, uint16_t> doc_scores;
 
     uint32_t next_seq_id();
 
