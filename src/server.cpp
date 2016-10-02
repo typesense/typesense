@@ -77,11 +77,6 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     }
 
     std::string json_str = json_array.dump();
-
-    struct rusage r_usage;
-    getrusage(RUSAGE_SELF,&r_usage);
-
-    std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
     std::cout << "JSON:" << json_str << std::endl;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, json_str.c_str(), SIZE_MAX);
@@ -191,6 +186,10 @@ void index_documents() {
 
     infile.close();
     std::cout << "FINISHED INDEXING!" << std::endl << std::flush;
+    struct rusage r_usage;
+    getrusage(RUSAGE_SELF,&r_usage);
+
+    std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
 }
 
 int main(int argc, char **argv) {
