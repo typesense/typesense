@@ -17,7 +17,7 @@ extern "C" {
 #define NODE48  3
 #define NODE256 4
 
-#define MAX_PREFIX_LEN 10
+#define MAX_PREFIX_LEN 8
 
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 
@@ -41,10 +41,10 @@ typedef int(*art_callback)(void *data, const unsigned char *key, uint32_t key_le
 typedef struct {
     uint8_t type;
     uint8_t num_children;
-    uint16_t max_score;
-    uint32_t max_token_count;
-    uint32_t partial_len;
+    uint8_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
+    uint32_t max_score;
+    uint32_t max_token_count;
 } art_node;
 
 /**

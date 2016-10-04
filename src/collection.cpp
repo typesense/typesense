@@ -255,6 +255,7 @@ void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indi
     uint32_t *curr_array = offset_index.uncompress();
     uint32_t *new_array = new uint32_t[offset_index.getLength()];
 
+    new_array[0] = 0;
     uint32_t new_index = 0;
     uint32_t curr_index = 0;
     uint32_t indices_counter = 0;
