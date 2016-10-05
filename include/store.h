@@ -47,4 +47,9 @@ public:
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
         return status.ok();
     }
+
+    bool remove(const std::string& key) {
+        rocksdb::Status status = db->Delete(rocksdb::WriteOptions(), key);
+        return status.ok();
+    }
 };

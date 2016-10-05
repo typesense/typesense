@@ -331,6 +331,13 @@ void Collection::remove(std::string id) {
                 std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
             }
             std::cout << "----" << std::endl;*/
+
+            if(leaf->values->ids.getLength() == 0) {
+                art_delete(&t, key, key_len);
+            }
         }
     }
+
+    store->remove(id);
+    store->remove(seq_id);
 }

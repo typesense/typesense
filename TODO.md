@@ -11,12 +11,14 @@
 - Facets
 - Filters
 - Support search operators like +, - etc.
+- ~~Delete should remove from RocksDB~~
+- Speed up UUID generation
 
 **API**
 
 - Support the following operations:
     - create a new index
-    - index a single document
+    - ~~index a single document~~
     - bulk insert multiple documents
     - fetch a document by ID
     - delete a document by ID
@@ -33,4 +35,4 @@
 
 **Tech debt**
 
-- Use GLOB file pattern for CMake (better IDE refactoring support)
+- ~~Use GLOB file pattern for CMake (better IDE refactoring support)~~

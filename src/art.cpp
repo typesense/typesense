@@ -796,6 +796,9 @@ static art_leaf* recursive_delete(art_node *n, art_node **ref, const unsigned ch
             return NULL;
         }
         depth = depth + n->partial_len;
+        if(depth > key_len-1) {
+            return NULL;
+        }
     }
 
     // Find child node

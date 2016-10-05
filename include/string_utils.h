@@ -6,26 +6,27 @@ struct StringUtils {
 
     template<class ContainerT>
     static void tokenize(const std::string &str, ContainerT &tokens,
-                  const std::string &delimiters = " ", bool trimEmpty = false) {
+                  const std::string &delimiters = " ", bool trimEmpty = true, unsigned long maxTokenLength = 100) {
+        const std::string truncated_str = str.substr(0, maxTokenLength);
         std::string::size_type pos, lastPos = 0;
 
         using value_type = typename ContainerT::value_type;
         using size_type  = typename ContainerT::size_type;
 
         while (true) {
-            pos = str.find_first_of(delimiters, lastPos);
+            pos = truncated_str.find_first_of(delimiters, lastPos);
             if (pos == std::string::npos) {
-                pos = str.length();
+                pos = truncated_str.length();
 
                 if (pos != lastPos || !trimEmpty)
-                    tokens.push_back(value_type(str.data() + lastPos,
+                    tokens.push_back(value_type(truncated_str.data() + lastPos,
                                                 (size_type) pos - lastPos));
 
                 break;
             }
             else {
                 if (pos != lastPos || !trimEmpty)
-                    tokens.push_back(value_type(str.data() + lastPos,
+                    tokens.push_back(value_type(truncated_str.data() + lastPos,
                                                 (size_type) pos - lastPos));
             }
 
