@@ -7,7 +7,6 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
-#include "sole.hpp"
 #include "art.h"
 #include "json.hpp"
 
@@ -28,15 +27,15 @@ uint32_t Collection::next_seq_id() {
 std::string Collection::add(std::string json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
+    uint32_t seq_id = next_seq_id();
+    std::string seq_id_str = std::to_string(seq_id);
+
     if(document.count("id") == 0) {
-        sole::uuid u1 = sole::uuid1();
-        document["id"] = u1.base62();
+        document["id"] = seq_id_str;
     }
 
-    uint32_t seq_id = next_seq_id();
-
-    store->insert(std::to_string(seq_id), document.dump());
-    store->insert(document["id"], std::to_string(seq_id));
+    store->insert(get_seq_id_key(seq_id), document.dump());
+    store->insert(get_id_key(document["id"]), seq_id_str);
 
     std::vector<std::string> tokens;
     StringUtils::tokenize(document["title"], tokens, " ", true);
@@ -164,11 +163,11 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         topster.sort();
 
         for(uint32_t i=0; i<topster.size; i++) {
-            uint64_t id = topster.getKeyAt(i);
-            //std::cout << "ID: " << id << std::endl;
+            uint64_t seq_id = topster.getKeyAt(i);
+            //std::cout << "ID: " << seq_id << std::endl;
 
             std::string value;
-            store->get(std::to_string(id), value);
+            store->get(get_seq_id_key((uint32_t) seq_id), value);
             nlohmann::json document = nlohmann::json::parse(value);
             results.push_back(document);
         }
@@ -182,6 +181,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+
+    store->print_memory_usage();
 
     return results;
 }
@@ -284,11 +285,13 @@ void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indi
 }
 
 void Collection::remove(std::string id) {
-    std::string seq_id;
-    store->get(id, seq_id);
+    std::string seq_id_str;
+    store->get(get_id_key(id), seq_id_str);
+
+    uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
 
     std::string parsed_document;
-    store->get(seq_id, parsed_document);
+    store->get(get_seq_id_key(seq_id), parsed_document);
 
     nlohmann::json document = nlohmann::json::parse(parsed_document);
 
@@ -303,10 +306,9 @@ void Collection::remove(std::string id) {
 
         art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
         if(leaf != NULL) {
-            uint32_t int_seq_id = (uint32_t) std::stoi(seq_id);
-            uint32_t seq_id_values[1] = {int_seq_id};
+            uint32_t seq_id_values[1] = {seq_id};
 
-            uint32_t doc_index = leaf->values->ids.indexOf(int_seq_id);
+            uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
 
             /*
             auto len = leaf->values->offset_index.getLength();
@@ -338,6 +340,14 @@ void Collection::remove(std::string id) {
         }
     }
 
-    store->remove(id);
-    store->remove(seq_id);
+    store->remove(get_id_key(id));
+    store->remove(get_seq_id_key(seq_id));
+}
+
+std::string Collection::get_seq_id_key(uint32_t seq_id) {
+    return SEQ_ID_PREFIX+std::to_string(seq_id);
+}
+
+std::string Collection::get_id_key(std::string id) {
+    return ID_PREFIX+id;
 }

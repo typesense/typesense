@@ -28,6 +28,8 @@ public:
         options.OptimizeLevelStyleCompaction();
         // create the DB if it's not already present
         options.create_if_missing = true;
+        options.write_buffer_size = 4*1048576;
+        options.max_write_buffer_number = 2;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
@@ -51,5 +53,15 @@ public:
     bool remove(const std::string& key) {
         rocksdb::Status status = db->Delete(rocksdb::WriteOptions(), key);
         return status.ok();
+    }
+
+    void print_memory_usage() {
+        std::string index_usage;
+        db->GetProperty("rocksdb.estimate-table-readers-mem", &index_usage);
+        std::cout << "rocksdb.estimate-table-readers-mem: " << index_usage << std::endl;
+
+        std::string memtable_usage;
+        db->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_usage);
+        std::cout << "rocksdb.cur-size-all-mem-tables: " << memtable_usage << std::endl;
     }
 };

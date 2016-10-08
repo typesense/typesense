@@ -20,6 +20,12 @@ private:
 
     uint32_t next_seq_id();
 
+    const std::string SEQ_ID_PREFIX = "SQ_";
+    const std::string ID_PREFIX = "ID_";
+
+    std::string get_seq_id_key(uint32_t seq_id);
+    std::string get_id_key(std::string id);
+
 public:
     Collection() = delete;
     Collection(std::string state_dir_path);

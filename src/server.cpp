@@ -78,6 +78,10 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
 
     std::string json_str = json_array.dump();
     std::cout << "JSON:" << json_str << std::endl;
+    struct rusage r_usage;
+    getrusage(RUSAGE_SELF,&r_usage);
+
+    std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, json_str.c_str(), SIZE_MAX);
     req->res.status = 200;
@@ -175,7 +179,7 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-    //std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+//    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
     std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;

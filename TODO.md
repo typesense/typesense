@@ -12,7 +12,7 @@
 - Filters
 - Support search operators like +, - etc.
 - ~~Delete should remove from RocksDB~~
-- Speed up UUID generation
+- ~~Speed up UUID generation~~
 
 **API**
 
