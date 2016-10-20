@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <cstdlib>
 #include <for.h>
+#include <cstring>
 #include <limits>
 #include <iostream>
 
@@ -46,7 +47,7 @@ public:
     }
 
     static inline uint32_t required_bits(const uint32_t v) {
-        return v == 0 ? 0 : 32 - __builtin_clz(v);
+        return (uint32_t) (v == 0 ? 0 : 32 - __builtin_clz(v));
     }
 
     uint32_t inline sorted_append_size_required(uint32_t value, uint32_t new_length) {

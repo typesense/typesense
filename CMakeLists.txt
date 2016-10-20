@@ -8,41 +8,34 @@ if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/)
     file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/external)
 endif()
 
-include(GoogleTest.cmake)
-include(For.cmake)
+include(cmake/GoogleTest.cmake)
+include(cmake/For.cmake)
+include(cmake/H2O.cmake)
+include(cmake/RocksDB.cmake)
 
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
     add_definitions(-D__GLIBCXX__)
-    include_directories(/usr/local/opt/openssl/include) # For openssl installed with brew
 endif (APPLE)
-
-# FIXME: Need to use find_package() to locate the correct openssl library
 
 FILE(GLOB HEADER_FILES include/*)
 
 include_directories(include)
 include_directories(${CMAKE_SOURCE_DIR}/external/${FOR_NAME})
-include_directories(${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/include)
+include_directories(${CMAKE_SOURCE_DIR}/external/${GTEST_NAME}/googletest/include)
+include_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/include)
+include_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/include)
 
-link_directories(${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/build)
+link_directories(${CMAKE_SOURCE_DIR}/external/${GTEST_NAME}/googletest/build)
+link_directories(${CMAKE_SOURCE_DIR}/external/${FOR_NAME})
+link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build)
+link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build/libressl-build/lib)
+link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 
 add_executable(typesense_test test/forarray_test.cpp)
 add_executable(search ${HEADER_FILES} src/art.cpp src/intersection.cpp src/main.cpp src/collection.cpp)
 add_executable(typesense-server ${HEADER_FILES} src/art.cpp src/intersection.cpp src/collection.cpp src/server.cpp)
 
-target_link_libraries(typesense_test
-    ${CMAKE_SOURCE_DIR}/external/${FOR_NAME}/libfor.a
-    gtest gtest_main
-)
-
-target_link_libraries(search ${CMAKE_SOURCE_DIR}/external/${FOR_NAME}/libfor.a rocksdb)
-target_link_libraries(typesense-server
-        ${CMAKE_SOURCE_DIR}/external/${FOR_NAME}/libfor.a
-        curl h2o-evloop pthread rocksdb
-        /usr/local/opt/openssl/lib/libssl.a
-        /usr/local/opt/openssl/lib/libcrypto.a)
-
-#add_dependencies(typesense_test libfor)
-#add_dependencies(search libfor)
-#add_dependencies(typesense-server libfor)
+target_link_libraries(typesense_test for gtest gtest_main)
+target_link_libraries(search for pthread rocksdb)
+target_link_libraries(typesense-server for curl h2o-evloop pthread rocksdb ssl crypto)

@@ -5,6 +5,9 @@
 #include <emmintrin.h>
 #include <assert.h>
 #include <art.h>
+#include <functional>
+#include <chrono>
+#include <algorithm>
 #include <iostream>
 #include <limits>
 #include <queue>

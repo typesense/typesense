@@ -3,6 +3,7 @@
 #include <fstream>
 #include <vector>
 #include <numeric>
+#include <chrono>
 #include <art.h>
 #include <unordered_map>
 #include "string_utils.h"

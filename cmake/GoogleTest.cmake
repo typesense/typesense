@@ -6,16 +6,16 @@ set(GTEST_TAR_PATH ${CMAKE_SOURCE_DIR}/external/${GTEST_NAME}.tar.gz)
 
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${GTEST_NAME})
     message(STATUS "Downloading and extracting Google Test...")
-    file(DOWNLOAD https://github.com/google/googletest/archive/release-1.8.0.tar.gz ${GTEST_TAR_PATH})
+    file(DOWNLOAD https://github.com/google/googletest/archive/release-${GTEST_VERSION}.tar.gz ${GTEST_TAR_PATH})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${GTEST_TAR_PATH} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/)
 endif()
 
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/build)
+if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build)
     message("Configuring Google Test...")
-    file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/build)
+    file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
-            "-H${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest"
-            "-B${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/build"
+            "-H${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest"
+            "-B${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build"
             RESULT_VARIABLE
             GOOGLETEST_CONFIGURE)
     if(NOT GOOGLETEST_CONFIGURE EQUAL 0)
@@ -24,7 +24,7 @@ if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/b
 
     message("Building Google Test locally...")
     execute_process(COMMAND ${CMAKE_COMMAND} --build
-            "${CMAKE_SOURCE_DIR}/external/googletest-release-1.8.0/googletest/build"
+            "${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build"
             RESULT_VARIABLE
             GOOGLETEST_BUILD)
     if(NOT GOOGLETEST_BUILD EQUAL 0)

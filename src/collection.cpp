@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include <numeric>
+#include <chrono>
 #include <topster.h>
 #include <intersection.h>
 #include <match_score.h>
