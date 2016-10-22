@@ -10,7 +10,8 @@ if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${ROCKSDB_TAR_PATH} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/)
 endif()
 
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/libfor.a)
+if( (NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/librocksdb.so) AND
+    (NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/librocksdb.dylib) )
     message("Building ${ROCKSDB_NAME} locally...")
-    execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/)
+    execute_process(COMMAND make "shared_lib" WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME}/)
 endif()
