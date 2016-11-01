@@ -572,12 +572,13 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
 
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
+            *old_val = 1;
+
             // updates are not supported
             if(l->values->ids.contains(document->id)) {
-                return NULL;
+                return old_val;
             }
 
-            *old_val = 1;
             art_values *old_val = l->values;
             add_document_to_leaf(document, l);
             return old_val;
@@ -1050,12 +1051,16 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
         if (n->partial_len) {
             prefix_len = prefix_mismatch(n, key, key_len, depth);
 
-            // If there is no match, search is terminated
-            if (!prefix_len)
-                return 0;
+            // Guard if the mis-match is longer than the MAX_PREFIX_LEN
+            if (prefix_len > n->partial_len) {
+                prefix_len = n->partial_len;
+            }
 
+            // If there is no match, search is terminated
+            if (!prefix_len) {
+                return 0;
+            } else if (depth + prefix_len == key_len) {
                 // If we've matched the prefix, iterate on this node
-            else if (depth + prefix_len == key_len) {
                 return recursive_iter(n, cb, data);
             }
 

@@ -12,6 +12,7 @@ include(cmake/GoogleTest.cmake)
 include(cmake/For.cmake)
 include(cmake/H2O.cmake)
 include(cmake/RocksDB.cmake)
+include(cmake/TestResources.cmake)
 
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
@@ -32,7 +33,7 @@ link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build)
 link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build/libressl-build/lib)
 link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 
-add_executable(typesense_test test/forarray_test.cpp)
+add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp src/art.cpp)
 add_executable(search ${HEADER_FILES} src/art.cpp src/intersection.cpp src/main.cpp src/collection.cpp)
 add_executable(typesense-server ${HEADER_FILES} src/art.cpp src/intersection.cpp src/collection.cpp src/server.cpp)
 
