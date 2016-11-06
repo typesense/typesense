@@ -287,12 +287,17 @@ void* art_search(const art_tree *t, const unsigned char *key, int key_len) {
         // Bail if the prefix does not match
         if (n->partial_len) {
             prefix_len = check_prefix(n, key, key_len, depth);
-            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len))
+            if (prefix_len != min(MAX_PREFIX_LEN, n->partial_len)) {
                 return NULL;
+            }
+
             depth = depth + n->partial_len;
-            if(depth > key_len-1)
+            if(depth >= key_len) {
                 return NULL;
+            }
         }
+
+        assert(depth < key_len);
 
         // Recursively search
         child = find_child(n, key[depth]);
@@ -800,10 +805,12 @@ static art_leaf* recursive_delete(art_node *n, art_node **ref, const unsigned ch
             return NULL;
         }
         depth = depth + n->partial_len;
-        if(depth > key_len-1) {
+        if(depth >= key_len) {
             return NULL;
         }
     }
+
+    assert(depth < key_len);
 
     // Find child node
     art_node **child = find_child(n, key[depth]);
@@ -1062,11 +1069,15 @@ int art_iter_prefix(art_tree *t, const unsigned char *key, int key_len, art_call
             } else if (depth + prefix_len == key_len) {
                 // If we've matched the prefix, iterate on this node
                 return recursive_iter(n, cb, data);
+            } else if(depth + n->partial_len >= key_len) {
+                return 0;
             }
 
             // if there is a full match, go deeper
             depth = depth + n->partial_len;
         }
+
+        assert(depth < key_len);
 
         // Recursively search
         child = find_child(n, key[depth]);

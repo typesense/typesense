@@ -456,3 +456,92 @@ TEST(ArtTest, test_art_max_prefix_len_scan_prefix) {
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
 }
+
+TEST(ArtTest, test_art_prefix_iter_out_of_bounds) {
+    // Regression: ensures that `assert(depth < key_len);` is not invoked
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    char* key1 = "foobarbaz1-long-test1-foo";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+
+    char *key2 = "foobarbaz1-long-test1-bar";
+    doc = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+
+    char *key3 = "foobarbaz1-long-test2-foo";
+    doc = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+
+    ASSERT_TRUE(art_size(&t) == 3);
+
+    // Iterate over api
+    const char *expected[] = {key2, key1};
+    prefix_data p = { 0, 0, expected };
+    char *prefix = "f2oobar";
+    ASSERT_TRUE(!art_iter_prefix(&t, (unsigned char*)prefix, strlen(prefix), test_prefix_cb, &p));
+    ASSERT_TRUE(p.count == p.max_count);
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_search_out_of_bounds) {
+    // Regression: ensures that `assert(depth < key_len);` is not invoked
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    char* key1 = "foobarbaz1-long-test1-foo";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+
+    char *key2 = "foobarbaz1-long-test1-bar";
+    doc = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+
+    char *key3 = "foobarbaz1-long-test2-foo";
+    doc = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+
+    ASSERT_TRUE(art_size(&t) == 3);
+
+    // Search for a non-existing key
+    char *prefix = "foobarbaz1-long-";
+    art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *) prefix, strlen(prefix));
+    ASSERT_EQ(NULL, l);
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_delete_out_of_bounds) {
+    // Regression: ensures that `assert(depth < key_len);` is not invoked
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    char* key1 = "foobarbaz1-long-test1-foo";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+
+    char *key2 = "foobarbaz1-long-test1-bar";
+    doc = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+
+    char *key3 = "foobarbaz1-long-test2-foo";
+    doc = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+
+    ASSERT_TRUE(art_size(&t) == 3);
+
+    // Try to delete a non-existing key
+    char *prefix = "foobarbaz1-long-";
+    art_values* values = (art_values *) art_delete(&t, (const unsigned char *) prefix, strlen(prefix));
+    ASSERT_EQ(NULL, values);
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
