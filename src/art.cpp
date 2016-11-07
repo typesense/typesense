@@ -28,6 +28,10 @@
 
 #define microseconds std::chrono::duration_cast<std::chrono::microseconds>
 
+static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
+                              const int term_len, const int* irow, const int* jrow, const int max_cost,
+                              std::vector<const art_node *> &results);
+
 /*
  * Comparator for art_leaf struct.
  * We order the leaves descending based on the score.
@@ -1263,8 +1267,8 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
 /**
  * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
-int art_fuzzy_results(art_tree *t, const unsigned char *term, const int term_len,
-                      const int max_cost, const int max_words, std::vector<art_leaf *> &results) {
+int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
+                     const int max_cost, const int max_words, std::vector<art_leaf *> &results) {
 
     std::vector<const art_node*> nodes;
     int irow[term_len + 1];
@@ -1275,7 +1279,14 @@ int art_fuzzy_results(art_tree *t, const unsigned char *term, const int term_len
     }
 
     auto begin = std::chrono::high_resolution_clock::now();
-    art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, max_cost, nodes);
+
+    if(IS_LEAF(t->root)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(t->root);
+        art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, max_cost, nodes);
+    } else {
+        art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, max_cost, nodes);
+    }
+
     std::sort(nodes.begin(), nodes.end(), compare_art_node);
     long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
     std::cout << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size() << std::endl;

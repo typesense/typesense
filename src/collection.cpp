@@ -111,7 +111,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             std::transform(token.begin(), token.end(), token.begin(), ::tolower);
 
             std::vector<art_leaf*> leaves;
-            art_fuzzy_results(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, cost, 3, leaves);
+            art_fuzzy_search(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1, cost, 3, leaves);
             if(!leaves.empty()) {
                 for(auto i=0; i<leaves.size(); i++) {
                     printf("%s - ", token.c_str());

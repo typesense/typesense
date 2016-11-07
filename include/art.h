@@ -231,12 +231,8 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
 /**
  * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
-int art_fuzzy_results(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
-                      const int max_words, std::vector<art_leaf *> &results);
-
-static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
-                              const int term_len, const int* irow, const int* jrow, const int max_cost,
-                              std::vector<const art_node *> &results);
+int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
+                     const int max_words, std::vector<art_leaf *> &results);
 
 static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results);
 
