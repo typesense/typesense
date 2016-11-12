@@ -664,4 +664,14 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "Sarbruckken", strlen("Sarbruckken") + 1, 2, 10, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("Saarbrucken", (const char *)leaves.at(0)->key);
+
+    // multiple matching results
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 1, 10, leaves);
+    ASSERT_EQ(10, leaves.size());
+
+    std::vector<const char*> words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
+    for(auto leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
+        ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
+    }
 }
