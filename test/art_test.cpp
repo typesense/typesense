@@ -433,15 +433,15 @@ TEST(ArtTest, test_art_max_prefix_len_scan_prefix) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* key1 = "foobarbaz1-test1-foo";
+    const char* key1 = "foobarbaz1-test1-foo";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
 
-    char *key2 = "foobarbaz1-test1-bar";
+    const char *key2 = "foobarbaz1-test1-bar";
     doc = get_document((uint32_t) 2);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
 
-    char *key3 = "foobarbaz1-test2-foo";
+    const char *key3 = "foobarbaz1-test2-foo";
     doc = get_document((uint32_t) 3);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
 
@@ -450,7 +450,7 @@ TEST(ArtTest, test_art_max_prefix_len_scan_prefix) {
     // Iterate over api
     const char *expected[] = {key2, key1};
     prefix_data p = { 0, 2, expected };
-    char *prefix = "foobarbaz1-test1";
+    const char *prefix = "foobarbaz1-test1";
     ASSERT_TRUE(!art_iter_prefix(&t, (unsigned char*)prefix, strlen(prefix), test_prefix_cb, &p));
     ASSERT_TRUE(p.count == p.max_count);
 
@@ -464,15 +464,15 @@ TEST(ArtTest, test_art_prefix_iter_out_of_bounds) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* key1 = "foobarbaz1-long-test1-foo";
+    const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
 
-    char *key2 = "foobarbaz1-long-test1-bar";
+    const char *key2 = "foobarbaz1-long-test1-bar";
     doc = get_document((uint32_t) 2);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
 
-    char *key3 = "foobarbaz1-long-test2-foo";
+    const char *key3 = "foobarbaz1-long-test2-foo";
     doc = get_document((uint32_t) 3);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
 
@@ -481,7 +481,7 @@ TEST(ArtTest, test_art_prefix_iter_out_of_bounds) {
     // Iterate over api
     const char *expected[] = {key2, key1};
     prefix_data p = { 0, 0, expected };
-    char *prefix = "f2oobar";
+    const char *prefix = "f2oobar";
     ASSERT_TRUE(!art_iter_prefix(&t, (unsigned char*)prefix, strlen(prefix), test_prefix_cb, &p));
     ASSERT_TRUE(p.count == p.max_count);
 
@@ -495,22 +495,22 @@ TEST(ArtTest, test_art_search_out_of_bounds) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* key1 = "foobarbaz1-long-test1-foo";
+    const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
 
-    char *key2 = "foobarbaz1-long-test1-bar";
+    const char *key2 = "foobarbaz1-long-test1-bar";
     doc = get_document((uint32_t) 2);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
 
-    char *key3 = "foobarbaz1-long-test2-foo";
+    const char *key3 = "foobarbaz1-long-test2-foo";
     doc = get_document((uint32_t) 3);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
     // Search for a non-existing key
-    char *prefix = "foobarbaz1-long-";
+    const char *prefix = "foobarbaz1-long-";
     art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *) prefix, strlen(prefix));
     ASSERT_EQ(NULL, l);
 
@@ -524,22 +524,22 @@ TEST(ArtTest, test_art_delete_out_of_bounds) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* key1 = "foobarbaz1-long-test1-foo";
+    const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
 
-    char *key2 = "foobarbaz1-long-test1-bar";
+    const char *key2 = "foobarbaz1-long-test1-bar";
     doc = get_document((uint32_t) 2);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
 
-    char *key3 = "foobarbaz1-long-test2-foo";
+    const char *key3 = "foobarbaz1-long-test2-foo";
     doc = get_document((uint32_t) 3);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
     // Try to delete a non-existing key
-    char *prefix = "foobarbaz1-long-";
+    const char *prefix = "foobarbaz1-long-";
     art_values* values = (art_values *) art_delete(&t, (const unsigned char *) prefix, strlen(prefix));
     ASSERT_EQ(NULL, values);
 
@@ -552,7 +552,7 @@ TEST(ArtTest, test_art_insert_multiple_ids_for_same_token) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* key1 = "implement";
+    const char* key1 = "implement";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
 
@@ -578,7 +578,7 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
     int res = art_tree_init(&t);
     ASSERT_TRUE(res == 0);
 
-    char* implement_key = "implement";
+    const char* implement_key = "implement";
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)implement_key, strlen(implement_key)+1, &doc, 1));
 
@@ -589,8 +589,8 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
     art_fuzzy_search(&t, (const unsigned char *) implement_key, strlen(implement_key) + 1, 0, 10, leaves);
     ASSERT_EQ(1, leaves.size());
 
-    char* implement_key_typo1 = "implment";
-    char* implement_key_typo2 = "implwnent";
+    const char* implement_key_typo1 = "implment";
+    const char* implement_key_typo2 = "implwnent";
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) implement_key_typo1, strlen(implement_key_typo1) + 1, 0, 10, leaves);
