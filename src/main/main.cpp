@@ -7,7 +7,7 @@
 #include <art.h>
 #include <unordered_map>
 #include "string_utils.h"
-#include "collection.h"
+#include "../collection.h"
 
 using namespace std;
 

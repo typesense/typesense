@@ -20,6 +20,7 @@ if (APPLE)
 endif (APPLE)
 
 FILE(GLOB HEADER_FILES include/*)
+FILE(GLOB SRC_FILES src/*.cpp)
 
 include_directories(include)
 include_directories(${CMAKE_SOURCE_DIR}/external/${FOR_NAME})
@@ -33,10 +34,10 @@ link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build)
 link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build/libressl-build/lib)
 link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 
-add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp src/art.cpp)
-add_executable(search ${HEADER_FILES} src/art.cpp src/intersection.cpp src/main.cpp src/collection.cpp)
-add_executable(typesense-server ${HEADER_FILES} src/art.cpp src/intersection.cpp src/collection.cpp src/server.cpp)
+add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp ${SRC_FILES})
+add_executable(search ${HEADER_FILES} ${SRC_FILES} src/main/main.cpp)
+add_executable(typesense-server ${HEADER_FILES} ${SRC_FILES} src/main/server.cpp)
 
-target_link_libraries(typesense_test for gtest gtest_main)
+target_link_libraries(typesense_test for rocksdb gtest gtest_main)
 target_link_libraries(search for pthread rocksdb)
 target_link_libraries(typesense-server for curl h2o-evloop pthread rocksdb ssl crypto)
