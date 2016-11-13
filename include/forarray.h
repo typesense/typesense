@@ -59,6 +59,7 @@ public:
 
     uint32_t at(uint32_t index);
 
+    // FIXME: contains and indexOf are meant only for sorted arrays
     bool contains(uint32_t value);
 
     uint32_t indexOf(uint32_t value);

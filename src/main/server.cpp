@@ -15,7 +15,7 @@
 #include <map>
 #include <regex>
 #include "string_utils.h"
-#include "../collection.h"
+#include "collection.h"
 #include <sys/resource.h>
 
 #include "h2o.h"

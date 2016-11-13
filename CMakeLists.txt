@@ -34,7 +34,7 @@ link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build)
 link_directories(${CMAKE_SOURCE_DIR}/external/${H2O_NAME}/build/libressl-build/lib)
 link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 
-add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp ${SRC_FILES})
+add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp test/collection_test.cpp ${SRC_FILES})
 add_executable(search ${HEADER_FILES} ${SRC_FILES} src/main/main.cpp)
 add_executable(typesense-server ${HEADER_FILES} ${SRC_FILES} src/main/server.cpp)
 

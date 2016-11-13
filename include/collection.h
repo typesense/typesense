@@ -26,6 +26,9 @@ private:
     std::string get_seq_id_key(uint32_t seq_id);
     std::string get_id_key(std::string id);
 
+    static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
+                                                           long long int n);
+
 public:
     Collection() = delete;
     Collection(std::string state_dir_path);
@@ -33,10 +36,6 @@ public:
     std::string add(std::string json_str);
     std::vector<nlohmann::json> search(std::string query, const int num_typos, const size_t num_results);
     void remove(std::string id);
-
-    static inline std::vector<art_leaf *> _next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
-                                             long long int n);
-
     void score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
                        const uint32_t *result_ids,
                        size_t result_size) const;

@@ -38,6 +38,8 @@ std::string Collection::add(std::string json_str) {
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_id_key(document["id"]), seq_id_str);
 
+    std::cout << "ID: " << document["id"] << ", Title: " << document["title"] << std::endl;
+
     std::vector<std::string> tokens;
     StringUtils::tokenize(document["title"], tokens, " ", true);
 
@@ -219,8 +221,11 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
             mscore = MatchScore::match_score(doc_id, token_positions);
         }
 
+        uint32_t doc_score = doc_scores.at(doc_id);
         const uint64_t final_score = ((uint64_t)(mscore.words_present * 32 + (20 - mscore.distance)) * UINT32_MAX) +
                                      doc_scores.at(doc_id);
+
+        std::cout << "final_score: " << final_score << ", doc_id: " << doc_id << std::endl;
 
         /*
           std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "

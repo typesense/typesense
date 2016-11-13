@@ -71,7 +71,7 @@ struct Topster {
     }
 
     static bool compare_values(const struct KV& i, const struct KV& j) {
-        return j.value < i.value;
+        return (i.value == j.value) ? i.key > j.key : i.value > j.value;
     }
 
     void sort() {
