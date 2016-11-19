@@ -38,8 +38,6 @@ std::string Collection::add(std::string json_str) {
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_id_key(document["id"]), seq_id_str);
 
-    std::cout << "ID: " << document["id"] << ", Title: " << document["title"] << std::endl;
-
     std::vector<std::string> tokens;
     StringUtils::tokenize(document["title"], tokens, " ", true);
 
@@ -119,12 +117,17 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
                     printf("%s - ", token.c_str());
                     printf("%.*s", leaves[i]->key_len, leaves[i]->key);
                     printf(" - max_cost: %d, - num_ids: %d\n", max_cost, leaves[i]->values->ids.getLength());
+                    /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
+                        printf("id: %d\n", leaves[i]->values->ids.at(j));
+                    }*/
                 }
                 token_leaves.push_back(leaves);
             }
         }
 
-        if(token_leaves.size() != tokens.size()) {
+        if(token_leaves.size() != tokens.size() && cost != max_cost) {
+            // There could have been a typo in one of the tokens, so let's try again with greater cost
+            // Or this could be a token that does not exist at all (rare)
             //std::cout << "token_leaves.size() != tokens.size(), continuing..." << std::endl << std::endl;
             cost++;
             continue;
@@ -149,8 +152,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
                 uint32_t* out = new uint32_t[result_size];
                 uint32_t* curr = query_suggestion[i]->values->ids.uncompress();
                 result_size = Intersection::scalar(result_ids, result_size, curr, query_suggestion[i]->values->ids.getLength(), out);
-                delete result_ids;
-                delete curr;
+                delete[] result_ids;
+                delete[] curr;
                 result_ids = out;
             }
 
@@ -158,7 +161,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             score_results(topster, query_suggestion, result_ids, result_size);
 
             total_results += result_size;
-            delete result_ids;
+            delete[] result_ids;
 
             if(total_results >= max_results) break;
         }
@@ -180,6 +183,10 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         }
 
         cost++;
+    }
+
+    if(results.size() == 0) {
+        // We could drop certain tokens and try
     }
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
@@ -225,7 +232,7 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
         const uint64_t final_score = ((uint64_t)(mscore.words_present * 32 + (20 - mscore.distance)) * UINT32_MAX) +
                                      doc_scores.at(doc_id);
 
-        std::cout << "final_score: " << final_score << ", doc_id: " << doc_id << std::endl;
+        //std::cout << "final_score: " << final_score << ", doc_id: " << doc_id << std::endl;
 
         /*
           std::cout << "result_ids[i]: " << result_ids[i] << " - mscore.distance: "

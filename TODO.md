@@ -14,6 +14,7 @@
 - ~~Delete should remove from RocksDB~~
 - ~~Speed up UUID generation~~
 - Prefix-search strings should not be null terminated
+- Make the search score computation customizable
 
 **API**
 
