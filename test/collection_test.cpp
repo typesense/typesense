@@ -65,7 +65,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
 
 TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     // Tokens that are not found in the index should be skipped
-    std::vector<nlohmann::json> results = collection->search("from DoesNotExist", 0, 10);
+    std::vector<nlohmann::json> results = collection->search("DoesNotExist from", 0, 10);
     ASSERT_EQ(2, results.size());
 
     std::vector<std::string> ids = {"2", "17"};
@@ -76,4 +76,43 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
         std::string result_id = result["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // with non-zero cost
+    results = collection->search("DoesNotExist from", 2, 10);
+    ASSERT_EQ(2, results.size());
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // with 2 indexed words
+    results = collection->search("from DoesNotExist insTruments", 2, 10);
+    ASSERT_EQ(1, results.size());
+    nlohmann::json result = results.at(0);
+    std::string result_id = result["id"];
+    ASSERT_STREQ("2", result_id.c_str());
+
+    results.clear();
+    results = collection->search("DoesNotExist1 DoesNotExist2", 0, 10);
+    ASSERT_EQ(0, results.size());
+
+    results.clear();
+    results = collection->search("DoesNotExist1 DoesNotExist2", 2, 10);
+    ASSERT_EQ(0, results.size());
+}
+
+TEST_F(CollectionTest, PartialPhraseSearch) {
+    std::vector<nlohmann::json> results = collection->search("rocket research", 0, 10);
+    //ASSERT_EQ(1, results.size());
+}
+
+TEST_F(CollectionTest, RegressionTest1) {
+    std::vector<nlohmann::json> results = collection->search("kind biologcal", 2, 10);
+    ASSERT_EQ(1, results.size());
+
+    std::string result_id = results.at(0)["id"];
+    ASSERT_STREQ("19", result_id.c_str());
 }

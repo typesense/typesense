@@ -15,6 +15,7 @@
 - ~~Speed up UUID generation~~
 - Prefix-search strings should not be null terminated
 - Make the search score computation customizable
+- string_utils::tokenize should not have max length
 
 **API**
 

@@ -60,9 +60,8 @@ struct MatchScore {
   *  compute the max_match and min_displacement of target tokens across the windows.
   */
   static MatchScore match_score(uint32_t doc_id, std::vector<std::vector<uint16_t>> &token_offsets) {
-    const size_t WINDOW_SIZE = 20;
-    const size_t MAX_TOKENS_IN_A_QUERY = 20;
-    const uint16_t MAX_DISPLACEMENT = 20;
+    const size_t WINDOW_SIZE = Collection::MAX_SEARCH_TOKENS;
+    const uint16_t MAX_DISPLACEMENT = Collection::MAX_SEARCH_TOKENS;
 
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
@@ -76,8 +75,8 @@ struct MatchScore {
     uint16_t min_displacement = MAX_DISPLACEMENT;
 
     std::queue<TokenOffset> window;
-    uint16_t token_offset[MAX_TOKENS_IN_A_QUERY] = { };
-    std::fill_n(token_offset, MAX_TOKENS_IN_A_QUERY, MAX_DISPLACEMENT);
+    uint16_t token_offset[Collection::MAX_SEARCH_TOKENS] = { };
+    std::fill_n(token_offset, Collection::MAX_SEARCH_TOKENS, MAX_DISPLACEMENT);
 
     do {
       if(window.empty()) {
