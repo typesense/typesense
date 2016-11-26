@@ -106,7 +106,16 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
 
 TEST_F(CollectionTest, PartialPhraseSearch) {
     std::vector<nlohmann::json> results = collection->search("rocket research", 0, 10);
-    //ASSERT_EQ(1, results.size());
+    ASSERT_EQ(4, results.size());
+
+    std::vector<std::string> ids = {"1", "8", "16", "17"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionTest, RegressionTest1) {

@@ -28,7 +28,7 @@ private:
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                                           long long int n);
-    void log_leaves(const int max_cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
+    void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, const size_t & max_results);
