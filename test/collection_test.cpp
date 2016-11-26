@@ -118,10 +118,21 @@ TEST_F(CollectionTest, PartialPhraseSearch) {
     }
 }
 
-TEST_F(CollectionTest, RegressionTest1) {
+TEST_F(CollectionTest, QueryWithTypo) {
     std::vector<nlohmann::json> results = collection->search("kind biologcal", 2, 10);
     ASSERT_EQ(1, results.size());
 
     std::string result_id = results.at(0)["id"];
     ASSERT_STREQ("19", result_id.c_str());
+
+    results.clear();
+    results = collection->search("fer thx", 1, 10);
+    std::vector<std::string> ids = {"1", "10", "13"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
