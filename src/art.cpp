@@ -57,7 +57,7 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
         b_value = b->max_token_count;
     }
 
-    return a_value > b_value;
+    return a_value < b_value;
 }
 
 bool compare_art_node_score(const art_node* a, const art_node* b) {
@@ -77,7 +77,7 @@ bool compare_art_node_score(const art_node* a, const art_node* b) {
         b_value = b->max_score;
     }
 
-    return a_value > b_value;
+    return a_value < b_value;
 }
 
 /**
@@ -883,10 +883,19 @@ static uint32_t get_score(art_node* child) {
     return child->max_token_count;
 }
 
-static int topk_iter(const art_node *root, int max_results, std::vector<art_leaf*> & results) {
+static int topk_iter(const art_node *root, token_ordering token_order, const int max_results, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
+
     std::priority_queue<art_node *, std::vector<const art_node *>,
-                        std::function<bool(const art_node*, const art_node*)>> q(compare_art_node_frequency);
+            std::function<bool(const art_node*, const art_node*)>> q;
+
+    if(token_order == FREQUENCY) {
+        q = std::priority_queue<art_node *, std::vector<const art_node *>,
+                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_frequency);
+    } else {
+        q = std::priority_queue<art_node *, std::vector<const art_node *>,
+                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_score);
+    }
 
     q.push(root);
 
@@ -1320,7 +1329,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
-        topk_iter(node, max_words, results);
+        topk_iter(node, token_order, max_words, results);
     }
 
     if(token_order == FREQUENCY) {

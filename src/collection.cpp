@@ -119,11 +119,10 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
         // go through each matching document id and calculate match score
         Topster<100> topster;
         score_results(topster, query_suggestion, result_ids, result_size);
-        total_results += result_size;
         delete[] result_ids;
         topster.sort();
 
-        for (uint32_t i = 0; i < topster.size; i++) {
+        for (uint32_t i = 0; i < topster.size && total_results < max_results; i++) {
             uint64_t seq_id = topster.getKeyAt(i);
             if(dedup_seq_ids.count(seq_id) == 0) {
                 std::string value;
@@ -131,6 +130,7 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
                 nlohmann::json document = nlohmann::json::parse(value);
                 results.push_back(document);
                 dedup_seq_ids.emplace(seq_id);
+                total_results++;
             }
         }
 

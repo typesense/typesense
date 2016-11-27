@@ -61,6 +61,16 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
         std::string result_id = result["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // Check pagination
+    results = collection->search("rocket launch", 0, 3);
+    ASSERT_EQ(3, results.size());
+    for(size_t i = 0; i < 3; i++) {
+        nlohmann::json result = results.at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
@@ -159,6 +169,15 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // Check pagination
+    results = collection->search("loox", 1, 1, FREQUENCY, false);
+    ASSERT_EQ(1, results.size());
+    std::string solo_id = results.at(0)["id"];
+    ASSERT_STREQ("3", solo_id.c_str());
+
+    results = collection->search("loox", 1, 2, FREQUENCY, false);
+    ASSERT_EQ(2, results.size());
 
     // Check total ordering
 
