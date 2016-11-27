@@ -87,8 +87,11 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product);
 
+    // For deduplication. If 2 query suggestions give a document as result, ensure that only one is returned
+    spp::sparse_hash_set<uint64_t> dedup_seq_ids;
+
     for(long long n=0; n<N && n<combination_limit; ++n) {
-        // every element in `query_suggestion` represents a token and its associated hits
+        // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_leaves, n);
 
         /*std:: cout << "\nSuggestion: ";
@@ -122,10 +125,13 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
 
         for (uint32_t i = 0; i < topster.size; i++) {
             uint64_t seq_id = topster.getKeyAt(i);
-            std::string value;
-            store->get(get_seq_id_key((uint32_t) seq_id), value);
-            nlohmann::json document = nlohmann::json::parse(value);
-            results.push_back(document);
+            if(dedup_seq_ids.count(seq_id) == 0) {
+                std::string value;
+                store->get(get_seq_id_key((uint32_t) seq_id), value);
+                nlohmann::json document = nlohmann::json::parse(value);
+                results.push_back(document);
+                dedup_seq_ids.emplace(seq_id);
+            }
         }
 
         if(total_results >= max_results) break;
@@ -202,7 +208,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             if(token_cache.count(token_cost_hash) != 0) {
                 leaves = token_cache[token_cost_hash];
             } else {
-                art_fuzzy_search(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1,
+                int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
+                art_fuzzy_search(&t, (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], 3, token_order, prefix, leaves);
                 if(!leaves.empty()) {
                     token_cache.emplace(token_cost_hash, leaves);

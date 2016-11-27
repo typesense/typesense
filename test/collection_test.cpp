@@ -199,3 +199,27 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 }
+
+TEST_F(CollectionTest, PrefixSearching) {
+    std::vector<nlohmann::json> results = collection->search("ex", 0, 10, FREQUENCY, true);
+    ASSERT_EQ(2, results.size());
+    std::vector<std::string> ids = {"12", "6"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("ex", 0, 10, MAX_SCORE, true);
+    ASSERT_EQ(2, results.size());
+    ids = {"6", "12"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}
