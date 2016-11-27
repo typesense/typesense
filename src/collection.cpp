@@ -80,8 +80,9 @@ std::string Collection::add(std::string json_str) {
     return document["id"];
 }
 
-void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
-                                   size_t & total_results, const size_t & max_results) {
+void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves,
+                                   std::vector<nlohmann::json> & results, size_t & total_results,
+                                   const size_t & max_results) {
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product);
@@ -113,14 +114,22 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
         }
 
         // go through each matching document id and calculate match score
+        Topster<100> topster;
         score_results(topster, query_suggestion, result_ids, result_size);
-
         total_results += result_size;
         delete[] result_ids;
+        topster.sort();
+
+        for (uint32_t i = 0; i < topster.size; i++) {
+            uint64_t seq_id = topster.getKeyAt(i);
+            std::string value;
+            store->get(get_seq_id_key((uint32_t) seq_id), value);
+            nlohmann::json document = nlohmann::json::parse(value);
+            results.push_back(document);
+        }
 
         if(total_results >= max_results) break;
     }
-
 }
 
 /*
@@ -132,7 +141,8 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t num_results) {
+std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t num_results,
+                                               const token_ordering token_order, const bool prefix) {
     auto begin = std::chrono::high_resolution_clock::now();
 
     std::vector<std::string> tokens;
@@ -143,10 +153,13 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
     size_t total_results = 0;
     std::vector<nlohmann::json> results;
-    Topster<100> topster;
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cache;
+
+    // Used to drop the least occurring token(s) for partial searches
+    spp::sparse_hash_map<std::string, uint32_t> token_to_count;
+
     std::vector<std::vector<int>> token_to_costs;
     std::vector<int> all_costs;
 
@@ -182,21 +195,24 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         while(token_index < tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
             std::string token = tokens[token_index];
+            const std::string token_cost_hash = token + std::to_string(costs[token_index]);
+
             std::vector<art_leaf*> leaves;
 
-            if(token_cache.count(token) != 0) {
-                leaves = token_cache[token];
+            if(token_cache.count(token_cost_hash) != 0) {
+                leaves = token_cache[token_cost_hash];
             } else {
                 art_fuzzy_search(&t, (const unsigned char *) token.c_str(), (int) token.length() + 1,
-                                 costs[token_index], 3, leaves);
+                                 costs[token_index], 3, token_order, prefix, leaves);
                 if(!leaves.empty()) {
-                    token_cache.emplace(token, leaves);
+                    token_cache.emplace(token_cost_hash, leaves);
                 }
             }
 
             if(!leaves.empty()) {
                 log_leaves(costs[token_index], token, leaves);
                 token_leaves.push_back(leaves);
+                token_to_count[token] = leaves.at(0)->values->ids.getLength();
             } else {
                 // No result at `cost = costs[token_index]` => remove cost for token and re-do combinations
                 auto it = std::find(token_to_costs[token_index].begin(), token_to_costs[token_index].end(), costs[token_index]);
@@ -228,16 +244,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         if(token_leaves.size() != 0 && !retry_with_larger_cost) {
             // If a) all tokens were found, or b) Some were skipped because they don't exist within max_cost,
             // go ahead and search for candidates with what we have so far
-            search_candidates(token_leaves, topster, total_results, max_results);
-            topster.sort();
-
-            for (uint32_t i = 0; i < topster.size; i++) {
-                uint64_t seq_id = topster.getKeyAt(i);
-                std::string value;
-                store->get(get_seq_id_key((uint32_t) seq_id), value);
-                nlohmann::json document = nlohmann::json::parse(value);
-                results.push_back(document);
-            }
+            search_candidates(token_leaves, results, total_results, max_results);
 
             if (total_results > 0) {
                 // Unless there are results, we continue outerloop (looking at tokens with greater cost)
@@ -248,23 +255,23 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         n++;
     }
 
-    if(results.size() == 0 && token_cache.size() != 0) {
+    if(results.size() == 0 && token_to_count.size() != 0) {
         // Drop certain token with least hits and try searching again
         std::string truncated_query;
 
         std::vector<std::pair<std::string, uint32_t>> token_count_pairs;
-        for (auto itr = token_cache.begin(); itr != token_cache.end(); ++itr) {
-            token_count_pairs.push_back(std::make_pair(itr->first, itr->second.at(0)->values->ids.getLength()));
+        for (auto itr = token_to_count.begin(); itr != token_to_count.end(); ++itr) {
+            token_count_pairs.push_back(*itr);
         }
 
         std::sort(token_count_pairs.begin(), token_count_pairs.end(), [=]
-             (const std::pair<std::string, uint32_t>& a, const std::pair<std::string, uint32_t>& b) {
-                 return a.second > b.second;
-             }
+                  (const std::pair<std::string, uint32_t>& a, const std::pair<std::string, uint32_t>& b) {
+                      return a.second > b.second;
+                  }
         );
 
         for(uint32_t i = 0; i < token_count_pairs.size()-1; i++) {
-            if(token_cache.count(tokens[i]) != 0) {
+            if(token_to_count.count(tokens[i]) != 0) {
                 truncated_query += " " + token_count_pairs.at(i).first;
             }
         }
@@ -282,7 +289,7 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
     printf("Token: %s, cost: %d, candidates: \n", token.c_str(), cost);
     for(auto i=0; i < leaves.size(); i++) {
         printf("%.*s, ", leaves[i]->key_len, leaves[i]->key);
-        printf("num_ids: %d\n", leaves[i]->values->ids.getLength());
+        printf("frequency: %d, max_score: %d\n", leaves[i]->values->ids.getLength(), leaves[i]->max_score);
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
             printf("id: %d\n", leaves[i]->values->ids.at(j));
         }*/
@@ -290,7 +297,7 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
 }
 
 void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
-                                const uint32_t *result_ids, size_t result_size) const {
+                                const uint32_t *result_ids, const size_t result_size) const {
     for(auto i=0; i<result_size; i++) {
         uint32_t doc_id = result_ids[i];
         std::vector<std::vector<uint16_t>> token_positions;

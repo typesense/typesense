@@ -136,3 +136,66 @@ TEST_F(CollectionTest, QueryWithTypo) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 }
+
+TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
+    std::vector<nlohmann::json> results = collection->search("loox", 1, 2, MAX_SCORE, false);
+    ASSERT_EQ(2, results.size());
+    std::vector<std::string> ids = {"22", "23"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("loox", 1, 3, FREQUENCY, false);
+    ASSERT_EQ(3, results.size());
+    ids = {"3", "12", "24"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Check total ordering
+
+    results = collection->search("loox", 1, 10, FREQUENCY, false);
+    ASSERT_EQ(5, results.size());
+    ids = {"3", "12", "24", "22", "23"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("loox", 1, 10, MAX_SCORE, false);
+    ASSERT_EQ(5, results.size());
+    ids = {"22", "23", "3", "12", "24"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}
+
+TEST_F(CollectionTest, TextContainingAnActualTypo) {
+    // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
+    std::vector<nlohmann::json> results = collection->search("ISX what", 1, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results.size());
+
+    std::vector<std::string> ids = {"19", "6", "21", "8"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}

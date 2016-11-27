@@ -122,6 +122,11 @@ typedef struct {
     uint64_t size;
 } art_tree;
 
+enum token_ordering {
+    FREQUENCY,
+    MAX_SCORE
+};
+
 /**
  * Initializes an ART tree
  * @return 0 on success.
@@ -232,7 +237,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
  * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
-                     const int max_words, std::vector<art_leaf *> &results);
+                     const int max_words, const token_ordering token_order, const bool prefix, std::vector<art_leaf *> &results);
 
 static int topk_iter(art_node *root, int term_len, int k, std::vector<art_leaf*> & results);
 

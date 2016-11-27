@@ -30,34 +30,54 @@
 
 static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int max_cost,
-                              std::vector<const art_node *> &results);
+                              const bool prefix, std::vector<const art_node *> &results);
 
-/*
- * Comparator for art_leaf struct.
- * We order the leaves descending based on the score.
- */
-bool compare_art_leaf(const art_leaf* a, const art_leaf* b) {
+bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
     return a->values->ids.getLength() > b->values->ids.getLength();
 }
 
-bool compare_art_node(const art_node* a, const art_node* b) {
-    uint32_t a_score = 0, b_score = 0;
+bool compare_art_leaf_score(const art_leaf *a, const art_leaf *b) {
+    return a->max_score > b->max_score;
+}
+
+bool compare_art_node_frequency(const art_node *a, const art_node *b) {
+    uint32_t a_value = 0, b_value = 0;
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
-        a_score = al->values->ids.getLength();
+        a_value = al->values->ids.getLength();
     } else {
-        a_score = a->max_token_count;
+        a_value = a->max_token_count;
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
-        b_score = bl->values->ids.getLength();
+        b_value = bl->values->ids.getLength();
     } else {
-        b_score = b->max_token_count;
+        b_value = b->max_token_count;
     }
 
-    return a_score > b_score;
+    return a_value > b_value;
+}
+
+bool compare_art_node_score(const art_node* a, const art_node* b) {
+    uint32_t a_value = 0, b_value = 0;
+
+    if(IS_LEAF(a)) {
+        art_leaf* al = (art_leaf *) LEAF_RAW(a);
+        a_value = al->max_score;
+    } else {
+        a_value = a->max_score;
+    }
+
+    if(IS_LEAF(b)) {
+        art_leaf* bl = (art_leaf *) LEAF_RAW(b);
+        b_value = bl->max_score;
+    } else {
+        b_value = b->max_score;
+    }
+
+    return a_value > b_value;
 }
 
 /**
@@ -866,7 +886,7 @@ static uint32_t get_score(art_node* child) {
 static int topk_iter(const art_node *root, int term_len, int k, std::vector<art_leaf*> & results) {
     printf("INSIDE topk_iter: root->type: %d\n", root->type);
     std::priority_queue<art_node *, std::vector<const art_node *>,
-                        std::function<bool(const art_node*, const art_node*)>> q(compare_art_node);
+                        std::function<bool(const art_node*, const art_node*)>> q(compare_art_node_frequency);
 
     q.push(root);
 
@@ -1135,7 +1155,7 @@ static inline int levenshtein_dist(const int depth, const char p, const char c, 
 
 static inline void art_fuzzy_children(char p, const art_node *n, int depth, const unsigned char *term, const int term_len,
                                       const int* irow, const int* jrow, const int max_cost,
-                                      std::vector<const art_node *> &results) {
+                                      const bool prefix, std::vector<const art_node *> &results) {
     char child_char;
     art_node* child;
 
@@ -1146,7 +1166,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
                 child_char = ((art_node4*)n)->keys[i];
                 printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
                 child = ((art_node4*)n)->children[i];
-                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, results);
+                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, prefix, results);
             }
             break;
         case NODE16:
@@ -1155,7 +1175,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
                 child_char = ((art_node16*)n)->keys[i];
                 printf("\n16!child_char: %c, depth: %d", child_char, depth);
                 child = ((art_node16*)n)->children[i];
-                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, results);
+                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, prefix, results);
             }
             break;
         case NODE48:
@@ -1166,7 +1186,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
                 child = ((art_node48*)n)->children[ix - 1];
                 child_char = (char)i;
                 printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
-                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, results);
+                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, prefix, results);
             }
             break;
         case NODE256:
@@ -1176,7 +1196,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
                 child_char = (char) i;
                 printf("\n256!child_char: %c, depth: %d", child_char, depth);
                 child = ((art_node256*)n)->children[i];
-                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, results);
+                art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, max_cost, prefix, results);
             }
             break;
         default:
@@ -1195,7 +1215,7 @@ static inline void rotate(int &i, int &j, int &k) {
 // e.g. microafot against microsoft
 static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int max_cost,
-                              std::vector<const art_node *> &results) {
+                              const bool prefix, std::vector<const art_node *> &results) {
     const int columns = term_len+1;
     int i=0, j=1, k=2;
     int row0[columns];
@@ -1261,14 +1281,21 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
     depth += n->partial_len;
     printf("\ncost: %d", cost);
 
-    art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], max_cost, results);
+    // For a prefix search, we store the node and not recurse further right now
+    if(prefix && depth >= term_len-1 && rows[j][columns-1] <= max_cost) {
+        results.push_back(n);
+        return ;
+    }
+
+    art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], max_cost, prefix, results);
 }
 
 /**
  * Returns leaves that match a given string within a fuzzy distance of max_cost.
  */
-int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
-                     const int max_cost, const int max_words, std::vector<art_leaf *> &results) {
+int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
+                     const int max_words, const token_ordering token_order, const bool prefix,
+                     std::vector<art_leaf *> &results) {
 
     std::vector<const art_node*> nodes;
     int irow[term_len + 1];
@@ -1282,12 +1309,17 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
 
     if(IS_LEAF(t->root)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(t->root);
-        art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, max_cost, nodes);
+        art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, max_cost, prefix, nodes);
     } else {
-        art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, max_cost, nodes);
+        art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, max_cost, prefix, nodes);
     }
 
-    std::sort(nodes.begin(), nodes.end(), compare_art_node);
+    if(token_order == FREQUENCY) {
+        std::sort(nodes.begin(), nodes.end(), compare_art_node_frequency);
+    } else {
+        std::sort(nodes.begin(), nodes.end(), compare_art_node_score);
+    }
+
     long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
     std::cout << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size() << std::endl;
 
@@ -1297,7 +1329,12 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         topk_iter(node, term_len, max_words, results);
     }
 
-    std::sort(results.begin(), results.end(), compare_art_leaf);
+    if(token_order == FREQUENCY) {
+        std::sort(results.begin(), results.end(), compare_art_leaf_frequency);
+    } else {
+        std::sort(results.begin(), results.end(), compare_art_leaf_score);
+    }
+
     time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
     std::cout << "Time taken for topk_iter: " << time_micro << "us" << std::endl;
     return 0;

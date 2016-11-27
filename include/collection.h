@@ -30,7 +30,7 @@ private:
                                                           long long int n);
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    void search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
+    void search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, std::vector<nlohmann::json> & results,
                            size_t & total_results, const size_t & max_results);
 
 public:
@@ -38,11 +38,12 @@ public:
     Collection(std::string state_dir_path);
     ~Collection();
     std::string add(std::string json_str);
-    std::vector<nlohmann::json> search(std::string query, const int num_typos, const size_t num_results);
+    std::vector<nlohmann::json> search(std::string query, const int num_typos, const size_t num_results,
+                                       const token_ordering token_order = FREQUENCY, const bool prefix = false);
     void remove(std::string id);
     void score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
                        const uint32_t *result_ids,
-                       size_t result_size) const;
+                       const size_t result_size) const;
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};
