@@ -28,9 +28,14 @@
 
 #define microseconds std::chrono::duration_cast<std::chrono::microseconds>
 
+enum recurse_progress { CONTINUE, ABORT, ITERATE };
+
 static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int max_cost,
                               const bool prefix, std::vector<const art_node *> &results);
+
+void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int int_str_len,
+                           uint32_t compare, std::vector<const art_leaf *> &results);
 
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
     return a->values->ids.getLength() > b->values->ids.getLength();
@@ -883,8 +888,9 @@ static uint32_t get_score(art_node* child) {
     return child->max_token_count;
 }
 
-static int topk_iter(const art_node *root, token_ordering token_order, const int max_results, std::vector<art_leaf*> & results) {
-    printf("INSIDE topk_iter: root->type: %d\n", root->type);
+static int art_topk_iter(const art_node *root, token_ordering token_order, const int max_results,
+                         std::vector<art_leaf *> &results) {
+    printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
     std::priority_queue<art_node *, std::vector<const art_node *>,
             std::function<bool(const art_node*, const art_node*)>> q;
@@ -952,7 +958,7 @@ static int topk_iter(const art_node *root, token_ordering token_order, const int
         }
     }
 
-    printf("OUTSIDE topk_iter: results size: %d\n", results.size());
+    printf("OUTSIDE art_topk_iter: results size: %d\n", results.size());
     return 0;
 }
 
@@ -1329,7 +1335,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
-        topk_iter(node, token_order, max_words, results);
+        art_topk_iter(node, token_order, max_words, results);
     }
 
     if(token_order == FREQUENCY) {
@@ -1339,6 +1345,215 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     }
 
     time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken for topk_iter: " << time_micro << "us" << std::endl;
+    std::cout << "Time taken for art_topk_iter: " << time_micro << "us" << std::endl;
+    return 0;
+}
+
+void encode_int(uint32_t n, unsigned char* chars) {
+    unsigned char symbols[16] = {
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    };
+
+    unsigned char bytes[4];
+
+    bytes[0] = (unsigned char) ((n >> 24) & 0xFF);
+    bytes[1] = (unsigned char) ((n >> 16) & 0xFF);
+    bytes[2] = (unsigned char) ((n >> 8) & 0xFF);
+    bytes[3] = (unsigned char) (n & 0xFF);
+
+    for(uint32_t i = 0; i < 4; i++) {
+        chars[2*i] = symbols[((bytes[i] >> 4) & 0x0F)];
+        chars[2*i+1] = symbols[(bytes[i] & 0x0F)];
+    }
+
+    // Terminate the string with a "character" that does not ever appear in regular text since an inserted string
+    // should not be a substring of another string in this ART implementation. We choose 46 (.) instead of '\0' which is
+    // actually ZERO and is a valid character that can appear in the encoded string.
+    chars[8] = 46;
+}
+
+recurse_progress matches(char a, char b, int compare) {
+    switch(compare) {
+        case -1:
+            if (a == b) return CONTINUE;
+            else if(a < b) return ITERATE;
+        case 0:
+            if(a == b) return CONTINUE;
+            return ABORT;
+        case 1:
+            if (a == b) return CONTINUE;
+            else if(a > b) return ITERATE;
+            return ABORT;
+        default:
+            abort();
+    }
+}
+
+
+static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) {
+    // Handle base cases
+    if (!n) return ;
+    if (IS_LEAF(n)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(n);
+        results.push_back(l);
+        return ;
+    }
+
+    int idx, res;
+    switch (n->type) {
+        case NODE4:
+            for (int i=0; i < n->num_children; i++) {
+                art_iter(((art_node4 *) n)->children[i], results);
+            }
+            break;
+
+        case NODE16:
+            for (int i=0; i < n->num_children; i++) {
+                art_iter(((art_node16 *) n)->children[i], results);
+            }
+            break;
+
+        case NODE48:
+            for (int i=0; i < 256; i++) {
+                idx = ((art_node48*)n)->keys[i];
+                if (!idx) continue;
+                art_iter(((art_node48 *) n)->children[idx - 1], results);
+            }
+            break;
+
+        case NODE256:
+            for (int i=0; i < 256; i++) {
+                if (!((art_node256*)n)->children[i]) continue;
+                art_iter(((art_node256 *) n)->children[i], results);
+            }
+            break;
+
+        default:
+            abort();
+    }
+
+    return ;
+}
+
+static inline void art_int_fuzzy_children(const art_node *n, int depth, unsigned char* int_str, int int_str_len,
+                                          uint32_t compare, std::vector<const art_leaf *> &results) {
+    char child_char;
+    art_node* child;
+
+    switch (n->type) {
+        case NODE4:
+            printf("\nNODE4\n");
+            for (int i=n->num_children-1; i >= 0; i--) {
+                child_char = ((art_node4*)n)->keys[i];
+                printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
+                child = ((art_node4*)n)->children[i];
+                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                if(progress == CONTINUE) {
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                } else if(progress == ITERATE) {
+                    art_iter(child, results);
+                }
+            }
+            break;
+        case NODE16:
+            printf("\nNODE16\n");
+            for (int i=n->num_children-1; i >= 0; i--) {
+                child_char = ((art_node16*)n)->keys[i];
+                printf("\n16!child_char: %c, depth: %d", child_char, depth);
+                child = ((art_node16*)n)->children[i];
+                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                if(progress == CONTINUE) {
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                } else if(progress == ITERATE) {
+                    art_iter(child, results);
+                }
+            }
+            break;
+        case NODE48:
+            printf("\nNODE48\n");
+            for (int i=255; i >= 0; i--) {
+                int ix = ((art_node48*)n)->keys[i];
+                if (!ix) continue;
+                child = ((art_node48*)n)->children[ix - 1];
+                child_char = (char)i;
+                printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
+                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                if(progress == CONTINUE) {
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                } else if(progress == ITERATE) {
+                    art_iter(child, results);
+                }
+            }
+            break;
+        case NODE256:
+            printf("\nNODE256\n");
+            for (int i=255; i >= 0; i--) {
+                if (!((art_node256*)n)->children[i]) continue;
+                child_char = (char) i;
+                printf("\n256!child_char: %c, depth: %d", child_char, depth);
+                child = ((art_node256*)n)->children[i];
+                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                if(progress == CONTINUE) {
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                } else if(progress == ITERATE) {
+                    art_iter(child, results);
+                }
+            }
+            break;
+        default:
+            abort();
+    }
+}
+
+void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int int_str_len,
+                           uint32_t compare, std::vector<const art_leaf*> &results) {
+    if (!n) return ;
+
+    if(IS_LEAF(n)) {
+        art_leaf *l = (art_leaf *) LEAF_RAW(n);
+        const int end_index = min(l->key_len, int_str_len);
+        while(depth < end_index) {
+            char c = l->key[depth];
+            recurse_progress progress = matches(c, int_str[depth], compare);
+            if(progress == ABORT) {
+                return;
+            }
+
+            if(progress == ITERATE) {
+                break;
+            }
+
+            depth++;
+        }
+
+        results.push_back(l);
+        return ;
+    }
+
+    const int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
+    const int end_index = min(partial_len, int_str_len);
+
+    printf("\npartial_len: %d", partial_len);
+
+    for(int idx=0; idx<end_index; idx++) {
+        char c = n->partial[idx];
+        recurse_progress progress = matches(c, int_str[depth+idx], compare);
+        if(progress == ABORT) {
+            return;
+        }
+
+        if(progress == ITERATE) {
+            return art_iter(n, results);
+        }
+    }
+
+    depth += n->partial_len;
+    art_int_fuzzy_children(n, depth, int_str, int_str_len, compare, results);
+}
+
+int art_int_search(art_tree *t, uint32_t value, int compare, std::vector<const art_leaf*> & results) {
+    unsigned char chars[9];
+    encode_int(value, chars);
+    art_int_fuzzy_recurse(t->root, 0, chars, 9, compare, results);
     return 0;
 }

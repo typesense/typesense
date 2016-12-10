@@ -239,7 +239,12 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int max_cost,
                      const int max_words, const token_ordering token_order, const bool prefix, std::vector<art_leaf *> &results);
 
-static int topk_iter(const art_node *root, token_ordering token_order, const int max_results, std::vector<art_leaf*> & results);
+static int art_topk_iter(const art_node *root, token_ordering token_order, const int max_results,
+                         std::vector<art_leaf *> &results);
+
+void encode_int(uint32_t n, unsigned char* chars);
+
+int art_int_search(art_tree *t, uint32_t value, int compare, std::vector<const art_leaf*> & results);
 
 #ifdef __cplusplus
 }

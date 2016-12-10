@@ -2,11 +2,9 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <cmath>
 #include <gtest/gtest.h>
 #include <art.h>
-
-#include "art.h"
 
 art_document get_document(uint32_t id) {
     art_document document;
@@ -603,6 +601,9 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) implement_key_typo2, strlen(implement_key_typo2) + 1, 2, 10, FREQUENCY, false, leaves);
     ASSERT_EQ(1, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_art_fuzzy_search) {
@@ -674,4 +675,186 @@ TEST(ArtTest, test_art_fuzzy_search) {
     for(auto leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
     }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_encode_int) {
+    unsigned char chars[9];
+
+    // 175 => 0000,0000,0000,0000,0000,0000,1010,1111,\0
+    unsigned char chars_175[9] = {0, 0, 0, 0, 0, 0, 10, 15, 46};
+    encode_int(175, chars);
+    for(uint32_t i = 0; i < 9; i++) {
+        ASSERT_EQ(chars_175[i], chars[i]);
+    }
+
+    // 0 => 0000,0000,0000,0000,0000,0000,0000,0000,\0
+    unsigned char chars_0[9] = {0, 0, 0, 0, 0, 0, 0, 0, 46};
+    encode_int(0, chars);
+    for(uint32_t i = 0; i < 9; i++) {
+        ASSERT_EQ(chars_0[i], chars[i]);
+    }
+
+    // 255 => 0000,0000,0000,0000,0000,0000,1111,1111,\0
+    unsigned char chars_255[9] = {0, 0, 0, 0, 0, 0, 15, 15, 46};
+    encode_int(255, chars);
+    for(uint32_t i = 0; i < 9; i++) {
+        ASSERT_EQ(chars_255[i], chars[i]);
+    }
+
+    // 4531 => 0000,0000,0000,0000,0001,0001,1011,0011,\0
+    unsigned char chars_4531[9] = {0, 0, 0, 0, 1, 1, 11, 3, 46};
+    encode_int(4531, chars);
+    for(uint32_t i = 0; i < 9; i++) {
+        ASSERT_EQ(chars_4531[i], chars[i]);
+    }
+
+    // 1200000 => 0000,0000,0001,0010,0100,1111,1000,0000,\0
+    unsigned char chars_1M[9] = {0, 0, 1, 2, 4, 15, 8, 0, 46};
+    encode_int(1200000, chars);
+    for(uint32_t i = 0; i < 9; i++) {
+        ASSERT_EQ(chars_1M[i], chars[i]);
+    }
+}
+
+TEST(ArtTest, test_int_range_hundreds) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 9;
+    unsigned char chars[CHAR_LEN];
+
+    for(uint32_t i = 100; i < 110; i++) {
+        encode_int(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    encode_int(106, chars);
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_int_search(&t, 106, 0, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_int_search(&t, 106, 1, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(4, results.size());
+    results.clear();
+
+    res = art_int_search(&t, 106, -1, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(7, results.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_int_range_millions) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    
+    const int CHAR_LEN = 9;
+    unsigned char chars[CHAR_LEN];
+
+    for(uint32_t i = 0; i < 1000000; i++) {
+        encode_int(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    encode_int(5, chars);
+    /*std::cout << std::endl;
+    for(uint32_t i = 0; i < CHAR_LEN; i++) {
+        std::cout << (int)chars[i] << ", ";
+    }
+    std::cout << std::endl;*/
+
+    std::vector<const art_leaf*> results;
+
+    // ==
+    for(uint32_t i = 0; i < 6; i++) {
+        results.clear();
+        art_int_search(&t, (uint32_t) pow(10, i), 0, results);
+        ASSERT_EQ(1, results.size());
+
+        results.clear();
+        art_int_search(&t, (uint32_t) (pow(10, i) + 7), 0, results);
+        ASSERT_EQ(1, results.size());
+    }
+
+    results.clear();
+    art_int_search(&t, 1000000-1, 0, results);
+    ASSERT_EQ(1, results.size());
+
+    // >=
+    results.clear();
+    art_int_search(&t, 1000000-5, 1, results);
+    ASSERT_EQ(5, results.size());
+
+    results.clear();
+    art_int_search(&t, 1000000-1, 1, results);
+    ASSERT_EQ(1, results.size());
+
+    results.clear();
+    art_int_search(&t, 1000000, 1, results);
+    ASSERT_EQ(0, results.size());
+
+    results.clear();
+    art_int_search(&t, 5, 1, results);
+    ASSERT_EQ(1000000-5, results.size());
+
+    // <=
+    results.clear();
+    art_int_search(&t, 1000000-5, -1, results);
+    ASSERT_EQ(1000000-5+1, results.size());
+
+    results.clear();
+    art_int_search(&t, 1000000-1, -1, results);
+    ASSERT_EQ(1000000, results.size());
+
+    results.clear();
+    art_int_search(&t, 1000000, -1, results);
+    ASSERT_EQ(1000000, results.size());
+
+    results.clear();
+    art_int_search(&t, 5, -1, results);
+    ASSERT_EQ(5+1, results.size());
+}
+
+TEST(ArtTest, test_int_range_byte_boundary) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+
+    const int CHAR_LEN = 9;
+    unsigned char chars[CHAR_LEN];
+
+    for(uint32_t i = 200; i < 300; i++) {
+        encode_int(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    encode_int(255, chars);
+    std::vector<const art_leaf*> results;
+
+    results.clear();
+    art_int_search(&t, 255, 1, results);
+    ASSERT_EQ(45, results.size());
+
+    /*std::cout << std::endl;
+    for(auto i = 0; i < 1; i++) {
+        auto result = results[i];
+        for(auto j = 0; j < result->key_len; j++) {
+            std::cout << (int) result->key[j] << ", ";
+        }
+
+        std::cout << std::endl;
+    }*/
 }
