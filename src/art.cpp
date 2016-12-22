@@ -1349,7 +1349,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     return 0;
 }
 
-void encode_int(uint32_t n, unsigned char* chars) {
+void encode_int32(uint32_t n, unsigned char *chars) {
     unsigned char symbols[16] = {
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     };
@@ -1551,9 +1551,9 @@ void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int i
     art_int_fuzzy_children(n, depth, int_str, int_str_len, compare, results);
 }
 
-int art_int_search(art_tree *t, uint32_t value, int compare, std::vector<const art_leaf*> & results) {
+int art_int32_search(art_tree *t, uint32_t value, int compare, std::vector<const art_leaf *> &results) {
     unsigned char chars[9];
-    encode_int(value, chars);
+    encode_int32(value, chars);
     art_int_fuzzy_recurse(t->root, 0, chars, 9, compare, results);
     return 0;
 }

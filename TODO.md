@@ -16,6 +16,8 @@
 - Prefix-search strings should not be null terminated
 - Make the search score computation customizable
 - string_utils::tokenize should not have max length
+- only last token should be prefix searched
+- art int search should support signed ints
 
 **API**
 

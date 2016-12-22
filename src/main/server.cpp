@@ -62,15 +62,27 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     std::string query_str(query.base, query.len);
     std::map<std::string, std::string> query_map = parse_query(query_str);
     const char *NUM_TYPOS = "num_typos";
+    const char *PREFIX = "prefix";
+    const char *TOKEN_ORDERING = "token_ordering";
 
     if(query_map.count(NUM_TYPOS) == 0) {
         query_map[NUM_TYPOS] = "2";
     }
 
+    if(query_map.count(PREFIX) == 0) {
+        query_map[PREFIX] = "false";
+    }
+
+    if(query_map.count(TOKEN_ORDERING) == 0) {
+        query_map[TOKEN_ORDERING] = "FREQUENCY";
+    }
+
+    token_ordering token_order = (query_map[TOKEN_ORDERING] == "MAX_SCORE") ? MAX_SCORE : FREQUENCY;
+
     printf("Query: %s\n", query_map["q"].c_str());
     auto begin = std::chrono::high_resolution_clock::now();
 
-    std::vector<nlohmann::json> results = collection->search(query_map["q"], std::stoi(query_map[NUM_TYPOS]), 100, FREQUENCY, false);
+    std::vector<nlohmann::json> results = collection->search(query_map["q"], std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
     nlohmann::json json_array = nlohmann::json::array();
     for(nlohmann::json& result: results) {
         json_array.push_back(result);

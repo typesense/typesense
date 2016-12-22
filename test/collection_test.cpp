@@ -10,7 +10,8 @@ protected:
 
     virtual void SetUp() {
         std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-        collection = new Collection("/tmp/typesense_test/collection");
+        std::vector<field> fields = {field("title", field_type::STRING)};
+        collection = new Collection("/tmp/typesense_test/collection", "collection", fields);
 
         std::string json_line;
 

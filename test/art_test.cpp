@@ -685,35 +685,35 @@ TEST(ArtTest, test_encode_int) {
 
     // 175 => 0000,0000,0000,0000,0000,0000,1010,1111,\0
     unsigned char chars_175[9] = {0, 0, 0, 0, 0, 0, 10, 15, 46};
-    encode_int(175, chars);
+    encode_int32(175, chars);
     for(uint32_t i = 0; i < 9; i++) {
         ASSERT_EQ(chars_175[i], chars[i]);
     }
 
     // 0 => 0000,0000,0000,0000,0000,0000,0000,0000,\0
     unsigned char chars_0[9] = {0, 0, 0, 0, 0, 0, 0, 0, 46};
-    encode_int(0, chars);
+    encode_int32(0, chars);
     for(uint32_t i = 0; i < 9; i++) {
         ASSERT_EQ(chars_0[i], chars[i]);
     }
 
     // 255 => 0000,0000,0000,0000,0000,0000,1111,1111,\0
     unsigned char chars_255[9] = {0, 0, 0, 0, 0, 0, 15, 15, 46};
-    encode_int(255, chars);
+    encode_int32(255, chars);
     for(uint32_t i = 0; i < 9; i++) {
         ASSERT_EQ(chars_255[i], chars[i]);
     }
 
     // 4531 => 0000,0000,0000,0000,0001,0001,1011,0011,\0
     unsigned char chars_4531[9] = {0, 0, 0, 0, 1, 1, 11, 3, 46};
-    encode_int(4531, chars);
+    encode_int32(4531, chars);
     for(uint32_t i = 0; i < 9; i++) {
         ASSERT_EQ(chars_4531[i], chars[i]);
     }
 
     // 1200000 => 0000,0000,0001,0010,0100,1111,1000,0000,\0
     unsigned char chars_1M[9] = {0, 0, 1, 2, 4, 15, 8, 0, 46};
-    encode_int(1200000, chars);
+    encode_int32(1200000, chars);
     for(uint32_t i = 0; i < 9; i++) {
         ASSERT_EQ(chars_1M[i], chars[i]);
     }
@@ -728,25 +728,25 @@ TEST(ArtTest, test_int_range_hundreds) {
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 100; i < 110; i++) {
-        encode_int(i, chars);
+        encode_int32(i, chars);
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
     }
 
-    encode_int(106, chars);
+    encode_int32(106, chars);
 
     std::vector<const art_leaf*> results;
 
-    int res = art_int_search(&t, 106, 0, results);
+    int res = art_int32_search(&t, 106, 0, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(1, results.size());
     results.clear();
 
-    res = art_int_search(&t, 106, 1, results);
+    res = art_int32_search(&t, 106, 1, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(4, results.size());
     results.clear();
 
-    res = art_int_search(&t, 106, -1, results);
+    res = art_int32_search(&t, 106, -1, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(7, results.size());
 
@@ -764,11 +764,11 @@ TEST(ArtTest, test_int_range_millions) {
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 0; i < 1000000; i++) {
-        encode_int(i, chars);
+        encode_int32(i, chars);
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
     }
 
-    encode_int(5, chars);
+    encode_int32(5, chars);
     /*std::cout << std::endl;
     for(uint32_t i = 0; i < CHAR_LEN; i++) {
         std::cout << (int)chars[i] << ", ";
@@ -780,50 +780,50 @@ TEST(ArtTest, test_int_range_millions) {
     // ==
     for(uint32_t i = 0; i < 6; i++) {
         results.clear();
-        art_int_search(&t, (uint32_t) pow(10, i), 0, results);
+        art_int32_search(&t, (uint32_t) pow(10, i), 0, results);
         ASSERT_EQ(1, results.size());
 
         results.clear();
-        art_int_search(&t, (uint32_t) (pow(10, i) + 7), 0, results);
+        art_int32_search(&t, (uint32_t) (pow(10, i) + 7), 0, results);
         ASSERT_EQ(1, results.size());
     }
 
     results.clear();
-    art_int_search(&t, 1000000-1, 0, results);
+    art_int32_search(&t, 1000000 - 1, 0, results);
     ASSERT_EQ(1, results.size());
 
     // >=
     results.clear();
-    art_int_search(&t, 1000000-5, 1, results);
+    art_int32_search(&t, 1000000 - 5, 1, results);
     ASSERT_EQ(5, results.size());
 
     results.clear();
-    art_int_search(&t, 1000000-1, 1, results);
+    art_int32_search(&t, 1000000 - 1, 1, results);
     ASSERT_EQ(1, results.size());
 
     results.clear();
-    art_int_search(&t, 1000000, 1, results);
+    art_int32_search(&t, 1000000, 1, results);
     ASSERT_EQ(0, results.size());
 
     results.clear();
-    art_int_search(&t, 5, 1, results);
+    art_int32_search(&t, 5, 1, results);
     ASSERT_EQ(1000000-5, results.size());
 
     // <=
     results.clear();
-    art_int_search(&t, 1000000-5, -1, results);
+    art_int32_search(&t, 1000000 - 5, -1, results);
     ASSERT_EQ(1000000-5+1, results.size());
 
     results.clear();
-    art_int_search(&t, 1000000-1, -1, results);
+    art_int32_search(&t, 1000000 - 1, -1, results);
     ASSERT_EQ(1000000, results.size());
 
     results.clear();
-    art_int_search(&t, 1000000, -1, results);
+    art_int32_search(&t, 1000000, -1, results);
     ASSERT_EQ(1000000, results.size());
 
     results.clear();
-    art_int_search(&t, 5, -1, results);
+    art_int32_search(&t, 5, -1, results);
     ASSERT_EQ(5+1, results.size());
 }
 
@@ -837,15 +837,15 @@ TEST(ArtTest, test_int_range_byte_boundary) {
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 200; i < 300; i++) {
-        encode_int(i, chars);
+        encode_int32(i, chars);
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
     }
 
-    encode_int(255, chars);
+    encode_int32(255, chars);
     std::vector<const art_leaf*> results;
 
     results.clear();
-    art_int_search(&t, 255, 1, results);
+    art_int32_search(&t, 255, 1, results);
     ASSERT_EQ(45, results.size());
 
     /*std::cout << std::endl;

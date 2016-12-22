@@ -11,14 +11,33 @@
 #include "art.h"
 #include "json.hpp"
 
-Collection::Collection(std::string state_dir_path): seq_id(0) {
+Collection::Collection(const std::string & state_dir_path, const std::string & name,
+                       const std::vector<field> & fields): seq_id(0), name(name) {
     store = new Store(state_dir_path);
-    art_tree_init(&t);
+
+    nlohmann::json fields_json = nlohmann::json::array();
+
+    for(const field& field: fields) {
+        art_tree *t = new art_tree;
+        art_tree_init(t);
+
+        fields_json.push_back(field.name);
+        index_map.emplace(field.name, t);
+        schema.emplace(field.name, field);
+    }
+
+    store->insert(FIELDS_KEY, fields_json.dump());
 }
 
 Collection::~Collection() {
     delete store;
-    art_tree_destroy(&t);
+
+    for(std::pair<std::string, field> name_field: schema) {
+        art_tree *t = index_map.at(name_field.first);
+        art_tree_destroy(t);
+    }
+
+    schema.clear();
 }
 
 uint32_t Collection::next_seq_id() {
@@ -38,13 +57,54 @@ std::string Collection::add(std::string json_str) {
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_id_key(document["id"]), seq_id_str);
 
+    for(const std::pair<std::string, field> & field_pair: schema) {
+        const std::string & field_name = field_pair.first;
+        art_tree *t = index_map.at(field_name);
+
+        if(field_pair.second.type == STRING) {
+            index_string_field(field_name, t, document, seq_id);
+        } else if(field_pair.second.type == INT32) {
+            index_int32_field(field_name, t, document, seq_id);
+        }
+    }
+
+    doc_scores[seq_id] = document["points"];
+    return document["id"];
+}
+
+void Collection::index_int32_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
+                                   uint32_t seq_id) const {
+    uint32_t value = document[field_name];
+    unsigned char key[9];
+    encode_int32(value, key);
+
+    uint32_t num_hits = 0;
+    art_leaf* leaf = (art_leaf *) art_search(t, key, 9);
+    if(leaf != NULL) {
+        num_hits = leaf->values->ids.getLength();
+    }
+
+    num_hits += 1;
+
+    art_document art_doc;
+    art_doc.id = seq_id;
+    art_doc.score = document["points"];
+    art_doc.offsets_len = 0;
+    art_doc.offsets = nullptr;
+
+    art_insert(t, key, 9, &art_doc, num_hits);
+}
+
+void Collection::index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
+                                    uint32_t seq_id) const {
+    std::string text = document[field_name];
     std::vector<std::string> tokens;
-    StringUtils::tokenize(document["title"], tokens, " ", true);
+    StringUtils::tokenize(text, tokens, " ", true);
 
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
     for(uint32_t i=0; i<tokens.size(); i++) {
         auto token = tokens[i];
-        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+        transform(token.begin(), token.end(), token.begin(), tolower);
         token_to_offsets[token].push_back(i);
     }
 
@@ -60,7 +120,7 @@ std::string Collection::add(std::string json_str) {
         const unsigned char *key = (const unsigned char *) kv.first.c_str();
         int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
 
-        art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
+        art_leaf* leaf = (art_leaf *) art_search(t, key, key_len);
         if(leaf != NULL) {
             num_hits = leaf->values->ids.getLength();
         }
@@ -71,13 +131,9 @@ std::string Collection::add(std::string json_str) {
             art_doc.offsets[i] = kv.second[i];
         }
 
-        art_insert(&t, key, key_len, &art_doc, num_hits);
+        art_insert(t, key, key_len, &art_doc, num_hits);
         delete art_doc.offsets;
     }
-
-    doc_scores[seq_id] = document["points"];
-
-    return document["id"];
 }
 
 void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves,
@@ -209,7 +265,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
                 leaves = token_cache[token_cost_hash];
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
-                art_fuzzy_search(&t, (const unsigned char *) token.c_str(), token_len,
+                art_fuzzy_search(index_map.at("title"), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], 3, token_order, prefix, leaves);
                 if(!leaves.empty()) {
                     token_cache.emplace(token_cost_hash, leaves);
@@ -422,7 +478,7 @@ void Collection::remove(std::string id) {
         const unsigned char *key = (const unsigned char *) token.c_str();
         int key_len = (int) (token.length() + 1);
 
-        art_leaf* leaf = (art_leaf *) art_search(&t, key, key_len);
+        art_leaf* leaf = (art_leaf *) art_search(index_map.at("title"), key, key_len);
         if(leaf != NULL) {
             uint32_t seq_id_values[1] = {seq_id};
 
@@ -453,7 +509,7 @@ void Collection::remove(std::string id) {
             std::cout << "----" << std::endl;*/
 
             if(leaf->values->ids.getLength() == 0) {
-                art_delete(&t, key, key_len);
+                art_delete(index_map.at("title"), key, key_len);
             }
         }
     }
