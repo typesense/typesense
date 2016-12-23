@@ -390,9 +390,7 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
             mscore = MatchScore::match_score(doc_id, token_positions);
         }
 
-        const uint64_t final_score = ((uint64_t)(mscore.words_present * 32 + (MAX_SEARCH_TOKENS - mscore.distance)) * UINT32_MAX) +
-                                     doc_scores.at(doc_id);
-
+        const uint64_t match_score = (uint64_t)(mscore.words_present * 32 + (MAX_SEARCH_TOKENS - mscore.distance));
         /*
           std::cout << "final_score: " << final_score << ", doc_id: " << doc_id << std::endl;
           uint32_t doc_score = doc_scores.at(doc_id);
@@ -402,7 +400,7 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
                   << final_score << std::endl;
         */
 
-        topster.add(doc_id, final_score);
+        topster.add(doc_id, match_score, doc_scores.at(doc_id), 0);
     }
 }
 

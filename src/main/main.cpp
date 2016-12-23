@@ -12,7 +12,8 @@
 using namespace std;
 
 int main() {
-    Collection *collection = new Collection("/tmp/typesense-data");
+    std::vector<field> fields = {field("title", field_type::STRING)};
+    Collection *collection = new Collection("/tmp/typesense-data", "collection", fields);
 
     std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
     //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
