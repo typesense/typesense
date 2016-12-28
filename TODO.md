@@ -21,6 +21,8 @@
 - storage key prefix should include collection name
 - storage key prefix should include collection name
 - use art for indexing score as well
+- ISX what (score based on typo matches)
+- Mininum results should be a variable instead of blindly going with max_results
 
 **API**
 

@@ -137,14 +137,11 @@ void Collection::index_string_field(const std::string &field_name, art_tree *t, 
 }
 
 void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves,
-                                   std::vector<nlohmann::json> & results, size_t & total_results,
-                                   const size_t & max_results) {
+                                   std::vector<nlohmann::json> & results, spp::sparse_hash_set<uint64_t> & dedup_seq_ids,
+                                   size_t & total_results, const size_t & max_results) {
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product);
-
-    // For deduplication. If 2 query suggestions give a document as result, ensure that only one is returned
-    spp::sparse_hash_set<uint64_t> dedup_seq_ids;
 
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
@@ -217,7 +214,10 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
     std::vector<nlohmann::json> results;
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
-    spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cache;
+    spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
+
+    // To prevent duplicate results, while preserving order of result vector
+    spp::sparse_hash_set<uint64_t> result_set;
 
     // Used to drop the least occurring token(s) for partial searches
     spp::sparse_hash_map<std::string, uint32_t> token_to_count;
@@ -260,15 +260,16 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
+            std::cout << "\n**Searching for: " << token << " - cost: " << costs[token_index] << std::endl;
 
-            if(token_cache.count(token_cost_hash) != 0) {
-                leaves = token_cache[token_cost_hash];
+            if(token_cost_cache.count(token_cost_hash) != 0) {
+                leaves = token_cost_cache[token_cost_hash];
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
                 art_fuzzy_search(index_map.at("title"), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], 3, token_order, prefix, leaves);
+                                 costs[token_index], costs[token_index], 3, token_order, prefix, leaves);
                 if(!leaves.empty()) {
-                    token_cache.emplace(token_cost_hash, leaves);
+                    token_cost_cache.emplace(token_cost_hash, leaves);
                 }
             }
 
@@ -295,7 +296,7 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
                 // Unless we're already at max_cost for this token, don't look at remaining tokens since we would
                 // see them again in a future iteration when we retry with a larger cost
-                if(costs[token_index] != max_cost) {
+                if(token_index == -1 || costs[token_index] != max_cost) {
                     retry_with_larger_cost = true;
                     break;
                 }
@@ -307,9 +308,13 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         if(token_leaves.size() != 0 && !retry_with_larger_cost) {
             // If a) all tokens were found, or b) Some were skipped because they don't exist within max_cost,
             // go ahead and search for candidates with what we have so far
-            search_candidates(token_leaves, results, total_results, max_results);
+            search_candidates(token_leaves, results, result_set, total_results, max_results);
+            std::cout << "total_results = " << total_results << std::endl;
+            for(auto res: results) {
+                std::cout << "RES: " << res << std::endl;
+            }
 
-            if (total_results > 0) {
+            if (total_results >= max_results) {
                 // Unless there are results, we continue outerloop (looking at tokens with greater cost)
                 break;
             }

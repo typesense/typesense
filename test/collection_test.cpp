@@ -89,7 +89,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with non-zero cost
-    results = collection->search("DoesNotExist from", 2, 10);
+    results = collection->search("DoesNotExist from", 1, 10);
     ASSERT_EQ(2, results.size());
 
     for(size_t i = 0; i < results.size(); i++) {
@@ -100,11 +100,16 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with 2 indexed words
-    results = collection->search("from DoesNotExist insTruments", 2, 10);
-    ASSERT_EQ(1, results.size());
-    nlohmann::json result = results.at(0);
-    std::string result_id = result["id"];
-    ASSERT_STREQ("2", result_id.c_str());
+    results = collection->search("from DoesNotExist insTruments", 1, 10);
+    ASSERT_EQ(2, results.size());
+    ids = {"2", "17"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results.at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 
     results.clear();
     results = collection->search("DoesNotExist1 DoesNotExist2", 0, 10);
@@ -208,9 +213,9 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
     std::vector<nlohmann::json> results = collection->search("ISX what", 1, 10, FREQUENCY, false);
-    ASSERT_EQ(4, results.size());
+    ASSERT_EQ(5, results.size());
 
-    std::vector<std::string> ids = {"19", "6", "21", "8"};
+    std::vector<std::string> ids = {"20", "19", "6", "21", "8"};
 
     for(size_t i = 0; i < results.size(); i++) {
         nlohmann::json result = results.at(i);

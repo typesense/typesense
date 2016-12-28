@@ -40,7 +40,7 @@ private:
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, std::vector<nlohmann::json> & results,
-                           size_t & total_results, const size_t & max_results);
+                           spp::sparse_hash_set<uint64_t> & dedup_seq_ids, size_t & total_results, const size_t & max_results);
 
     void index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
