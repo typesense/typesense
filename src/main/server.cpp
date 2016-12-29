@@ -27,7 +27,8 @@ static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
 std::vector<field> fields = {field("title", field_type::STRING)};
-static Collection *collection = new Collection("/tmp/typesense-data", "collection", fields);
+std::vector<std::string> rank_fields = {"points"};
+static Collection *collection = new Collection("/tmp/typesense-data", "collection", fields, rank_fields);
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                         int (*on_req)(h2o_handler_t *, h2o_req_t *)) {

@@ -100,4 +100,8 @@ struct Topster {
     uint64_t getKeyAt(uint32_t index) {
         return data[index].key;
     }
+
+    KV getKV(uint32_t index) {
+        return data[index];
+    }
 };

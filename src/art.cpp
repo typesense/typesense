@@ -62,7 +62,7 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
         b_value = b->max_token_count;
     }
 
-    return a_value < b_value;
+    return a_value > b_value;
 }
 
 bool compare_art_node_score(const art_node* a, const art_node* b) {
@@ -82,7 +82,15 @@ bool compare_art_node_score(const art_node* a, const art_node* b) {
         b_value = b->max_score;
     }
 
-    return a_value < b_value;
+    return a_value > b_value;
+}
+
+bool compare_art_node_frequency_pq(const art_node *a, const art_node *b) {
+    return !compare_art_node_frequency(a, b);
+}
+
+bool compare_art_node_score_pq(const art_node* a, const art_node* b) {
+    return !compare_art_node_frequency(a, b);
 }
 
 /**
@@ -897,10 +905,10 @@ static int art_topk_iter(const art_node *root, token_ordering token_order, const
 
     if(token_order == FREQUENCY) {
         q = std::priority_queue<art_node *, std::vector<const art_node *>,
-                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_frequency);
+                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_frequency_pq);
     } else {
         q = std::priority_queue<art_node *, std::vector<const art_node *>,
-                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_score);
+                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_score_pq);
     }
 
     q.push(root);
