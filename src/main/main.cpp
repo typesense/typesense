@@ -56,7 +56,8 @@ int main() {
     collection->remove("foo");
 
     auto begin = std::chrono::high_resolution_clock::now();
-    collection->search("the", 1, 100);
+    std::vector<std::string> search_fields = {"title"};
+    collection->search("the", search_fields, 1, 100);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
     delete collection;

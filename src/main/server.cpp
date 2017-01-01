@@ -84,7 +84,10 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     printf("Query: %s\n", query_map["q"].c_str());
     auto begin = std::chrono::high_resolution_clock::now();
 
-    std::vector<nlohmann::json> results = collection->search(query_map["q"], std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
+    std::vector<std::string> search_fields = {"title"};
+
+    std::vector<nlohmann::json> results = collection->search(query_map["q"], search_fields,
+                                                             std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
     nlohmann::json json_array = nlohmann::json::array();
     for(nlohmann::json& result: results) {
         json_array.push_back(result);

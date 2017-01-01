@@ -143,7 +143,7 @@ void Collection::index_string_field(const std::string &field_name, art_tree *t, 
     }
 }
 
-void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves,
+void Collection::search_candidates(int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves,
                                    std::vector<Topster<100>::KV> & result_kvs, spp::sparse_hash_set<uint64_t> & dedup_seq_ids,
                                    size_t & total_results, const size_t & max_results) {
     const size_t combination_limit = 10;
@@ -153,6 +153,7 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_leaves, n);
+        token_rank++;
 
         /*std:: cout << "\nSuggestion: ";
         for(auto suggestion_leaf: query_suggestion) {
@@ -178,7 +179,7 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
 
         // go through each matching document id and calculate match score
         Topster<100> topster;
-        score_results(topster, query_suggestion, result_ids, result_size);
+        score_results(topster, token_rank, query_suggestion, result_ids, result_size);
         delete[] result_ids;
         topster.sort();
 
@@ -191,8 +192,56 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
             }
         }
 
-        if(total_results >= max_results) break;
+        if(total_results >= max_results) {
+            break;
+        }
     }
+}
+
+std::vector<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> fields,
+                                               const int num_typos, const size_t num_results,
+                                               const token_ordering token_order, const bool prefix) {
+    // Order of `fields` are used to rank results
+    auto begin = std::chrono::high_resolution_clock::now();
+    std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
+
+    for(int i = 0; i < fields.size(); i++) {
+        const std::string & field = fields[i];
+
+        // Container for holding the results
+        std::vector<Topster<100>::KV> result_kvs;
+
+        // To prevent duplicate results, while preserving order of result vector
+        spp::sparse_hash_set<uint64_t> result_set;
+
+        search(query, field, num_typos, num_results, result_kvs, result_set, token_order, prefix);
+        for(auto result_kv: result_kvs) {
+            field_order_kvs.push_back(std::make_pair(fields.size() - i, result_kv));
+        }
+    }
+
+    std::sort(field_order_kvs.begin(), field_order_kvs.end(),
+      [](const std::pair<int, Topster<100>::KV> & a, const std::pair<int, Topster<100>::KV> & b) {
+        if(a.second.match_score != b.second.match_score) return a.second.match_score > b.second.match_score;
+        if(a.second.primary_attr != b.second.primary_attr) return a.second.primary_attr > b.second.primary_attr;
+        if(a.second.secondary_attr != b.second.secondary_attr) return a.second.secondary_attr > b.second.secondary_attr;
+        if(a.first != b.first) return a.first > b.first;
+        return a.second.key > b.second.key;
+    });
+
+    std::vector<nlohmann::json> results;
+
+    for(auto field_order_kv: field_order_kvs) {
+        std::string value;
+        store->get(get_seq_id_key((uint32_t) field_order_kv.second.key), value);
+        nlohmann::json document = nlohmann::json::parse(value);
+        results.push_back(document);
+    }
+
+    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    store->print_memory_usage();
+    return results;
 }
 
 /*
@@ -204,24 +253,21 @@ void Collection::search_candidates(std::vector<std::vector<art_leaf*>> & token_l
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-std::vector<nlohmann::json> Collection::search(std::string query, const int num_typos, const size_t num_results,
-                                               const token_ordering token_order, const bool prefix) {
-    auto begin = std::chrono::high_resolution_clock::now();
-
+std::vector<Topster<100>::KV> Collection::search(std::string & query, const std::string & field,
+                                                 const int num_typos, const size_t num_results,
+                                                 std::vector<Topster<100>::KV> & result_kvs,
+                                                 spp::sparse_hash_set<uint64_t> & result_set,
+                                                 const token_ordering token_order, const bool prefix) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
 
     const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
     const size_t max_results = std::min(num_results, (size_t) Collection::MAX_RESULTS);
 
-    size_t total_results = 0;
-    std::vector<Topster<100>::KV> result_kvs;
+    size_t total_results = result_kvs.size();
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
-
-    // To prevent duplicate results, while preserving order of result vector
-    spp::sparse_hash_set<uint64_t> result_set;
 
     // Used to drop the least occurring token(s) for partial searches
     spp::sparse_hash_map<std::string, uint32_t> token_to_count;
@@ -239,8 +285,10 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
     }
 
     std::vector<std::vector<art_leaf*>> token_leaves;
+
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
+    int token_rank = 0;
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
@@ -256,7 +304,6 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
 
         token_leaves.clear();
         int token_index = 0;
-        bool retry_with_larger_cost = false;
 
         while(token_index < tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
@@ -264,13 +311,14 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << std::endl;
+            /*std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << ", token_rank: "
+                      << token_rank << std::endl;*/
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
-                art_fuzzy_search(index_map.at("title"), (const unsigned char *) token.c_str(), token_len,
+                art_fuzzy_search(index_map.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], 3, token_order, prefix, leaves);
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);
@@ -298,22 +346,16 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
                 n = -1;
                 N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
-                // Don't look at remaining tokens if
-                // a) We've run out of tokens, or b) We're not at at max_cost for this token
-                // since we would see them again in a future iteration when we retry with a larger cost
-                if(token_index == -1 || costs[token_index] != max_cost) {
-                    retry_with_larger_cost = true;
-                    break;
-                }
+                break;
             }
 
             token_index++;
         }
 
-        if(token_leaves.size() != 0 && !retry_with_larger_cost) {
+        if(token_leaves.size() != 0 && token_leaves.size() == tokens.size()) {
             // If a) all tokens were found, or b) Some were skipped because they don't exist within max_cost,
             // go ahead and search for candidates with what we have so far
-            search_candidates(token_leaves, result_kvs, result_set, total_results, max_results);
+            search_candidates(token_rank, token_leaves, result_kvs, result_set, total_results, max_results);
 
             if (total_results >= max_results) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
@@ -324,7 +366,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         n++;
     }
 
-    if(result_kvs.size() == 0 && token_to_count.size() != 0) {
+    // When there are not enough overall results and atleast one token has results
+    if(result_kvs.size() < max_results && token_to_count.size() > 1) {
         // Drop certain token with least hits and try searching again
         std::string truncated_query;
 
@@ -340,27 +383,15 @@ std::vector<nlohmann::json> Collection::search(std::string query, const int num_
         );
 
         for(uint32_t i = 0; i < token_count_pairs.size()-1; i++) {
-            if(token_to_count.count(tokens[i]) != 0) {
+            if(token_to_count.count(token_count_pairs[i].first) != 0) {
                 truncated_query += " " + token_count_pairs.at(i).first;
             }
         }
 
-        return search(truncated_query, num_typos, num_results);
+        return search(truncated_query, field, num_typos, num_results, result_kvs, result_set, token_order, prefix);
     }
 
-    std::vector<nlohmann::json> results;
-
-    for(auto result_kv: result_kvs) {
-        std::string value;
-        store->get(get_seq_id_key((uint32_t) result_kv.key), value);
-        nlohmann::json document = nlohmann::json::parse(value);
-        results.push_back(document);
-    }
-
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
-    store->print_memory_usage();
-    return results;
+    return result_kvs;
 }
 
 void Collection::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
@@ -374,8 +405,12 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
     }
 }
 
-void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
-                                const uint32_t *result_ids, const size_t result_size) const {
+void Collection::score_results(Topster<100> &topster, const int & token_rank,
+                               const std::vector<art_leaf *> &query_suggestion, const uint32_t *result_ids,
+                               const size_t result_size) const {
+
+    const int max_token_rank = 250;
+
     for(auto i=0; i<result_size; i++) {
         uint32_t doc_id = result_ids[i];
         std::vector<std::vector<uint16_t>> token_positions;
@@ -405,18 +440,23 @@ void Collection::score_results(Topster<100> &topster, const std::vector<art_leaf
             mscore = MatchScore::match_score(doc_id, token_positions);
         }
 
-        const uint64_t match_score = (uint64_t)(mscore.words_present * 32 + (MAX_SEARCH_TOKENS - mscore.distance));
+        int token_rank_score = max_token_rank - token_rank;
+
+        // Construct a single match_score from individual components (for multi-field sort)
+        const uint64_t match_score = (token_rank_score << 16) +
+                                     ((uint64_t)(mscore.words_present) << 8) +
+                                     (MAX_SEARCH_TOKENS - mscore.distance);
+
         int64_t primary_rank_score = primary_rank_scores.count(doc_id) > 0 ? primary_rank_scores.at(doc_id) : 0;
         int64_t secondary_rank_score = secondary_rank_scores.count(doc_id) > 0 ? secondary_rank_scores.at(doc_id) : 0;
         topster.add(doc_id, match_score, primary_rank_score, secondary_rank_score);
-        /*std::cout << "mscore.distance: " << (int) mscore.distance << ", match_score: "
+        /*std::cout << "token_rank_score: " << token_rank_score << ", match_score: "
                   << match_score << ", primary_rank_score: " << primary_rank_score << ", doc_id: " << doc_id << std::endl;*/
     }
 }
 
-inline std::vector<art_leaf *> Collection::next_suggestion(
-        const std::vector<std::vector<art_leaf *>> &token_leaves,
-        long long int n) {
+inline std::vector<art_leaf *> Collection::next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
+                                                           long long int n) {
     std::vector<art_leaf*> query_suggestion(token_leaves.size());
 
     // generate the next combination from `token_leaves` and store it in `query_suggestion`

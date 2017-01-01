@@ -43,8 +43,13 @@ private:
                                                           long long int n);
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    void search_candidates(std::vector<std::vector<art_leaf*>> & token_leaves, std::vector<Topster<100>::KV> & result_kvs,
-                           spp::sparse_hash_set<uint64_t> & dedup_seq_ids, size_t & total_results, const size_t & max_results);
+    std::vector<Topster<100>::KV> search(std::string & query, const std::string & field, const int num_typos, const size_t num_results,
+                                         std::vector<Topster<100>::KV> & result_kvs, spp::sparse_hash_set<uint64_t> & result_set,
+                                         const token_ordering token_order = FREQUENCY, const bool prefix = false);
+
+    void search_candidates(int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves,
+                           std::vector<Topster<100>::KV> & result_kvs, spp::sparse_hash_set<uint64_t> & dedup_seq_ids,
+                           size_t & total_results, const size_t & max_results);
 
     void index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
@@ -56,12 +61,12 @@ public:
                const std::vector<std::string> rank_fields);
     ~Collection();
     std::string add(std::string json_str);
-    std::vector<nlohmann::json> search(std::string query, const int num_typos, const size_t num_results,
-                                       const token_ordering token_order = FREQUENCY, const bool prefix = false);
+    std::vector<nlohmann::json> search(std::string query, const std::vector<std::string> fields, const int num_typos,
+                                       const size_t num_results, const token_ordering token_order = FREQUENCY,
+                                       const bool prefix = false);
     void remove(std::string id);
-    void score_results(Topster<100> &topster, const std::vector<art_leaf *> &query_suggestion,
-                       const uint32_t *result_ids,
-                       const size_t result_size) const;
+    void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,
+                       const uint32_t *result_ids, const size_t result_size) const;
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};

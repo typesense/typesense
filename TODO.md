@@ -6,7 +6,7 @@
 
 - ~~Proper JSON as input~~
 - ~~Storing raw JSON input to RocksDB~~
-- ART for every indexed field
+- ~~ART for every indexed field~~
 - UTF-8 support for fuzzy search
 - Facets
 - Filters
@@ -19,10 +19,13 @@
 - only last token should be prefix searched
 - art int search should support signed ints
 - storage key prefix should include collection name
-- storage key prefix should include collection name
-- use art for indexing score as well
-- ISX what (score based on typo matches)
-- Mininum results should be a variable instead of blindly going with max_results
+- Minimum results should be a variable instead of blindly going with max_results
+- Benchmark with -ffast-math
+- Space sensitivity
+- Use bitmap index instead of forarray for doc list
+- ~~Search across multiple fields~~
+- Multi field search tests
+- Throw errors when schema is broken
 
 **API**
 
