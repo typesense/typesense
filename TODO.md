@@ -35,7 +35,7 @@
 - ~~Have set inside topster itself~~
 - Restore records as well on restart (like for meta)
 - Persist next_seq_id
-- collection_id should be int, not string
+- ~~collection_id should be int, not string~~
 - clean special chars before indexing
 
 **API**

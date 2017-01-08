@@ -6,7 +6,7 @@
 #include <match_score.h>
 #include <string_utils.h>
 
-Collection::Collection(const std::string name, const std::string collection_id, const uint32_t next_seq_id, Store *store,
+Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &search_fields, const std::vector<std::string> & rank_fields):
     name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store), rank_fields(rank_fields) {
 

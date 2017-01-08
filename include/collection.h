@@ -13,7 +13,7 @@ class Collection {
 private:
     std::string name;
 
-    std::string collection_id;
+    uint32_t collection_id;
 
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
@@ -56,7 +56,7 @@ private:
 public:
     Collection() = delete;
 
-    Collection(const std::string name, const std::string collection_id, const uint32_t next_seq_id, Store *store,
+    Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                const std::vector<field> & search_fields, const std::vector<std::string> & rank_fields);
 
     ~Collection();

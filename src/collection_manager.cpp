@@ -34,7 +34,7 @@ void CollectionManager::init(Store *store) {
         }
 
         Collection* collection = new Collection(collection_meta[COLLECTION_NAME_KEY].get<std::string>(),
-                                                std::to_string(collection_meta[COLLECTION_ID_KEY].get<uint32_t>()),
+                                                collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
                                                 collection_meta[COLLECTION_NEXT_SEQ_ID_KEY].get<uint32_t>(),
                                                 store,
                                                 search_fields,
@@ -66,8 +66,7 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     collection_meta[COLLECTION_RANK_FIELDS_KEY] = rank_fields;
     store->insert(get_collection_name_key(name), collection_meta.dump());
 
-    std::string collection_id_str = std::to_string(next_collection_id);
-    Collection* new_collection = new Collection(name, collection_id_str, 0, store, search_fields, rank_fields);
+    Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, rank_fields);
 
     next_collection_id++;
     store->insert(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
