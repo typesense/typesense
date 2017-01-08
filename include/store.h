@@ -1,16 +1,15 @@
 #pragma once
 
 #include <stdint.h>
+#include <cstdlib>
 #include <string>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
 /*
- *  Stores all information about a collection.
- *  Uses RocksDB for persistence.
+ *  Abstraction for underlying KV store (RocksDB)
  */
 class Store {
-
 private:
 
     std::string state_dir_path;
@@ -23,7 +22,7 @@ public:
     Store() = delete;
 
     Store(std::string state_dir_path): state_dir_path(state_dir_path) {
-        // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
+        // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
         // create the DB if it's not already present
@@ -45,6 +44,12 @@ public:
         return status.ok();
     }
 
+    bool contains(const std::string& key) {
+        std::string value;
+        rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
+        return status.ok() && !status.IsNotFound();
+    }
+
     bool get(const std::string& key, std::string& value) {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
         return status.ok();
@@ -53,6 +58,15 @@ public:
     bool remove(const std::string& key) {
         rocksdb::Status status = db->Delete(rocksdb::WriteOptions(), key);
         return status.ok();
+    }
+
+    void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
+        rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
+        for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
+            values.push_back(iter->value().ToString());
+        }
+
+        delete iter;
     }
 
     void print_memory_usage() {

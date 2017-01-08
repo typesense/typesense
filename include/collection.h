@@ -11,16 +11,18 @@
 
 class Collection {
 private:
-    Store* store;
-
     std::string name;
+
+    std::string collection_id;
+
+    // Auto incrementing record ID used internally for indexing - not exposed to the client
+    uint32_t next_seq_id;
 
     spp::sparse_hash_map<std::string, field> schema;
 
     std::vector<std::string> rank_fields;
 
-    // Integer ID used internally for bitmaps - not exposed to the client
-    uint32_t seq_id;
+    Store* store;
 
     spp::sparse_hash_map<std::string, art_tree*> index_map;
 
@@ -28,16 +30,14 @@ private:
 
     spp::sparse_hash_map<uint32_t, int64_t> secondary_rank_scores;
 
-    uint32_t next_seq_id();
-
-    const std::string SEQ_ID_PREFIX = "SQ_";
-    const std::string ID_PREFIX = "ID_";
-    const std::string META_PREFIX = "MT_";
-
-    const std::string FIELDS_KEY = META_PREFIX + "_fields";
+    // Using a $ prefix so that these keys stay at the top of a lexicographically ordered KV store
+    const std::string SEQ_ID_PREFIX = "$SI";
+    const std::string DOC_ID_PREFIX = "$DI";
 
     std::string get_seq_id_key(uint32_t seq_id);
-    std::string get_id_key(std::string id);
+    std::string get_doc_id_key(std::string doc_id);
+
+    uint32_t get_next_seq_id();
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                                           long long int n);
@@ -57,10 +57,14 @@ private:
 
 public:
     Collection() = delete;
-    Collection(const std::string & state_dir_path, const std::string & name, const std::vector<field> & search_fields,
-               const std::vector<std::string> rank_fields);
+
+    Collection(const std::string name, const std::string collection_id, const uint32_t next_seq_id, Store *store,
+               const std::vector<field> & search_fields, const std::vector<std::string> & rank_fields);
+
     ~Collection();
+
     std::string add(std::string json_str);
+
     std::vector<nlohmann::json> search(std::string query, const std::vector<std::string> fields, const int num_typos,
                                        const size_t num_results, const token_ordering token_order = FREQUENCY,
                                        const bool prefix = false);

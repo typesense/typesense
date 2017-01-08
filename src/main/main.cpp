@@ -9,37 +9,21 @@
 #include <queue>
 #include "string_utils.h"
 #include "collection.h"
+#include "collection_manager.h"
 
 using namespace std;
 
 int main() {
-    std::array<int, 10> s = {5, 7, 4, 2, 8, 6, 1, 9, 0, 3};
-    std::sort(s.begin(), s.end(), [](int a, int b) {
-        return a > b;
-    });
-    for (auto a : s) {
-        std::cout << a << " ";
-    }
-
-    std::cout << "\n\n\n";
-
-    auto cmp = [](int a, int b) { return a > b; };
-    std::priority_queue<int, std::vector<int>, decltype(cmp)> q(cmp);
-
-    for(int n : {1,8,5,6,3,4,0,9,7,2})
-        q.push(n);
-
-    while(!q.empty()) {
-        std::cout << q.top() << " ";
-        q.pop();
-    }
-    std::cout << '\n';
-
-    return 0;
-
-    std::vector<field> fields = {field("title", field_type::STRING)};
+    std::vector<field> fields_to_index = {field("title", field_types::STRING)};
     std::vector<std::string> rank_fields = {"points"};
-    Collection *collection = new Collection("/tmp/typesense-data", "collection", fields, rank_fields);
+    Store *store = new Store("/tmp/typesense-data");
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    collectionManager.init(store);
+
+    Collection *collection = collectionManager.get_collection("collection");
+    if(collection == nullptr) {
+        collection = collectionManager.create_collection("collection", fields_to_index, rank_fields);
+    }
 
     std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
     //std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
@@ -60,6 +44,5 @@ int main() {
     collection->search("the", search_fields, 1, 100);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
-    delete collection;
     return 0;
 }

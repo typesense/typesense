@@ -1,37 +1,24 @@
 #include "collection.h"
 
-#include <iostream>
 #include <numeric>
 #include <chrono>
-#include <topster.h>
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
-#include <art.h>
-#include "art.h"
-#include "json.hpp"
 
-Collection::Collection(const std::string & state_dir_path, const std::string & name, const std::vector<field> & search_fields,
-                       const std::vector<std::string> rank_fields): seq_id(0), name(name), rank_fields(rank_fields) {
-    store = new Store(state_dir_path);
-
-    nlohmann::json fields_json = nlohmann::json::array();
+Collection::Collection(const std::string name, const std::string collection_id, const uint32_t next_seq_id, Store *store,
+                       const std::vector<field> &search_fields, const std::vector<std::string> & rank_fields):
+    name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store), rank_fields(rank_fields) {
 
     for(const field& field: search_fields) {
         art_tree *t = new art_tree;
         art_tree_init(t);
-
-        fields_json.push_back(field.name);
         index_map.emplace(field.name, t);
         schema.emplace(field.name, field);
     }
-
-    store->insert(FIELDS_KEY, fields_json.dump());
 }
 
 Collection::~Collection() {
-    delete store;
-
     for(std::pair<std::string, field> name_field: schema) {
         art_tree *t = index_map.at(name_field.first);
         art_tree_destroy(t);
@@ -40,14 +27,14 @@ Collection::~Collection() {
     schema.clear();
 }
 
-uint32_t Collection::next_seq_id() {
-    return ++seq_id;
+uint32_t Collection::get_next_seq_id() {
+    return ++next_seq_id;
 }
 
 std::string Collection::add(std::string json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
-    uint32_t seq_id = next_seq_id();
+    uint32_t seq_id = get_next_seq_id();
     std::string seq_id_str = std::to_string(seq_id);
 
     if(document.count("id") == 0) {
@@ -55,15 +42,15 @@ std::string Collection::add(std::string json_str) {
     }
 
     store->insert(get_seq_id_key(seq_id), document.dump());
-    store->insert(get_id_key(document["id"]), seq_id_str);
+    store->insert(get_doc_id_key(document["id"]), seq_id_str);
 
     for(const std::pair<std::string, field> & field_pair: schema) {
         const std::string & field_name = field_pair.first;
         art_tree *t = index_map.at(field_name);
 
-        if(field_pair.second.type == STRING) {
+        if(field_pair.second.type == field_types::STRING) {
             index_string_field(field_name, t, document, seq_id);
-        } else if(field_pair.second.type == INT32) {
+        } else if(field_pair.second.type == field_types::INT32) {
             index_int32_field(field_name, t, document, seq_id);
         }
     }
@@ -201,6 +188,9 @@ void Collection::search_candidates(int & token_rank, std::vector<std::vector<art
 std::vector<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> fields,
                                                const int num_typos, const size_t num_results,
                                                const token_ordering token_order, const bool prefix) {
+    int size = index_map.size();
+    std::cout << "search size: " << size << std::endl;
+
     // Order of `fields` are used to rank results
     auto begin = std::chrono::high_resolution_clock::now();
     std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
@@ -508,9 +498,9 @@ void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indi
 
 void Collection::remove(std::string id) {
     std::string seq_id_str;
-    store->get(get_id_key(id), seq_id_str);
+    store->get(get_doc_id_key(id), seq_id_str);
 
-    uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+    uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
     std::string parsed_document;
     store->get(get_seq_id_key(seq_id), parsed_document);
@@ -562,14 +552,14 @@ void Collection::remove(std::string id) {
         }
     }
 
-    store->remove(get_id_key(id));
+    store->remove(get_doc_id_key(id));
     store->remove(get_seq_id_key(seq_id));
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
-    return SEQ_ID_PREFIX+std::to_string(seq_id);
+    return collection_id + "_" + SEQ_ID_PREFIX + std::to_string(seq_id);
 }
 
-std::string Collection::get_id_key(std::string id) {
-    return ID_PREFIX+id;
+std::string Collection::get_doc_id_key(std::string doc_id) {
+    return collection_id + "_" + DOC_ID_PREFIX + doc_id;
 }

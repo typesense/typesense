@@ -18,6 +18,7 @@
 - string_utils::tokenize should not have max length
 - only last token should be prefix searched
 - art int search should support signed ints
+- art float search
 - storage key prefix should include collection name
 - Minimum results should be a variable instead of blindly going with max_results
 - Benchmark with -ffast-math
@@ -26,6 +27,15 @@
 - ~~Search across multiple fields~~
 - Multi field search tests
 - Throw errors when schema is broken
+- Index and search on multi-valued field
+- Fix documents.jsonl path in tests
+- Assumption that all tokens match for scoring is no longer true
+- Primary_rank_scores and secondary_rank_scores hashmaps should be combined
+- Proper logging
+- Have set inside topster itself
+- Restore records as well on restart (like for meta)
+- Persist next_seq_id
+- collection_id should be int, not string
 
 **API**
 

@@ -16,6 +16,7 @@
 #include <regex>
 #include "string_utils.h"
 #include "collection.h"
+#include "collection_manager.h"
 #include <sys/resource.h>
 
 #include "h2o.h"
@@ -26,9 +27,12 @@
 static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
-std::vector<field> fields = {field("title", field_type::STRING)};
+std::vector<field> search_fields = {field("title", field_types::STRING)};
 std::vector<std::string> rank_fields = {"points"};
-static Collection *collection = new Collection("/tmp/typesense-data", "collection", fields, rank_fields);
+Store *store = new Store("/tmp/typesense-data");
+
+CollectionManager & collectionManager = CollectionManager::get_instance();
+Collection *collection;
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                         int (*on_req)(h2o_handler_t *, h2o_req_t *)) {
@@ -216,6 +220,12 @@ void index_documents() {
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
+    collectionManager.init(store);
+    collection = collectionManager.get_collection("collection");
+    if(collection == nullptr) {
+        collection = collectionManager.create_collection("collection", search_fields, rank_fields);
+    }
+
     index_documents();
 
     h2o_config_init(&config);
@@ -236,6 +246,5 @@ int main(int argc, char **argv) {
 
     while (h2o_evloop_run(ctx.loop) == 0);
 
-    delete collection;
     return 0;
 }

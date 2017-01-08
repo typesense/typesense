@@ -2,19 +2,33 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <collection_manager.h>
 #include "collection.h"
 
 class CollectionTest : public ::testing::Test {
 protected:
     Collection *collection;
     std::vector<std::string> search_fields;
+    Store *store;
+    CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    virtual void SetUp() {
+    void setupCollection() {
+        std::string state_dir_path = "/tmp/typesense_test/collection";
+        std::cout << "Truncating and creating: " << state_dir_path << std::endl;
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        collectionManager.init(store);
+
         std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-        std::vector<field> fields = {field("title", field_type::STRING)};
+        std::vector<field> fields = {field("title", field_types::STRING)};
         std::vector<std::string> rank_fields = {"points"};
         search_fields = {"title"};
-        collection = new Collection("/tmp/typesense_test/collection", "collection", fields, rank_fields);
+
+        collection = collectionManager.get_collection("collection");
+        if(collection == nullptr) {
+            collection = collectionManager.create_collection("collection", fields, rank_fields);
+        }
 
         std::string json_line;
 
@@ -25,8 +39,12 @@ protected:
         infile.close();
     }
 
+    virtual void SetUp() {
+        setupCollection();
+    }
+
     virtual void TearDown() {
-        delete collection;
+        delete store;
     }
 };
 
@@ -272,4 +290,25 @@ TEST_F(CollectionTest, PrefixSearching) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+}
+
+TEST_F(CollectionTest, MultipleFields) {
+    /*Collection *coll_mul_fields;
+
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/multi_field_documents.jsonl");
+    std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
+    std::vector<std::string> rank_fields = {"points"};
+    coll_mul_fields = new Collection("/tmp/typesense_test/coll_mul_fields", "coll_mul_fields", fields, rank_fields);
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+
+    search_fields = {"title", "starring"};
+
+    delete coll_mul_fields;*/
 }
