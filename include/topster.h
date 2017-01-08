@@ -4,6 +4,7 @@
 #include <climits>
 #include <cstdio>
 #include <algorithm>
+#include <sparsepp.h>
 
 /*
 * Remembers the max-K elements seen so far using a min-heap
@@ -19,6 +20,8 @@ struct Topster {
 
     uint32_t size;
 
+    spp::sparse_hash_set<uint64_t> dedup_keys;
+
     Topster(): size(0){
 
     }
@@ -30,6 +33,12 @@ struct Topster {
     }
 
     void add(const uint64_t &key, const uint64_t &match_score, const int64_t &primary_attr, const int64_t &secondary_attr){
+        if(dedup_keys.count(key) != 0) {
+            return ;
+        }
+
+        dedup_keys.insert(key);
+
         if (size >= MAX_SIZE) {
             if(!is_greater(data[0], match_score, primary_attr, secondary_attr)) {
                 // when incoming value is less than the smallest in the heap, ignore

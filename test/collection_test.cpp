@@ -65,6 +65,10 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
     std::vector<nlohmann::json> results = collection->search("rocket launch", search_fields, 0, 10);
+    for(auto res: results) {
+        std::cout << res << std::endl;
+    }
+    std::cout << std::endl;
     ASSERT_EQ(5, results.size());
 
     /*

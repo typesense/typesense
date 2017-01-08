@@ -32,10 +32,11 @@
 - Assumption that all tokens match for scoring is no longer true
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined
 - Proper logging
-- Have set inside topster itself
+- ~~Have set inside topster itself~~
 - Restore records as well on restart (like for meta)
 - Persist next_seq_id
 - collection_id should be int, not string
+- clean special chars before indexing
 
 **API**
 
