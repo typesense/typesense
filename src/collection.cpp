@@ -537,9 +537,9 @@ void Collection::remove(std::string id) {
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
-    return collection_id + "_" + SEQ_ID_PREFIX + std::to_string(seq_id);
+    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX + std::to_string(seq_id);
 }
 
 std::string Collection::get_doc_id_key(std::string doc_id) {
-    return collection_id + "_" + DOC_ID_PREFIX + doc_id;
+    return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + doc_id;
 }

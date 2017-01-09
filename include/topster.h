@@ -33,17 +33,19 @@ struct Topster {
     }
 
     void add(const uint64_t &key, const uint64_t &match_score, const int64_t &primary_attr, const int64_t &secondary_attr){
-        if(dedup_keys.count(key) != 0) {
-            return ;
-        }
-
-        dedup_keys.insert(key);
-
         if (size >= MAX_SIZE) {
             if(!is_greater(data[0], match_score, primary_attr, secondary_attr)) {
                 // when incoming value is less than the smallest in the heap, ignore
                 return;
             }
+
+            if(dedup_keys.count(key) != 0) {
+                // when the key already exists, ignore
+                return ;
+            }
+
+            dedup_keys.erase(data[0].key);
+            dedup_keys.insert(key);
 
             data[0].key = key;
             data[0].match_score = match_score;
@@ -67,6 +69,13 @@ struct Topster {
                 i = next;
             }
         } else {
+            if(dedup_keys.count(key) != 0) {
+                // when the key already exists, ignore
+                return ;
+            }
+
+            dedup_keys.insert(key);
+
             data[size].key = key;
             data[size].match_score = match_score;
             data[size].primary_attr = primary_attr;
