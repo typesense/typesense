@@ -20,16 +20,17 @@ private:
 
     const std::string NEXT_COLLECTION_ID_KEY = "$CI";
     const std::string COLLECTION_NAME_PREFIX = "$CN";
+    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
 
     const std::string COLLECTION_NAME_KEY = "name";
     const std::string COLLECTION_ID_KEY = "id";
-    const std::string COLLECTION_NEXT_SEQ_ID_KEY = "next_seq_id";
     const std::string COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
     const std::string COLLECTION_RANK_FIELDS_KEY = "rank_fields";
 
     CollectionManager();
 
-    std::string get_collection_name_key(std::string name);
+    std::string get_collection_name_key(std::string collection_name);
+    std::string get_collection_next_seq_id_key(std::string collection_name);
 
 public:
     static CollectionManager& get_instance() {

@@ -28,7 +28,8 @@ Collection::~Collection() {
 }
 
 uint32_t Collection::get_next_seq_id() {
-    return ++next_seq_id;
+    store->increment(get_collection_next_seq_id_key(name), 1);
+    return next_seq_id++;
 }
 
 std::string Collection::add(std::string json_str) {
@@ -534,6 +535,10 @@ void Collection::remove(std::string id) {
 
     store->remove(get_doc_id_key(id));
     store->remove(get_seq_id_key(seq_id));
+}
+
+std::string Collection::get_collection_next_seq_id_key(std::string collection_name) {
+    return COLLECTION_NEXT_SEQ_PREFIX + collection_name + "_SEQ";
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {

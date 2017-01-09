@@ -32,6 +32,10 @@ protected:
 
         std::string json_line;
 
+        // dummy record for record id 0: to make the test record IDs to match with line numbers
+        json_line = "{\"points\":10,\"title\":\"z\"}";
+        collection->add(json_line);
+
         while (std::getline(infile, json_line)) {
             collection->add(json_line);
         }

@@ -25,6 +25,7 @@ void CollectionManager::init(Store *store) {
 
     for(auto collection_meta_json: collection_meta_jsons) {
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
+        std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
 
         std::vector<field> search_fields;
         nlohmann::json fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
@@ -32,10 +33,13 @@ void CollectionManager::init(Store *store) {
         for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
             search_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
         }
+        
+        std::string collection_next_seq_id;
+        store->get(get_collection_next_seq_id_key(this_collection_name), collection_next_seq_id);
 
-        Collection* collection = new Collection(collection_meta[COLLECTION_NAME_KEY].get<std::string>(),
+        Collection* collection = new Collection(this_collection_name,
                                                 collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
-                                                collection_meta[COLLECTION_NEXT_SEQ_ID_KEY].get<uint32_t>(),
+                                                (const uint32_t) std::stoi(collection_next_seq_id),
                                                 store,
                                                 search_fields,
                                                 collection_meta[COLLECTION_RANK_FIELDS_KEY].get<std::vector<std::string>>());
@@ -61,10 +65,11 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
 
     collection_meta[COLLECTION_NAME_KEY] = name;
     collection_meta[COLLECTION_ID_KEY] = next_collection_id;
-    collection_meta[COLLECTION_NEXT_SEQ_ID_KEY] = 0;
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = search_fields_json;
     collection_meta[COLLECTION_RANK_FIELDS_KEY] = rank_fields;
+    
     store->insert(get_collection_name_key(name), collection_meta.dump());
+    store->insert(get_collection_next_seq_id_key(name), std::to_string(0));
 
     Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, rank_fields);
 
@@ -76,6 +81,10 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
 
 std::string CollectionManager::get_collection_name_key(std::string collection_name) {
     return COLLECTION_NAME_PREFIX + collection_name;
+}
+
+std::string CollectionManager::get_collection_next_seq_id_key(std::string collection_name) {
+    return COLLECTION_NEXT_SEQ_PREFIX + collection_name + "_SEQ";
 }
 
 Collection* CollectionManager::get_collection(std::string collection_name) {

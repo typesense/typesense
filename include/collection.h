@@ -34,9 +34,12 @@ private:
     const std::string SEQ_ID_PREFIX = "$SI";
     const std::string DOC_ID_PREFIX = "$DI";
 
+    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+
     std::string get_seq_id_key(uint32_t seq_id);
     std::string get_doc_id_key(std::string doc_id);
 
+    std::string get_collection_next_seq_id_key(std::string collection_name);
     uint32_t get_next_seq_id();
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
