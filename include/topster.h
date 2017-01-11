@@ -95,20 +95,17 @@ struct Topster {
     }
 
     static bool is_greater(const struct KV& i, uint64_t match_score, int64_t primary_attr, int64_t secondary_attr) {
-        if(i.match_score != match_score) return match_score > i.match_score;
-        if(i.primary_attr != primary_attr) return primary_attr > i.primary_attr;
-        return secondary_attr > i.secondary_attr;
+        return std::tie (match_score, primary_attr, secondary_attr) >
+               std::tie (i.match_score, i.primary_attr, i.secondary_attr);
     }
 
     static bool is_greater_kv(const struct KV &i, const struct KV &j) {
-        if(i.match_score != j.match_score) return i.match_score > j.match_score;
-        if(i.primary_attr != j.primary_attr) return i.primary_attr > j.primary_attr;
-        if(i.secondary_attr != j.secondary_attr) return i.secondary_attr > j.secondary_attr;
-        return i.key > j.key;
+        return std::tie(i.match_score, i.primary_attr, i.secondary_attr, i.key) >
+               std::tie(j.match_score, j.primary_attr, j.secondary_attr, j.key);
     }
 
     void sort() {
-        std::stable_sort(std::begin(data), std::begin(data) + size, is_greater_kv);
+        std::sort(std::begin(data), std::begin(data) + size, is_greater_kv);
     }
 
     void clear(){
