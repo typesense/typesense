@@ -100,12 +100,12 @@ struct Topster {
     }
 
     static bool is_greater_kv(const struct KV &i, const struct KV &j) {
-        return std::tie(i.match_score, i.primary_attr, i.secondary_attr, i.key) >
-               std::tie(j.match_score, j.primary_attr, j.secondary_attr, j.key);
+        return std::tie(i.match_score, i.primary_attr, i.secondary_attr) >
+               std::tie(j.match_score, j.primary_attr, j.secondary_attr);
     }
 
     void sort() {
-        std::sort(std::begin(data), std::begin(data) + size, is_greater_kv);
+        std::stable_sort(std::begin(data), std::begin(data) + size, is_greater_kv);
     }
 
     void clear(){
