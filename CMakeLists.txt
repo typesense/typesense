@@ -37,8 +37,10 @@ link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp test/collection_test.cpp test/topster_test.cpp
                ${SRC_FILES})
 add_executable(search ${HEADER_FILES} ${SRC_FILES} src/main/main.cpp)
+add_executable(benchmark ${HEADER_FILES} ${SRC_FILES} src/main/benchmark.cpp)
 add_executable(typesense-server ${HEADER_FILES} ${SRC_FILES} src/main/server.cpp)
 
 target_link_libraries(typesense_test for rocksdb gtest gtest_main)
 target_link_libraries(search for pthread rocksdb)
+target_link_libraries(benchmark for pthread rocksdb)
 target_link_libraries(typesense-server for curl h2o-evloop pthread rocksdb ssl crypto)
