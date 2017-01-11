@@ -37,6 +37,10 @@
 - ~~Persist next_seq_id~~
 - ~~collection_id should be int, not string~~
 - clean special chars before indexing
+- d-ary heap?
+- range search for art_int
+- API should return count
+- test for same match score but different primary, secondary attr
 
 **API**
 
