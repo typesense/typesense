@@ -215,8 +215,8 @@ std::vector<nlohmann::json> Collection::search(std::string query, const std::vec
     }
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
-    store->print_memory_usage();
+    //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    //!store->print_memory_usage();
     return results;
 }
 
@@ -299,7 +299,7 @@ void Collection::search(std::string & query, const std::string & field, const in
             }
 
             if(!leaves.empty()) {
-                log_leaves(costs[token_index], token, leaves);
+                //!log_leaves(costs[token_index], token, leaves);
                 token_leaves.push_back(leaves);
                 token_to_count[token] = leaves.at(0)->values->ids.getLength();
             } else {

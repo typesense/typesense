@@ -759,6 +759,41 @@ TEST(ArtTest, test_int_range_hundreds) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_int_negative_ints) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 9;
+    unsigned char chars[CHAR_LEN];
+
+    for(int32_t i = -100; i < 0; i++) {
+        encode_int32(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    encode_int32(-99, chars);
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_int32_search(&t, -99, 0, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, -90, 1, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(90, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, -99, -1, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(2, results.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_int_range_millions) {
     art_tree t;
     art_tree_init(&t);
