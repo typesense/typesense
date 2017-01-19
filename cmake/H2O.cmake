@@ -1,4 +1,4 @@
-# Download and build gtest
+# Download and build H2O
 
 set(H2O_VERSION 2.0.4)
 set(H2O_NAME h2o-${H2O_VERSION})
@@ -6,7 +6,7 @@ set(H2O_TAR_PATH ${CMAKE_SOURCE_DIR}/external/${H2O_NAME}.tar.gz)
 
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${H2O_NAME})
     message(STATUS "Downloading and extracting ${H2O_NAME}...")
-    file(DOWNLOAD https://github.com/h2o/h2o/archive/v2.0.4.tar.gz ${H2O_TAR_PATH})
+    file(DOWNLOAD https://github.com/h2o/h2o/archive/v${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${H2O_TAR_PATH} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/)
 endif()
 
