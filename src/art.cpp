@@ -34,7 +34,7 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
                               const int term_len, const int* irow, const int* jrow, const int min_cost,
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results);
 
-void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int int_str_len,
+void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                            int32_t compare, std::vector<const art_leaf *> &results);
 
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
@@ -1373,15 +1373,10 @@ void encode_int32(int32_t n, unsigned char *chars) {
         chars[2*i] = symbols[((bytes[i] >> 4) & 0x0F)];
         chars[2*i+1] = symbols[(bytes[i] & 0x0F)];
     }
-
-    // Terminate the string with a "character" that does not ever appear in regular text since an inserted string
-    // should not be a substring of another string in this ART implementation. We choose 46 (.) instead of '\0' which is
-    // actually ZERO and is a valid character that can appear in the encoded string.
-    chars[8] = 46;
 }
 
 // Implements ==, <= and >=
-recurse_progress matches(char a, char b, int compare) {
+recurse_progress matches(unsigned char a, unsigned char b, int compare) {
     switch(compare) {
         case -1:
             if (a == b) return RECURSE;
@@ -1445,7 +1440,7 @@ static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) 
     return ;
 }
 
-static inline void art_int_fuzzy_children(const art_node *n, int depth, unsigned char* int_str, int int_str_len,
+static inline void art_int_fuzzy_children(const art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                                           int32_t compare, std::vector<const art_leaf *> &results) {
     char child_char;
     art_node* child;
@@ -1515,7 +1510,7 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, unsigned
     }
 }
 
-void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int int_str_len,
+void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                            int32_t compare, std::vector<const art_leaf*> &results) {
     if (!n) return ;
 
@@ -1561,8 +1556,8 @@ void art_int_fuzzy_recurse(art_node *n, int depth, unsigned char* int_str, int i
 }
 
 int art_int32_search(art_tree *t, int32_t value, int compare, std::vector<const art_leaf *> &results) {
-    unsigned char chars[9];
+    unsigned char chars[8];
     encode_int32(value, chars);
-    art_int_fuzzy_recurse(t->root, 0, chars, 9, compare, results);
+    art_int_fuzzy_recurse(t->root, 0, chars, 8, compare, results);
     return 0;
 }

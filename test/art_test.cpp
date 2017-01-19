@@ -686,40 +686,40 @@ TEST(ArtTest, test_art_fuzzy_search) {
 }
 
 TEST(ArtTest, test_encode_int) {
-    unsigned char chars[9];
+    unsigned char chars[8];
 
     // 175 => 0000,0000,0000,0000,0000,0000,1010,1111,\0
-    unsigned char chars_175[9] = {0, 0, 0, 0, 0, 0, 10, 15, 46};
+    unsigned char chars_175[8] = {0, 0, 0, 0, 0, 0, 10, 15};
     encode_int32(175, chars);
-    for(uint32_t i = 0; i < 9; i++) {
+    for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_175[i], chars[i]);
     }
 
     // 0 => 0000,0000,0000,0000,0000,0000,0000,0000,\0
-    unsigned char chars_0[9] = {0, 0, 0, 0, 0, 0, 0, 0, 46};
+    unsigned char chars_0[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     encode_int32(0, chars);
-    for(uint32_t i = 0; i < 9; i++) {
+    for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_0[i], chars[i]);
     }
 
     // 255 => 0000,0000,0000,0000,0000,0000,1111,1111,\0
-    unsigned char chars_255[9] = {0, 0, 0, 0, 0, 0, 15, 15, 46};
+    unsigned char chars_255[8] = {0, 0, 0, 0, 0, 0, 15, 15};
     encode_int32(255, chars);
-    for(uint32_t i = 0; i < 9; i++) {
+    for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_255[i], chars[i]);
     }
 
     // 4531 => 0000,0000,0000,0000,0001,0001,1011,0011,\0
-    unsigned char chars_4531[9] = {0, 0, 0, 0, 1, 1, 11, 3, 46};
+    unsigned char chars_4531[8] = {0, 0, 0, 0, 1, 1, 11, 3};
     encode_int32(4531, chars);
-    for(uint32_t i = 0; i < 9; i++) {
+    for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_4531[i], chars[i]);
     }
 
     // 1200000 => 0000,0000,0001,0010,0100,1111,1000,0000,\0
-    unsigned char chars_1M[9] = {0, 0, 1, 2, 4, 15, 8, 0, 46};
+    unsigned char chars_1M[8] = {0, 0, 1, 2, 4, 15, 8, 0};
     encode_int32(1200000, chars);
-    for(uint32_t i = 0; i < 9; i++) {
+    for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_1M[i], chars[i]);
     }
 }
@@ -729,7 +729,7 @@ TEST(ArtTest, test_int_range_hundreds) {
     art_tree_init(&t);
 
     art_document doc = get_document(1);
-    const int CHAR_LEN = 9;
+    const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 100; i < 110; i++) {
@@ -764,7 +764,7 @@ TEST(ArtTest, test_int_negative_ints) {
     art_tree_init(&t);
 
     art_document doc = get_document(1);
-    const int CHAR_LEN = 9;
+    const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(int32_t i = -100; i < 0; i++) {
@@ -800,7 +800,7 @@ TEST(ArtTest, test_int_range_millions) {
 
     art_document doc = get_document(1);
     
-    const int CHAR_LEN = 9;
+    const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 0; i < 1000000; i++) {
@@ -873,7 +873,7 @@ TEST(ArtTest, test_int_range_byte_boundary) {
 
     art_document doc = get_document(1);
 
-    const int CHAR_LEN = 9;
+    const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(uint32_t i = 200; i < 300; i++) {
