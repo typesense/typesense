@@ -981,3 +981,89 @@ TEST(ArtTest, test_encode_int64) {
         ASSERT_EQ(chars_large_neg_num[i], chars[i]);
     }
 }
+
+TEST(ArtTest, test_search_int64) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    const uint64_t lmax = std::numeric_limits<std::int32_t>::max();
+
+    for(uint64_t i = lmax; i < lmax+100; i++) {
+        encode_int64(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_int64_search(&t, lmax, EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax, GREATER_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(100, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(99, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax+50, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(49, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax+50, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(50, results.size());
+    results.clear();
+}
+
+TEST(ArtTest, test_search_negative_int64) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    const int64_t lmax = -1 * std::numeric_limits<std::int32_t>::max();
+
+    for(int64_t i = lmax-100; i < lmax; i++) {
+        encode_int64(i, chars);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+    }
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_int64_search(&t, lmax-1, EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax-1, LESS_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(100, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax-50, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(50, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax-50, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(49, results.size());
+    results.clear();
+
+    res = art_int64_search(&t, lmax-50, GREATER_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(50, results.size());
+    results.clear();
+}
