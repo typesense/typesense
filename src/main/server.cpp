@@ -91,14 +91,9 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
 
     std::vector<std::string> search_fields = {"title"};
 
-    std::vector<nlohmann::json> results = collection->search(query_map["q"], search_fields,
+    nlohmann::json result = collection->search(query_map["q"], search_fields,
                                                              std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
-    nlohmann::json json_array = nlohmann::json::array();
-    for(nlohmann::json& result: results) {
-        json_array.push_back(result);
-    }
-
-    std::string json_str = json_array.dump();
+    std::string json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;
     getrusage(RUSAGE_SELF,&r_usage);
@@ -201,8 +196,8 @@ static int create_listener(void) {
 }
 
 void index_documents() {
-//    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+//    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
 

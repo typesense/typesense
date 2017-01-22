@@ -47,10 +47,11 @@ private:
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void search(std::string & query, const std::string & field, const int num_typos, const size_t num_results,
-                Topster<100> & topster, const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                Topster<100> & topster, size_t & num_found, const token_ordering token_order = FREQUENCY,
+                const bool prefix = false);
 
     void search_candidates(int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
-                           size_t & total_results, const size_t & max_results);
+                           size_t & total_results, size_t & num_found, const size_t & max_results);
 
     void index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
@@ -66,7 +67,7 @@ public:
 
     std::string add(std::string json_str);
 
-    std::vector<nlohmann::json> search(std::string query, const std::vector<std::string> fields, const int num_typos,
+    nlohmann::json search(std::string query, const std::vector<std::string> fields, const int num_typos,
                                        const size_t num_results, const token_ordering token_order = FREQUENCY,
                                        const bool prefix = false);
     void remove(std::string id);

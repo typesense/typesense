@@ -17,7 +17,7 @@
 - ~~Make the search score computation customizable~~
 - string_utils::tokenize should not have max length
 - only last token should be prefix searched
-- art int search should support signed ints
+- ~~art int search should support signed ints~~
 - art float search
 - storage key prefix should include collection name
 - Minimum results should be a variable instead of blindly going with max_results
@@ -39,7 +39,7 @@
 - clean special chars before indexing
 - d-ary heap?
 - range search for art_int
-- API should return count
+- ~~API should return count~~
 - test for same match score but different primary, secondary attr
 
 **API**
