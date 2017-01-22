@@ -195,9 +195,9 @@ static int create_listener(void) {
     return 0;
 }
 
-void index_documents() {
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
-//    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+void index_documents(std::string path_to_docs) {
+    std::ifstream infile(path_to_docs);
+//    std::ifstream infile(path_to_docs);
 
     std::string json_line;
 
@@ -222,7 +222,8 @@ int main(int argc, char **argv) {
         collection = collectionManager.create_collection("collection", search_fields, rank_fields);
     }
 
-    index_documents();
+    index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
+    //index_documents(argv[1]);
 
     h2o_config_init(&config);
     h2o_hostconf_t *hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);

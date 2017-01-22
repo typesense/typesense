@@ -13,7 +13,7 @@
 
 using namespace std;
 
-int main() {
+int main(int argc, char* argv[]) {
     system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
 
     std::vector<field> fields_to_index = {field("title", field_types::STRING)};
@@ -27,7 +27,7 @@ int main() {
         collection = collectionManager.create_collection("collection", fields_to_index, rank_fields);
     }
 
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    std::ifstream infile(argv[1]);
 
     std::string json_line;
 

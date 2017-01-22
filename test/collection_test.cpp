@@ -20,7 +20,7 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store);
 
-        std::ifstream infile("/Users/kishore/others/wreally/typesense/test/documents.jsonl");
+        std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         std::vector<field> fields = {field("title", field_types::STRING)};
         std::vector<std::string> rank_fields = {"points"};
         search_fields = {"title"};
@@ -69,10 +69,6 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
     nlohmann::json results = collection->search("rocket launch", search_fields, 0, 10);
-    for(auto res: results["hits"]) {
-        std::cout << res << std::endl;
-    }
-    std::cout << std::endl;
     ASSERT_EQ(5, results["hits"].size());
 
     /*
@@ -303,7 +299,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 TEST_F(CollectionTest, MultipleFields) {
     /*Collection *coll_mul_fields;
 
-    std::ifstream infile("/Users/kishore/others/wreally/typesense/test/multi_field_documents.jsonl");
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
     std::vector<std::string> rank_fields = {"points"};
     coll_mul_fields = new Collection("/tmp/typesense_test/coll_mul_fields", "coll_mul_fields", fields, rank_fields);
