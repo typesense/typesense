@@ -685,46 +685,52 @@ TEST(ArtTest, test_art_fuzzy_search) {
     ASSERT_TRUE(res == 0);
 }
 
-TEST(ArtTest, test_encode_int) {
+TEST(ArtTest, test_encode_int32) {
     unsigned char chars[8];
 
-    // 175 => 0000,0000,0000,0000,0000,0000,1010,1111,\0
+    // 175 => 0000,0000,0000,0000,0000,0000,1010,1111
     unsigned char chars_175[8] = {0, 0, 0, 0, 0, 0, 10, 15};
     encode_int32(175, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_175[i], chars[i]);
     }
 
-    // 0 => 0000,0000,0000,0000,0000,0000,0000,0000,\0
+    // 0 => 0000,0000,0000,0000,0000,0000,0000,0000
     unsigned char chars_0[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     encode_int32(0, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_0[i], chars[i]);
     }
 
-    // 255 => 0000,0000,0000,0000,0000,0000,1111,1111,\0
+    // 255 => 0000,0000,0000,0000,0000,0000,1111,1111
     unsigned char chars_255[8] = {0, 0, 0, 0, 0, 0, 15, 15};
     encode_int32(255, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_255[i], chars[i]);
     }
 
-    // 4531 => 0000,0000,0000,0000,0001,0001,1011,0011,\0
+    // 4531 => 0000,0000,0000,0000,0001,0001,1011,0011
     unsigned char chars_4531[8] = {0, 0, 0, 0, 1, 1, 11, 3};
     encode_int32(4531, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_4531[i], chars[i]);
     }
 
-    // 1200000 => 0000,0000,0001,0010,0100,1111,1000,0000,\0
+    // 1200000 => 0000,0000,0001,0010,0100,1111,1000,0000
     unsigned char chars_1M[8] = {0, 0, 1, 2, 4, 15, 8, 0};
     encode_int32(1200000, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_1M[i], chars[i]);
     }
+
+    unsigned char chars_neg_4531[8] = {15, 15, 15, 15, 14, 14, 4, 13};
+    encode_int32(-4531, chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_neg_4531[i], chars[i]);
+    }
 }
 
-TEST(ArtTest, test_int_range_hundreds) {
+TEST(ArtTest, test_int32_range_hundreds) {
     art_tree t;
     art_tree_init(&t);
 
@@ -741,25 +747,36 @@ TEST(ArtTest, test_int_range_hundreds) {
 
     std::vector<const art_leaf*> results;
 
-    int res = art_int32_search(&t, 106, 0, results);
+    int res = art_int32_search(&t, 106, EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(1, results.size());
     results.clear();
 
-    res = art_int32_search(&t, 106, 1, results);
+    res = art_int32_search(&t, 106, GREATER_THAN_EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(4, results.size());
     results.clear();
 
-    res = art_int32_search(&t, 106, -1, results);
+    res = art_int32_search(&t, 106, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(3, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, 106, LESS_THAN_EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(7, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, 106, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+
+    ASSERT_EQ(6, results.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
 }
 
-TEST(ArtTest, test_int_negative_ints) {
+TEST(ArtTest, test_int32_negative) {
     art_tree t;
     art_tree_init(&t);
 
@@ -776,25 +793,41 @@ TEST(ArtTest, test_int_negative_ints) {
 
     std::vector<const art_leaf*> results;
 
-    int res = art_int32_search(&t, -99, 0, results);
+    int res = art_int32_search(&t, -99, EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(1, results.size());
     results.clear();
 
-    res = art_int32_search(&t, -90, 1, results);
+    res = art_int32_search(&t, -90, GREATER_THAN_EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(90, results.size());
     results.clear();
 
-    res = art_int32_search(&t, -99, -1, results);
+    res = art_int32_search(&t, -90, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(89, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, -99, LESS_THAN_EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(2, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, -99, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_int32_search(&t, -100, LESS_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
 }
 
-TEST(ArtTest, test_int_range_millions) {
+TEST(ArtTest, test_int32_million) {
     art_tree t;
     art_tree_init(&t);
 
@@ -820,51 +853,63 @@ TEST(ArtTest, test_int_range_millions) {
     // ==
     for(uint32_t i = 0; i < 6; i++) {
         results.clear();
-        art_int32_search(&t, (uint32_t) pow(10, i), 0, results);
+        art_int32_search(&t, (uint32_t) pow(10, i), EQUALS, results);
         ASSERT_EQ(1, results.size());
 
         results.clear();
-        art_int32_search(&t, (uint32_t) (pow(10, i) + 7), 0, results);
+        art_int32_search(&t, (uint32_t) (pow(10, i) + 7), EQUALS, results);
         ASSERT_EQ(1, results.size());
     }
 
     results.clear();
-    art_int32_search(&t, 1000000 - 1, 0, results);
+    art_int32_search(&t, 1000000 - 1, EQUALS, results);
     ASSERT_EQ(1, results.size());
 
     // >=
     results.clear();
-    art_int32_search(&t, 1000000 - 5, 1, results);
+    art_int32_search(&t, 1000000 - 5, GREATER_THAN_EQUALS, results);
     ASSERT_EQ(5, results.size());
 
     results.clear();
-    art_int32_search(&t, 1000000 - 1, 1, results);
+    art_int32_search(&t, 1000000 - 5, GREATER_THAN, results);
+    ASSERT_EQ(4, results.size());
+
+    results.clear();
+    art_int32_search(&t, 1000000 - 1, GREATER_THAN_EQUALS, results);
     ASSERT_EQ(1, results.size());
 
     results.clear();
-    art_int32_search(&t, 1000000, 1, results);
+    art_int32_search(&t, 1000000, GREATER_THAN_EQUALS, results);
     ASSERT_EQ(0, results.size());
 
     results.clear();
-    art_int32_search(&t, 5, 1, results);
+    art_int32_search(&t, 5, GREATER_THAN_EQUALS, results);
     ASSERT_EQ(1000000-5, results.size());
 
     // <=
     results.clear();
-    art_int32_search(&t, 1000000 - 5, -1, results);
+    art_int32_search(&t, 1000000 - 5, LESS_THAN_EQUALS, results);
     ASSERT_EQ(1000000-5+1, results.size());
 
     results.clear();
-    art_int32_search(&t, 1000000 - 1, -1, results);
+    art_int32_search(&t, 1000000 - 1, LESS_THAN_EQUALS, results);
     ASSERT_EQ(1000000, results.size());
 
     results.clear();
-    art_int32_search(&t, 1000000, -1, results);
+    art_int32_search(&t, 1000000 - 1, LESS_THAN, results);
+    ASSERT_EQ(1000000-1, results.size());
+
+    results.clear();
+    art_int32_search(&t, 1000000, LESS_THAN_EQUALS, results);
     ASSERT_EQ(1000000, results.size());
 
     results.clear();
-    art_int32_search(&t, 5, -1, results);
+    art_int32_search(&t, 5, LESS_THAN_EQUALS, results);
     ASSERT_EQ(5+1, results.size());
+
+    results.clear();
+    art_int32_search(&t, 5, LESS_THAN, results);
+    ASSERT_EQ(5, results.size());
 }
 
 TEST(ArtTest, test_int_range_byte_boundary) {
@@ -885,8 +930,12 @@ TEST(ArtTest, test_int_range_byte_boundary) {
     std::vector<const art_leaf*> results;
 
     results.clear();
-    art_int32_search(&t, 255, 1, results);
+    art_int32_search(&t, 255, GREATER_THAN_EQUALS, results);
     ASSERT_EQ(45, results.size());
+
+    results.clear();
+    art_int32_search(&t, 255, GREATER_THAN, results);
+    ASSERT_EQ(44, results.size());
 
     /*std::cout << std::endl;
     for(auto i = 0; i < 1; i++) {
@@ -897,4 +946,38 @@ TEST(ArtTest, test_int_range_byte_boundary) {
 
         std::cout << std::endl;
     }*/
+}
+
+TEST(ArtTest, test_encode_int64) {
+    unsigned char chars[8];
+
+    unsigned char chars_175[8] = {0, 0, 0, 0, 0, 0, 0, 175};
+    encode_int64(175, chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_175[i], chars[i]);
+    }
+
+    unsigned char chars_neg_175[8] = {255, 255, 255, 255, 255, 255, 255, 81};
+    encode_int64(-175, chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_neg_175[i], chars[i]);
+    }
+
+    unsigned char chars_100K[8] = {0, 0, 0, 0, 0, 1, 134, 160};
+    encode_int64(100*1000, chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_100K[i], chars[i]);
+    }
+
+    unsigned char chars_large_num[8] = {255, 255, 255, 255, 128, 0, 0, 199};
+    encode_int64(std::numeric_limits<std::int32_t>::max()+200, chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_large_num[i], chars[i]);
+    }
+
+    unsigned char chars_large_neg_num[8] = {0, 0, 0, 0, 127, 255, 255, 57};
+    encode_int64(-1 * (std::numeric_limits<std::int32_t>::max()+200), chars);
+    for(uint32_t i = 0; i < 8; i++) {
+        ASSERT_EQ(chars_large_neg_num[i], chars[i]);
+    }
 }

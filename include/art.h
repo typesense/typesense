@@ -127,6 +127,14 @@ enum token_ordering {
     MAX_SCORE
 };
 
+enum NUM_COMPARATOR {
+    LESS_THAN,
+    LESS_THAN_EQUALS,
+    EQUALS,
+    GREATER_THAN,
+    GREATER_THAN_EQUALS
+};
+
 /**
  * Initializes an ART tree
  * @return 0 on success.
@@ -244,7 +252,11 @@ static int art_topk_iter(const art_node *root, token_ordering token_order, const
 
 void encode_int32(int32_t n, unsigned char *chars);
 
-int art_int32_search(art_tree *t, int32_t value, int compare, std::vector<const art_leaf *> &results);
+void encode_int64(int64_t n, unsigned char *chars);
+
+int art_int32_search(art_tree *t, int32_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
+
+int art_int64_search(art_tree *t, int64_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
 #ifdef __cplusplus
 }

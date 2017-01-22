@@ -35,7 +35,7 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results);
 
 void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
-                           int32_t compare, std::vector<const art_leaf *> &results);
+                           NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
     return a->values->ids.getLength() > b->values->ids.getLength();
@@ -205,6 +205,10 @@ int art_tree_destroy(art_tree *t) {
 
 #ifndef BROKEN_GCC_C99_INLINE
 extern inline uint64_t art_size(art_tree *t);
+
+void compare_and_match_leaf(const unsigned char *int_str, int int_str_len, const NUM_COMPARATOR &comparator,
+                            std::vector<const art_leaf *> &results, const art_leaf *l);
+
 #endif
 
 static art_node** find_child(art_node *n, unsigned char c) {
@@ -1375,17 +1379,32 @@ void encode_int32(int32_t n, unsigned char *chars) {
     }
 }
 
+void encode_int64(int64_t n, unsigned char *chars) {
+    union {
+        int64_t l;
+        unsigned char bytes[8];
+    } container;
+
+    container.l = n;
+
+    for(uint32_t i = 0; i < 8; i++) {
+        chars[7-i] = container.bytes[i];
+    }
+}
+
 // Implements ==, <= and >=
-recurse_progress matches(unsigned char a, unsigned char b, int compare) {
-    switch(compare) {
-        case -1:
+recurse_progress matches(unsigned char a, unsigned char b, NUM_COMPARATOR comparator) {
+    switch(comparator) {
+        case LESS_THAN:
+        case LESS_THAN_EQUALS:
             if (a == b) return RECURSE;
             else if(a < b) return ITERATE;
             return ABORT;
-        case 0:
+        case EQUALS:
             if(a == b) return RECURSE;
             return ABORT;
-        case 1:
+        case GREATER_THAN:
+        case GREATER_THAN_EQUALS:
             if (a == b) return RECURSE;
             else if(a > b) return ITERATE;
             return ABORT;
@@ -1395,12 +1414,13 @@ recurse_progress matches(unsigned char a, unsigned char b, int compare) {
 }
 
 
-static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) {
+static void art_iter(const art_node *n, const unsigned char* int_str, int int_str_len, NUM_COMPARATOR comparator,
+                     std::vector<const art_leaf *> &results) {
     // Handle base cases
     if (!n) return ;
     if (IS_LEAF(n)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
-        results.push_back(l);
+        compare_and_match_leaf(int_str, int_str_len, comparator, results, l);
         return ;
     }
 
@@ -1408,13 +1428,13 @@ static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) 
     switch (n->type) {
         case NODE4:
             for (int i=0; i < n->num_children; i++) {
-                art_iter(((art_node4 *) n)->children[i], results);
+                art_iter(((art_node4 *) n)->children[i], int_str, int_str_len, comparator, results);
             }
             break;
 
         case NODE16:
             for (int i=0; i < n->num_children; i++) {
-                art_iter(((art_node16 *) n)->children[i], results);
+                art_iter(((art_node16 *) n)->children[i], int_str, int_str_len, comparator, results);
             }
             break;
 
@@ -1422,14 +1442,14 @@ static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) 
             for (int i=0; i < 256; i++) {
                 idx = ((art_node48*)n)->keys[i];
                 if (!idx) continue;
-                art_iter(((art_node48 *) n)->children[idx - 1], results);
+                art_iter(((art_node48 *) n)->children[idx - 1], int_str, int_str_len, comparator, results);
             }
             break;
 
         case NODE256:
             for (int i=0; i < 256; i++) {
                 if (!((art_node256*)n)->children[i]) continue;
-                art_iter(((art_node256 *) n)->children[i], results);
+                art_iter(((art_node256 *) n)->children[i], int_str, int_str_len, comparator, results);
             }
             break;
 
@@ -1441,8 +1461,8 @@ static void art_iter(const art_node *n, std::vector<const art_leaf *> &results) 
 }
 
 static inline void art_int_fuzzy_children(const art_node *n, int depth, const unsigned char* int_str, int int_str_len,
-                                          int32_t compare, std::vector<const art_leaf *> &results) {
-    char child_char;
+                                          NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results) {
+    unsigned char child_char;
     art_node* child;
 
     switch (n->type) {
@@ -1452,11 +1472,11 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
                 child_char = ((art_node4*)n)->keys[i];
                 printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
                 child = ((art_node4*)n)->children[i];
-                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
-                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, comparator, results);
                 } else if(progress == ITERATE) {
-                    art_iter(child, results);
+                    art_iter(child, int_str, int_str_len, comparator, results);
                 }
             }
             break;
@@ -1466,11 +1486,11 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
                 child_char = ((art_node16*)n)->keys[i];
                 printf("\n16!child_char: %c, depth: %d", child_char, depth);
                 child = ((art_node16*)n)->children[i];
-                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
-                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, comparator, results);
                 } else if(progress == ITERATE) {
-                    art_iter(child, results);
+                    art_iter(child, int_str, int_str_len, comparator, results);
                 }
             }
             break;
@@ -1480,13 +1500,13 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
                 int ix = ((art_node48*)n)->keys[i];
                 if (!ix) continue;
                 child = ((art_node48*)n)->children[ix - 1];
-                child_char = (char)i;
+                child_char = (unsigned char)i;
                 printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
-                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
-                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, comparator, results);
                 } else if(progress == ITERATE) {
-                    art_iter(child, results);
+                    art_iter(child, int_str, int_str_len, comparator, results);
                 }
             }
             break;
@@ -1494,14 +1514,14 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
             printf("\nNODE256\n");
             for (int i=255; i >= 0; i--) {
                 if (!((art_node256*)n)->children[i]) continue;
-                child_char = (char) i;
+                child_char = (unsigned char) i;
                 printf("\n256!child_char: %c, depth: %d", child_char, depth);
                 child = ((art_node256*)n)->children[i];
-                recurse_progress progress = matches(child_char, int_str[depth], compare);
+                recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
-                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, compare, results);
+                    art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, comparator, results);
                 } else if(progress == ITERATE) {
-                    art_iter(child, results);
+                    art_iter(child, int_str, int_str_len, comparator, results);
                 }
             }
             break;
@@ -1511,14 +1531,14 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
 }
 
 void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
-                           int32_t compare, std::vector<const art_leaf*> &results) {
+                           NUM_COMPARATOR comparator, std::vector<const art_leaf*> &results) {
     if (!n) return ;
 
     if(IS_LEAF(n)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
         while(depth < int_str_len) {
-            char c = l->key[depth];
-            recurse_progress progress = matches(c, int_str[depth], compare);
+            unsigned char c = l->key[depth];
+            recurse_progress progress = matches(c, int_str[depth], comparator);
             if(progress == ABORT) {
                 return;
             }
@@ -1530,7 +1550,7 @@ void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str,
             depth++;
         }
 
-        results.push_back(l);
+        compare_and_match_leaf(int_str, int_str_len, comparator, results, l);
         return ;
     }
 
@@ -1540,24 +1560,45 @@ void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str,
     printf("\npartial_len: %d", partial_len);
 
     for(int idx=0; idx<end_index; idx++) {
-        char c = n->partial[idx];
-        recurse_progress progress = matches(c, int_str[depth+idx], compare);
+        unsigned char c = n->partial[idx];
+        recurse_progress progress = matches(c, int_str[depth+idx], comparator);
         if(progress == ABORT) {
             return;
         }
 
         if(progress == ITERATE) {
-            return art_iter(n, results);
+            return art_iter(n, int_str, int_str_len, comparator, results);
         }
     }
 
     depth += n->partial_len;
-    art_int_fuzzy_children(n, depth, int_str, int_str_len, compare, results);
+    art_int_fuzzy_children(n, depth, int_str, int_str_len, comparator, results);
 }
 
-int art_int32_search(art_tree *t, int32_t value, int compare, std::vector<const art_leaf *> &results) {
+void compare_and_match_leaf(const unsigned char *int_str, int int_str_len, const NUM_COMPARATOR &comparator,
+                            std::vector<const art_leaf *> &results, const art_leaf *l) {
+    if(comparator == LESS_THAN || comparator == GREATER_THAN) {
+        for(auto i = 0; i < l->key_len; i++) {
+            if(int_str[i] != l->key[i]) {
+                results.push_back(l);
+                return ;
+            }
+        }
+    } else {
+        results.push_back(l);
+    }
+}
+
+int art_int32_search(art_tree *t, int32_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results) {
     unsigned char chars[8];
     encode_int32(value, chars);
-    art_int_fuzzy_recurse(t->root, 0, chars, 8, compare, results);
+    art_int_fuzzy_recurse(t->root, 0, chars, 8, comparator, results);
+    return 0;
+}
+
+int art_int64_search(art_tree *t, int64_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results) {
+    unsigned char chars[8];
+    encode_int64(value, chars);
+    art_int_fuzzy_recurse(t->root, 0, chars, 8, comparator, results);
     return 0;
 }
