@@ -55,6 +55,7 @@ protected:
 TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     nlohmann::json results = collection->search("the", search_fields, 0, 10);
     ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
 
     // For two documents of the same score, the larger doc_id appears first
     std::vector<std::string> ids = {"1", "6", "foo", "13", "10", "8", "16"};
@@ -212,11 +213,13 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
     // Check pagination
     results = collection->search("loox", search_fields, 1, 1, FREQUENCY, false);
+    ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(1, results["hits"].size());
     std::string solo_id = results["hits"].at(0)["id"];
     ASSERT_STREQ("3", solo_id.c_str());
 
     results = collection->search("loox", search_fields, 1, 2, FREQUENCY, false);
+    ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(2, results["hits"].size());
 
     // Check total ordering
@@ -297,12 +300,16 @@ TEST_F(CollectionTest, PrefixSearching) {
 }
 
 TEST_F(CollectionTest, MultipleFields) {
-    /*Collection *coll_mul_fields;
+    Collection *coll_mul_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
     std::vector<std::string> rank_fields = {"points"};
-    coll_mul_fields = new Collection("/tmp/typesense_test/coll_mul_fields", "coll_mul_fields", fields, rank_fields);
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, rank_fields);
+    }
 
     std::string json_line;
 
@@ -313,6 +320,32 @@ TEST_F(CollectionTest, MultipleFields) {
     infile.close();
 
     search_fields = {"title", "starring"};
+    nlohmann::json results = coll_mul_fields->search("Will", search_fields, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
 
-    delete coll_mul_fields;*/
+    std::vector<std::string> ids = {"3", "2", "1", "0"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // when "starring" takes higher priority than "title"
+
+    search_fields = {"starring", "title"};
+    results = coll_mul_fields->search("thomas", search_fields, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"15", "14", "12", "13"};
+
+    for(size_t i = 0; i < results.size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    delete coll_mul_fields;
 }

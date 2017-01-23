@@ -180,7 +180,6 @@ void Collection::search_candidates(int & token_rank, std::vector<std::vector<art
 nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields,
                                                const int num_typos, const size_t num_results,
                                                const token_ordering token_order, const bool prefix) {
-    Topster<100> topster;
     size_t num_found = 0;
 
     // Order of `fields` are used to rank results
@@ -188,6 +187,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
     std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
 
     for(int i = 0; i < fields.size(); i++) {
+        Topster<100> topster;
         const std::string & field = fields[i];
 
         search(query, field, num_typos, num_results, topster, num_found, token_order, prefix);

@@ -17,6 +17,10 @@
 - ~~collection_id should be int, not string~~
 - ~~API should return count~~
 - ~~Fix documents.jsonl path in tests~~
+- ~~Multi field search tests~~
+- Index and search on multi-valued field
+- Restore records as well on restart (like for meta)
+- storage key prefix should include collection name
 - UTF-8 support for fuzzy search
 - Facets
 - Filters
@@ -25,18 +29,14 @@
 - string_utils::tokenize should not have max length
 - only last token should be prefix searched
 - art float search
-- storage key prefix should include collection name
 - Minimum results should be a variable instead of blindly going with max_results
 - Benchmark with -ffast-math
 - Space sensitivity
 - Use bitmap index instead of forarray for doc list
-- Multi field search tests
 - Throw errors when schema is broken
-- Index and search on multi-valued field
 - Assumption that all tokens match for scoring is no longer true
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined
 - Proper logging
-- Restore records as well on restart (like for meta)
 - clean special chars before indexing
 - d-ary heap?
 - range search for art_int
