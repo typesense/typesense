@@ -30,15 +30,6 @@ private:
 
     spp::sparse_hash_map<uint32_t, int64_t> secondary_rank_scores;
 
-    // Using a $ prefix so that these keys stay at the top of a lexicographically ordered KV store
-    const std::string SEQ_ID_PREFIX = "$SI";
-    const std::string DOC_ID_PREFIX = "$DI";
-
-    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
-
-    std::string get_seq_id_key(uint32_t seq_id);
-    std::string get_doc_id_key(std::string doc_id);
-
     std::string get_collection_next_seq_id_key(std::string collection_name);
     uint32_t get_next_seq_id();
 
@@ -55,15 +46,22 @@ private:
 
     void index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
-    void index_int32_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
+    void index_numeric_field(const std::string &field_name, const std::string & field_type,
+                             art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
 public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & search_fields, const std::vector<std::string> & rank_fields);
+               const std::vector<field> & search_fields, const std::vector<std::string> rank_fields);
 
     ~Collection();
+
+    uint32_t get_collection_id();
+
+    std::string get_seq_id_key(uint32_t seq_id);
+
+    std::string get_doc_id_key(std::string doc_id);
 
     std::string add(std::string json_str);
 
@@ -74,7 +72,15 @@ public:
     void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
+    // Using a $ prefix so that these keys stay at the top of a lexicographically ordered KV store
+    const std::string SEQ_ID_PREFIX = "$SI";
+    const std::string DOC_ID_PREFIX = "$DI";
+
+    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};
+
+    void index_in_memory(const nlohmann::json &document, uint32_t seq_id);
 };
 

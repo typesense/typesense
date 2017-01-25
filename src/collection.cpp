@@ -7,7 +7,7 @@
 #include <string_utils.h>
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-                       const std::vector<field> &search_fields, const std::vector<std::string> & rank_fields):
+                       const std::vector<field> &search_fields, const std::vector<std::string> rank_fields):
     name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store), rank_fields(rank_fields) {
 
     for(const field& field: search_fields) {
@@ -22,9 +22,8 @@ Collection::~Collection() {
     for(std::pair<std::string, field> name_field: schema) {
         art_tree *t = index_map.at(name_field.first);
         art_tree_destroy(t);
+        t = nullptr;
     }
-
-    schema.clear();
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -45,36 +44,44 @@ std::string Collection::add(std::string json_str) {
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_doc_id_key(document["id"]), seq_id_str);
 
+    index_in_memory(document, seq_id);
+    return document["id"];
+}
+
+void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
     for(const std::pair<std::string, field> & field_pair: schema) {
         const std::string & field_name = field_pair.first;
         art_tree *t = index_map.at(field_name);
 
         if(field_pair.second.type == field_types::STRING) {
             index_string_field(field_name, t, document, seq_id);
-        } else if(field_pair.second.type == field_types::INT32) {
-            index_int32_field(field_name, t, document, seq_id);
+        } else if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64) {
+            index_numeric_field(field_name, field_pair.second.type, t, document, seq_id);
         }
     }
-
     if(rank_fields.size() > 0 && document.count(rank_fields[0])) {
-        primary_rank_scores[seq_id] = document[rank_fields[0]];
+        primary_rank_scores[seq_id] = document[rank_fields[0]].get<int64_t>();
     }
 
     if(rank_fields.size() > 1 && document.count(rank_fields[1])) {
-        secondary_rank_scores[seq_id] = document[rank_fields[1]];
+        secondary_rank_scores[seq_id] = document[rank_fields[1]].get<int64_t>();
     }
-
-    return document["id"];
 }
 
-void Collection::index_int32_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
-                                   uint32_t seq_id) const {
+void Collection::index_numeric_field(const std::string &field_name, const std::string & field_type,
+                                     art_tree *t, const nlohmann::json &document, uint32_t seq_id) const {
     uint32_t value = document[field_name];
-    unsigned char key[9];
-    encode_int32(value, key);
+    const int KEY_LEN = 8;
+    unsigned char key[KEY_LEN];
+
+    if(field_type == field_types::INT32) {
+        encode_int32(value, key);
+    } else if(field_type == field_types::INT64) {
+        encode_int64(value, key);
+    }
 
     uint32_t num_hits = 0;
-    art_leaf* leaf = (art_leaf *) art_search(t, key, 9);
+    art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
     if(leaf != NULL) {
         num_hits = leaf->values->ids.getLength();
     }
@@ -87,7 +94,7 @@ void Collection::index_int32_field(const std::string &field_name, art_tree *t, c
     art_doc.offsets_len = 0;
     art_doc.offsets = nullptr;
 
-    art_insert(t, key, 9, &art_doc, num_hits);
+    art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
 void Collection::index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
@@ -212,7 +219,8 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     for(auto field_order_kv: field_order_kvs) {
         std::string value;
-        store->get(get_seq_id_key((uint32_t) field_order_kv.second.key), value);
+        const std::string &seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
+        store->get(seq_id_key, value);
         nlohmann::json document = nlohmann::json::parse(value);
         result["hits"].push_back(document);
     }
@@ -547,9 +555,20 @@ std::string Collection::get_collection_next_seq_id_key(std::string collection_na
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
-    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX + std::to_string(seq_id);
+    // We can't simply do std::to_string() because we want to preserve the byte order
+    union byteuint32_t {
+        char bytes[4];
+        uint32_t i;
+    };
+    byteuint32_t buint;
+    buint.i = seq_id;
+    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX + std::string(buint.bytes);
 }
 
 std::string Collection::get_doc_id_key(std::string doc_id) {
     return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + doc_id;
+}
+
+uint32_t Collection::get_collection_id() {
+    return collection_id;
 }

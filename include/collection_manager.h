@@ -49,4 +49,6 @@ public:
                            const std::vector<std::string> & rank_fields);
 
     Collection* get_collection(std::string collection_name);
+
+    bool drop_collection(std::string collection_name);
 };

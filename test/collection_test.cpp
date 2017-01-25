@@ -48,6 +48,7 @@ protected:
     }
 
     virtual void TearDown() {
+        collectionManager.drop_collection("collection");
         delete store;
     }
 };
@@ -346,6 +347,4 @@ TEST_F(CollectionTest, MultipleFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
-
-    delete coll_mul_fields;
 }

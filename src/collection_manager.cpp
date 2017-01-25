@@ -34,16 +34,40 @@ void CollectionManager::init(Store *store) {
             search_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
         }
         
-        std::string collection_next_seq_id;
-        store->get(get_collection_next_seq_id_key(this_collection_name), collection_next_seq_id);
+        std::string collection_next_seq_id_str;
+        store->get(get_collection_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
+
+        uint32_t collection_next_seq_id = (const uint32_t) std::stoi(collection_next_seq_id_str);
+        std::vector<std::string> collection_rank_fields =
+                collection_meta[COLLECTION_RANK_FIELDS_KEY].get<std::vector<std::string>>();
 
         Collection* collection = new Collection(this_collection_name,
                                                 collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
-                                                (const uint32_t) std::stoi(collection_next_seq_id),
+                                                collection_next_seq_id,
                                                 store,
                                                 search_fields,
-                                                collection_meta[COLLECTION_RANK_FIELDS_KEY].get<std::vector<std::string>>());
-        collections.emplace(get_collection_name_key(collection_meta[COLLECTION_NAME_KEY]), collection);
+                                                collection_rank_fields);
+
+        // Fetch records from the store and re-create memory index
+        std::vector<std::string> documents;
+        std::string seq_id_prefix = std::to_string(collection->get_collection_id()) + "_" + collection->SEQ_ID_PREFIX;
+        rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+
+        while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+            const std::string doc_json_str = iter->value().ToString();
+            nlohmann::json document = nlohmann::json::parse(doc_json_str);
+
+            std::string seq_id_str;
+            store->get(collection->get_doc_id_key(document["id"]), seq_id_str);
+            uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+
+            collection->index_in_memory(document, seq_id);
+            iter->Next();
+        }
+
+        delete iter;
+
+        collections.emplace(get_collection_name_key(this_collection_name), collection);
     }
 }
 
@@ -76,6 +100,8 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     next_collection_id++;
     store->insert(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
 
+    collections.emplace(get_collection_name_key(name), new_collection);
+
     return new_collection;
 }
 
@@ -97,6 +123,25 @@ Collection* CollectionManager::get_collection(std::string collection_name) {
 
 CollectionManager::~CollectionManager() {
     for(auto kv: collections) {
-        delete kv.second;
+        if(kv.second != nullptr) {
+            delete kv.second;
+            kv.second = nullptr;
+            collections.erase(get_collection_name_key(kv.first));
+        }
     }
+}
+
+bool CollectionManager::drop_collection(std::string collection_name) {
+    Collection* collection = get_collection(collection_name);
+    if(collection == nullptr) {
+        return false;
+    }
+
+    delete collection;
+    collection = nullptr;
+
+    collections.erase(get_collection_name_key(collection_name));
+
+    // TODO: remove all records from the store
+    return true;
 }

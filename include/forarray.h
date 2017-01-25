@@ -47,6 +47,7 @@ public:
 
     ~forarray() {
         delete[] in;
+        in = nullptr;
     }
 
     // FIXME: this should be a constructor instead of a setter

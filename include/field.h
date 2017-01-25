@@ -5,6 +5,7 @@
 namespace field_types {
     static const std::string STRING = "STRING";
     static const std::string INT32 = "INT32";
+    static const std::string INT64 = "INT64";
 }
 
 namespace fields {

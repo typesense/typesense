@@ -2,3 +2,4 @@
 *.iml
 external
 build
+cmake-build-debug
