@@ -11,6 +11,12 @@
 
 class Collection {
 private:
+    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
+    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
+    static constexpr const char* DOC_ID_PREFIX = "$DI";
+    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* SEQ_ID_PREFIX = "$SI";
+
     std::string name;
 
     uint32_t collection_id;
@@ -30,8 +36,9 @@ private:
 
     spp::sparse_hash_map<uint32_t, int64_t> secondary_rank_scores;
 
-    std::string get_collection_next_seq_id_key(std::string collection_name);
-    uint32_t get_next_seq_id();
+    std::string get_doc_id_key(std::string doc_id);
+
+    std::string get_seq_id_key(uint32_t seq_id);
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                                           long long int n);
@@ -57,11 +64,21 @@ public:
 
     ~Collection();
 
+    static std::string get_next_seq_id_key(std::string collection_name);
+
+    static std::string get_meta_key(std::string collection_name);
+
+    std::string get_seq_id_prefix();
+
     uint32_t get_collection_id();
 
-    std::string get_seq_id_key(uint32_t seq_id);
+    uint32_t get_next_seq_id();
 
-    std::string get_doc_id_key(std::string doc_id);
+    uint32_t doc_id_to_seq_id(std::string doc_id);
+
+    std::vector<std::string> get_rank_fields();
+
+    spp::sparse_hash_map<std::string, field> get_schema();
 
     std::string add(std::string json_str);
 
@@ -69,14 +86,9 @@ public:
                                        const size_t num_results, const token_ordering token_order = FREQUENCY,
                                        const bool prefix = false);
     void remove(std::string id);
+
     void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
-
-    // Using a $ prefix so that these keys stay at the top of a lexicographically ordered KV store
-    const std::string SEQ_ID_PREFIX = "$SI";
-    const std::string DOC_ID_PREFIX = "$DI";
-
-    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};

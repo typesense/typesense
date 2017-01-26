@@ -16,6 +16,10 @@ using namespace std;
 int main(int argc, char* argv[]) {
     const std::string state_dir_path = "/tmp/typesense-data";
 
+    std::vector<field> fields_to_index = {field("title", field_types::STRING)};
+    std::vector<std::string> rank_fields = {"points"};
+    Store *store = new Store("/tmp/typesense-data");
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store);
 

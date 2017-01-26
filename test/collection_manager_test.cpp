@@ -38,6 +38,8 @@ TEST(CollectionManagerTest, RestoreRecordsOnRestart) {
     nlohmann::json results = collection1->search("thomas", search_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
+    spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
+
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
     collectionManager2.init(store);
@@ -45,6 +47,15 @@ TEST(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
 
+    ASSERT_EQ(0, collection1->get_collection_id());
+    ASSERT_EQ(18, collection1->get_next_seq_id());
+    ASSERT_EQ(rank_fields, collection1->get_rank_fields());
+    ASSERT_EQ(schema.size(), collection1->get_schema().size());
+
     results = collection1->search("thomas", search_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
+}
+
+TEST(CollectionManagerTest, DropCollectionCleanly) {
+
 }

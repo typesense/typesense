@@ -18,19 +18,17 @@ private:
     // Using a ID instead of a collection's name makes renaming possible
     uint32_t next_collection_id;
 
-    const std::string NEXT_COLLECTION_ID_KEY = "$CI";
-    const std::string COLLECTION_NAME_PREFIX = "$CN";
-    const std::string COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
+    static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
 
-    const std::string COLLECTION_NAME_KEY = "name";
-    const std::string COLLECTION_ID_KEY = "id";
-    const std::string COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
-    const std::string COLLECTION_RANK_FIELDS_KEY = "rank_fields";
+    static constexpr const char* COLLECTION_NAME_KEY = "name";
+    static constexpr const char* COLLECTION_ID_KEY = "id";
+    static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
+    static constexpr const char* COLLECTION_RANK_FIELDS_KEY = "rank_fields";
 
     CollectionManager();
 
-    std::string get_collection_name_key(std::string collection_name);
-    std::string get_collection_next_seq_id_key(std::string collection_name);
+    static std::string get_collection_meta_key(std::string collection_name);
 
 public:
     static CollectionManager& get_instance() {

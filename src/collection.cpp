@@ -27,7 +27,7 @@ Collection::~Collection() {
 }
 
 uint32_t Collection::get_next_seq_id() {
-    store->increment(get_collection_next_seq_id_key(name), 1);
+    store->increment(get_next_seq_id_key(name), 1);
     return next_seq_id++;
 }
 
@@ -550,7 +550,7 @@ void Collection::remove(std::string id) {
     store->remove(get_seq_id_key(seq_id));
 }
 
-std::string Collection::get_collection_next_seq_id_key(std::string collection_name) {
+std::string Collection::get_next_seq_id_key(std::string collection_name) {
     return COLLECTION_NEXT_SEQ_PREFIX + collection_name + "_SEQ";
 }
 
@@ -571,4 +571,27 @@ std::string Collection::get_doc_id_key(std::string doc_id) {
 
 uint32_t Collection::get_collection_id() {
     return collection_id;
+}
+
+uint32_t Collection::doc_id_to_seq_id(std::string doc_id) {
+    std::string seq_id_str;
+    store->get(get_doc_id_key(doc_id), seq_id_str);
+    uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+    return seq_id;
+}
+
+std::vector<std::string> Collection::get_rank_fields() {
+    return rank_fields;
+}
+
+spp::sparse_hash_map<std::string, field> Collection::get_schema() {
+    return schema;
+};
+
+std::string Collection::get_meta_key(std::string collection_name) {
+    return COLLECTION_META_PREFIX + collection_name;
+}
+
+std::string Collection::get_seq_id_prefix() {
+    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX;
 }

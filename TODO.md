@@ -20,7 +20,7 @@
 - ~~Multi field search tests~~
 - ~~storage key prefix should include collection name~~
 - Index and search on multi-valued field
-- Restore records as well on restart (like for meta)
+- ~~Restore records as well on restart (like for meta)~~
 - drop collection should remove all records from the store
 - Pagination parameter
 - UTF-8 support for fuzzy search
