@@ -127,6 +127,7 @@ bool CollectionManager::drop_collection(std::string collection_name) {
 
     store->remove(Collection::get_meta_key(collection_name));
     store->remove(Collection::get_next_seq_id_key(collection_name));
+    store->remove(NEXT_COLLECTION_ID_KEY);
 
     const std::string &collection_id_str = std::to_string(collection->get_collection_id());
     rocksdb::Iterator* iter = store->scan(collection_id_str);
@@ -143,4 +144,8 @@ bool CollectionManager::drop_collection(std::string collection_name) {
     collection = nullptr;
 
     return true;
+}
+
+uint32_t CollectionManager::get_next_collection_id() {
+    return next_collection_id;
 }

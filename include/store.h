@@ -85,6 +85,11 @@ public:
         return iter;
     }
 
+    rocksdb::Iterator* get_iterator() {
+        rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
+        return it;
+    };
+
     void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
         rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
         for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {

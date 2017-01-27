@@ -49,4 +49,6 @@ public:
     Collection* get_collection(std::string collection_name);
 
     bool drop_collection(std::string collection_name);
+
+    uint32_t get_next_collection_id();
 };
