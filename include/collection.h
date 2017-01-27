@@ -51,7 +51,9 @@ private:
     void search_candidates(int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, size_t & num_found, const size_t & max_results);
 
-    void index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
+    void index_string_field(const std::string & text, uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_string_array_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
 
     void index_numeric_field(const std::string &field_name, const std::string & field_type,
                              art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;

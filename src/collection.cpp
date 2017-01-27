@@ -54,9 +54,13 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
         art_tree *t = index_map.at(field_name);
 
         if(field_pair.second.type == field_types::STRING) {
-            index_string_field(field_name, t, document, seq_id);
+            const std::string & text = document[field_name];
+            uint32_t points = document["points"];
+            index_string_field(text, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64) {
             index_numeric_field(field_name, field_pair.second.type, t, document, seq_id);
+        } else if(field_pair.second.type == field_types::STRING_ARR) {
+            index_string_array_field(field_name, t, document, seq_id);
         }
     }
     if(rank_fields.size() > 0 && document.count(rank_fields[0])) {
@@ -97,9 +101,7 @@ void Collection::index_numeric_field(const std::string &field_name, const std::s
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
-void Collection::index_string_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
-                                    uint32_t seq_id) const {
-    std::string text = document[field_name];
+void Collection::index_string_field(const std::string & text, uint32_t score, art_tree *t, uint32_t seq_id) const {
     std::vector<std::string> tokens;
     StringUtils::tokenize(text, tokens, " ", true);
 
@@ -113,7 +115,7 @@ void Collection::index_string_field(const std::string &field_name, art_tree *t, 
     for(auto & kv: token_to_offsets) {
         art_document art_doc;
         art_doc.id = seq_id;
-        art_doc.score = document["points"];
+        art_doc.score = score;
         art_doc.offsets_len = (uint32_t) kv.second.size();
         art_doc.offsets = new uint32_t[kv.second.size()];
 
@@ -135,6 +137,15 @@ void Collection::index_string_field(const std::string &field_name, art_tree *t, 
 
         art_insert(t, key, key_len, &art_doc, num_hits);
         delete art_doc.offsets;
+    }
+}
+
+void Collection::index_string_array_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
+                                    uint32_t seq_id) const {
+    uint32_t points = document["points"];
+    std::vector<std::string> strings = document[field_name];
+    for(const std::string & str: strings) {
+        index_string_field(str, points, t, seq_id);
     }
 }
 
