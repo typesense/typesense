@@ -51,12 +51,17 @@ private:
     void search_candidates(int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, size_t & num_found, const size_t & max_results);
 
-    void index_string_field(const std::string & text, uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_string_array_field(const std::string &field_name, art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
+    void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_numeric_field(const std::string &field_name, const std::string & field_type,
-                             art_tree *t, const nlohmann::json &document, uint32_t seq_id) const;
+    void index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_int64_field(const int64_t value, uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
 public:
     Collection() = delete;

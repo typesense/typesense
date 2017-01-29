@@ -52,15 +52,22 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
     for(const std::pair<std::string, field> & field_pair: schema) {
         const std::string & field_name = field_pair.first;
         art_tree *t = index_map.at(field_name);
+        uint32_t points = document["points"];
 
         if(field_pair.second.type == field_types::STRING) {
             const std::string & text = document[field_name];
-            uint32_t points = document["points"];
             index_string_field(text, points, t, seq_id);
-        } else if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64) {
-            index_numeric_field(field_name, field_pair.second.type, t, document, seq_id);
-        } else if(field_pair.second.type == field_types::STRING_ARR) {
-            index_string_array_field(field_name, t, document, seq_id);
+        } else if(field_pair.second.type == field_types::INT32) {
+            uint32_t value = document[field_name];
+            index_int32_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::INT64) {
+            uint64_t value = document[field_name];
+            index_int64_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            std::vector<std::string> strings = document[field_name];
+            index_string_array_field(strings, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::INT32_ARRAY) {
+            std::vector<std::string> strings = document[field_name];
         }
     }
     if(rank_fields.size() > 0 && document.count(rank_fields[0])) {
@@ -72,17 +79,11 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
     }
 }
 
-void Collection::index_numeric_field(const std::string &field_name, const std::string & field_type,
-                                     art_tree *t, const nlohmann::json &document, uint32_t seq_id) const {
-    uint32_t value = document[field_name];
+void Collection::index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 8;
     unsigned char key[KEY_LEN];
 
-    if(field_type == field_types::INT32) {
-        encode_int32(value, key);
-    } else if(field_type == field_types::INT64) {
-        encode_int64(value, key);
-    }
+    encode_int32(value, key);
 
     uint32_t num_hits = 0;
     art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
@@ -94,14 +95,37 @@ void Collection::index_numeric_field(const std::string &field_name, const std::s
 
     art_document art_doc;
     art_doc.id = seq_id;
-    art_doc.score = document["points"];
+    art_doc.score = score;
     art_doc.offsets_len = 0;
     art_doc.offsets = nullptr;
 
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
-void Collection::index_string_field(const std::string & text, uint32_t score, art_tree *t, uint32_t seq_id) const {
+void Collection::index_int64_field(const int64_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
+    const int KEY_LEN = 8;
+    unsigned char key[KEY_LEN];
+
+    encode_int64(value, key);
+
+    uint32_t num_hits = 0;
+    art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
+    if(leaf != NULL) {
+        num_hits = leaf->values->ids.getLength();
+    }
+
+    num_hits += 1;
+
+    art_document art_doc;
+    art_doc.id = seq_id;
+    art_doc.score = score;
+    art_doc.offsets_len = 0;
+    art_doc.offsets = nullptr;
+
+    art_insert(t, key, KEY_LEN, &art_doc, num_hits);
+}
+
+void Collection::index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id) const {
     std::vector<std::string> tokens;
     StringUtils::tokenize(text, tokens, " ", true);
 
@@ -140,12 +164,24 @@ void Collection::index_string_field(const std::string & text, uint32_t score, ar
     }
 }
 
-void Collection::index_string_array_field(const std::string &field_name, art_tree *t, const nlohmann::json &document,
-                                    uint32_t seq_id) const {
-    uint32_t points = document["points"];
-    std::vector<std::string> strings = document[field_name];
+void Collection::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
+                                          uint32_t seq_id) const {
     for(const std::string & str: strings) {
-        index_string_field(str, points, t, seq_id);
+        index_string_field(str, score, t, seq_id);
+    }
+}
+
+void Collection::index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t,
+                                         uint32_t seq_id) const {
+    for(const int32_t value: values) {
+        index_int32_field(value, score, t, seq_id);
+    }
+}
+
+void Collection::index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t,
+                                         uint32_t seq_id) const {
+    for(const int64_t value: values) {
+        index_int64_field(value, score, t, seq_id);
     }
 }
 

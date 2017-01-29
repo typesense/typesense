@@ -305,7 +305,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING),
-                                 field("cast", field_types::STRING_ARR)};
+                                 field("cast", field_types::STRING_ARRAY)};
     std::vector<std::string> rank_fields = {"points"};
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");

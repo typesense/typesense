@@ -20,7 +20,8 @@
 - ~~Multi field search tests~~
 - ~~storage key prefix should include collection name~~
 - Index and search on multi-valued field
-- Proper field for ranking tokens
+- range search for art_int
+- Proper score field for ranking tokens
 - Support nested fields via "."
 - ~~Restore records as well on restart (like for meta)~~
 - ~~drop collection should remove all records from the store~~
@@ -43,7 +44,6 @@
 - Proper logging
 - clean special chars before indexing
 - d-ary heap?
-- range search for art_int
 - test for same match score but different primary, secondary attr
 
 **API**
