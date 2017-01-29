@@ -5,27 +5,39 @@
 #include <collection_manager.h>
 #include "collection.h"
 
-TEST(CollectionManagerTest, RestoreRecordsOnRestart) {
-    const std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
-
-    std::cout << "Truncating and creating: " << state_dir_path << std::endl;
-    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-
+class CollectionManagerTest : public ::testing::Test {
+protected:
+    Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Store* store = new Store(state_dir_path);
-    collectionManager.init(store);
-
-    // Summary: create a collection, add documents, destroy it, try reopening the collection to query
     Collection *collection1;
-    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
-    std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
-    std::vector<std::string> rank_fields = {"points"};
+    std::vector<field> fields;
+    std::vector<std::string> rank_fields;
 
-    collection1 = collectionManager.get_collection("collection1");
-    if(collection1 == nullptr) {
+    void setupCollection() {
+        std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
+        std::cout << "Truncating and creating: " << state_dir_path << std::endl;
+        system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+
+        store = new Store(state_dir_path);
+        collectionManager.init(store);
+
+        fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
+        rank_fields = {"points"};
         collection1 = collectionManager.create_collection("collection1", fields, rank_fields);
     }
 
+    virtual void SetUp() {
+        setupCollection();
+    }
+
+    virtual void TearDown() {
+        collectionManager.drop_collection("collection1");
+        delete store;
+    }
+};
+
+TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
@@ -35,7 +47,7 @@ TEST(CollectionManagerTest, RestoreRecordsOnRestart) {
     infile.close();
 
     std::vector<std::string> search_fields = {"starring", "title"};
-    nlohmann::json results = collection1->search("thomas", search_fields, 0, 10, FREQUENCY, false);
+    nlohmann::json results = collection1->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
@@ -52,33 +64,12 @@ TEST(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(rank_fields, collection1->get_rank_fields());
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
 
-    results = collection1->search("thomas", search_fields, 0, 10, FREQUENCY, false);
+    results = collection1->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
-
-    delete store;
 }
 
-TEST(CollectionManagerTest, DropCollectionCleanly) {
-    const std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
-
-    std::cout << "Truncating and creating: " << state_dir_path << std::endl;
-    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Store* store = new Store(state_dir_path);
-    collectionManager.init(store);
-
-    // Summary: create a collection, add documents, destroy it, try reopening the collection to query
-    Collection *collection1;
+TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
-    std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
-    std::vector<std::string> rank_fields = {"points"};
-
-    collection1 = collectionManager.get_collection("collection1");
-    if(collection1 == nullptr) {
-        collection1 = collectionManager.create_collection("collection1", fields, rank_fields);
-    }
-
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
@@ -91,7 +82,7 @@ TEST(CollectionManagerTest, DropCollectionCleanly) {
 
     rocksdb::Iterator* it = store->get_iterator();
     for (it->SeekToFirst(); it->Valid(); it->Next()) {
-        ASSERT_TRUE(false);
+        ASSERT_EQ(it->key().ToString(), "$CI");
     }
 
     assert(it->status().ok());
@@ -100,5 +91,4 @@ TEST(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
-    delete store;
 }

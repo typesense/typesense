@@ -19,7 +19,6 @@ private:
     uint32_t next_collection_id;
 
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
-    static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
 
     static constexpr const char* COLLECTION_NAME_KEY = "name";
     static constexpr const char* COLLECTION_ID_KEY = "id";
@@ -51,4 +50,6 @@ public:
     bool drop_collection(std::string collection_name);
 
     uint32_t get_next_collection_id();
+
+    static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
 };
