@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
 
     auto begin = std::chrono::high_resolution_clock::now();
     std::vector<std::string> search_fields = {"title"};
-    collection->search("the", search_fields, 1, 100);
+    collection->search("the", search_fields, {}, 1, 100);
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
     return 0;

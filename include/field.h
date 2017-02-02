@@ -24,3 +24,9 @@ struct field {
 
     }
 };
+
+struct filter {
+    std::string field_name;
+    std::string value_json;
+    std::string compare_operator;
+};

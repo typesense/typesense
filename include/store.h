@@ -55,7 +55,7 @@ public:
     }
 
     ~Store() {
-        delete db;
+        close();
     }
 
     bool insert(const std::string& key, const std::string& value) {
@@ -101,6 +101,11 @@ public:
 
     void increment(const std::string & key, uint32_t value) {
         db->Merge(rocksdb::WriteOptions(), key, std::to_string(value));
+    }
+
+    void close() {
+        delete db;
+        db = nullptr;
     }
 
     void print_memory_usage() {

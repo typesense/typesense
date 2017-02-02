@@ -89,9 +89,10 @@ public:
 
     std::string add(std::string json_str);
 
-    nlohmann::json search(std::string query, const std::vector<std::string> fields, const int num_typos,
-                                       const size_t num_results, const token_ordering token_order = FREQUENCY,
-                                       const bool prefix = false);
+    nlohmann::json search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
+                          const int num_typos, const size_t num_results, const token_ordering token_order = FREQUENCY,
+                          const bool prefix = false);
+
     void remove(std::string id);
 
     void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,

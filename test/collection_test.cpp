@@ -54,7 +54,7 @@ protected:
 };
 
 TEST_F(CollectionTest, ExactSearchShouldBeStable) {
-    nlohmann::json results = collection->search("the", search_fields, 0, 10);
+    nlohmann::json results = collection->search("the", search_fields, {}, 0, 10);
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
 
@@ -70,7 +70,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 }
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
-    nlohmann::json results = collection->search("rocket launch", search_fields, 0, 10);
+    nlohmann::json results = collection->search("rocket launch", search_fields, {}, 0, 10);
     ASSERT_EQ(5, results["hits"].size());
 
     /*
@@ -92,7 +92,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     }
 
     // Check pagination
-    results = collection->search("rocket launch", search_fields, 0, 3);
+    results = collection->search("rocket launch", search_fields, {}, 0, 3);
     ASSERT_EQ(3, results["hits"].size());
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -104,7 +104,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
 
 TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     // Tokens that are not found in the index should be skipped
-    nlohmann::json results = collection->search("DoesNotExist from", search_fields, 0, 10);
+    nlohmann::json results = collection->search("DoesNotExist from", search_fields, {}, 0, 10);
     ASSERT_EQ(2, results["hits"].size());
 
     std::vector<std::string> ids = {"2", "17"};
@@ -117,7 +117,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with non-zero cost
-    results = collection->search("DoesNotExist from", search_fields, 1, 10);
+    results = collection->search("DoesNotExist from", search_fields, {}, 1, 10);
     ASSERT_EQ(2, results["hits"].size());
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
@@ -128,7 +128,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with 2 indexed words
-    results = collection->search("from DoesNotExist insTruments", search_fields, 1, 10);
+    results = collection->search("from DoesNotExist insTruments", search_fields, {}, 1, 10);
     ASSERT_EQ(2, results["hits"].size());
     ids = {"2", "17"};
 
@@ -140,16 +140,16 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     results.clear();
-    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, 0, 10);
+    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, {}, 0, 10);
     ASSERT_EQ(0, results["hits"].size());
 
     results.clear();
-    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, 2, 10);
+    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, {}, 2, 10);
     ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionTest, PartialPhraseSearch) {
-    nlohmann::json results = collection->search("rocket research", search_fields, 0, 10);
+    nlohmann::json results = collection->search("rocket research", search_fields, {}, 0, 10);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"1", "8", "16", "17"};
@@ -163,7 +163,7 @@ TEST_F(CollectionTest, PartialPhraseSearch) {
 }
 
 TEST_F(CollectionTest, QueryWithTypo) {
-    nlohmann::json results = collection->search("kind biologcal", search_fields, 2, 3);
+    nlohmann::json results = collection->search("kind biologcal", search_fields, {}, 2, 3);
     ASSERT_EQ(3, results["hits"].size());
 
     std::vector<std::string> ids = {"19", "20", "21"};
@@ -176,7 +176,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
     }
 
     results.clear();
-    results = collection->search("fer thx", search_fields, 1, 3);
+    results = collection->search("fer thx", search_fields, {}, 1, 3);
     ids = {"1", "10", "13"};
 
     ASSERT_EQ(3, results["hits"].size());
@@ -190,7 +190,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
 }
 
 TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
-    nlohmann::json results = collection->search("loox", search_fields, 1, 2, MAX_SCORE, false);
+    nlohmann::json results = collection->search("loox", search_fields, {}, 1, 2, MAX_SCORE, false);
     ASSERT_EQ(2, results["hits"].size());
     std::vector<std::string> ids = {"22", "23"};
 
@@ -201,7 +201,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("loox", search_fields, 1, 3, FREQUENCY, false);
+    results = collection->search("loox", search_fields, {}, 1, 3, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
     ids = {"3", "12", "24"};
 
@@ -213,19 +213,19 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
     }
 
     // Check pagination
-    results = collection->search("loox", search_fields, 1, 1, FREQUENCY, false);
+    results = collection->search("loox", search_fields, {}, 1, 1, FREQUENCY, false);
     ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(1, results["hits"].size());
     std::string solo_id = results["hits"].at(0)["id"];
     ASSERT_STREQ("3", solo_id.c_str());
 
-    results = collection->search("loox", search_fields, 1, 2, FREQUENCY, false);
+    results = collection->search("loox", search_fields, {}, 1, 2, FREQUENCY, false);
     ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(2, results["hits"].size());
 
     // Check total ordering
 
-    results = collection->search("loox", search_fields, 1, 10, FREQUENCY, false);
+    results = collection->search("loox", search_fields, {}, 1, 10, FREQUENCY, false);
     ASSERT_EQ(5, results["hits"].size());
     ids = {"3", "12", "24", "22", "23"};
 
@@ -236,7 +236,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("loox", search_fields, 1, 10, MAX_SCORE, false);
+    results = collection->search("loox", search_fields, {}, 1, 10, MAX_SCORE, false);
     ASSERT_EQ(5, results["hits"].size());
     ids = {"22", "23", "3", "12", "24"};
 
@@ -250,7 +250,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
 TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
-    nlohmann::json results = collection->search("ISX what", search_fields, 1, 4, FREQUENCY, false);
+    nlohmann::json results = collection->search("ISX what", search_fields, {}, 1, 4, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"19", "6", "21", "8"};
@@ -263,7 +263,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     }
 
     // Record containing exact token match should appear first
-    results = collection->search("ISX", search_fields, 1, 10, FREQUENCY, false);
+    results = collection->search("ISX", search_fields, {}, 1, 10, FREQUENCY, false);
     ASSERT_EQ(8, results["hits"].size());
 
     ids = {"20", "19", "6", "3", "21", "4", "10", "8"};
@@ -277,7 +277,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
-    nlohmann::json results = collection->search("ex", search_fields, 0, 10, FREQUENCY, true);
+    nlohmann::json results = collection->search("ex", search_fields, {}, 0, 10, FREQUENCY, true);
     ASSERT_EQ(2, results["hits"].size());
     std::vector<std::string> ids = {"12", "6"};
 
@@ -288,7 +288,7 @@ TEST_F(CollectionTest, PrefixSearching) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("ex", search_fields, 0, 10, MAX_SCORE, true);
+    results = collection->search("ex", search_fields, {}, 0, 10, MAX_SCORE, true);
     ASSERT_EQ(2, results["hits"].size());
     ids = {"6", "12"};
 
@@ -322,7 +322,7 @@ TEST_F(CollectionTest, MultipleFields) {
     infile.close();
 
     search_fields = {"title", "starring"};
-    nlohmann::json results = coll_mul_fields->search("Will", search_fields, 0, 10, FREQUENCY, false);
+    nlohmann::json results = coll_mul_fields->search("Will", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "2", "1", "0"};
@@ -337,7 +337,7 @@ TEST_F(CollectionTest, MultipleFields) {
     // when "starring" takes higher priority than "title"
 
     search_fields = {"starring", "title"};
-    results = coll_mul_fields->search("thomas", search_fields, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"15", "14", "12", "13"};
@@ -350,11 +350,11 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 
     search_fields = {"starring", "title", "cast"};
-    results = coll_mul_fields->search("ben affleck", search_fields, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("ben affleck", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     search_fields = {"cast"};
-    results = coll_mul_fields->search("chris", search_fields, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("chris", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"6", "1", "7"};
@@ -366,7 +366,7 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 
     search_fields = {"cast"};
-    results = coll_mul_fields->search("chris pine", search_fields, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("chris pine", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"7", "6", "1"};
@@ -377,3 +377,82 @@ TEST_F(CollectionTest, MultipleFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 }
+
+/*
+TEST_F(CollectionTest, SearchNumericFields) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING), field("years", field_types::INT32_ARRAY),
+                                 field("timestamps", field_types::INT64_ARRAY)};
+    std::vector<std::string> rank_fields = {"age"};
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, rank_fields);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_fields->add(json_line);
+    }
+
+    infile.close();
+
+    search_fields = {"years"};
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, {}, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    std::vector<std::string> ids = {"3", "2", "1", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+
+    search_fields = {"starring", "title"};
+    results = coll_array_fields->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"15", "14", "12", "13"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    search_fields = {"starring", "title", "cast"};
+    results = coll_array_fields->search("ben affleck", search_fields, {}, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
+
+    search_fields = {"cast"};
+    results = coll_array_fields->search("chris", search_fields, {}, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"6", "1", "7"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    search_fields = {"cast"};
+    results = coll_array_fields->search("chris pine", search_fields, {}, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"7", "6", "1"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}
+*/

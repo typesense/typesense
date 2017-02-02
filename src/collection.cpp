@@ -231,10 +231,25 @@ void Collection::search_candidates(int & token_rank, std::vector<std::vector<art
     }
 }
 
-nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields,
-                                               const int num_typos, const size_t num_results,
-                                               const token_ordering token_order, const bool prefix) {
+nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
+                                  const int num_typos, const size_t num_results,
+                                  const token_ordering token_order, const bool prefix) {
     size_t num_found = 0;
+
+    // process the filters first
+    /*for(const filter & a_filter: filters) {
+        if(index_map.count(a_filter.field_name) != 0) {
+            art_tree* t = index_map.at(a_filter.field_name);
+            nlohmann::json json_value = nlohmann::json::parse(a_filter.value_json);
+            if(json_value.is_number()) {
+                // do integer art search
+            } else if(json_value.is_string()) {
+
+            } else if(json_value.is_array()) {
+
+            }
+        }
+    }*/
 
     // Order of `fields` are used to rank results
     auto begin = std::chrono::high_resolution_clock::now();
