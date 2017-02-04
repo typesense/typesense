@@ -38,7 +38,7 @@ link_directories(${CMAKE_SOURCE_DIR}/external/${ROCKSDB_NAME})
 add_executable(typesense-server ${HEADER_FILES} ${SRC_FILES} src/main/server.cpp)
 add_executable(search ${HEADER_FILES} ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${HEADER_FILES} ${SRC_FILES} src/main/benchmark.cpp)
-add_executable(typesense_test test/forarray_test.cpp test/art_test.cpp
+add_executable(typesense_test test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
                test/collection_test.cpp test/collection_manager_test.cpp test/topster_test.cpp ${SRC_FILES})
 
 target_compile_definitions(typesense-server PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")

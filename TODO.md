@@ -37,7 +37,7 @@
 - Minimum results should be a variable instead of blindly going with max_results
 - Benchmark with -ffast-math
 - Space sensitivity
-- Use bitmap index instead of forarray for doc list
+- Use bitmap index instead of compressed array for doc list
 - Throw errors when schema is broken
 - Assumption that all tokens match for scoring is no longer true
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined

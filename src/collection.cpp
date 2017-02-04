@@ -520,7 +520,7 @@ inline std::vector<art_leaf *> Collection::next_suggestion(const std::vector<std
     return query_suggestion;
 }
 
-void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indices_sorted, const uint32_t indices_length) {
+void _remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t* indices_sorted, const uint32_t indices_length) {
     uint32_t *curr_array = offset_index.uncompress();
     uint32_t *new_array = new uint32_t[offset_index.getLength()];
 
@@ -546,7 +546,7 @@ void _remove_and_shift_offset_index(forarray &offset_index, const uint32_t* indi
         }
     }
 
-    offset_index.load_sorted(new_array, new_index);
+    offset_index.load(new_array, new_index);
 
     delete[] curr_array;
     delete[] new_array;
@@ -593,8 +593,8 @@ void Collection::remove(std::string id) {
             uint32_t doc_indices[1] = {doc_index};
             _remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
 
-            leaf->values->offsets.remove_index_unsorted(start_offset, end_offset);
-            leaf->values->ids.remove_values_sorted(seq_id_values, 1);
+            leaf->values->offsets.remove_index(start_offset, end_offset);
+            leaf->values->ids.remove_values(seq_id_values, 1);
 
             /*len = leaf->values->offset_index.getLength();
             for(auto i=0; i<len; i++) {

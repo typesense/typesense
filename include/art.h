@@ -4,7 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <vector>
-#include "forarray.h"
+#include "array.h"
+#include "sorted_array.h"
 
 #define IGNORE_PRINTF 1
 
@@ -87,9 +88,9 @@ typedef struct {
  * Container for holding the documents that belong to a leaf.
  */
 typedef struct {
-    forarray ids;
-    forarray offset_index;
-    forarray offsets;
+    sorted_array ids;
+    sorted_array offset_index;
+    array offsets;
 } art_values;
 
 /*
