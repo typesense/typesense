@@ -21,7 +21,7 @@ void CollectionManager::init(Store *store) {
     }
 
     std::vector<std::string> collection_meta_jsons;
-    store->scan_fill(COLLECTION_META_PREFIX, collection_meta_jsons);
+    store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
     for(auto collection_meta_json: collection_meta_jsons) {
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
@@ -50,8 +50,8 @@ void CollectionManager::init(Store *store) {
 
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
-        const std::string seq_id_prefix = collection->get_seq_id_prefix();
-        rocksdb::Iterator* iter = store->scan(collection->get_seq_id_prefix());
+        const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+        rocksdb::Iterator* iter = store->scan(seq_id_prefix);
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             const std::string doc_json_str = iter->value().ToString();
@@ -99,10 +99,6 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     collections.emplace(Collection::get_meta_key(name), new_collection);
 
     return new_collection;
-}
-
-std::string CollectionManager::get_collection_meta_key(std::string collection_name) {
-    return COLLECTION_META_PREFIX + collection_name;
 }
 
 Collection* CollectionManager::get_collection(std::string collection_name) {

@@ -18,16 +18,12 @@ private:
     // Using a ID instead of a collection's name makes renaming possible
     uint32_t next_collection_id;
 
-    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
-
     static constexpr const char* COLLECTION_NAME_KEY = "name";
     static constexpr const char* COLLECTION_ID_KEY = "id";
     static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
     static constexpr const char* COLLECTION_RANK_FIELDS_KEY = "rank_fields";
 
     CollectionManager();
-
-    static std::string get_collection_meta_key(std::string collection_name);
 
 public:
     static CollectionManager& get_instance() {

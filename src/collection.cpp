@@ -606,18 +606,18 @@ void Collection::remove(std::string id) {
 }
 
 std::string Collection::get_next_seq_id_key(std::string collection_name) {
-    return COLLECTION_NEXT_SEQ_PREFIX + collection_name + "_SEQ";
+    return std::string(COLLECTION_NEXT_SEQ_PREFIX) + "_" + collection_name;
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
     // We can't simply do std::to_string() because we want to preserve the byte order
-    union byteuint32_t {
-        char bytes[4];
-        uint32_t i;
-    };
-    byteuint32_t buint;
-    buint.i = seq_id;
-    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX + std::string(buint.bytes);
+    unsigned char bytes[4];
+    bytes[0] = (unsigned char) ((seq_id >> 24) & 0xFF);
+    bytes[1] = (unsigned char) ((seq_id >> 16) & 0xFF);
+    bytes[2] = (unsigned char) ((seq_id >> 8) & 0xFF);
+    bytes[3] = (unsigned char) ((seq_id & 0xFF));
+
+    return get_seq_id_collection_prefix() + "_" + std::string(bytes, bytes+4);
 }
 
 std::string Collection::get_doc_id_key(std::string doc_id) {
@@ -647,6 +647,6 @@ std::string Collection::get_meta_key(std::string collection_name) {
     return COLLECTION_META_PREFIX + collection_name;
 }
 
-std::string Collection::get_seq_id_prefix() {
-    return std::to_string(collection_id) + "_" + SEQ_ID_PREFIX;
+std::string Collection::get_seq_id_collection_prefix() {
+    return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }

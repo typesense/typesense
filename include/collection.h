@@ -11,12 +11,6 @@
 
 class Collection {
 private:
-    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
-    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
-    static constexpr const char* DOC_ID_PREFIX = "$DI";
-    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
-    static constexpr const char* SEQ_ID_PREFIX = "$SI";
-
     std::string name;
 
     uint32_t collection_id;
@@ -79,7 +73,7 @@ public:
 
     static std::string get_meta_key(std::string collection_name);
 
-    std::string get_seq_id_prefix();
+    std::string get_seq_id_collection_prefix();
 
     uint32_t get_collection_id();
 
@@ -102,9 +96,15 @@ public:
     void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
+    void index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};
 
-    void index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
+    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
+    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* SEQ_ID_PREFIX = "$SI";
+    static constexpr const char* DOC_ID_PREFIX = "$DI";
 };
 

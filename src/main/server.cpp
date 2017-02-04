@@ -220,10 +220,9 @@ int main(int argc, char **argv) {
     collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
         collection = collectionManager.create_collection("collection", search_fields, rank_fields);
+        //index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
+        index_documents(argv[1]);
     }
-
-    //index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
-    index_documents(argv[1]);
 
     h2o_config_init(&config);
     h2o_hostconf_t *hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
