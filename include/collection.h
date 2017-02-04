@@ -42,6 +42,7 @@ private:
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                                           long long int n);
+
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void search(std::string & query, const std::string & field, const int num_typos, const size_t num_results,
@@ -62,6 +63,9 @@ private:
     void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
+                                       const uint32_t indices_length);
 
 public:
     Collection() = delete;

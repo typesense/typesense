@@ -11,8 +11,8 @@
 #define FOR_ELE_SIZE sizeof(uint32_t)
 #define METADATA_OVERHEAD 5
 
-class forarray {
-private:
+class array_base {
+protected:
     uint8_t* in;
     uint32_t size_bytes = 0;    // allocated size
     uint32_t length_bytes = 0;  // actual size
@@ -39,37 +39,18 @@ private:
     }
 
 public:
-    forarray(const uint32_t n=2) {
+    array_base(const uint32_t n=2) {
         size_bytes = METADATA_OVERHEAD + (n * FOR_ELE_SIZE);
         in = new uint8_t[size_bytes];
         memset(in, 0, size_bytes);
     }
 
-    ~forarray() {
+    ~array_base() {
         delete[] in;
         in = nullptr;
     }
 
-    // FIXME: this should be a constructor instead of a setter
-    void load_sorted(const uint32_t *sorted_array, const uint32_t array_length);
-
-    // returns false if malloc fails
-    bool append_sorted(uint32_t value);
-
-    bool append_unsorted(uint32_t value);
-
-    uint32_t at(uint32_t index);
-
-    // FIXME: contains and indexOf are meant only for sorted arrays
-    bool contains(uint32_t value);
-
-    uint32_t indexOf(uint32_t value);
-
     uint32_t* uncompress();
-
-    void remove_index_unsorted(uint32_t start_index, uint32_t end_index);
-
-    void remove_values_sorted(uint32_t *sorted_values, uint32_t values_length);
 
     uint32_t getSizeInBytes();
 

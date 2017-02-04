@@ -416,12 +416,12 @@ art_leaf* art_maximum(art_tree *t) {
 
 static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
     leaf->max_score = MAX(leaf->max_score, document->score);
-    leaf->values->ids.append_sorted(document->id);
+    leaf->values->ids.append(document->id);
     uint32_t curr_index = leaf->values->offsets.getLength();
-    leaf->values->offset_index.append_sorted(curr_index);
+    leaf->values->offset_index.append(curr_index);
 
     for(uint32_t i=0; i<document->offsets_len; i++) {
-        leaf->values->offsets.append_unsorted(document->offsets[i]);
+        leaf->values->offsets.append(document->offsets[i]);
     }
 }
 
