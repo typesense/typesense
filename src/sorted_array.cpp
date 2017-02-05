@@ -86,9 +86,51 @@ void sorted_array::remove_values(uint32_t *sorted_values, uint32_t values_length
     delete[] new_array;
 }
 
-size_t sorted_array::intersect(uint32_t* arr, size_t arr_size, uint32_t* results) {
+size_t sorted_array::intersect(uint32_t* arr, const size_t arr_length, uint32_t* results) {
     uint32_t* curr = uncompress();
-    size_t results_size = Intersection::scalar(arr, arr_size, curr, length, results);
+    size_t results_length = Intersection::scalar(arr, arr_length, curr, length, results);
     delete[] curr;
-    return results_size;
+    return results_length;
+}
+
+size_t sorted_array::do_union(uint32_t *arr, const size_t arr_length, uint32_t *results) {
+    size_t curr_index = 0, arr_index = 0, res_index = 0;
+    uint32_t* curr = uncompress();
+
+    while (curr_index < length && arr_index < arr_length) {
+        if (curr[curr_index] < arr[arr_index]) {
+            if(res_index == 0 || results[res_index-1] != curr[curr_index]) {
+                results[res_index] = curr[curr_index];
+                res_index++;
+            }
+            curr_index++;
+        } else {
+            if(res_index == 0 || results[res_index-1] != arr[arr_index]) {
+                results[res_index] = arr[arr_index];
+                res_index++;
+            }
+            arr_index++;
+        }
+    }
+
+    while (arr_index < arr_length) {
+        if(results[res_index-1] != arr[arr_index]) {
+            results[res_index] = arr[arr_index];
+            res_index++;
+        }
+
+        arr_index++;
+    }
+
+    while (curr_index < length) {
+        if(results[res_index-1] != curr[curr_index]) {
+            results[res_index] = curr[curr_index];
+            res_index++;
+        }
+
+        curr_index++;
+    }
+
+    delete[] curr;
+    return res_index;
 }
