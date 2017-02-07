@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <for.h>
 #include <cstring>
+#include <vector>
 #include <limits>
 #include <iostream>
 #include "array_base.h"
@@ -18,6 +19,13 @@ private:
         return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
     }
 
+    uint32_t lower_bound_search_bits(const uint8_t *in, uint32_t imin, uint32_t imax, uint32_t base,
+                                     uint32_t bits, uint32_t value, uint32_t *actual);
+
+    void binary_search_indices(const uint32_t *values, int low_vindex, int high_vindex,
+                               int low_index, int high_index, uint32_t base, uint32_t bits,
+                               uint32_t *indices);
+
 public:
 
     // FIXME: this should be a constructor instead of a setter
@@ -28,6 +36,8 @@ public:
     bool contains(uint32_t value);
 
     uint32_t indexOf(uint32_t value);
+
+    void indexOf(const uint32_t *values, const size_t values_len, uint32_t* indices);
 
     // returns false if malloc fails
     bool append(uint32_t value);

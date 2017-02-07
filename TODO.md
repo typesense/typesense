@@ -27,6 +27,9 @@
 - ~~drop collection should remove all records from the store~~
 - Pagination parameter
 - UTF-8 support for fuzzy search
+- ~~Multi-key binary search during scoring~~
+- Assumption that all tokens match for scoring is no longer true
+- Intersection without unpacking
 - Facets
 - Filters
 - Support search operators like +, - etc.
@@ -39,7 +42,6 @@
 - Space sensitivity
 - Use bitmap index instead of compressed array for doc list
 - Throw errors when schema is broken
-- Assumption that all tokens match for scoring is no longer true
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined
 - Proper logging
 - clean special chars before indexing

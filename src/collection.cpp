@@ -5,6 +5,7 @@
 #include <intersection.h>
 #include <match_score.h>
 #include <string_utils.h>
+#include <art.h>
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &search_fields, const std::vector<std::string> rank_fields):
@@ -448,6 +449,13 @@ void Collection::score_results(Topster<100> &topster, const int & token_rank,
                                const size_t result_size) const {
 
     const int max_token_rank = 250;
+    spp::sparse_hash_map<art_leaf*, uint32_t*> leaf_to_indices;
+
+    for (art_leaf *token_leaf : query_suggestion) {
+        uint32_t *indices = new uint32_t[result_size];
+        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
+        leaf_to_indices.emplace(token_leaf, indices);
+    }
 
     for(auto i=0; i<result_size; i++) {
         uint32_t seq_id = result_ids[i];
@@ -461,7 +469,7 @@ void Collection::score_results(Topster<100> &topster, const int & token_rank,
             // for each token in the query, find the positions that it appears in this document
             for (art_leaf *token_leaf : query_suggestion) {
                 std::vector<uint16_t> positions;
-                uint32_t doc_index = token_leaf->values->ids.indexOf(seq_id);
+                uint32_t doc_index = leaf_to_indices.at(token_leaf)[i];
                 uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
                 uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
                                       token_leaf->values->offsets.getLength() :
@@ -570,14 +578,6 @@ void Collection::remove(std::string id) {
             uint32_t seq_id_values[1] = {seq_id};
 
             uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
-
-            /*
-            auto len = leaf->values->offset_index.getLength();
-            for(auto i=0; i<len; i++) {
-                std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
-            }
-            std::cout << "----" << std::endl;
-            */
             uint32_t start_offset = leaf->values->offset_index.at(doc_index);
             uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
                                   leaf->values->offsets.getLength() :
