@@ -451,10 +451,13 @@ void Collection::score_results(Topster<100> &topster, const int & token_rank,
     const int max_token_rank = 250;
     spp::sparse_hash_map<art_leaf*, uint32_t*> leaf_to_indices;
 
-    for (art_leaf *token_leaf : query_suggestion) {
-        uint32_t *indices = new uint32_t[result_size];
-        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
-        leaf_to_indices.emplace(token_leaf, indices);
+    if(query_suggestion.size() != 1) {
+        // won't be needing positional ranking when there is only 1 token in the query
+        for (art_leaf *token_leaf : query_suggestion) {
+            uint32_t *indices = new uint32_t[result_size];
+            token_leaf->values->ids.indexOf(result_ids, result_size, indices);
+            leaf_to_indices.emplace(token_leaf, indices);
+        }
     }
 
     for(auto i=0; i<result_size; i++) {
