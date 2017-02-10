@@ -65,6 +65,8 @@ void CollectionManager::init(Store *store) {
 
         collections.emplace(Collection::get_meta_key(this_collection_name), collection);
     }
+
+    std::cout << "Finished restoring all collections from disk." << std::endl;
 }
 
 Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,

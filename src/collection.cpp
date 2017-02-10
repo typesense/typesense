@@ -472,7 +472,11 @@ void Collection::score_results(Topster<100> &topster, const int & token_rank,
             // for each token in the query, find the positions that it appears in this document
             for (art_leaf *token_leaf : query_suggestion) {
                 std::vector<uint16_t> positions;
-                uint32_t doc_index = leaf_to_indices.at(token_leaf)[i];
+                int doc_index = leaf_to_indices.at(token_leaf)[i];
+                if(doc_index == token_leaf->values->ids.getLength()) {
+                    continue;
+                }
+
                 uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
                 uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
                                       token_leaf->values->offsets.getLength() :

@@ -99,16 +99,14 @@ void sorted_array::binary_search_indices(const uint32_t *values, int low_vindex,
 
         uint32_t in_index = lower_bound_search_bits(in+METADATA_OVERHEAD, low_index, high_index, base, bits,
                                                     values[pivot_vindex], &actual_value);
-        //if(actual_value == values[pivot_vindex]) {
+        if(actual_value == values[pivot_vindex]) {
             indices[pivot_vindex] = in_index;
-        //}
+        } else {
+            indices[pivot_vindex] = length;
+        }
 
-        size_t pivot_index = (low_index + high_index) / 2;
-
-        binary_search_indices(values, low_vindex, pivot_vindex-1, low_index, pivot_index-1,
-                              base, bits, indices);
-        binary_search_indices(values, pivot_vindex+1, high_vindex, pivot_index+1, high_index,
-                              base, bits, indices);
+        binary_search_indices(values, low_vindex, pivot_vindex-1, low_index, in_index-1, base, bits, indices);
+        binary_search_indices(values, pivot_vindex+1, high_vindex, in_index+1, high_index, base, bits, indices);
     }
 }
 
@@ -123,15 +121,27 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
     uint32_t low_index, high_index;
     uint32_t actual_value = 0;
 
+    int head = -1;
     do {
-        low_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[0], &actual_value);
-    } while(actual_value != values[0]);
+        head++;
+        low_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[head], &actual_value);
+    } while(actual_value != values[head]);
 
+    int tail = values_len;
     do {
-        high_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[values_len-1], &actual_value);
-    } while(actual_value != values[values_len-1]);
+        tail--;
+        high_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[tail], &actual_value);
+    } while(actual_value != values[tail]);
 
-    binary_search_indices(values, 0, values_len-1, low_index, high_index, base, bits, indices);
+    for(int i = 0; i < head; i++) {
+        indices[i] = length;
+    }
+
+    for(int j = values_len-1; j > tail; j--) {
+        indices[j] = length;
+    }
+
+    binary_search_indices(values, head, tail, low_index, high_index, base, bits, indices);
 }
 
 void sorted_array::remove_values(uint32_t *sorted_values, uint32_t values_length) {
