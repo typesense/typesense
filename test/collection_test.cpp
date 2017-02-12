@@ -405,7 +405,7 @@ TEST_F(CollectionTest, SearchNumericFields) {
     nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(5, results["hits"].size());
 
-    std::vector<std::string> ids = {"3", "0", "4", "1", "2"};
+    std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -414,16 +414,49 @@ TEST_F(CollectionTest, SearchNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    search_fields = {"name"};
-    std::vector<filter> filters;
-    filter f1 = {"age", "24", "GREATER_THAN"};
-    filters.push_back(f1);
+    // Searching on an int32 field
+    std::vector<filter> filters = {(filter) {"age", "24", "GREATER_THAN"}};
 
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
-    ids = {"3", "0", "4"};
+    ids = {"3", "1", "4"};
 
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    filters = {(filter) {"age", "24", "GREATER_THAN_EQUALS"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    filters = {(filter) {"age", "24", "EQUALS"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
+
+    // Searching a number against an int32 array field
+    //std::cout << "int32 array field:" << std::endl;
+
+    filters = {(filter) {"years", "2002", "GREATER_THAN"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "0", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    filters = {(filter) {"years", "1989", "LESS_THAN"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"3"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["id"];
@@ -432,23 +465,7 @@ TEST_F(CollectionTest, SearchNumericFields) {
         //std::cout << result_id << std::endl;
     }
 
-    /*search_fields = {"starring", "title", "cast"};
-    results = coll_array_fields->search("ben affleck", search_fields, {}, 0, 10, FREQUENCY, false);
-    ASSERT_EQ(1, results["hits"].size());
-
-    search_fields = {"cast"};
-    results = coll_array_fields->search("chris", search_fields, {}, 0, 10, FREQUENCY, false);
-    ASSERT_EQ(3, results["hits"].size());
-
-    ids = {"6", "1", "7"};
-    for(size_t i = 0; i < results["hits"].size(); i++) {
-        nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
-        std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
-
-    search_fields = {"cast"};
+    /*search_fields = {"cast"};
     results = coll_array_fields->search("chris pine", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 

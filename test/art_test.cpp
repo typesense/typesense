@@ -738,14 +738,35 @@ TEST(ArtTest, test_int32_range_hundreds) {
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
-    for(uint32_t i = 100; i < 110; i++) {
+    std::vector<const art_leaf*> results;
+
+    std::vector<std::vector<uint32_t>> values = {{2014, 2015, 2016}, {2015, 2016}, {2016},
+                                                 {1981, 1985}, {1999, 2000, 2001, 2002}};
+
+    //std::cout << "v: " << values[0][0] << std::endl;
+
+    for(uint32_t i = 0; i < values.size(); i++) {
+        for(auto j = 0; j < values[i].size(); j++) {
+            std::cout << "v: " << values[i][j] << std::endl;
+            encode_int32(values[i][j], chars);
+            doc.id = i;
+            art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1);
+        }
+    }
+
+    int res = art_int32_search(&t, 2002, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(3, results.size());
+
+    return ;
+
+    /*for(uint32_t i = 100; i < 110; i++) {
         encode_int32(i, chars);
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
     }
 
     encode_int32(106, chars);
 
-    std::vector<const art_leaf*> results;
 
     int res = art_int32_search(&t, 106, EQUALS, results);
     ASSERT_TRUE(res == 0);
@@ -773,7 +794,7 @@ TEST(ArtTest, test_int32_range_hundreds) {
     ASSERT_EQ(6, results.size());
 
     res = art_tree_destroy(&t);
-    ASSERT_TRUE(res == 0);
+    ASSERT_TRUE(res == 0);*/
 }
 
 TEST(ArtTest, test_int32_negative) {
@@ -1066,4 +1087,33 @@ TEST(ArtTest, test_search_negative_int64) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(50, results.size());
     results.clear();
+}
+
+TEST(ArtTest, test_int32_array) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    std::vector<const art_leaf *> results;
+
+    std::vector<std::vector<uint32_t>> values = {{2014, 2015, 2016},
+                                                 {2015, 2016},
+                                                 {2016},
+                                                 {1981, 1985},
+                                                 {1999, 2000, 2001, 2002}};
+
+    for (uint32_t i = 0; i < values.size(); i++) {
+        for (auto j = 0; j < values[i].size(); j++) {
+            encode_int32(values[i][j], chars);
+            doc.id = i;
+            art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc, 1);
+        }
+    }
+
+    int res = art_int32_search(&t, 2002, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(3, results.size());
 }

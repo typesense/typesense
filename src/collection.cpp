@@ -288,7 +288,12 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
                 union_with_filter_ids(leaves, &filter_ids, filter_ids_length);
             } else if(f.type == field_types::INT32_ARRAY) {
+                int32_t value = json_value.get<int32_t>();
+                NUM_COMPARATOR comparator = a_filter.get_comparator();
 
+                std::vector<const art_leaf*> leaves;
+                art_int32_search(t, value, comparator, leaves);
+                union_with_filter_ids(leaves, &filter_ids, filter_ids_length);
             }
         }
     }
