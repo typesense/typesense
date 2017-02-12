@@ -28,7 +28,8 @@
 - Pagination parameter
 - UTF-8 support for fuzzy search
 - ~~Multi-key binary search during scoring~~
-- Assumption that all tokens match for scoring is no longer true
+- ~~Assumption that all tokens match for scoring is no longer true~~
+- Handle searching for non-existing fields gracefully
 - Intersection without unpacking
 - Facets
 - Filters

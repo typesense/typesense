@@ -378,12 +378,12 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 }
 
-/*
 TEST_F(CollectionTest, SearchNumericFields) {
     Collection *coll_array_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
-    std::vector<field> fields = {field("name", field_types::STRING), field("years", field_types::INT32_ARRAY),
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
+                                 field("years", field_types::INT32_ARRAY),
                                  field("timestamps", field_types::INT64_ARRAY)};
     std::vector<std::string> rank_fields = {"age"};
 
@@ -400,25 +400,12 @@ TEST_F(CollectionTest, SearchNumericFields) {
 
     infile.close();
 
-    search_fields = {"years"};
+    // Plain search with no filters - results should be sorted by rank fields
+    search_fields = {"name"};
     nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, {}, 0, 10, FREQUENCY, false);
-    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(5, results["hits"].size());
 
-    std::vector<std::string> ids = {"3", "2", "1", "0"};
-
-    for(size_t i = 0; i < results["hits"].size(); i++) {
-        nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
-        std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
-
-
-    search_fields = {"starring", "title"};
-    results = coll_array_fields->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
-    ASSERT_EQ(4, results["hits"].size());
-
-    ids = {"15", "14", "12", "13"};
+    std::vector<std::string> ids = {"3", "0", "4", "1", "2"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -427,7 +414,25 @@ TEST_F(CollectionTest, SearchNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    search_fields = {"starring", "title", "cast"};
+    search_fields = {"name"};
+    std::vector<filter> filters;
+    filter f1 = {"age", "24", "GREATER_THAN"};
+    filters.push_back(f1);
+
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"3", "0", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+        //std::cout << result_id << std::endl;
+    }
+
+    /*search_fields = {"starring", "title", "cast"};
     results = coll_array_fields->search("ben affleck", search_fields, {}, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
@@ -453,6 +458,5 @@ TEST_F(CollectionTest, SearchNumericFields) {
         std::string result_id = result["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }
+    }*/
 }
-*/

@@ -180,6 +180,12 @@ size_t sorted_array::do_union(uint32_t *arr, const size_t arr_length, uint32_t *
     size_t curr_index = 0, arr_index = 0, res_index = 0;
     uint32_t* curr = uncompress();
 
+    if(arr == nullptr) {
+        memcpy(results, curr, length * sizeof(uint32_t));
+        delete[] curr;
+        return length;
+    }
+
     while (curr_index < length && arr_index < arr_length) {
         if (curr[curr_index] < arr[arr_index]) {
             if(res_index == 0 || results[res_index-1] != curr[curr_index]) {
