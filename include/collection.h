@@ -39,7 +39,7 @@ private:
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    void union_with_filter_ids(std::vector<const art_leaf*> & leaves, uint32_t** filter_ids, uint32_t & filter_ids_length);
+    size_t union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint32_t **results_out);
 
     void search(uint32_t* filter_ids, size_t filter_ids_length, std::string & query, const std::string & field,
                 const int num_typos, const size_t num_results, Topster<100> & topster, size_t & num_found,

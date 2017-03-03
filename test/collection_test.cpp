@@ -378,7 +378,7 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 }
 
-TEST_F(CollectionTest, SearchNumericFields) {
+TEST_F(CollectionTest, SearchInt32Fields) {
     Collection *coll_array_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
@@ -415,7 +415,7 @@ TEST_F(CollectionTest, SearchNumericFields) {
     }
 
     // Searching on an int32 field
-    std::vector<filter> filters = {(filter) {"age", "24", "GREATER_THAN"}};
+    std::vector<filter> filters = {(filter) {"age", {"24"}, "GREATER_THAN"}};
 
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
@@ -429,18 +429,16 @@ TEST_F(CollectionTest, SearchNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    filters = {(filter) {"age", "24", "GREATER_THAN_EQUALS"}};
+    filters = {(filter) {"age", {"24"}, "GREATER_THAN_EQUALS"}};
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
-    filters = {(filter) {"age", "24", "EQUALS"}};
+    filters = {(filter) {"age", {"24"}, "EQUALS"}};
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     // Searching a number against an int32 array field
-    //std::cout << "int32 array field:" << std::endl;
-
-    filters = {(filter) {"years", "2002", "GREATER_THAN"}};
+    filters = {(filter) {"years", {"2002"}, "GREATER_THAN"}};
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
@@ -452,7 +450,7 @@ TEST_F(CollectionTest, SearchNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    filters = {(filter) {"years", "1989", "LESS_THAN"}};
+    filters = {(filter) {"years", {"1989"}, "LESS_THAN"}};
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
@@ -462,18 +460,44 @@ TEST_F(CollectionTest, SearchNumericFields) {
         std::string result_id = result["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
-        //std::cout << result_id << std::endl;
     }
 
-    /*search_fields = {"cast"};
-    results = coll_array_fields->search("chris pine", search_fields, {}, 0, 10, FREQUENCY, false);
-    ASSERT_EQ(3, results["hits"].size());
+    // multiple filters
+    filters = {(filter) {"years", {"2005"}, "LESS_THAN"}, (filter) {"years", {"1987"}, "GREATER_THAN"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
 
-    ids = {"7", "6", "1"};
+    ids = {"4"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
-    }*/
+    }
+
+    // multiple search values (works like SQL's IN operator) against a single int field
+    filters = {(filter) {"age", {"21", "24", "63"}, "EQUALS"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"3", "0", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // multiple search values against an int array field
+    filters = {(filter) {"years", {"2015", "1985", "1999"}, "EQUALS"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "1", "4", "0"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }

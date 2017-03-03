@@ -215,8 +215,8 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
 
         // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
         for(auto i=1; i < query_suggestion.size(); i++) {
-            uint32_t* out = new uint32_t[std::min(result_size, (size_t) query_suggestion[i]->values->ids.getLength())];
-            result_size = query_suggestion[i]->values->ids.intersect(result_ids, result_size, out);
+            uint32_t* out = nullptr;
+            result_size = query_suggestion[i]->values->ids.intersect(result_ids, result_size, &out);
             delete[] result_ids;
             result_ids = out;
         }
@@ -247,18 +247,23 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
     }
 }
 
-void Collection::union_with_filter_ids(std::vector<const art_leaf*> & leaves, uint32_t** filter_ids,
-                                       uint32_t & filter_ids_length) {
+size_t Collection::union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint32_t **results_out) {
+    uint32_t *results = nullptr;
+    size_t results_length = 0;
+
+    uint32_t *prev_results = nullptr;
+    size_t prev_results_length = 0;
 
     for(const art_leaf* leaf: leaves) {
-        uint32_t* results = new uint32_t[filter_ids_length + leaf->values->ids.getLength()];
-        size_t results_length = leaf->values->ids.do_union(*filter_ids, filter_ids_length, results);
+        results_length = leaf->values->ids.do_union(prev_results, prev_results_length, &results);
 
-        delete [] *filter_ids;
-
-        *filter_ids = results;
-        filter_ids_length = results_length;
+        delete [] prev_results;
+        prev_results = results;
+        prev_results_length = results_length;
     }
+
+    *results_out = results;
+    return results_length;
 }
 
 nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
@@ -275,25 +280,31 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
             art_tree* t = index_map.at(a_filter.field_name);
             field f = schema.at(a_filter.field_name);
 
-            nlohmann::json json_value = nlohmann::json::parse(a_filter.value_json);
             if(f.type == field_types::INT64) {
 
 
-            } else if(f.type == field_types::INT32) {
-                int32_t value = json_value.get<int32_t>();
-                NUM_COMPARATOR comparator = a_filter.get_comparator();
-
+            } else if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
                 std::vector<const art_leaf*> leaves;
-                art_int32_search(t, value, comparator, leaves);
 
-                union_with_filter_ids(leaves, &filter_ids, filter_ids_length);
-            } else if(f.type == field_types::INT32_ARRAY) {
-                int32_t value = json_value.get<int32_t>();
-                NUM_COMPARATOR comparator = a_filter.get_comparator();
+                for(const std::string & filter_value: a_filter.values) {
+                    int32_t value = (int32_t) std::stoi(filter_value);
+                    NUM_COMPARATOR comparator = a_filter.get_comparator();
+                    art_int32_search(t, value, comparator, leaves);
+                }
 
-                std::vector<const art_leaf*> leaves;
-                art_int32_search(t, value, comparator, leaves);
-                union_with_filter_ids(leaves, &filter_ids, filter_ids_length);
+                uint32_t* result_ids = nullptr;
+                size_t result_ids_length = union_of_leaf_ids(leaves, &result_ids);
+
+                if(filter_ids == nullptr) {
+                    filter_ids = result_ids;
+                    filter_ids_length = result_ids_length;
+                } else {
+                    uint32_t* filtered_results = new uint32_t[std::min((size_t)filter_ids_length, result_ids_length)];
+                    filter_ids_length = Intersection::scalar(filter_ids, filter_ids_length, result_ids, result_ids_length, filtered_results);
+                    delete [] filter_ids;
+                    delete [] result_ids;
+                    filter_ids = filtered_results;
+                }
             }
         }
     }
@@ -313,6 +324,8 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
             field_order_kvs.push_back(std::make_pair(fields.size() - i, topster.getKV(t)));
         }
     }
+
+    delete [] filter_ids;
 
     std::sort(field_order_kvs.begin(), field_order_kvs.end(),
       [](const std::pair<int, Topster<100>::KV> & a, const std::pair<int, Topster<100>::KV> & b) {

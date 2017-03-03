@@ -109,8 +109,8 @@ TEST(SortedArrayTest, Intersect) {
     }
 
     // arr1: [0..8] , arr2: [3, 6, 9]
-    uint32_t *results = new uint32_t[size2];
-    uint32_t results_size = arr1.intersect(arr2, arr2_len, results);
+    uint32_t *results = nullptr;
+    uint32_t results_size = arr1.intersect(arr2, arr2_len, &results);
     ASSERT_EQ(2, results_size);
 
     std::vector<uint32_t> expected = {3, 6};
@@ -118,6 +118,8 @@ TEST(SortedArrayTest, Intersect) {
     for(size_t i = 0; i < results_size; i++) {
         ASSERT_EQ(expected[i], results[i]);
     }
+
+    delete [] results;
 }
 
 TEST(SortedArrayTest, MergeShouldRemoveDuplicates) {
@@ -137,8 +139,8 @@ TEST(SortedArrayTest, MergeShouldRemoveDuplicates) {
     }
 
     // arr1: [0..8] , arr2: [3, 6, 9]
-    uint32_t *results = new uint32_t[size1];
-    uint32_t results_size = arr1.do_union(arr2, arr2_len, results);
+    uint32_t *results = nullptr;
+    uint32_t results_size = arr1.do_union(arr2, arr2_len, &results);
     ASSERT_EQ(10, results_size);
 
     std::vector<uint32_t> expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -164,8 +166,8 @@ TEST(SortedArrayTest, MergeShouldRemoveDuplicatesAtBoundary) {
         arr2[j++] = i;
     }
 
-    uint32_t *results = new uint32_t[10];
-    uint32_t results_size = arr1.do_union(arr2, vec2.size(), results);
+    uint32_t *results = nullptr;
+    uint32_t results_size = arr1.do_union(arr2, vec2.size(), &results);
     ASSERT_EQ(9, results_size);
 
     std::vector<uint32_t> expected = {0, 1, 2, 3, 4, 5, 6, 7, 8};

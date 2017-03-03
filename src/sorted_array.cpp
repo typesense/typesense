@@ -169,20 +169,26 @@ void sorted_array::remove_values(uint32_t *sorted_values, uint32_t values_length
     delete[] new_array;
 }
 
-size_t sorted_array::intersect(uint32_t* arr, const size_t arr_length, uint32_t* results) {
+size_t sorted_array::intersect(uint32_t* arr, const size_t arr_length, uint32_t** results_out) {
     uint32_t* curr = uncompress();
+    uint32_t* results = new uint32_t[std::min(arr_length, (size_t) length)];
+
     size_t results_length = Intersection::scalar(arr, arr_length, curr, length, results);
     delete[] curr;
+
+    *results_out = results;
     return results_length;
 }
 
-size_t sorted_array::do_union(uint32_t *arr, const size_t arr_length, uint32_t *results) {
+size_t sorted_array::do_union(uint32_t *arr, const size_t arr_length, uint32_t** results_out) {
     size_t curr_index = 0, arr_index = 0, res_index = 0;
     uint32_t* curr = uncompress();
+    uint32_t* results = new uint32_t[arr_length+length];
 
     if(arr == nullptr) {
         memcpy(results, curr, length * sizeof(uint32_t));
         delete[] curr;
+        *results_out = results;
         return length;
     }
 
@@ -221,5 +227,7 @@ size_t sorted_array::do_union(uint32_t *arr, const size_t arr_length, uint32_t *
     }
 
     delete[] curr;
+
+    *results_out = results;
     return res_index;
 }
