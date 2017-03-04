@@ -41,6 +41,8 @@ private:
 
     size_t union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint32_t **results_out);
 
+    uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
+
     void search(uint32_t* filter_ids, size_t filter_ids_length, std::string & query, const std::string & field,
                 const int num_typos, const size_t num_results, Topster<100> & topster, size_t & num_found,
                 const token_ordering token_order = FREQUENCY, const bool prefix = false);

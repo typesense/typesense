@@ -378,7 +378,7 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 }
 
-TEST_F(CollectionTest, SearchInt32Fields) {
+TEST_F(CollectionTest, FilterOnNumericFields) {
     Collection *coll_array_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
@@ -488,7 +488,7 @@ TEST_F(CollectionTest, SearchInt32Fields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // multiple search values against an int array field
+    // multiple search values against an int32 array field
     filters = {(filter) {"years", {"2015", "1985", "1999"}, "EQUALS"}};
     results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
@@ -500,4 +500,85 @@ TEST_F(CollectionTest, SearchInt32Fields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // searching on an int64 array field
+    filters = {(filter) {"timestamps", {"475205222"}, "GREATER_THAN"}};
+
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"1", "4", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // when filters don't match any record, no results should be returned
+    filters = {(filter) {"timestamps", {"1"}, "LESS_THAN"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll_array_fields");
+}
+
+TEST_F(CollectionTest, FilterOnTextFields) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
+                                 field("years", field_types::INT32_ARRAY),
+                                 field("tags", field_types::STRING_ARRAY)};
+    std::vector<std::string> rank_fields = {"age"};
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, rank_fields);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_fields->add(json_line);
+    }
+
+    infile.close();
+
+    search_fields = {"name"};
+    std::vector<filter> filters = {(filter) {"tags", {"gold"}, "EQUALS"}};
+
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    std::vector<std::string> ids = {"1", "4", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    filters = {(filter) {"tags", {"bronze"}, "EQUALS"}};
+
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"4", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // should be exact matches (no normalization or fuzzy searching should happen)
+    filters = {(filter) {"tags", {"BRONZE"}, "EQUALS"}};
+    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll_array_fields");
 }

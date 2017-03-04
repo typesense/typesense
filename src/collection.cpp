@@ -266,11 +266,7 @@ size_t Collection::union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint
     return results_length;
 }
 
-nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
-                                  const int num_typos, const size_t num_results,
-                                  const token_ordering token_order, const bool prefix) {
-    size_t num_found = 0;
-
+uint32_t Collection::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
 
@@ -279,35 +275,58 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         if(index_map.count(a_filter.field_name) != 0) {
             art_tree* t = index_map.at(a_filter.field_name);
             field f = schema.at(a_filter.field_name);
+            std::vector<const art_leaf*> leaves;
 
-            if(f.type == field_types::INT64) {
-
-
-            } else if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
-                std::vector<const art_leaf*> leaves;
-
+            if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY ||
+               f.type == field_types::INT64 || f.type == field_types::INT64_ARRAY) {
                 for(const std::string & filter_value: a_filter.values) {
-                    int32_t value = (int32_t) std::stoi(filter_value);
-                    NUM_COMPARATOR comparator = a_filter.get_comparator();
-                    art_int32_search(t, value, comparator, leaves);
+                    if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
+                        int32_t value = (int32_t) std::stoi(filter_value);
+                        NUM_COMPARATOR comparator = a_filter.get_comparator();
+                        art_int32_search(t, value, comparator, leaves);
+                    } else {
+                        int64_t value = (int64_t) std::stoi(filter_value);
+                        NUM_COMPARATOR comparator = a_filter.get_comparator();
+                        art_int64_search(t, value, comparator, leaves);
+                    }
                 }
-
-                uint32_t* result_ids = nullptr;
-                size_t result_ids_length = union_of_leaf_ids(leaves, &result_ids);
-
-                if(filter_ids == nullptr) {
-                    filter_ids = result_ids;
-                    filter_ids_length = result_ids_length;
-                } else {
-                    uint32_t* filtered_results = new uint32_t[std::min((size_t)filter_ids_length, result_ids_length)];
-                    filter_ids_length = Intersection::scalar(filter_ids, filter_ids_length, result_ids, result_ids_length, filtered_results);
-                    delete [] filter_ids;
-                    delete [] result_ids;
-                    filter_ids = filtered_results;
+            } else if(f.type == field_types::STRING || f.type == field_types::STRING_ARRAY) {
+                for(const std::string & filter_value: a_filter.values) {
+                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(), filter_value.length()+1);
+                    if(leaf != nullptr) {
+                        leaves.push_back(leaf);
+                    }
                 }
+            }
+
+            uint32_t* result_ids = nullptr;
+            size_t result_ids_length = union_of_leaf_ids(leaves, &result_ids);
+
+            if(filter_ids == nullptr) {
+                filter_ids = result_ids;
+                filter_ids_length = result_ids_length;
+            } else {
+                uint32_t* filtered_results = new uint32_t[std::min((size_t)filter_ids_length, result_ids_length)];
+                filter_ids_length = Intersection::scalar(filter_ids, filter_ids_length, result_ids, result_ids_length, filtered_results);
+                delete [] filter_ids;
+                delete [] result_ids;
+                filter_ids = filtered_results;
             }
         }
     }
+
+    *filter_ids_out = filter_ids;
+    return filter_ids_length;
+}
+
+nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
+                                  const int num_typos, const size_t num_results,
+                                  const token_ordering token_order, const bool prefix) {
+    size_t num_found = 0;
+
+    // process the filters first
+    uint32_t* filter_ids = nullptr;
+    uint32_t filter_ids_length = do_filtering(&filter_ids, filters);
 
     // Order of `fields` are used to rank results
     auto begin = std::chrono::high_resolution_clock::now();
@@ -316,9 +335,12 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
     for(int i = 0; i < fields.size(); i++) {
         Topster<100> topster;
         const std::string & field = fields[i];
-        search(filter_ids, filter_ids_length, query, field, num_typos, num_results,
-               topster, num_found, token_order, prefix);
-        topster.sort();
+        // proceed to query search only when no filters are provided or when filtering produces results
+        if(filters.size() == 0 || filter_ids_length > 0) {
+            search(filter_ids, filter_ids_length, query, field, num_typos, num_results,
+                   topster, num_found, token_order, prefix);
+            topster.sort();
+        }
 
         for(auto t = 0; t < topster.size && t < num_results; t++) {
             field_order_kvs.push_back(std::make_pair(fields.size() - i, topster.getKV(t)));

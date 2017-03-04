@@ -1,5 +1,5 @@
-{"name": "Jeremy Howard", "age": 24, "years": [2014, 2015, 2016], "timestamps": [1390354022, 1421890022, 1453426022]}
-{"name": "Jeremy Howard", "age": 44, "years": [2015, 2016], "timestamps": [1421890022, 1453426022]}
-{"name": "Jeremy Howard", "age": 21, "years": [2016], "timestamps": [1453426022]}
-{"name": "Jeremy Howard", "age": 63, "years": [1981, 1985], "timestamps": [348974822, 475205222]}
-{"name": "Jeremy Howard", "age": 32, "years": [1999, 2000, 2001, 2002], "timestamps": [916968422, 948504422, 980126822, 1011662822]}
+{"name": "Jeremy Howard", "age": 24, "years": [2014, 2015, 2016], "timestamps": [1390354022, 1421890022, 1453426022], "tags": ["gold", "silver"]}
+{"name": "Jeremy Howard", "age": 44, "years": [2015, 2016], "timestamps": [1421890022, 1453426022], "tags": ["gold"]}
+{"name": "Jeremy Howard", "age": 21, "years": [2016], "timestamps": [1453426022], "tags": ["bronze", "gold"]}
+{"name": "Jeremy Howard", "age": 63, "years": [1981, 1985], "timestamps": [348974822, 475205222], "tags": ["silver"]}
+{"name": "Jeremy Howard", "age": 32, "years": [1999, 2000, 2001, 2002], "timestamps": [916968422, 948504422, 980126822, 1011662822], "tags": ["silver", "gold", "bronze"]}
