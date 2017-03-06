@@ -46,7 +46,7 @@ target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(benchmark PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 
-target_link_libraries(typesense-server for curl h2o-evloop pthread rocksdb ssl crypto)
+target_link_libraries(typesense-server for h2o-evloop pthread rocksdb ssl crypto)
 target_link_libraries(search for pthread rocksdb)
 target_link_libraries(benchmark for pthread rocksdb)
 target_link_libraries(typesense_test pthread for rocksdb gtest gtest_main)

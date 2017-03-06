@@ -402,7 +402,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     // Plain search with no filters - results should be sorted by rank fields
     search_fields = {"name"};
-    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, {}, 0, 10, FREQUENCY, false);
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "", 0, 10, FREQUENCY, false);
     ASSERT_EQ(5, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
@@ -415,9 +415,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // Searching on an int32 field
-    std::vector<filter> filters = {(filter) {"age", {"24"}, "GREATER_THAN"}};
-
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:>24", 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "1", "4"};
@@ -429,17 +427,14 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    filters = {(filter) {"age", {"24"}, "GREATER_THAN_EQUALS"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:>=24", 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
-    filters = {(filter) {"age", {"24"}, "EQUALS"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:24", 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     // Searching a number against an int32 array field
-    filters = {(filter) {"years", {"2002"}, "GREATER_THAN"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:>2002", 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"1", "0", "2"};
@@ -450,8 +445,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    filters = {(filter) {"years", {"1989"}, "LESS_THAN"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:<1989", 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"3"};
@@ -463,8 +457,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // multiple filters
-    filters = {(filter) {"years", {"2005"}, "LESS_THAN"}, (filter) {"years", {"1987"}, "GREATER_THAN"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:<2005 && years:>1987", 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"4"};
@@ -476,8 +469,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // multiple search values (works like SQL's IN operator) against a single int field
-    filters = {(filter) {"age", {"21", "24", "63"}, "EQUALS"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:[21, 24, 63]", 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "0", "2"};
@@ -488,9 +480,8 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // multiple search values against an int32 array field
-    filters = {(filter) {"years", {"2015", "1985", "1999"}, "EQUALS"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    // multiple search values against an int32 array field - also use extra padding between symbols
+    results = coll_array_fields->search("Jeremy", search_fields, "years : [ 2015, 1985 , 1999]", 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "1", "4", "0"};
@@ -501,10 +492,8 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // searching on an int64 array field
-    filters = {(filter) {"timestamps", {"475205222"}, "GREATER_THAN"}};
-
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    // searching on an int64 array field - also ensure that padded space causes no issues
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps : > 475205222", 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"1", "4", "0", "2"};
@@ -517,8 +506,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // when filters don't match any record, no results should be returned
-    filters = {(filter) {"timestamps", {"1"}, "LESS_THAN"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps:<1", 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -547,9 +535,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     infile.close();
 
     search_fields = {"name"};
-    std::vector<filter> filters = {(filter) {"tags", {"gold"}, "EQUALS"}};
-
-    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tags: gold", 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"1", "4", "0", "2"};
@@ -561,9 +547,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    filters = {(filter) {"tags", {"bronze"}, "EQUALS"}};
-
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "tags : bronze", 0, 10, FREQUENCY, false);
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"4", "2"};
@@ -575,10 +559,73 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // search with a list of tags, also testing extra padding of space
+    results = coll_array_fields->search("Jeremy", search_fields, "tags: [bronze,   silver]", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"3", "4", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     // should be exact matches (no normalization or fuzzy searching should happen)
-    filters = {(filter) {"tags", {"BRONZE"}, "EQUALS"}};
-    results = coll_array_fields->search("Jeremy", search_fields, filters, 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "tags: BRONZE", 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
+}
+
+TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
+    // should not crash when filter query is malformed!
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
+                                 field("years", field_types::INT32_ARRAY),
+                                 field("timestamps", field_types::INT64_ARRAY),
+                                 field("tags", field_types::STRING_ARRAY)};
+    std::vector<std::string> rank_fields = {"age"};
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, rank_fields);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_fields->add(json_line);
+    }
+
+    infile.close();
+
+    search_fields = {"name"};
+
+    // when filter field does not exist in the schema
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tagzz: gold", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // searching using a string for a numeric field
+    results = coll_array_fields->search("Jeremy", search_fields, "age: abcdef", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // searching using a string for a numeric array field
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps: abcdef", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // malformed k:v syntax
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps abcdef", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // just empty spaces
+    results = coll_array_fields->search("Jeremy", search_fields, "  ", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // wrapping number with quotes
+    results = coll_array_fields->search("Jeremy", search_fields, "age: '21'", 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
 }

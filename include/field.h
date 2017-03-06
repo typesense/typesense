@@ -2,6 +2,8 @@
 
 #include <string>
 #include "art.h"
+#include "option.h"
+#include "string_utils.h"
 
 namespace field_types {
     static const std::string STRING = "STRING";
@@ -24,24 +26,40 @@ struct field {
     field(std::string name, std::string type): name(name), type(type) {
 
     }
+
+    bool integer() {
+        return type == field_types::INT32 || type == field_types::INT32_ARRAY ||
+               type == field_types::INT64 || type == field_types::INT64_ARRAY;
+    }
 };
 
 struct filter {
     std::string field_name;
     std::vector<std::string> values;
-    std::string compare_operator;
+    NUM_COMPARATOR compare_operator;
 
-    NUM_COMPARATOR get_comparator() const {
-        if(compare_operator == "LESS_THAN") {
-            return LESS_THAN;
-        } else if(compare_operator == "LESS_THAN_EQUALS") {
-            return LESS_THAN_EQUALS;
-        } else if(compare_operator == "EQUALS") {
-            return EQUALS;
-        } else if(compare_operator == "GREATER_THAN") {
-            return GREATER_THAN;
-        } else {
-            return GREATER_THAN_EQUALS;
+    static Option<NUM_COMPARATOR> extract_num_comparator(const std::string & comp_and_value) {
+        if(StringUtils::is_integer(comp_and_value)) {
+            return Option<NUM_COMPARATOR>(EQUALS);
         }
+
+        // the ordering is important - we have to compare 2-letter operators first
+        if(comp_and_value.compare(0, 2, "<=") == 0) {
+            return Option<NUM_COMPARATOR>(LESS_THAN_EQUALS);
+        }
+
+        if(comp_and_value.compare(0, 2, ">=") == 0) {
+            return Option<NUM_COMPARATOR>(GREATER_THAN_EQUALS);
+        }
+
+        if(comp_and_value.compare(0, 1, "<") == 0) {
+            return Option<NUM_COMPARATOR>(LESS_THAN);
+        }
+
+        if(comp_and_value.compare(0, 1, ">") == 0) {
+            return Option<NUM_COMPARATOR>(GREATER_THAN);
+        }
+
+        return Option<NUM_COMPARATOR>(400, "Numerical field has an invalid comparator.");
     }
 };

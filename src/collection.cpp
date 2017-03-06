@@ -266,7 +266,81 @@ size_t Collection::union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint
     return results_length;
 }
 
-uint32_t Collection::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {
+Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::string & simple_filter_str) {
+    // parse the filter string
+    std::vector<std::string> filter_blocks;
+    StringUtils::split(simple_filter_str, filter_blocks, "&&");
+
+    std::vector<filter> filters;
+
+    for(const std::string & filter_block: filter_blocks) {
+        // split into [field_name, value]
+        std::vector<std::string> expression_parts;
+        StringUtils::split(filter_block, expression_parts, ":");
+        if(expression_parts.size() != 2) {
+            return Option<>(400, "Could not parse the filter query.");
+        }
+
+        const std::string & field_name = expression_parts[0];
+        if(schema.count(field_name) == 0) {
+            return Option<>(400, "Could not find a filter field named `" + field_name + "` in the schema.");
+        }
+
+        field _field = schema.at(field_name);
+        const std::string & raw_value = expression_parts[1];
+        filter f;
+
+        if(_field.integer()) {
+            // could be a single value or a list
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+                for(const std::string & filter_value: filter_values) {
+                    if(!StringUtils::is_integer(filter_value)) {
+                        return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                    }
+                }
+
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
+                if(!op_comparator.ok()) {
+                    return Option<>(400, "Error with field `" + _field.name + "`: " + op_comparator.error());
+                }
+
+                // extract numerical value
+                std::string filter_value;
+                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
+                    filter_value = raw_value.substr(1);
+                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
+                    filter_value = raw_value.substr(2);
+                } else {
+                    // EQUALS
+                    filter_value = raw_value;
+                }
+
+                filter_value = StringUtils::trim(filter_value);
+
+                if(!StringUtils::is_integer(filter_value)) {
+                    return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                }
+
+                f = {field_name, {filter_value}, op_comparator.get()};
+            }
+        } else {
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                f = {field_name, {raw_value}, EQUALS};
+            }
+        }
+
+        filters.push_back(f);
+    }
+
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
 
@@ -277,17 +351,14 @@ uint32_t Collection::do_filtering(uint32_t** filter_ids_out, const std::vector<f
             field f = schema.at(a_filter.field_name);
             std::vector<const art_leaf*> leaves;
 
-            if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY ||
-               f.type == field_types::INT64 || f.type == field_types::INT64_ARRAY) {
+            if(f.integer()) {
                 for(const std::string & filter_value: a_filter.values) {
                     if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
                         int32_t value = (int32_t) std::stoi(filter_value);
-                        NUM_COMPARATOR comparator = a_filter.get_comparator();
-                        art_int32_search(t, value, comparator, leaves);
+                        art_int32_search(t, value, a_filter.compare_operator, leaves);
                     } else {
                         int64_t value = (int64_t) std::stoi(filter_value);
-                        NUM_COMPARATOR comparator = a_filter.get_comparator();
-                        art_int64_search(t, value, comparator, leaves);
+                        art_int64_search(t, value, a_filter.compare_operator, leaves);
                     }
                 }
             } else if(f.type == field_types::STRING || f.type == field_types::STRING_ARRAY) {
@@ -316,17 +387,25 @@ uint32_t Collection::do_filtering(uint32_t** filter_ids_out, const std::vector<f
     }
 
     *filter_ids_out = filter_ids;
-    return filter_ids_length;
+    return Option<>(filter_ids_length);
 }
 
-nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields, const std::vector<filter> filters,
+nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields,
+                                  const std::string & simple_filter_str,
                                   const int num_typos, const size_t num_results,
                                   const token_ordering token_order, const bool prefix) {
     size_t num_found = 0;
+    nlohmann::json result = nlohmann::json::object();
 
     // process the filters first
     uint32_t* filter_ids = nullptr;
-    uint32_t filter_ids_length = do_filtering(&filter_ids, filters);
+    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_str);
+    if(!op_filter_ids_length.ok()) {
+        result["error"] = op_filter_ids_length.error();
+        return result;
+    }
+
+    const uint32_t filter_ids_length = op_filter_ids_length.get();
 
     // Order of `fields` are used to rank results
     auto begin = std::chrono::high_resolution_clock::now();
@@ -336,7 +415,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         Topster<100> topster;
         const std::string & field = fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
-        if(filters.size() == 0 || filter_ids_length > 0) {
+        if(simple_filter_str.size() == 0 || filter_ids_length > 0) {
             search(filter_ids, filter_ids_length, query, field, num_typos, num_results,
                    topster, num_found, token_order, prefix);
             topster.sort();
@@ -358,7 +437,6 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         return a.second.key > b.second.key;
     });
 
-    nlohmann::json result = nlohmann::json::object();
     result["hits"] = nlohmann::json::array();
 
     for(auto field_order_kv: field_order_kvs) {

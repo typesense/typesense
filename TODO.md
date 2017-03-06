@@ -31,8 +31,10 @@
 - ~~Assumption that all tokens match for scoring is no longer true~~
 - Handle searching for non-existing fields gracefully
 - Intersection without unpacking
-- Facets
 - Filters
+- Facets
+- Iterator
+- Highlight
 - Support search operators like +, - etc.
 - Prefix-search strings should not be null terminated
 - string_utils::tokenize should not have max length

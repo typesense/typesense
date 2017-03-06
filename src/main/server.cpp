@@ -28,7 +28,7 @@
 static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
-std::vector<field> search_fields = {field("title", field_types::STRING)};
+std::vector<field> search_fields = {field("title", field_types::STRING), field("points", field_types::INT32)};
 std::vector<std::string> rank_fields = {"points"};
 Store *store = new Store("/tmp/typesense-data");
 
@@ -52,13 +52,17 @@ std::map<std::string, std::string> parse_query(const std::string& query) {
 
     for (std::sregex_iterator i = words_begin; i != words_end; i++) {
         std::string key = (*i)[1].str();
-        std::string value = (*i)[2].str();
-        query_map[key] = StringUtils::replace_all(value, "%20", " ");
+        std::string raw_value = (*i)[2].str();
+        std::string value = StringUtils::url_decode(raw_value);
+        if(query_map.count(value) == 0) {
+            query_map[key] = value;
+        } else {
+            query_map[key] = query_map[key] + "&&" + value;
+        }
     }
 
     return query_map;
 }
-
 
 static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     static h2o_generator_t generator = {NULL, NULL};
@@ -71,6 +75,7 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *TOKEN_ORDERING = "token_ordering";
+    const char *FILTERS = "filters";
 
     if(query_map.count(NUM_TYPOS) == 0) {
         query_map[NUM_TYPOS] = "2";
@@ -84,6 +89,9 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
         query_map[TOKEN_ORDERING] = "FREQUENCY";
     }
 
+    std::string filter_str = query_map.count(FILTERS) != 0 ? query_map[FILTERS] : "";
+    std::cout << "filter_str: " << filter_str << std::endl;
+
     token_ordering token_order = (query_map[TOKEN_ORDERING] == "MAX_SCORE") ? MAX_SCORE : FREQUENCY;
 
     //printf("Query: %s\n", query_map["q"].c_str());
@@ -91,7 +99,7 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
 
     std::vector<std::string> search_fields = {"title"};
 
-    nlohmann::json result = collection->search(query_map["q"], search_fields, {}, std::stoi(query_map[NUM_TYPOS]),
+    nlohmann::json result = collection->search(query_map["q"], search_fields, filter_str, std::stoi(query_map[NUM_TYPOS]),
                                                100, token_order, false);
     std::string json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
