@@ -900,7 +900,7 @@ static uint32_t get_score(art_node* child) {
     return child->max_token_count;
 }
 
-static int art_topk_iter(const art_node *root, token_ordering token_order, const int max_results,
+int art_topk_iter(const art_node *root, token_ordering token_order, const int max_results,
                          std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 

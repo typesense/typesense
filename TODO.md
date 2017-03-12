@@ -19,8 +19,8 @@
 - ~~Fix documents.jsonl path in tests~~
 - ~~Multi field search tests~~
 - ~~storage key prefix should include collection name~~
-- Index and search on multi-valued field
-- range search for art_int
+- ~~Index and search on multi-valued field~~
+- ~~range search for art_int~~
 - Proper score field for ranking tokens
 - Support nested fields via "."
 - ~~Restore records as well on restart (like for meta)~~
@@ -31,8 +31,8 @@
 - ~~Assumption that all tokens match for scoring is no longer true~~
 - Handle searching for non-existing fields gracefully
 - Intersection without unpacking
-- Filters
-- Facets
+- ~~Filters~~
+- ~~Facets~~
 - Iterator
 - Highlight
 - Support search operators like +, - etc.

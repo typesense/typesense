@@ -47,7 +47,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     infile.close();
 
     std::vector<std::string> search_fields = {"starring", "title"};
-    nlohmann::json results = collection1->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
+    std::vector<facet> facets;
+
+    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
@@ -64,7 +66,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(rank_fields, collection1->get_rank_fields());
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
 
-    results = collection1->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
+    results = collection1->search("thomas", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 }
 

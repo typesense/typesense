@@ -54,7 +54,8 @@ protected:
 };
 
 TEST_F(CollectionTest, ExactSearchShouldBeStable) {
-    nlohmann::json results = collection->search("the", search_fields, {}, 0, 10);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("the", search_fields, "", facets, 0, 10);
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
 
@@ -70,7 +71,8 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 }
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
-    nlohmann::json results = collection->search("rocket launch", search_fields, {}, 0, 10);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("rocket launch", search_fields, "", facets, 0, 10);
     ASSERT_EQ(5, results["hits"].size());
 
     /*
@@ -92,7 +94,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     }
 
     // Check pagination
-    results = collection->search("rocket launch", search_fields, {}, 0, 3);
+    results = collection->search("rocket launch", search_fields, "", facets, 0, 3);
     ASSERT_EQ(3, results["hits"].size());
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -104,7 +106,8 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
 
 TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     // Tokens that are not found in the index should be skipped
-    nlohmann::json results = collection->search("DoesNotExist from", search_fields, {}, 0, 10);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("DoesNotExist from", search_fields, "", facets, 0, 10);
     ASSERT_EQ(2, results["hits"].size());
 
     std::vector<std::string> ids = {"2", "17"};
@@ -117,7 +120,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with non-zero cost
-    results = collection->search("DoesNotExist from", search_fields, {}, 1, 10);
+    results = collection->search("DoesNotExist from", search_fields, "", facets, 1, 10);
     ASSERT_EQ(2, results["hits"].size());
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
@@ -128,7 +131,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     // with 2 indexed words
-    results = collection->search("from DoesNotExist insTruments", search_fields, {}, 1, 10);
+    results = collection->search("from DoesNotExist insTruments", search_fields, "", facets, 1, 10);
     ASSERT_EQ(2, results["hits"].size());
     ids = {"2", "17"};
 
@@ -140,16 +143,17 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     results.clear();
-    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, {}, 0, 10);
+    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, "", facets, 0, 10);
     ASSERT_EQ(0, results["hits"].size());
 
     results.clear();
-    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, {}, 2, 10);
+    results = collection->search("DoesNotExist1 DoesNotExist2", search_fields, "", facets, 2, 10);
     ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionTest, PartialPhraseSearch) {
-    nlohmann::json results = collection->search("rocket research", search_fields, {}, 0, 10);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("rocket research", search_fields, "", facets, 0, 10);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"1", "8", "16", "17"};
@@ -163,7 +167,8 @@ TEST_F(CollectionTest, PartialPhraseSearch) {
 }
 
 TEST_F(CollectionTest, QueryWithTypo) {
-    nlohmann::json results = collection->search("kind biologcal", search_fields, {}, 2, 3);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("kind biologcal", search_fields, "", facets, 2, 3);
     ASSERT_EQ(3, results["hits"].size());
 
     std::vector<std::string> ids = {"19", "20", "21"};
@@ -176,7 +181,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
     }
 
     results.clear();
-    results = collection->search("fer thx", search_fields, {}, 1, 3);
+    results = collection->search("fer thx", search_fields, "", facets, 1, 3);
     ids = {"1", "10", "13"};
 
     ASSERT_EQ(3, results["hits"].size());
@@ -190,7 +195,8 @@ TEST_F(CollectionTest, QueryWithTypo) {
 }
 
 TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
-    nlohmann::json results = collection->search("loox", search_fields, {}, 1, 2, MAX_SCORE, false);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("loox", search_fields, "", facets, 1, 2, MAX_SCORE, false);
     ASSERT_EQ(2, results["hits"].size());
     std::vector<std::string> ids = {"22", "23"};
 
@@ -201,7 +207,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("loox", search_fields, {}, 1, 3, FREQUENCY, false);
+    results = collection->search("loox", search_fields, "", facets, 1, 3, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
     ids = {"3", "12", "24"};
 
@@ -213,19 +219,19 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
     }
 
     // Check pagination
-    results = collection->search("loox", search_fields, {}, 1, 1, FREQUENCY, false);
+    results = collection->search("loox", search_fields, "", facets, 1, 1, FREQUENCY, false);
     ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(1, results["hits"].size());
     std::string solo_id = results["hits"].at(0)["id"];
     ASSERT_STREQ("3", solo_id.c_str());
 
-    results = collection->search("loox", search_fields, {}, 1, 2, FREQUENCY, false);
+    results = collection->search("loox", search_fields, "", facets, 1, 2, FREQUENCY, false);
     ASSERT_EQ(3, results["found"].get<int>());
     ASSERT_EQ(2, results["hits"].size());
 
     // Check total ordering
 
-    results = collection->search("loox", search_fields, {}, 1, 10, FREQUENCY, false);
+    results = collection->search("loox", search_fields, "", facets, 1, 10, FREQUENCY, false);
     ASSERT_EQ(5, results["hits"].size());
     ids = {"3", "12", "24", "22", "23"};
 
@@ -236,7 +242,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("loox", search_fields, {}, 1, 10, MAX_SCORE, false);
+    results = collection->search("loox", search_fields, "", facets, 1, 10, MAX_SCORE, false);
     ASSERT_EQ(5, results["hits"].size());
     ids = {"22", "23", "3", "12", "24"};
 
@@ -250,7 +256,8 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
 TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
-    nlohmann::json results = collection->search("ISX what", search_fields, {}, 1, 4, FREQUENCY, false);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("ISX what", search_fields, "", facets, 1, 4, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"19", "6", "21", "8"};
@@ -263,7 +270,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     }
 
     // Record containing exact token match should appear first
-    results = collection->search("ISX", search_fields, {}, 1, 10, FREQUENCY, false);
+    results = collection->search("ISX", search_fields, "", facets, 1, 10, FREQUENCY, false);
     ASSERT_EQ(8, results["hits"].size());
 
     ids = {"20", "19", "6", "3", "21", "4", "10", "8"};
@@ -277,7 +284,8 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
-    nlohmann::json results = collection->search("ex", search_fields, {}, 0, 10, FREQUENCY, true);
+    std::vector<facet> facets;
+    nlohmann::json results = collection->search("ex", search_fields, "", facets, 0, 10, FREQUENCY, true);
     ASSERT_EQ(2, results["hits"].size());
     std::vector<std::string> ids = {"12", "6"};
 
@@ -288,7 +296,7 @@ TEST_F(CollectionTest, PrefixSearching) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("ex", search_fields, {}, 0, 10, MAX_SCORE, true);
+    results = collection->search("ex", search_fields, "", facets, 0, 10, MAX_SCORE, true);
     ASSERT_EQ(2, results["hits"].size());
     ids = {"6", "12"};
 
@@ -322,7 +330,8 @@ TEST_F(CollectionTest, MultipleFields) {
     infile.close();
 
     search_fields = {"title", "starring"};
-    nlohmann::json results = coll_mul_fields->search("Will", search_fields, {}, 0, 10, FREQUENCY, false);
+    std::vector<facet> facets;
+    nlohmann::json results = coll_mul_fields->search("Will", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "2", "1", "0"};
@@ -337,7 +346,7 @@ TEST_F(CollectionTest, MultipleFields) {
     // when "starring" takes higher priority than "title"
 
     search_fields = {"starring", "title"};
-    results = coll_mul_fields->search("thomas", search_fields, {}, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("thomas", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"15", "14", "12", "13"};
@@ -350,11 +359,11 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 
     search_fields = {"starring", "title", "cast"};
-    results = coll_mul_fields->search("ben affleck", search_fields, {}, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("ben affleck", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     search_fields = {"cast"};
-    results = coll_mul_fields->search("chris", search_fields, {}, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("chris", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"6", "1", "7"};
@@ -366,7 +375,7 @@ TEST_F(CollectionTest, MultipleFields) {
     }
 
     search_fields = {"cast"};
-    results = coll_mul_fields->search("chris pine", search_fields, {}, 0, 10, FREQUENCY, false);
+    results = coll_mul_fields->search("chris pine", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"7", "6", "1"};
@@ -402,7 +411,8 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     // Plain search with no filters - results should be sorted by rank fields
     search_fields = {"name"};
-    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "", 0, 10, FREQUENCY, false);
+    std::vector<facet> facets;
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(5, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
@@ -415,7 +425,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // Searching on an int32 field
-    results = coll_array_fields->search("Jeremy", search_fields, "age:>24", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:>24", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "1", "4"};
@@ -427,14 +437,14 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", search_fields, "age:>=24", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:>=24", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", search_fields, "age:24", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:24", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     // Searching a number against an int32 array field
-    results = coll_array_fields->search("Jeremy", search_fields, "years:>2002", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:>2002", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"1", "0", "2"};
@@ -445,7 +455,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", search_fields, "years:<1989", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:<1989", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"3"};
@@ -457,7 +467,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // multiple filters
-    results = coll_array_fields->search("Jeremy", search_fields, "years:<2005 && years:>1987", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years:<2005 && years:>1987", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"4"};
@@ -469,7 +479,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // multiple search values (works like SQL's IN operator) against a single int field
-    results = coll_array_fields->search("Jeremy", search_fields, "age:[21, 24, 63]", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age:[21, 24, 63]", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "0", "2"};
@@ -481,7 +491,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // multiple search values against an int32 array field - also use extra padding between symbols
-    results = coll_array_fields->search("Jeremy", search_fields, "years : [ 2015, 1985 , 1999]", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "years : [ 2015, 1985 , 1999]", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "1", "4", "0"};
@@ -493,7 +503,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // searching on an int64 array field - also ensure that padded space causes no issues
-    results = coll_array_fields->search("Jeremy", search_fields, "timestamps : > 475205222", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps : > 475205222", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"1", "4", "0", "2"};
@@ -506,7 +516,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // when filters don't match any record, no results should be returned
-    results = coll_array_fields->search("Jeremy", search_fields, "timestamps:<1", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps:<1", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -535,7 +545,8 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     infile.close();
 
     search_fields = {"name"};
-    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tags: gold", 0, 10, FREQUENCY, false);
+    std::vector<facet> facets;
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tags: gold", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"1", "4", "0", "2"};
@@ -547,7 +558,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", search_fields, "tags : bronze", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "tags : bronze", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"4", "2"};
@@ -560,7 +571,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     }
 
     // search with a list of tags, also testing extra padding of space
-    results = coll_array_fields->search("Jeremy", search_fields, "tags: [bronze,   silver]", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "tags: [bronze,   silver]", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "4", "0", "2"};
@@ -573,7 +584,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     }
 
     // should be exact matches (no normalization or fuzzy searching should happen)
-    results = coll_array_fields->search("Jeremy", search_fields, "tags: BRONZE", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "tags: BRONZE", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -604,28 +615,95 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
     infile.close();
 
     search_fields = {"name"};
+    std::vector<facet> facets;
 
     // when filter field does not exist in the schema
-    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tagzz: gold", 0, 10, FREQUENCY, false);
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "tagzz: gold", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     // searching using a string for a numeric field
-    results = coll_array_fields->search("Jeremy", search_fields, "age: abcdef", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age: abcdef", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     // searching using a string for a numeric array field
-    results = coll_array_fields->search("Jeremy", search_fields, "timestamps: abcdef", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps: abcdef", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     // malformed k:v syntax
-    results = coll_array_fields->search("Jeremy", search_fields, "timestamps abcdef", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "timestamps abcdef", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     // just empty spaces
-    results = coll_array_fields->search("Jeremy", search_fields, "  ", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "  ", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
 
     // wrapping number with quotes
-    results = coll_array_fields->search("Jeremy", search_fields, "age: '21'", 0, 10, FREQUENCY, false);
+    results = coll_array_fields->search("Jeremy", search_fields, "age: '21'", facets, 0, 10, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
+}
+
+TEST_F(CollectionTest, FacetCounts) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
+                                 field("years", field_types::INT32_ARRAY),
+                                 field("timestamps", field_types::INT64_ARRAY),
+                                 field("tags", field_types::STRING_ARRAY)};
+    std::vector<std::string> rank_fields = {"age"};
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, rank_fields);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_fields->add(json_line);
+    }
+
+    infile.close();
+
+    search_fields = {"name"};
+    std::vector<facet> facets = {facet("tags")};
+
+    // single facet with no filters
+    nlohmann::json results = coll_array_fields->search("Jeremy", search_fields, "", facets, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(5, results["hits"].size());
+
+    ASSERT_EQ(1, results["facets"].size());
+    ASSERT_EQ(2, results["facets"][0].size());
+    ASSERT_EQ("tags", results["facets"][0]["field_name"]);
+
+    ASSERT_EQ(4, (int) results["facets"][0]["counts"]["gold"]);
+    ASSERT_EQ(3, (int) results["facets"][0]["counts"]["silver"]);
+    ASSERT_EQ(2, (int) results["facets"][0]["counts"]["bronze"]);
+
+    // 2 facets, 1 text filter with no filters
+    facets.clear();
+    facets.push_back(facet("tags"));
+    facets.push_back(facet("name"));
+    results = coll_array_fields->search("Jeremy", search_fields, "", facets, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(2, results["facets"].size());
+
+    ASSERT_EQ("tags", results["facets"][0]["field_name"]);
+    ASSERT_EQ("name", results["facets"][1]["field_name"]);
+
+    // text is tokenized and standardized
+    ASSERT_EQ(5, (int) results["facets"][1]["counts"]["howard"]);
+    ASSERT_EQ(5, (int) results["facets"][1]["counts"]["jeremy"]);
+
+    // facet with filters
+    facets.clear();
+    facets.push_back(facet("tags"));
+    results = coll_array_fields->search("Jeremy", search_fields, "age: >24", facets, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(1, results["facets"].size());
+
+    ASSERT_EQ("tags", results["facets"][0]["field_name"]);
+    ASSERT_EQ(2, (int) results["facets"][0]["counts"]["gold"]);
+    ASSERT_EQ(2, (int) results["facets"][0]["counts"]["silver"]);
+    ASSERT_EQ(1, (int) results["facets"][0]["counts"]["bronze"]);
 }

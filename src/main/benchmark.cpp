@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
 
     while(counter < 3000) {
         auto i = counter % 5;
-        auto results = collection->search(queries[i], search_fields, {}, 1, 100);
+        auto results = collection->search(queries[i], search_fields, {}, { }, 1, 100, MAX_SCORE, 0);
         results_total += results.size();
         counter++;
     }

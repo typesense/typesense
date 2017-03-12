@@ -44,12 +44,14 @@ private:
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::string & simple_filter_str);
 
-    void search(uint32_t* filter_ids, size_t filter_ids_length, std::string & query, const std::string & field,
-                const int num_typos, const size_t num_results, Topster<100> & topster, size_t & num_found,
-                const token_ordering token_order = FREQUENCY, const bool prefix = false);
+    void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
-    void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, int & token_rank,
-                           std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
+    void search(uint32_t *filter_ids, size_t filter_ids_length, std::vector<facet> &facets, std::string &query,
+                    const std::string &field, const int num_typos, const size_t num_results, Topster<100> &topster,
+                    size_t &num_found, const token_ordering token_order = FREQUENCY, const bool prefix = false);
+
+    void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
+                           int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, size_t & num_found, const size_t & max_results);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id) const;
@@ -93,9 +95,9 @@ public:
 
     std::string add(std::string json_str);
 
-    nlohmann::json search(std::string query, const std::vector<std::string> fields, const std::string & simple_filter_str,
-                          const int num_typos, const size_t num_results, const token_ordering token_order = FREQUENCY,
-                          const bool prefix = false);
+    nlohmann::json search(std::string query, const std::vector<std::string> fields, const std::string &simple_filter_query,
+                          std::vector<facet> & facets, const int num_typos, const size_t num_results,
+                          const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void remove(std::string id);
 

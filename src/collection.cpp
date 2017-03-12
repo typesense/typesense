@@ -195,9 +195,40 @@ void Collection::index_int64_array_field(const std::vector<int64_t> & values, co
     }
 }
 
-void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, int & token_rank,
-                                   std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
-                                   size_t & total_results, size_t & num_found, const size_t & max_results) {
+void Collection::do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size) {
+    for(auto & a_facet: facets) {
+        // assumed that facet fields have already been validated upstream
+        const field & facet_field = schema.at(a_facet.field_name);
+
+        // loop through the field, get all keys and intersect those ids with result ids
+        if(index_map.count(facet_field.name) != 0) {
+            art_tree *t = index_map.at(facet_field.name);
+            std::vector<art_leaf *> leaves;
+
+            art_topk_iter(t->root, MAX_SCORE, 10, leaves);
+
+            for(const art_leaf* leaf: leaves) {
+                const uint32_t* facet_ids = leaf->values->ids.uncompress();
+                size_t facet_ids_size = leaf->values->ids.getLength();
+
+                uint32_t* facet_results = new uint32_t[std::min(facet_ids_size, results_size)];
+                const size_t facet_results_size = Intersection::scalar(result_ids, results_size,
+                                                                 facet_ids, facet_ids_size, facet_results);
+
+                const std::string facet_value((const char *)leaf->key, leaf->key_len-1); // drop trailing null
+                a_facet.result_map.insert(std::pair<std::string, size_t>(facet_value, facet_results_size));
+
+                delete [] facet_ids;
+                delete [] facet_results;
+            }
+        }
+    }
+}
+
+void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
+                                   int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves,
+                                   Topster<100> & topster, size_t & total_results, size_t & num_found,
+                                   const size_t & max_results) {
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_leaves.begin(), token_leaves.end(), 1LL, product);
@@ -227,6 +258,8 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             size_t filtered_results_size =
                     Intersection::scalar(filter_ids, filter_ids_length, result_ids, result_size, filtered_result_ids);
 
+            do_facets(facets, filtered_result_ids, filtered_results_size);
+
             // go through each matching document id and calculate match score
             score_results(topster, token_rank, query_suggestion, filtered_result_ids, filtered_results_size);
             num_found += filtered_results_size;
@@ -234,6 +267,8 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             delete[] filtered_result_ids;
             delete[] result_ids;
         } else {
+            do_facets(facets, result_ids, result_size);
+
             score_results(topster, token_rank, query_suggestion, result_ids, result_size);
             num_found += result_size;
             delete[] result_ids;
@@ -391,15 +426,28 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
 }
 
 nlohmann::json Collection::search(std::string query, const std::vector<std::string> fields,
-                                  const std::string & simple_filter_str,
-                                  const int num_typos, const size_t num_results,
-                                  const token_ordering token_order, const bool prefix) {
+                                  const std::string & simple_filter_query, std::vector<facet> & facets,
+                                  const int num_typos, const size_t num_results, const token_ordering token_order,
+                                  const bool prefix) {
     size_t num_found = 0;
     nlohmann::json result = nlohmann::json::object();
 
+    // validate facet fields
+    for(const facet & a_facet: facets) {
+        if(schema.count(a_facet.field_name) == 0) {
+            result["error"] = "Could not find a facet field named `" + a_facet.field_name + "` in the schema.";
+            return result;
+        }
+        field facet_field = schema.at(a_facet.field_name);
+        if(facet_field.type != field_types::STRING && facet_field.type != field_types::STRING_ARRAY) {
+            result["error"] = "Facet field `" + a_facet.field_name + "` should be a string or a string array.";
+            return result;
+        }
+    }
+
     // process the filters first
     uint32_t* filter_ids = nullptr;
-    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_str);
+    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
     if(!op_filter_ids_length.ok()) {
         result["error"] = op_filter_ids_length.error();
         return result;
@@ -415,9 +463,9 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         Topster<100> topster;
         const std::string & field = fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
-        if(simple_filter_str.size() == 0 || filter_ids_length > 0) {
-            search(filter_ids, filter_ids_length, query, field, num_typos, num_results,
-                   topster, num_found, token_order, prefix);
+        if(simple_filter_query.size() == 0 || filter_ids_length > 0) {
+            search(filter_ids, filter_ids_length, facets, query, field, num_typos, num_results, topster, num_found,
+                   token_order, prefix);
             topster.sort();
         }
 
@@ -449,6 +497,16 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     result["found"] = num_found;
 
+    result["facets"] = nlohmann::json::array();
+
+    // populate facets
+    for(const facet & a_facet: facets) {
+        nlohmann::json facet_result = nlohmann::json::object();
+        facet_result["field_name"] = a_facet.field_name;
+        facet_result["counts"] = a_facet.result_map;
+        result["facets"].push_back(facet_result);
+    }
+
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
     //!store->print_memory_usage();
@@ -464,9 +522,9 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-void Collection::search(uint32_t* filter_ids, size_t filter_ids_length, std::string & query,
-                        const std::string & field, const int num_typos, const size_t num_results,
-                        Topster<100> & topster, size_t & num_found, const token_ordering token_order, const bool prefix) {
+void Collection::search(uint32_t *filter_ids, size_t filter_ids_length, std::vector<facet> &facets, std::string &query,
+                        const std::string &field, const int num_typos, const size_t num_results, Topster<100> &topster,
+                        size_t &num_found, const token_ordering token_order, const bool prefix) {
     std::vector<std::string> tokens;
     StringUtils::tokenize(query, tokens, " ", true);
 
@@ -527,8 +585,14 @@ void Collection::search(uint32_t* filter_ids, size_t filter_ids_length, std::str
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
+
+                if(token_rank == 2) {
+                    std::cout << "\n";
+                }
+
                 art_fuzzy_search(index_map.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], 3, token_order, prefix, leaves);
+
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);
                 }
@@ -562,9 +626,8 @@ void Collection::search(uint32_t* filter_ids, size_t filter_ids_length, std::str
         }
 
         if(token_leaves.size() != 0 && token_leaves.size() == tokens.size()) {
-            // If a) all tokens were found, or b) Some were skipped because they don't exist within max_cost,
-            // go ahead and search for candidates with what we have so far
-            search_candidates(filter_ids, filter_ids_length, token_rank, token_leaves, topster,
+            // If all tokens were found, go ahead and search for candidates with what we have so far
+            search_candidates(filter_ids, filter_ids_length, facets, token_rank, token_leaves, topster,
                               total_results, num_found, max_results);
 
             if (total_results >= max_results) {
@@ -598,7 +661,7 @@ void Collection::search(uint32_t* filter_ids, size_t filter_ids_length, std::str
             }
         }
 
-        return search(filter_ids, filter_ids_length, truncated_query, field, num_typos, num_results, topster,
+        return search(filter_ids, filter_ids_length, facets, truncated_query, field, num_typos, num_results, topster,
                       num_found, token_order, prefix);
     }
 }
@@ -614,7 +677,7 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
     }
 }
 
-void Collection::score_results(Topster<100> &topster, const int & token_rank,
+void Collection::score_results(Topster<100> & topster, const int & token_rank,
                                const std::vector<art_leaf *> &query_suggestion, const uint32_t *result_ids,
                                const size_t result_size) const {
 

@@ -63,3 +63,12 @@ struct filter {
         return Option<NUM_COMPARATOR>(400, "Numerical field has an invalid comparator.");
     }
 };
+
+struct facet {
+    const std::string field_name;
+    std::map<std::string, size_t> result_map;
+
+    facet(const std::string field_name): field_name(field_name) {
+
+    }
+};

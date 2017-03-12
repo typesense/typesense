@@ -99,8 +99,8 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
 
     std::vector<std::string> search_fields = {"title"};
 
-    nlohmann::json result = collection->search(query_map["q"], search_fields, filter_str, std::stoi(query_map[NUM_TYPOS]),
-                                               100, token_order, false);
+    nlohmann::json result = collection->search(query_map["q"], search_fields, filter_str, { },
+                                               std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
     std::string json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;
