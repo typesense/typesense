@@ -19,17 +19,19 @@ private:
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
 
-    spp::sparse_hash_map<std::string, field> schema;
+    spp::sparse_hash_map<std::string, field> search_schema;
+
+    spp::sparse_hash_map<std::string, field> facet_schema;
 
     std::vector<std::string> rank_fields;
 
     Store* store;
 
-    spp::sparse_hash_map<std::string, art_tree*> index_map;
+    spp::sparse_hash_map<std::string, art_tree*> search_index;
 
-    spp::sparse_hash_map<uint32_t, int64_t> primary_rank_scores;
+    spp::sparse_hash_map<std::string, art_tree*> facet_index;
 
-    spp::sparse_hash_map<uint32_t, int64_t> secondary_rank_scores;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> rank_index;
 
     std::string get_doc_id_key(std::string doc_id);
 
@@ -46,17 +48,21 @@ private:
 
     void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
-    void search(uint32_t *filter_ids, size_t filter_ids_length, std::vector<facet> &facets, std::string &query,
-                    const std::string &field, const int num_typos, const size_t num_results, Topster<100> &topster,
-                    size_t &num_found, const token_ordering token_order = FREQUENCY, const bool prefix = false);
+    void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
+                      std::vector<facet> & facets, const std::vector<std::string> & rank_fields, const int num_typos,
+                      const size_t num_results, Topster<100> &topster, size_t & num_found,
+                      const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                           int & token_rank, std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
+                           const std::vector<std::string> & rank_fields, int & token_rank,
+                           std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, size_t & num_found, const size_t & max_results);
 
-    void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
+                            const bool verbatim) const;
 
-    void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
+                                  uint32_t seq_id, const bool verbatim) const;
 
     void index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const;
 
@@ -73,7 +79,8 @@ public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & search_fields, const std::vector<std::string> rank_fields);
+               const std::vector<field> & search_fields, const std::vector<field> & facet_fields,
+               const std::vector<std::string> & rank_fields);
 
     ~Collection();
 
@@ -89,20 +96,24 @@ public:
 
     uint32_t doc_id_to_seq_id(std::string doc_id);
 
+    std::vector<std::string> get_facet_fields();
+
     std::vector<std::string> get_rank_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
 
     std::string add(std::string json_str);
 
-    nlohmann::json search(std::string query, const std::vector<std::string> fields, const std::string &simple_filter_query,
-                          std::vector<facet> & facets, const int num_typos, const size_t num_results,
-                          const token_ordering token_order = FREQUENCY, const bool prefix = false);
+    nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
+                          const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                          const std::vector<std::string> & rank_fields, const int num_typos,
+                          const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void remove(std::string id);
 
-    void score_results(Topster<100> &topster, const int & token_rank, const std::vector<art_leaf *> &query_suggestion,
-                       const uint32_t *result_ids, const size_t result_size) const;
+    void score_results(const std::vector<std::string> & rank_fields, const int & token_rank, Topster<100> &topster,
+                       const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
+                       const size_t result_size) const;
 
     void index_in_memory(const nlohmann::json &document, uint32_t seq_id);
 

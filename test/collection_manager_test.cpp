@@ -10,7 +10,8 @@ protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection *collection1;
-    std::vector<field> fields;
+    std::vector<field> search_fields;
+    std::vector<field> facet_fields;
     std::vector<std::string> rank_fields;
 
     void setupCollection() {
@@ -21,9 +22,11 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store);
 
-        fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
+        search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
+        facet_fields = {field("starring", field_types::STRING)};
         rank_fields = {"points"};
-        collection1 = collectionManager.create_collection("collection1", fields, rank_fields);
+
+        collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields, rank_fields);
     }
 
     virtual void SetUp() {
@@ -47,9 +50,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     infile.close();
 
     std::vector<std::string> search_fields = {"starring", "title"};
-    std::vector<facet> facets;
+    std::vector<std::string> facets;
 
-    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, 0, 10, FREQUENCY, false);
+    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, rank_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
@@ -61,12 +64,15 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
 
+    std::vector<std::string> facet_fields_expected = {facet_fields[0].name};
+
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
+    ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(rank_fields, collection1->get_rank_fields());
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
 
-    results = collection1->search("thomas", search_fields, "", facets, 0, 10, FREQUENCY, false);
+    results = collection1->search("thomas", search_fields, "", facets, rank_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 }
 

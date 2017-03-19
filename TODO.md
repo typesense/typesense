@@ -21,35 +21,37 @@
 - ~~storage key prefix should include collection name~~
 - ~~Index and search on multi-valued field~~
 - ~~range search for art_int~~
-- Proper score field for ranking tokens
-- Support nested fields via "."
 - ~~Restore records as well on restart (like for meta)~~
 - ~~drop collection should remove all records from the store~~
-- Pagination parameter
-- UTF-8 support for fuzzy search
 - ~~Multi-key binary search during scoring~~
 - ~~Assumption that all tokens match for scoring is no longer true~~
-- Handle searching for non-existing fields gracefully
-- Intersection without unpacking
 - ~~Filters~~
 - ~~Facets~~
+- Prevent string copy during indexing
+- Schema validation during insertion
+- clean special chars before indexing
+- Proper score field for ranking tokens
+- Minimum results should be a variable instead of blindly going with max_results
+- Pagination parameter
 - Iterator
 - Highlight
+- UTF-8 support for fuzzy search
+- Handle searching for non-existing fields gracefully
+- test for same match score but different primary, secondary attr
+- only last token should be prefix searched
+- Intersection without unpacking
+- Support nested fields via "."
 - Support search operators like +, - etc.
 - Prefix-search strings should not be null terminated
 - string_utils::tokenize should not have max length
-- only last token should be prefix searched
 - art float search
-- Minimum results should be a variable instead of blindly going with max_results
 - Benchmark with -ffast-math
 - Space sensitivity
 - Use bitmap index instead of compressed array for doc list
 - Throw errors when schema is broken
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined
 - Proper logging
-- clean special chars before indexing
 - d-ary heap?
-- test for same match score but different primary, secondary attr
 
 **API**
 
