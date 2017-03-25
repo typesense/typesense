@@ -102,7 +102,7 @@ public:
 
     spp::sparse_hash_map<std::string, field> get_schema();
 
-    std::string add(std::string json_str);
+    Option<std::string> add(std::string json_str);
 
     nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
@@ -115,7 +115,7 @@ public:
                        const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 
-    void index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json &document, uint32_t seq_id);
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};

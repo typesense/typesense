@@ -9,7 +9,7 @@ private:
     bool is_ok;
 
     std::string error_msg;
-    uint32_t code;
+    uint32_t error_code;
 
 public:
 
@@ -17,11 +17,11 @@ public:
 
     }
 
-    Option(uint32_t code, const std::string & error_msg): code(code), error_msg(error_msg), is_ok(false) {
+    Option(uint32_t code, const std::string & error_msg): error_code(code), error_msg(error_msg), is_ok(false) {
 
     }
 
-    bool ok() {
+    bool ok() const {
         return is_ok;
     }
 
@@ -29,7 +29,11 @@ public:
         return value;
     }
 
-    std::string error() {
+    std::string error() const {
         return error_msg;
+    }
+
+    uint32_t code() const {
+        return error_code;
     }
 };

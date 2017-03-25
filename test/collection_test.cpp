@@ -782,3 +782,48 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     collectionManager.drop_collection("coll_array_fields");
 }
+
+TEST_F(CollectionTest, IndexingWithBadData) {
+    // should not crash when document to-be-indexed doesn't match schema
+    Collection *sample_collection;
+
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32)};
+    facet_fields = {field("tags", field_types::STRING_ARRAY)};
+    std::vector<std::string> rank_fields = {"age", "average"};
+
+    sample_collection = collectionManager.get_collection("sample_collection");
+    if(sample_collection == nullptr) {
+        sample_collection = collectionManager.create_collection("sample_collection", fields, facet_fields, rank_fields);
+    }
+
+    const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\"}");
+    ASSERT_FALSE(search_fields_missing_op1.ok());
+    ASSERT_STREQ("Field `name` has been declared as a search field in the schema, but is not found in the document.",
+                 search_fields_missing_op1.error().c_str());
+
+    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"name\": \"foo\", \"agez\": 34}");
+    ASSERT_FALSE(search_fields_missing_op2.ok());
+    ASSERT_STREQ("Field `age` has been declared as a search field in the schema, but is not found in the document.",
+                 search_fields_missing_op2.error().c_str());
+
+    const Option<std::string> & facet_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 34}");
+    ASSERT_FALSE(facet_fields_missing_op1.ok());
+    ASSERT_STREQ("Field `tags` has been declared as a facet field in the schema, but is not found in the document.",
+                 facet_fields_missing_op1.error().c_str());
+
+    const char *doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", \"blue\"]}";
+    const Option<std::string> & rank_fields_missing_op1 = sample_collection->add(doc_str);
+    ASSERT_FALSE(rank_fields_missing_op1.ok());
+    ASSERT_STREQ("Field `average` has been declared as a rank field in the schema, but is not found in the document.",
+                 rank_fields_missing_op1.error().c_str());
+
+    // handle type errors
+
+    const char *doc_str2 = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22}";
+    const Option<std::string> & rank_fields_missing_op2 = sample_collection->add(doc_str2);
+    ASSERT_FALSE(rank_fields_missing_op2.ok());
+    ASSERT_STREQ("Field `average` has been declared as a rank field in the schema, but is not found in the document.",
+                 rank_fields_missing_op2.error().c_str());
+
+    collectionManager.drop_collection("sample_collection");
+}

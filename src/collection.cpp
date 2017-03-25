@@ -55,7 +55,7 @@ uint32_t Collection::get_next_seq_id() {
     return next_seq_id++;
 }
 
-std::string Collection::add(std::string json_str) {
+Option<std::string> Collection::add(std::string json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
     uint32_t seq_id = get_next_seq_id();
@@ -65,16 +65,20 @@ std::string Collection::add(std::string json_str) {
         document["id"] = seq_id_str;
     }
 
+    const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);
+
+    if(!index_memory_op.ok()) {
+        return Option<std::string>(index_memory_op.code(), index_memory_op.error());
+    }
+
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_doc_id_key(document["id"]), seq_id_str);
 
-    index_in_memory(document, seq_id);
-    return document["id"];
+    std::string doc_id = document["id"];
+    return Option<std::string>(doc_id);
 }
 
-void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
-    // FIXME: field might not exist in the document or field type might be invalid - need to validate!
-
+Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
     uint32_t points = 0;
     if(document.count("points") != 0) {
         points = document["points"];
@@ -82,6 +86,12 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
+
+        if(document.count(field_name) == 0) {
+            return Option<>(400, "Field `" + field_name  + "` has been declared as a search field in the schema, "
+                            "but is not found in the document.");
+        }
+
         art_tree *t = search_index.at(field_name);
 
         if(field_pair.second.type == field_types::STRING) {
@@ -107,6 +117,12 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
 
     for(const std::pair<std::string, field> & field_pair: facet_schema) {
         const std::string & field_name = field_pair.first;
+
+        if(document.count(field_name) == 0) {
+            return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
+                            "but is not found in the document.");
+        }
+
         art_tree *t = facet_index.at(field_name);
         if(field_pair.second.type == field_types::STRING) {
             const std::string & text = document[field_name];
@@ -118,12 +134,16 @@ void Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id
     }
 
     for(const std::string & rank_field: rank_fields) {
-        if(rank_index.count(rank_field) > 0) {
-            spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = rank_index.at(rank_field);
-            doc_to_score->emplace(seq_id, document[rank_fields[0]].get<int64_t>());
+        if(document.count(rank_field) == 0) {
+            return Option<>(400, "Field `" + rank_field  + "` has been declared as a rank field in the schema, "
+                    "but is not found in the document.");
         }
-        // FIXME: handle else (return error)
+
+        spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = rank_index.at(rank_field);
+        doc_to_score->emplace(seq_id, document[rank_fields[0]].get<int64_t>());
     }
+
+    return Option<>(200);
 }
 
 void Collection::index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {

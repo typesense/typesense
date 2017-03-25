@@ -18,6 +18,7 @@
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
+#include "option.h"
 #include <sys/resource.h>
 
 #include "h2o.h"
@@ -122,17 +123,23 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
 
 static int post_add_document(h2o_handler_t *self, h2o_req_t *req) {
     std::string document(req->entity.base, req->entity.len);
-    std::string inserted_id = collection->add(document);
-
-    static h2o_generator_t generator = {NULL, NULL};
-    req->res.status = 200;
-    req->res.reason = "OK";
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
-    h2o_start_response(req, &generator);
+    Option<std::string> inserted_id_op = collection->add(document);
 
     nlohmann::json json_response;
-    json_response["id"] = inserted_id;
-    json_response["status"] = "SUCCESS";
+    static h2o_generator_t generator = {NULL, NULL};
+
+    if(!inserted_id_op.ok()) {
+        req->res.status = 400;
+        req->res.reason = "BAD REQUEST";
+        json_response["message"] = inserted_id_op.error();
+    } else {
+        req->res.status = 201;
+        req->res.reason = "CREATED";
+        json_response["id"] = inserted_id_op.get();
+    }
+
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_start_response(req, &generator);
 
     h2o_iovec_t body = h2o_strdup(&req->pool, json_response.dump().c_str(), SIZE_MAX);
     h2o_send(req, &body, 1, 1);
