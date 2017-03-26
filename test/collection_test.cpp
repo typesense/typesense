@@ -817,13 +817,27 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_STREQ("Field `average` has been declared as a rank field in the schema, but is not found in the document.",
                  rank_fields_missing_op1.error().c_str());
 
-    // handle type errors
+    // Handle type errors
 
-    const char *doc_str2 = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22}";
-    const Option<std::string> & rank_fields_missing_op2 = sample_collection->add(doc_str2);
-    ASSERT_FALSE(rank_fields_missing_op2.ok());
-    ASSERT_STREQ("Field `average` has been declared as a rank field in the schema, but is not found in the document.",
-                 rank_fields_missing_op2.error().c_str());
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22}";
+    const Option<std::string> & bad_facet_field_op = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_facet_field_op.ok());
+    ASSERT_STREQ("Facet field `tags` must be a STRING_ARRAY.",
+                 bad_facet_field_op.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": 34}";
+    const Option<std::string> & empty_facet_field_op = sample_collection->add(doc_str);
+    ASSERT_TRUE(empty_facet_field_op.ok());
+
+    doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
+    const Option<std::string> & bad_search_field_op = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_search_field_op.ok());
+    ASSERT_STREQ("Search field `age` must be an INT32.", bad_search_field_op.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
+    const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_rank_field_op.ok());
+    ASSERT_STREQ("Rank field `average` must be an integer.", bad_rank_field_op.error().c_str());
 
     collectionManager.drop_collection("sample_collection");
 }

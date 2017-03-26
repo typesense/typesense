@@ -95,21 +95,60 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         art_tree *t = search_index.at(field_name);
 
         if(field_pair.second.type == field_types::STRING) {
+            if(!document[field_name].is_string()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be a STRING.");
+            }
             const std::string & text = document[field_name];
             index_string_field(text, points, t, seq_id, false);
         } else if(field_pair.second.type == field_types::INT32) {
+            if(!document[field_name].is_number()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT32.");
+            }
+
+            if(document[field_name].get<int64_t>() > INT32_MAX) {
+                return Option<>(400, "Search field `" + field_name  + "` exceeds maximum value of INT32.");
+            }
+
             uint32_t value = document[field_name];
             index_int32_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64) {
+            if(!document[field_name].is_number()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT64.");
+            }
+
             uint64_t value = document[field_name];
             index_int64_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be a STRING_ARRAY.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be a STRING_ARRAY.");
+            }
+
             std::vector<std::string> strings = document[field_name];
             index_string_array_field(strings, points, t, seq_id, false);
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
+            }
+
             std::vector<int32_t> values = document[field_name];
             index_int32_array_field(values, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
+            }
+
             std::vector<int64_t> values = document[field_name];
             index_int64_array_field(values, points, t, seq_id);
         }
@@ -125,9 +164,20 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
         art_tree *t = facet_index.at(field_name);
         if(field_pair.second.type == field_types::STRING) {
+            if(!document[field_name].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING.");
+            }
             const std::string & text = document[field_name];
             index_string_field(text, points, t, seq_id, true);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
+            }
+
             std::vector<std::string> strings = document[field_name];
             index_string_array_field(strings, points, t, seq_id, true);
         }
@@ -137,6 +187,10 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         if(document.count(rank_field) == 0) {
             return Option<>(400, "Field `" + rank_field  + "` has been declared as a rank field in the schema, "
                     "but is not found in the document.");
+        }
+
+        if(!document[rank_field].is_number()) {
+            return Option<>(400, "Rank field `" + rank_field  + "` must be an integer.");
         }
 
         spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = rank_index.at(rank_field);

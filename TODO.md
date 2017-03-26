@@ -27,7 +27,7 @@
 - ~~Assumption that all tokens match for scoring is no longer true~~
 - ~~Filters~~
 - ~~Facets~~
-- Schema validation during insertion (missing fields + type errors)
+- ~~Schema validation during insertion (missing fields + type errors)~~
 - Proper score field for ranking tokens
 - Prevent string copy during indexing
 - clean special chars before indexing
