@@ -9,8 +9,9 @@
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &search_fields, const std::vector<field> & facet_fields,
-                       const std::vector<std::string> & rank_fields):
-    name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store), rank_fields(rank_fields) {
+                       const std::vector<std::string> & rank_fields, const std::string token_ordering_field):
+                       name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
+                       rank_fields(rank_fields), token_ordering_field(token_ordering_field) {
 
     for(const field& field: search_fields) {
         art_tree *t = new art_tree;
@@ -79,9 +80,22 @@ Option<std::string> Collection::add(std::string json_str) {
 }
 
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
+    if(!token_ordering_field.empty() && document.count(token_ordering_field) == 0) {
+        return Option<>(400, "Field `" + token_ordering_field  + "` has been declared as a token ordering field, "
+                        "but is not found in the document.");
+    }
+
+    if(!document[token_ordering_field].is_number()) {
+        return Option<>(400, "Token ordering field `" + token_ordering_field  + "` must be an INT32.");
+    }
+
+    if(document[token_ordering_field].get<int64_t>() > INT32_MAX) {
+        return Option<>(400, "Token ordering field `" + token_ordering_field  + "` exceeds maximum value of INT32.");
+    }
+
     uint32_t points = 0;
-    if(document.count("points") != 0) {
-        points = document["points"];
+    if(!token_ordering_field.empty()) {
+        points = document[token_ordering_field];
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
@@ -1061,4 +1075,8 @@ std::string Collection::get_meta_key(std::string collection_name) {
 
 std::string Collection::get_seq_id_collection_prefix() {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
+}
+
+std::string Collection::get_token_ordering_field() {
+    return token_ordering_field;
 }

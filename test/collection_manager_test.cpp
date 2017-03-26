@@ -26,7 +26,8 @@ protected:
         facet_fields = {field("starring", field_types::STRING)};
         rank_fields = {"points"};
 
-        collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields, rank_fields);
+        collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,
+                                                          rank_fields, "points");
     }
 
     virtual void SetUp() {
@@ -71,6 +72,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(rank_fields, collection1->get_rank_fields());
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
+    ASSERT_EQ("points", collection1->get_token_ordering_field());
 
     results = collection1->search("thomas", search_fields, "", facets, rank_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());

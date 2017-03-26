@@ -48,13 +48,16 @@ void CollectionManager::init(Store *store) {
         std::vector<std::string> collection_rank_fields =
                 collection_meta[COLLECTION_RANK_FIELDS_KEY].get<std::vector<std::string>>();
 
+        std::string token_ordering_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
+
         Collection* collection = new Collection(this_collection_name,
                                                 collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
                                                 collection_next_seq_id,
                                                 store,
                                                 search_fields,
                                                 facet_fields,
-                                                collection_rank_fields);
+                                                collection_rank_fields,
+                                                token_ordering_field);
 
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
@@ -79,7 +82,8 @@ void CollectionManager::init(Store *store) {
 
 Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,
                                                  const std::vector<field> & facet_fields,
-                                                 const std::vector<std::string> & rank_fields) {
+                                                 const std::vector<std::string> & rank_fields,
+                                                 const std::string & token_ordering_field) {
     if(store->contains(Collection::get_meta_key(name))) {
         return nullptr;
     }
@@ -107,8 +111,10 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = search_fields_json;
     collection_meta[COLLECTION_FACET_FIELDS_KEY] = facet_fields_json;
     collection_meta[COLLECTION_RANK_FIELDS_KEY] = rank_fields;
-    
-    Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, facet_fields, rank_fields);
+    collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY] = token_ordering_field;
+
+    Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, facet_fields,
+                                                rank_fields, token_ordering_field);
 
     store->insert(Collection::get_meta_key(name), collection_meta.dump());
     store->insert(Collection::get_next_seq_id_key(name), std::to_string(0));

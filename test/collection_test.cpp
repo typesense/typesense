@@ -31,7 +31,8 @@ protected:
 
         collection = collectionManager.get_collection("collection");
         if(collection == nullptr) {
-            collection = collectionManager.create_collection("collection", search_fields, facet_fields, rank_fields);
+            collection = collectionManager.create_collection("collection", search_fields, facet_fields,
+                                                             rank_fields, "points");
         }
 
         std::string json_line;
@@ -787,23 +788,24 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     // should not crash when document to-be-indexed doesn't match schema
     Collection *sample_collection;
 
-    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32)};
+    std::vector<field> fields = {field("name", field_types::STRING)};
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
     std::vector<std::string> rank_fields = {"age", "average"};
 
     sample_collection = collectionManager.get_collection("sample_collection");
     if(sample_collection == nullptr) {
-        sample_collection = collectionManager.create_collection("sample_collection", fields, facet_fields, rank_fields);
+        sample_collection = collectionManager.create_collection("sample_collection", fields, facet_fields,
+                                                                rank_fields, "age");
     }
 
-    const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\"}");
+    const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29}");
     ASSERT_FALSE(search_fields_missing_op1.ok());
     ASSERT_STREQ("Field `name` has been declared as a search field in the schema, but is not found in the document.",
                  search_fields_missing_op1.error().c_str());
 
-    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"name\": \"foo\", \"agez\": 34}");
+    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"namez\": \"foo\", \"age\": 34}");
     ASSERT_FALSE(search_fields_missing_op2.ok());
-    ASSERT_STREQ("Field `age` has been declared as a search field in the schema, but is not found in the document.",
+    ASSERT_STREQ("Field `name` has been declared as a search field in the schema, but is not found in the document.",
                  search_fields_missing_op2.error().c_str());
 
     const Option<std::string> & facet_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 34}");
@@ -830,9 +832,14 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_TRUE(empty_facet_field_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_search_field_op = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_search_field_op.ok());
-    ASSERT_STREQ("Search field `age` must be an INT32.", bad_search_field_op.error().c_str());
+    const Option<std::string> & bad_token_ordering_field_op1 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ordering_field_op1.ok());
+    ASSERT_STREQ("Token ordering field `age` must be an INT32.", bad_token_ordering_field_op1.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
+    const Option<std::string> & bad_token_ordering_field_op2 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ordering_field_op2.ok());
+    ASSERT_STREQ("Token ordering field `age` exceeds maximum value of INT32.", bad_token_ordering_field_op2.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
     const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);

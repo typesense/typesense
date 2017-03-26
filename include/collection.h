@@ -33,6 +33,8 @@ private:
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> rank_index;
 
+    std::string token_ordering_field;
+
     std::string get_doc_id_key(std::string doc_id);
 
     std::string get_seq_id_key(uint32_t seq_id);
@@ -80,7 +82,7 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                const std::vector<field> & search_fields, const std::vector<field> & facet_fields,
-               const std::vector<std::string> & rank_fields);
+               const std::vector<std::string> & rank_fields, const std::string token_ordering_field);
 
     ~Collection();
 
@@ -101,6 +103,8 @@ public:
     std::vector<std::string> get_rank_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
+
+    std::string get_token_ordering_field();
 
     Option<std::string> add(std::string json_str);
 

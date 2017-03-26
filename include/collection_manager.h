@@ -23,6 +23,7 @@ private:
     static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
     static constexpr const char* COLLECTION_FACET_FIELDS_KEY = "facet_fields";
     static constexpr const char* COLLECTION_RANK_FIELDS_KEY = "rank_fields";
+    static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ordering_field";
 
     CollectionManager();
 
@@ -41,7 +42,8 @@ public:
 
     Collection* create_collection(std::string name, const std::vector<field> & search_fields,
                                   const std::vector<field> & facet_fields,
-                                  const std::vector<std::string> & rank_fields);
+                                  const std::vector<std::string> & rank_fields,
+                                  const std::string & token_ordering_field = "");
 
     Collection* get_collection(std::string collection_name);
 
