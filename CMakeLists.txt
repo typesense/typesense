@@ -3,6 +3,7 @@ project(typesense)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++11 -O0")
+# set(CMAKE_EXE_LINKER_FLAGS "--verbose")
 
 if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/)
     file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/external)
@@ -39,7 +40,7 @@ add_executable(typesense-server ${HEADER_FILES} ${SRC_FILES} src/main/server.cpp
 add_executable(search ${HEADER_FILES} ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${HEADER_FILES} ${SRC_FILES} src/main/benchmark.cpp)
 add_executable(typesense_test test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
-               test/collection_test.cpp test/collection_manager_test.cpp test/topster_test.cpp ${SRC_FILES})
+               test/collection_test.cpp test/collection_manager_test.cpp test/topster_test.cpp ${HEADER_FILES} ${SRC_FILES})
 
 target_compile_definitions(typesense-server PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
