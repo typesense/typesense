@@ -7,12 +7,16 @@ Typesense is an open source search engine for building a delightful search exper
 - **Blazing fast:** Meticulously designed and optimized for speed
 - **Simple and delightful:** Simple API, delightful out-of-the-box experience
 
-## Building Typesense from source
+## Development
 
-Please ensure that you have `cmake` available on your system. All other dependencies are built automatically.
+### Build from source
+
+Please ensure that you have docker installed on your system.
 
 ```
-./build.sh
+$ ./build.sh
 ```
+
+We use [dockcross](https://github.com/dockcross/dockcross) to build our development environment consistently.
 
 &copy; 2016-2017 Wreally Studios Inc.
