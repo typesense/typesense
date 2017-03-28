@@ -7,8 +7,8 @@
 #include <art.h>
 #include <unordered_map>
 #include <queue>
-#include "string_utils.h"
 #include "collection.h"
+#include "string_utils.h"
 #include "collection_manager.h"
 
 using namespace std;
