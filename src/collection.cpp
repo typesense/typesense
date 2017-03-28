@@ -85,11 +85,11 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                         "but is not found in the document.");
     }
 
-    if(!document[token_ordering_field].is_number()) {
+    if(!token_ordering_field.empty() && !document[token_ordering_field].is_number()) {
         return Option<>(400, "Token ordering field `" + token_ordering_field  + "` must be an INT32.");
     }
 
-    if(document[token_ordering_field].get<int64_t>() > INT32_MAX) {
+    if(!token_ordering_field.empty() && document[token_ordering_field].get<int64_t>() > INT32_MAX) {
         return Option<>(400, "Token ordering field `" + token_ordering_field  + "` exceeds maximum value of INT32.");
     }
 
@@ -745,9 +745,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
 
-                if(token_rank == 2) {
-                    std::cout << "\n";
-                }
+                int count = search_index.count(field);
 
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], 3, token_order, prefix, leaves);
