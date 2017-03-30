@@ -625,9 +625,9 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
                 return old_val;
             }
 
-            art_values *old_val = l->values;
+            art_values *ret_val = l->values;
             add_document_to_leaf(document, l);
-            return old_val;
+            return ret_val;
         }
 
         // New value, we must split the leaf into a node4
