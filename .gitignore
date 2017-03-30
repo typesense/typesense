@@ -1,6 +1,6 @@
 .idea
 *.iml
-external
+external*
 build
 cmake-build-debug
 cmake-build-release
