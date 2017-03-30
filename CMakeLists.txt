@@ -18,6 +18,10 @@ include(cmake/TestResources.cmake)
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
     add_definitions(-D__GLIBCXX__)
+
+    # For openssl installed with Brew
+    include_directories(/usr/local/opt/openssl/include)
+    link_directories(/usr/local/opt/openssl/lib)
 endif (APPLE)
 
 FILE(GLOB HEADER_FILES include/*)
@@ -33,7 +37,6 @@ include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
-link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build/libressl-build/lib)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 
 add_executable(typesense-server ${SRC_FILES} src/main/server.cpp)
