@@ -2,20 +2,24 @@
 
 set(GTEST_VERSION 1.8.0)
 set(GTEST_NAME googletest-release-${GTEST_VERSION})
-set(GTEST_TAR_PATH ${CMAKE_SOURCE_DIR}/external/${GTEST_NAME}.tar.gz)
+set(GTEST_TAR_PATH ${DEP_ROOT_DIR}/${GTEST_NAME}.tar.gz)
 
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/${GTEST_NAME})
-    message(STATUS "Downloading and extracting Google Test...")
+if(NOT EXISTS ${GTEST_TAR_PATH})
+    message(STATUS "Downloading Google Test...")
     file(DOWNLOAD https://github.com/google/googletest/archive/release-${GTEST_VERSION}.tar.gz ${GTEST_TAR_PATH})
-    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${GTEST_TAR_PATH} WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/external/)
 endif()
 
-if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build)
+if(NOT EXISTS ${DEP_ROOT_DIR}/${GTEST_NAME})
+    message(STATUS "Extracting Google Test...")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${GTEST_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
+endif()
+
+if(NOT EXISTS ${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build)
     message("Configuring Google Test...")
-    file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build)
+    file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
-            "-H${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest"
-            "-B${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build"
+            "-H${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest"
+            "-B${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build"
             RESULT_VARIABLE
             GOOGLETEST_CONFIGURE)
     if(NOT GOOGLETEST_CONFIGURE EQUAL 0)
@@ -24,7 +28,7 @@ if(NOT EXISTS ${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/g
 
     message("Building Google Test locally...")
     execute_process(COMMAND ${CMAKE_COMMAND} --build
-            "${CMAKE_SOURCE_DIR}/external/googletest-release-${GTEST_VERSION}/googletest/build"
+            "${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build"
             RESULT_VARIABLE
             GOOGLETEST_BUILD)
     if(NOT GOOGLETEST_BUILD EQUAL 0)

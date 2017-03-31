@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
 
     Collection *collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", fields_to_index, rank_fields);
+        collection = collectionManager.create_collection("collection", fields_to_index, {}, rank_fields);
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         //std::ifstream infile(argv[1]);
 
@@ -71,8 +71,9 @@ int main(int argc, char* argv[]) {
 
     auto begin = std::chrono::high_resolution_clock::now();
     std::vector<std::string> search_fields = {"title"};
-    collection->search("the", search_fields, {}, { }, 1, 100, MAX_SCORE, 0);
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    collection->search("the", search_fields, "", {}, {"points"}, 1, 100, MAX_SCORE, 0);
+    long long int timeMillis =
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
     return 0;
 }

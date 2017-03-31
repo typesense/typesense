@@ -101,7 +101,7 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     std::vector<std::string> search_fields = {"title"};
 
     nlohmann::json result = collection->search(query_map["q"], search_fields, filter_str, { },
-                                               std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
+                                               {"points"}, std::stoi(query_map[NUM_TYPOS]), 100, token_order, false);
     std::string json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;
@@ -234,7 +234,7 @@ int main(int argc, char **argv) {
     collectionManager.init(store);
     collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", search_fields, rank_fields);
+        collection = collectionManager.create_collection("collection", search_fields, {}, rank_fields);
         //index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
         index_documents(argv[1]);
     }

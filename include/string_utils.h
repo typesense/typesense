@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <algorithm>
 #include <sstream>
 
 struct StringUtils {
@@ -52,7 +53,7 @@ struct StringUtils {
         }
         std::string::const_iterator substart = s.begin(), subend;
         while (true) {
-            subend = search(substart, s.end(), delim.begin(), delim.end());
+            subend = std::search(substart, s.end(), delim.begin(), delim.end());
             std::string temp(substart, subend);
             temp = trim(temp);
 

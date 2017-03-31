@@ -3,7 +3,7 @@ set -o xtrace
 
 PROJECT_DIR=`dirname $0`
 
-if [ "$1" == "--clean" ]; then
+if [ "$1" = "--clean" ]; then
   rm -rf $PROJECT_DIR/build
   mkdir $PROJECT_DIR/build
 
