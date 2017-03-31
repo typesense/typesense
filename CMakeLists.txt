@@ -12,7 +12,7 @@ endif()
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
     add_definitions(-D__GLIBCXX__)
-    set(OPENSSL_ROOT_DIR /usr/local/opt/openssl) # For Brew
+    set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl) # For Brew
 endif (APPLE)
 
 FIND_PACKAGE(OpenSSL REQUIRED)
