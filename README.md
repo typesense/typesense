@@ -14,7 +14,15 @@ Typesense is an open source search engine for building a delightful search exper
 Please ensure that you have docker installed on your system.
 
 ```
-$ ./build.sh
+$ ./build.sh [--clean]
+.
+.
+.
+$ ./dockcross build/typesense_test
+.
+.
+.
+$ ./dockcross build/typesense-server
 ```
 
 We use [dockcross](https://github.com/dockcross/dockcross) to build our development environment consistently.
