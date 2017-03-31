@@ -16,5 +16,9 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.so)
     message("Building ${ROCKSDB_NAME} locally...")
-    execute_process(COMMAND make "shared_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
+    execute_process(COMMAND make "shared_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
+                    RESULT_VARIABLE ROCKSDB_BUILD)
+    if(NOT ROCKSDB_BUILD EQUAL 0)
+        message(FATAL_ERROR "${ROCKSDB_NAME} build failed!")
+    endif()
 endif()

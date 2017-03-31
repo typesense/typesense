@@ -16,5 +16,9 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME}/libfor.a)
     message("Building libfor locally...")
-    execute_process(COMMAND make WORKING_DIRECTORY ${DEP_ROOT_DIR}/${FOR_NAME}/)
+    execute_process(COMMAND make WORKING_DIRECTORY ${DEP_ROOT_DIR}/${FOR_NAME}/
+                    RESULT_VARIABLE FOR_BUILD)
+    if(NOT FOR_BUILD EQUAL 0)
+        message(FATAL_ERROR "${FOR_NAME} build failed!")
+    endif()
 endif()
