@@ -28,7 +28,7 @@ TEST(TopsterTest, StoreMaxValuesWithoutRepetition) {
 
     topster.sort();
 
-    std::vector<uint64_t> ids = {4, 1, 8, 5, 9};
+    std::vector<uint64_t> ids = {4, 1, 5, 8, 9};
 
     for(int i = 0; i < topster.size; i++) {
         EXPECT_EQ(ids[i], topster.getKeyAt(i));
