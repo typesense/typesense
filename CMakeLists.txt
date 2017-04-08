@@ -76,7 +76,14 @@ target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(benchmark PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 
-target_link_libraries(typesense-server for h2o-evloop pthread rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES} ${OPENSSL_LIBRARIES} dl)
-target_link_libraries(search for pthread rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
-target_link_libraries(benchmark for pthread rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
-target_link_libraries(typesense_test pthread for rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES} gtest gtest_main)
+set(STD_LIB -static-libstdc++)
+set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
+
+if(NOT APPLE)
+    list(APPEND ROCKSDB_LIBS rt)
+endif()
+
+target_link_libraries(typesense-server for pthread h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(search for pthread h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(benchmark for pthread ${ROCKSDB_LIBS} ${STD_LIB})
+target_link_libraries(typesense_test pthread for ${ROCKSDB_LIBS} gtest gtest_main ${STD_LIB})
