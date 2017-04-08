@@ -1332,6 +1332,9 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         art_leaf *l = (art_leaf *) LEAF_RAW(t->root);
         art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
     } else {
+        if(t->root == NULL) {
+            return 0;
+        }
         art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
     }
 

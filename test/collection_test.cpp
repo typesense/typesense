@@ -848,3 +848,19 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     collectionManager.drop_collection("sample_collection");
 }
+
+TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
+    Collection *empty_coll;
+
+    std::vector<field> fields = {field("name", field_types::STRING)};
+    facet_fields = {field("tags", field_types::STRING_ARRAY)};
+    std::vector<std::string> rank_fields = {"age", "average"};
+
+    empty_coll = collectionManager.get_collection("empty_coll");
+    if(empty_coll == nullptr) {
+        empty_coll = collectionManager.create_collection("empty_coll", fields, facet_fields, rank_fields, "age");
+    }
+
+    nlohmann::json results = empty_coll->search("a", {"name"}, "", {}, rank_fields, 0, 10, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+}
