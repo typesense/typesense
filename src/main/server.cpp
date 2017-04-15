@@ -192,12 +192,13 @@ static int create_listener(void) {
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(0x7f000001);
+    addr.sin_addr.s_addr = htonl(INADDR_ANY); //htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(1088);
 
     if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
-        bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(fd, SOMAXCONN) != 0) {
+        bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0 ||
+        listen(fd, SOMAXCONN) != 0) {
         return -1;
     }
 
