@@ -1,3 +1,5 @@
+#pragma once
+
 #define H2O_USE_LIBUV 0
 
 extern "C" {
@@ -13,8 +15,43 @@ extern "C" {
 #include "collection_manager.h"
 
 struct http_res {
-    uint32_t status;
+    uint32_t status_code;
     std::string body;
+
+    void send_404() {
+        status_code = 404;
+        body = "{\"message\": \"Not Found\"}";
+    }
+
+    void send_500(const std::string & res_body) {
+        status_code = 404;
+        body = res_body;
+    }
+
+    void send_200(const std::string & res_body) {
+        status_code = 404;
+        body = res_body;
+    }
+
+    void send_201(const std::string & res_body) {
+        status_code = 404;
+        body = res_body;
+    }
+};
+
+struct http_req {
+    std::map<std::string, std::string> params;
+    std::string body;
+};
+
+struct route_path {
+    std::string http_method;
+    std::vector<std::string> path_parts;
+    void (*handler)(http_req & req, http_res &);
+
+    inline bool operator< (const route_path& rhs) const {
+        return true;
+    }
 };
 
 class HttpServer {
@@ -22,14 +59,9 @@ private:
     static h2o_globalconf_t config;
     static h2o_context_t ctx;
     static h2o_accept_ctx_t accept_ctx;
-    static std::map<std::string, int (*)(h2o_handler_t *, h2o_req_t *)> route_map;
+    static std::vector<route_path> routes;
 
     h2o_hostconf_t *hostconf;
-    const std::string data_dir;
-
-    Store *store = nullptr;
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection;
 
     static void on_accept(h2o_socket_t *listener, const char *err);
 
@@ -38,16 +70,20 @@ private:
     h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                      int (*on_req)(h2o_handler_t *, h2o_req_t *));
 
+    static const char* get_status_reason(uint32_t status_code);
+
+    static std::map<std::string, std::string> parse_query(const std::string& query);
+
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
 public:
-    HttpServer(const std::string & data_dir);
+    HttpServer();
 
     ~HttpServer();
 
-    void get(const std::string & path, int (*handler)(h2o_handler_t *, h2o_req_t *));
+    void get(const std::string & path, void (*handler)(http_req & req, http_res &));
 
-    void post();
+    void post(const std::string & path, void (*handler)(http_req &, http_res &));
 
     void put();
 

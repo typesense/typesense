@@ -1,5 +1,6 @@
-#include "http_server.h"
 #include <cmdline.h>
+#include "http_server.h"
+#include "api.h"
 
 int main(int argc, char **argv) {
     cmdline::parser options;
@@ -8,17 +9,20 @@ int main(int argc, char **argv) {
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8080);
     options.parse_check(argc, argv);
 
-    HttpServer server(options.get<std::string>("data-dir"));
-    server.get("/foo", [](h2o_handler_t *self, h2o_req_t *req) {
-        h2o_generator_t generator = {NULL, NULL};
-        h2o_iovec_t body = h2o_strdup(&req->pool, "{\"foo\": 123}", SIZE_MAX);
-        req->res.status = 200;
-        req->res.reason = "OK";
-        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
-        h2o_start_response(req, &generator);
-        h2o_send(req, &body, 1, 1);
+    Store store(options.get<std::string>("data-dir"));
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    collectionManager.init(&store);
+
+    HttpServer server;
+
+    server.get("/search/:collection", get_search);
+    server.post("/search/:collection", post_add_document);
+
+    /*server.get("/search/:collection", [](http_req & req, http_res & res) -> int {
+        res.status_code = 200;
+        res.body = "{\"collection\": \"" + req.params["collection"] + "\"}";
         return 0;
-    });
+    });*/
 
     server.run();
     return 0;

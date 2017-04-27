@@ -39,8 +39,6 @@ int main(int argc, char* argv[]) {
         std::cout << i << std::endl;
     }
 
-    return 0;
-
 
     const std::string state_dir_path = "/tmp/typesense-data";
 

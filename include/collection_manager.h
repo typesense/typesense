@@ -27,13 +27,13 @@ private:
 
     CollectionManager();
 
+    ~CollectionManager() = default;
+
 public:
-    static CollectionManager& get_instance() {
+    static CollectionManager & get_instance() {
         static CollectionManager instance;
         return instance;
     }
-
-    ~CollectionManager();
 
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;

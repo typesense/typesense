@@ -135,12 +135,6 @@ Collection* CollectionManager::get_collection(std::string collection_name) {
     return nullptr;
 }
 
-CollectionManager::~CollectionManager() {
-    for(auto kv: collections) {
-        drop_collection(kv.first);
-    }
-}
-
 bool CollectionManager::drop_collection(std::string collection_name) {
     Collection* collection = get_collection(collection_name);
     if(collection == nullptr) {
