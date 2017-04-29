@@ -82,6 +82,7 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 201: return "Created";
         case 400: return "Bad Request";
         case 404: return "Not Found";
+        case 409: return "Conflict";
         case 500: return "Internal Server Error";
         default: return "";
     }
@@ -195,8 +196,11 @@ void HttpServer::post(const std::string & path, void (*handler)(http_req &, http
     routes.push_back(rpath);
 }
 
-void HttpServer::put() {
-
+void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &)) {
+    std::vector<std::string> path_parts;
+    StringUtils::split(path, path_parts, "/");
+    route_path rpath = {"PUT", path_parts, handler};
+    routes.push_back(rpath);
 }
 
 void HttpServer::del() {

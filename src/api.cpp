@@ -3,6 +3,91 @@
 #include "collection.h"
 #include "collection_manager.h"
 
+void post_create_collection(http_req & req, http_res & res) {
+    nlohmann::json req_json = nlohmann::json::parse(req.body);
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+
+    // validate presence of mandatory fields
+
+    if(req_json.count("name") == 0) {
+        return res.send_400("Parameter `name` is required.");
+    }
+
+    if(req_json.count("search_fields") == 0) {
+        return res.send_400("Parameter `search_fields` is required.");
+    }
+
+    if(req_json.count("rank_fields") == 0) {
+        return res.send_400("Parameter `rank_fields` is required.");
+    }
+
+    if(collectionManager.get_collection(req_json["name"]) != nullptr) {
+        return res.send_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
+    }
+
+    // field specific validation
+
+    std::vector<field> search_fields;
+
+    if(!req_json["search_fields"].is_array() || req_json["search_fields"].size() == 0) {
+        return res.send_400("Wrong format for `search_fields`. It should be an array like: "
+                            "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+    }
+
+    for(const nlohmann::json & search_field_json: req_json["search_fields"]) {
+        if(!search_field_json.is_object() ||
+            search_field_json.count(fields::name) == 0 || search_field_json.count(fields::type) == 0 ||
+            !search_field_json.at(fields::name).is_string() || !search_field_json.at(fields::type).is_string()) {
+
+            return res.send_400("Wrong format for `search_fields`. It should be an array like: "
+                                "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+        }
+
+        search_fields.push_back(field(search_field_json["name"], search_field_json["type"]));
+    }
+
+    std::vector<field> facet_fields;
+
+    if(req_json.count("facet_fields") != 0) {
+        if(!req_json["facet_fields"].is_array()) {
+            return res.send_400("Wrong format for `facet_fields`. It should be an array like: "
+                                        "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+        }
+
+        for(const nlohmann::json & facet_field_json: req_json["facet_fields"]) {
+            if(!facet_field_json.is_object() ||
+               facet_field_json.count(fields::name) == 0 || facet_field_json.count(fields::type) == 0 ||
+               !facet_field_json.at(fields::name).is_string() || !facet_field_json.at(fields::type).is_string()) {
+
+                return res.send_400("Wrong format for `facet_fields`. It should be an array like: "
+                                            "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+            }
+
+            facet_fields.push_back(field(facet_field_json["name"], facet_field_json["type"]));
+        }
+    }
+
+    std::vector<std::string> rank_fields;
+
+    if(!req_json["rank_fields"].is_array() || req_json["rank_fields"].size() == 0) {
+        return res.send_400("Wrong format for `rank_fields`. It should be an array like: "
+                                    "[\"<field_name_1>, <field_name_2>\"]");
+    }
+
+    for(const nlohmann::json & rank_field: req_json["rank_fields"]) {
+        if(!rank_field.is_string()) {
+            return res.send_400("Wrong format for `rank_fields`. It should be an array like: "
+                                        "[\"<field_name_1>, <field_name_2>\"]");
+        }
+
+        rank_fields.push_back(rank_field.get<std::string>());
+    }
+
+    collectionManager.create_collection(req_json["name"], search_fields, facet_fields, rank_fields);
+    res.send_201(req.body);
+}
+
 void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";

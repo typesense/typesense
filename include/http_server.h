@@ -18,23 +18,33 @@ struct http_res {
     uint32_t status_code;
     std::string body;
 
+    void send_200(const std::string & res_body) {
+        status_code = 200;
+        body = res_body;
+    }
+
+    void send_201(const std::string & res_body) {
+        status_code = 201;
+        body = res_body;
+    }
+
+    void send_400(const std::string & message) {
+        status_code = 400;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
     void send_404() {
         status_code = 404;
         body = "{\"message\": \"Not Found\"}";
     }
 
+    void send_409(const std::string & message) {
+        status_code = 400;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
     void send_500(const std::string & res_body) {
-        status_code = 404;
-        body = res_body;
-    }
-
-    void send_200(const std::string & res_body) {
-        status_code = 404;
-        body = res_body;
-    }
-
-    void send_201(const std::string & res_body) {
-        status_code = 404;
+        status_code = 500;
         body = res_body;
     }
 };
@@ -85,7 +95,7 @@ public:
 
     void post(const std::string & path, void (*handler)(http_req &, http_res &));
 
-    void put();
+    void put(const std::string & path, void (*handler)(http_req &, http_res &));
 
     void del();
 

@@ -23,7 +23,7 @@ struct field {
     std::string name;
     std::string type;
 
-    field(std::string name, std::string type): name(name), type(type) {
+    field(const std::string & name, const std::string & type): name(name), type(type) {
 
     }
 

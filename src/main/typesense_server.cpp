@@ -15,14 +15,9 @@ int main(int argc, char **argv) {
 
     HttpServer server;
 
-    server.get("/search/:collection", get_search);
-    server.post("/search/:collection", post_add_document);
-
-    /*server.get("/search/:collection", [](http_req & req, http_res & res) -> int {
-        res.status_code = 200;
-        res.body = "{\"collection\": \"" + req.params["collection"] + "\"}";
-        return 0;
-    });*/
+    server.post("/collection", post_create_collection);
+    server.post("/collection/:collection", post_add_document);
+    server.get("/collection/:collection/search", get_search);
 
     server.run();
     return 0;
