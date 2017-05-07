@@ -12,7 +12,7 @@ protected:
     Collection *collection1;
     std::vector<field> search_fields;
     std::vector<field> facet_fields;
-    std::vector<std::string> rank_fields;
+    std::vector<sort_field> sort_fields;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
@@ -24,10 +24,10 @@ protected:
 
         search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
         facet_fields = {field("starring", field_types::STRING)};
-        rank_fields = {"points"};
+        sort_fields = { sort_field("points", "DESC") };
 
         collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,
-                                                          rank_fields, "points");
+                                                          sort_fields, "points");
     }
 
     virtual void SetUp() {
@@ -53,7 +53,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
 
-    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, rank_fields, 0, 10, FREQUENCY, false);
+    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 
     spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
@@ -70,11 +70,12 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(rank_fields, collection1->get_rank_fields());
+    ASSERT_EQ(1, collection1->get_sort_fields().size());
+    ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_token_ordering_field());
 
-    results = collection1->search("thomas", search_fields, "", facets, rank_fields, 0, 10, FREQUENCY, false);
+    results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
 }
 

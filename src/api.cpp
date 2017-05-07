@@ -4,7 +4,13 @@
 #include "collection_manager.h"
 
 void post_create_collection(http_req & req, http_res & res) {
-    nlohmann::json req_json = nlohmann::json::parse(req.body);
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(...) {
+        return res.send_400("Bad JSON.");
+    }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
@@ -18,8 +24,8 @@ void post_create_collection(http_req & req, http_res & res) {
         return res.send_400("Parameter `search_fields` is required.");
     }
 
-    if(req_json.count("rank_fields") == 0) {
-        return res.send_400("Parameter `rank_fields` is required.");
+    if(req_json.count("sort_fields") == 0) {
+        return res.send_400("Parameter `sort_fields` is required.");
     }
 
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
@@ -68,23 +74,27 @@ void post_create_collection(http_req & req, http_res & res) {
         }
     }
 
-    std::vector<std::string> rank_fields;
+    std::vector<sort_field> sort_fields;
 
-    if(!req_json["rank_fields"].is_array() || req_json["rank_fields"].size() == 0) {
-        return res.send_400("Wrong format for `rank_fields`. It should be an array like: "
-                                    "[\"<field_name_1>, <field_name_2>\"]");
+    if(!req_json["sort_fields"].is_array() || req_json["sort_fields"].size() == 0) {
+        return res.send_400("Wrong format for `sort_fields`. It should be an array like: "
+                                    "[{\"name\": \"<field_name>\", \"order\": \"<ASC|DESC>\"}]");
     }
 
-    for(const nlohmann::json & rank_field: req_json["rank_fields"]) {
-        if(!rank_field.is_string()) {
-            return res.send_400("Wrong format for `rank_fields`. It should be an array like: "
-                                        "[\"<field_name_1>, <field_name_2>\"]");
+    for(const nlohmann::json & sort_field_json: req_json["sort_fields"]) {
+        if(!sort_field_json.is_object() ||
+           sort_field_json.count(sort_field_const::name) == 0 || sort_field_json.count(sort_field_const::order) == 0 ||
+           !sort_field_json.at(sort_field_const::name).is_string() ||
+           !sort_field_json.at(sort_field_const::order).is_string()) {
+
+            return res.send_400("Wrong format for `sort_fields`. It should be an array like: "
+                                        "[{\"name\": \"<field_name>\", \"order\": \"<ASC|DESC>\"}]");
         }
 
-        rank_fields.push_back(rank_field.get<std::string>());
+        sort_fields.push_back(sort_field(sort_field_json["name"], sort_field_json["order"]));
     }
 
-    collectionManager.create_collection(req_json["name"], search_fields, facet_fields, rank_fields);
+    collectionManager.create_collection(req_json["name"], search_fields, facet_fields, sort_fields);
     res.send_201(req.body);
 }
 
@@ -124,7 +134,8 @@ void get_search(http_req & req, http_res & res) {
     }
 
     nlohmann::json result = collection->search(req.params["q"], search_fields, filter_str, { },
-                                               {"points"}, std::stoi(req.params[NUM_TYPOS]), 100, token_order, false);
+                                               {sort_field("points", "DESC")}, std::stoi(req.params[NUM_TYPOS]), 100,
+                                               token_order, false);
     const std::string & json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;

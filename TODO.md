@@ -30,6 +30,8 @@
 - ~~Schema validation during insertion (missing fields + type errors)~~
 - ~~Proper score field for ranking tokens~~
 - ~~Throw errors when schema is broken~~
+- Desc/Asc ordering with tests
+- Found count is wrong
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results

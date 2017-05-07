@@ -64,6 +64,26 @@ struct filter {
     }
 };
 
+namespace sort_field_const {
+    static const std::string name = "name";
+    static const std::string order = "order";
+}
+
+struct sort_field {
+    std::string name;
+    std::string order;
+
+    sort_field(const std::string & name, const std::string & order): name(name), order(order) {
+
+    }
+
+    sort_field& operator=(sort_field other) {
+        name = other.name;
+        order = other.order;
+        return *this;
+    }
+};
+
 struct facet {
     const std::string field_name;
     std::map<std::string, size_t> result_map;

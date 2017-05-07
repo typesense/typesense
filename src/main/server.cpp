@@ -30,7 +30,7 @@ static h2o_globalconf_t config;
 static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
 std::vector<field> search_fields = {field("title", field_types::STRING), field("points", field_types::INT32)};
-std::vector<std::string> rank_fields = {"points"};
+std::vector<sort_field> sort_fields = { sort_field("points", "DESC")};
 Collection *collection;
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
@@ -236,7 +236,7 @@ int main(int argc, char **argv) {
 
     collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", search_fields, {}, rank_fields);
+        collection = collectionManager.create_collection("collection", search_fields, {}, sort_fields);
         //index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
         if(argc > 1) {
             index_documents(argv[1]);

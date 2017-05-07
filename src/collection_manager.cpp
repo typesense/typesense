@@ -45,8 +45,13 @@ void CollectionManager::init(Store *store) {
         store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
 
         uint32_t collection_next_seq_id = (const uint32_t) std::stoi(collection_next_seq_id_str);
-        std::vector<std::string> collection_rank_fields =
-                collection_meta[COLLECTION_RANK_FIELDS_KEY].get<std::vector<std::string>>();
+
+        std::vector<sort_field> collection_sort_fields;
+        nlohmann::json sort_fields_map = collection_meta[COLLECTION_SORT_FIELDS_KEY];
+
+        for (nlohmann::json::iterator it = sort_fields_map.begin(); it != sort_fields_map.end(); ++it) {
+            collection_sort_fields.push_back({it.value()[sort_field_const::name], it.value()[sort_field_const::order]});
+        }
 
         std::string token_ordering_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
 
@@ -56,7 +61,7 @@ void CollectionManager::init(Store *store) {
                                                 store,
                                                 search_fields,
                                                 facet_fields,
-                                                collection_rank_fields,
+                                                collection_sort_fields,
                                                 token_ordering_field);
 
         // Fetch records from the store and re-create memory index
@@ -82,7 +87,7 @@ void CollectionManager::init(Store *store) {
 
 Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,
                                                  const std::vector<field> & facet_fields,
-                                                 const std::vector<std::string> & rank_fields,
+                                                 const std::vector<sort_field> & sort_fields,
                                                  const std::string & token_ordering_field) {
     if(store->contains(Collection::get_meta_key(name))) {
         return nullptr;
@@ -91,7 +96,7 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     nlohmann::json collection_meta;
 
     nlohmann::json search_fields_json = nlohmann::json::array();;
-    for(const field& search_field: search_fields) {
+    for(const field & search_field: search_fields) {
         nlohmann::json field_val;
         field_val[fields::name] = search_field.name;
         field_val[fields::type] = search_field.type;
@@ -99,22 +104,30 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     }
 
     nlohmann::json facet_fields_json = nlohmann::json::array();;
-    for(const field& facet_field: facet_fields) {
+    for(const field & facet_field: facet_fields) {
         nlohmann::json field_val;
         field_val[fields::name] = facet_field.name;
         field_val[fields::type] = facet_field.type;
         facet_fields_json.push_back(field_val);
     }
 
+    nlohmann::json sort_fields_json = nlohmann::json::array();;
+    for(const sort_field & _sort_field: sort_fields) {
+        nlohmann::json sort_field_val;
+        sort_field_val[sort_field_const::name] = _sort_field.name;
+        sort_field_val[sort_field_const::order] = _sort_field.order;
+        sort_fields_json.push_back(sort_field_val);
+    }
+
     collection_meta[COLLECTION_NAME_KEY] = name;
     collection_meta[COLLECTION_ID_KEY] = next_collection_id;
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = search_fields_json;
     collection_meta[COLLECTION_FACET_FIELDS_KEY] = facet_fields_json;
-    collection_meta[COLLECTION_RANK_FIELDS_KEY] = rank_fields;
+    collection_meta[COLLECTION_SORT_FIELDS_KEY] = sort_fields_json;
     collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY] = token_ordering_field;
 
     Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, facet_fields,
-                                                rank_fields, token_ordering_field);
+                                                sort_fields, token_ordering_field);
 
     store->insert(Collection::get_meta_key(name), collection_meta.dump());
     store->insert(Collection::get_next_seq_id_key(name), std::to_string(0));

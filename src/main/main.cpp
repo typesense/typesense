@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
     const std::string state_dir_path = "/tmp/typesense-data";
 
     std::vector<field> fields_to_index = {field("title", field_types::STRING)};
-    std::vector<std::string> rank_fields = {"points"};
+    std::vector<sort_field> sort_fields = { sort_field("points", "DESC")};
     Store *store = new Store("/tmp/typesense-data");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -51,7 +51,7 @@ int main(int argc, char* argv[]) {
 
     Collection *collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", fields_to_index, {}, rank_fields);
+        collection = collectionManager.create_collection("collection", fields_to_index, {}, sort_fields);
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         //std::ifstream infile(argv[1]);
 

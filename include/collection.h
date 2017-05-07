@@ -23,7 +23,7 @@ private:
 
     spp::sparse_hash_map<std::string, field> facet_schema;
 
-    std::vector<std::string> rank_fields;
+    std::vector<sort_field> sort_fields;
 
     Store* store;
 
@@ -31,7 +31,7 @@ private:
 
     spp::sparse_hash_map<std::string, art_tree*> facet_index;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> rank_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
     std::string token_ordering_field;
 
@@ -51,12 +51,12 @@ private:
     void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
-                      std::vector<facet> & facets, const std::vector<std::string> & rank_fields, const int num_typos,
+                      std::vector<facet> & facets, const std::vector<sort_field> & sort_fields, const int num_typos,
                       const size_t num_results, Topster<100> &topster, size_t & num_found,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                           const std::vector<std::string> & rank_fields, int & token_rank,
+                           const std::vector<sort_field> & sort_fields, int & token_rank,
                            std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                            size_t & total_results, size_t & num_found, const size_t & max_results);
 
@@ -82,7 +82,7 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                const std::vector<field> & search_fields, const std::vector<field> & facet_fields,
-               const std::vector<std::string> & rank_fields, const std::string token_ordering_field);
+               const std::vector<sort_field> & sort_fields, const std::string token_ordering_field);
 
     ~Collection();
 
@@ -100,7 +100,7 @@ public:
 
     std::vector<std::string> get_facet_fields();
 
-    std::vector<std::string> get_rank_fields();
+    std::vector<sort_field> get_sort_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
 
@@ -110,12 +110,12 @@ public:
 
     nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<std::string> & rank_fields, const int num_typos,
+                          const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void remove(std::string id);
 
-    void score_results(const std::vector<std::string> & rank_fields, const int & token_rank, Topster<100> &topster,
+    void score_results(const std::vector<sort_field> & sort_fields, const int & token_rank, Topster<100> &topster,
                        const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 
