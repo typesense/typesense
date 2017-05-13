@@ -32,6 +32,8 @@
 - ~~Throw errors when schema is broken~~
 - Desc/Asc ordering with tests
 - Found count is wrong
+- Proper pagination
+- Filter query in the API
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results

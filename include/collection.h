@@ -52,13 +52,14 @@ private:
 
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_field> & sort_fields, const int num_typos,
-                      const size_t num_results, Topster<100> &topster, size_t & num_found,
-                      const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                      const size_t num_results, Topster<100> &topster, uint32_t** all_result_ids,
+                      size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                            const std::vector<sort_field> & sort_fields, int & token_rank,
                            std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
-                           size_t & total_results, size_t & num_found, const size_t & max_results);
+                           size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
+                           const size_t & max_results);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
                             const bool verbatim) const;

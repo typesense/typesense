@@ -79,6 +79,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 10);
     ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
 
     /*
        Sort by (match, diff, score)
@@ -101,6 +102,8 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     // Check pagination
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 3);
     ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
+
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
@@ -264,6 +267,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ISX what", query_fields, "", facets, sort_fields, 1, 4, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
 
     std::vector<std::string> ids = {"19", "6", "21", "8"};
 
@@ -277,6 +281,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // Record containing exact token match should appear first
     results = collection->search("ISX", query_fields, "", facets, sort_fields, 1, 10, FREQUENCY, false);
     ASSERT_EQ(8, results["hits"].size());
+    ASSERT_EQ(8, results["found"].get<uint32_t>());
 
     ids = {"20", "19", "6", "3", "21", "4", "10", "8"};
 
