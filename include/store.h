@@ -51,6 +51,9 @@ public:
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+        if(!s.ok()) {
+            std::cerr << s.ToString() << std::endl;
+        }
         assert(s.ok());
     }
 

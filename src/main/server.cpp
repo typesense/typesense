@@ -31,9 +31,6 @@ static h2o_context_t ctx;
 static h2o_accept_ctx_t accept_ctx;
 std::vector<field> search_fields = {field("title", field_types::STRING), field("points", field_types::INT32)};
 std::vector<std::string> rank_fields = {"points"};
-Store *store = new Store("/tmp/typesense-data");
-
-CollectionManager & collectionManager = CollectionManager::get_instance();
 Collection *collection;
 
 static h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
@@ -91,7 +88,7 @@ static int get_search(h2o_handler_t *self, h2o_req_t *req) {
     }
 
     std::string filter_str = query_map.count(FILTERS) != 0 ? query_map[FILTERS] : "";
-    std::cout << "filter_str: " << filter_str << std::endl;
+    //std::cout << "filter_str: " << filter_str << std::endl;
 
     token_ordering token_order = (query_map[TOKEN_ORDERING] == "MAX_SCORE") ? MAX_SCORE : FREQUENCY;
 
@@ -231,12 +228,18 @@ void index_documents(std::string path_to_docs) {
 int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
 
+    Store *store = new Store("/tmp/typesense-data");
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store);
+
     collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
         collection = collectionManager.create_collection("collection", search_fields, {}, rank_fields);
         //index_documents(std::string(ROOT_DIR)+"test/documents.jsonl");
-        index_documents(argv[1]);
+        if(argc > 1) {
+            index_documents(argv[1]);
+        }
     }
 
     h2o_config_init(&config);

@@ -1,11 +1,12 @@
 # Download test resources
 
 set(ART_VERSION bbbf588bca55bce095538ee8ca8b422904baebc5)
-set(ART_WORDS_PATH /tmp/typesense_test/words.txt)
-set(ART_UUID_PATH /tmp/typesense_test/uuid.txt)
+set(TEST_RESOURCES_DIR ${CMAKE_SOURCE_DIR}/build/test_resources)
+set(ART_WORDS_PATH ${TEST_RESOURCES_DIR}/words.txt)
+set(ART_UUID_PATH ${TEST_RESOURCES_DIR}/uuid.txt)
 
-if(NOT EXISTS /tmp/typesense_test)
-    file(MAKE_DIRECTORY /tmp/typesense_test)
+if(NOT EXISTS ${TEST_RESOURCES_DIR})
+    file(MAKE_DIRECTORY ${TEST_RESOURCES_DIR})
 endif()
 
 if(NOT EXISTS ${ART_WORDS_PATH})
