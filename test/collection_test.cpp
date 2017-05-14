@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
 
@@ -73,6 +74,22 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
         std::string result_id = result["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // check ASC sorting
+    std::vector<sort_field> sort_fields_asc = { sort_field("points", "ASC") };
+
+    results = collection->search("the", query_fields, "", facets, sort_fields_asc, 0, 10);
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    ids = {"16", "13", "10", "8", "6", "foo", "1"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
@@ -99,10 +116,27 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // Check ASC sort order
+    std::vector<sort_field> sort_fields_asc = { sort_field("points", "ASC") };
+    results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, 0, 10);
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+
+    ids = {"8", "17", "1", "16", "13"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     // Check pagination
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 3);
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(4, results["found"].get<uint32_t>());
+
+    ids = {"8", "1", "17", "16", "13"};
 
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);

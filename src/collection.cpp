@@ -640,6 +640,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     delete [] filter_ids;
 
+    // All fields are sorted descending
     std::sort(field_order_kvs.begin(), field_order_kvs.end(),
       [](const std::pair<int, Topster<100>::KV> & a, const std::pair<int, Topster<100>::KV> & b) {
         if(a.second.match_score != b.second.match_score) return a.second.match_score > b.second.match_score;
@@ -867,13 +868,23 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
     spp::sparse_hash_map<uint32_t, int64_t> * primary_rank_scores = nullptr;
     spp::sparse_hash_map<uint32_t, int64_t> * secondary_rank_scores = nullptr;
 
+    // Used for asc/desc ordering. NOTE: Topster keeps biggest keys (i.e. it's desc in nature)
+    int64_t primary_rank_factor = 1;
+    int64_t secondary_rank_factor = 1;
+
     if(sort_fields.size() > 0) {
         // assumed that rank field exists in the index - checked earlier in the chain
         primary_rank_scores = sort_index.at(sort_fields[0].name);
+        if(sort_fields[0].order == sort_field_const::asc) {
+            primary_rank_factor = -1;
+        }
     }
 
     if(sort_fields.size() > 1) {
         secondary_rank_scores = sort_index.at(sort_fields[1].name);
+        if(sort_fields[1].order == sort_field_const::asc) {
+            secondary_rank_factor = -1;
+        }
     }
 
     for(auto i=0; i<result_size; i++) {
@@ -919,7 +930,10 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
         int64_t primary_rank_score = primary_rank_scores->count(seq_id) > 0 ? primary_rank_scores->at(seq_id) : 0;
         int64_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
                                        secondary_rank_scores->at(seq_id) : 0;
-        topster.add(seq_id, match_score, primary_rank_score, secondary_rank_score);
+        topster.add(seq_id, match_score,
+                    primary_rank_factor * primary_rank_score,
+                    secondary_rank_factor * secondary_rank_score);
+
         /*std::cout << "token_rank_score: " << token_rank_score << ", match_score: "
                   << match_score << ", primary_rank_score: " << primary_rank_score << ", seq_id: " << seq_id << std::endl;*/
     }

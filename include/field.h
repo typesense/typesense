@@ -67,6 +67,8 @@ struct filter {
 namespace sort_field_const {
     static const std::string name = "name";
     static const std::string order = "order";
+    static const std::string asc = "ASC";
+    static const std::string desc = "DESC";
 }
 
 struct sort_field {

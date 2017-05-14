@@ -30,8 +30,8 @@
 - ~~Schema validation during insertion (missing fields + type errors)~~
 - ~~Proper score field for ranking tokens~~
 - ~~Throw errors when schema is broken~~
-- Desc/Asc ordering with tests
-- Found count is wrong
+- ~~Desc/Asc ordering with tests~~
+- ~~Found count is wrong~~
 - Proper pagination
 - Filter query in the API
 - Prevent string copy during indexing
