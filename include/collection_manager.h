@@ -42,7 +42,7 @@ public:
 
     Collection* create_collection(std::string name, const std::vector<field> & search_fields,
                                   const std::vector<field> & facet_fields,
-                                  const std::vector<sort_field> & sort_fields,
+                                  const std::vector<field> & sort_fields,
                                   const std::string & token_ordering_field = "");
 
     Collection* get_collection(std::string collection_name);

@@ -46,11 +46,11 @@ void CollectionManager::init(Store *store) {
 
         uint32_t collection_next_seq_id = (const uint32_t) std::stoi(collection_next_seq_id_str);
 
-        std::vector<sort_field> collection_sort_fields;
+        std::vector<field> collection_sort_fields;
         nlohmann::json sort_fields_map = collection_meta[COLLECTION_SORT_FIELDS_KEY];
 
         for (nlohmann::json::iterator it = sort_fields_map.begin(); it != sort_fields_map.end(); ++it) {
-            collection_sort_fields.push_back({it.value()[sort_field_const::name], it.value()[sort_field_const::order]});
+            collection_sort_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
         }
 
         std::string token_ordering_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
@@ -87,7 +87,7 @@ void CollectionManager::init(Store *store) {
 
 Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,
                                                  const std::vector<field> & facet_fields,
-                                                 const std::vector<sort_field> & sort_fields,
+                                                 const std::vector<field> & sort_fields,
                                                  const std::string & token_ordering_field) {
     if(store->contains(Collection::get_meta_key(name))) {
         return nullptr;
@@ -112,10 +112,10 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     }
 
     nlohmann::json sort_fields_json = nlohmann::json::array();;
-    for(const sort_field & _sort_field: sort_fields) {
+    for(const field & sort_field: sort_fields) {
         nlohmann::json sort_field_val;
-        sort_field_val[sort_field_const::name] = _sort_field.name;
-        sort_field_val[sort_field_const::order] = _sort_field.order;
+        sort_field_val[fields::name] = sort_field.name;
+        sort_field_val[fields::type] = sort_field.type;
         sort_fields_json.push_back(sort_field_val);
     }
 

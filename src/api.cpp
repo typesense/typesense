@@ -74,24 +74,28 @@ void post_create_collection(http_req & req, http_res & res) {
         }
     }
 
-    std::vector<sort_field> sort_fields;
+    std::vector<field> sort_fields;
 
     if(!req_json["sort_fields"].is_array() || req_json["sort_fields"].size() == 0) {
         return res.send_400("Wrong format for `sort_fields`. It should be an array like: "
-                                    "[{\"name\": \"<field_name>\", \"order\": \"<ASC|DESC>\"}]");
+                                    "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
     }
 
     for(const nlohmann::json & sort_field_json: req_json["sort_fields"]) {
         if(!sort_field_json.is_object() ||
-           sort_field_json.count(sort_field_const::name) == 0 || sort_field_json.count(sort_field_const::order) == 0 ||
-           !sort_field_json.at(sort_field_const::name).is_string() ||
-           !sort_field_json.at(sort_field_const::order).is_string()) {
+           sort_field_json.count(fields::name) == 0 || sort_field_json.count(fields::type) == 0 ||
+           !sort_field_json.at(fields::name).is_string() ||
+           !sort_field_json.at(fields::type).is_string()) {
 
             return res.send_400("Wrong format for `sort_fields`. It should be an array like: "
-                                        "[{\"name\": \"<field_name>\", \"order\": \"<ASC|DESC>\"}]");
+                                        "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
         }
 
-        sort_fields.push_back(sort_field(sort_field_json["name"], sort_field_json["order"]));
+        if(sort_field_json["type"] != "INT32" && sort_field_json["type"] != "INT64") {
+            return res.send_400("Sort field `" + sort_field_json["name"].get<std::string>()  + "` must be a number.");
+        }
+
+        sort_fields.push_back(field(sort_field_json["name"], sort_field_json["type"]));
     }
 
     collectionManager.create_collection(req_json["name"], search_fields, facet_fields, sort_fields);

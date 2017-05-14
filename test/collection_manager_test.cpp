@@ -12,6 +12,8 @@ protected:
     Collection *collection1;
     std::vector<field> search_fields;
     std::vector<field> facet_fields;
+    std::vector<field> sort_fields_index;
+
     std::vector<sort_field> sort_fields;
 
     void setupCollection() {
@@ -25,9 +27,10 @@ protected:
         search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
         facet_fields = {field("starring", field_types::STRING)};
         sort_fields = { sort_field("points", "DESC") };
+        sort_fields_index = { field("points", "INT32") };
 
         collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,
-                                                          sort_fields, "points");
+                                                          sort_fields_index, "points");
     }
 
     virtual void SetUp() {

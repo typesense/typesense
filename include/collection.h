@@ -23,7 +23,7 @@ private:
 
     spp::sparse_hash_map<std::string, field> facet_schema;
 
-    std::vector<sort_field> sort_fields;
+    std::vector<field> sort_fields;
 
     Store* store;
 
@@ -83,7 +83,7 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                const std::vector<field> & search_fields, const std::vector<field> & facet_fields,
-               const std::vector<sort_field> & sort_fields, const std::string token_ordering_field);
+               const std::vector<field> & sort_fields, const std::string token_ordering_field);
 
     ~Collection();
 
@@ -101,7 +101,7 @@ public:
 
     std::vector<std::string> get_facet_fields();
 
-    std::vector<sort_field> get_sort_fields();
+    std::vector<field> get_sort_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
 

@@ -9,7 +9,7 @@
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &search_fields, const std::vector<field> & facet_fields,
-                       const std::vector<sort_field> & sort_fields, const std::string token_ordering_field):
+                       const std::vector<field> & sort_fields, const std::string token_ordering_field):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
                        sort_fields(sort_fields), token_ordering_field(token_ordering_field) {
 
@@ -27,9 +27,9 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         facet_schema.emplace(field.name, field);
     }
 
-    for(const sort_field & _sort_field: sort_fields) {
+    for(const field & sort_field: sort_fields) {
         spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
-        sort_index.emplace(_sort_field.name, doc_to_score);
+        sort_index.emplace(sort_field.name, doc_to_score);
     }
 }
 
@@ -197,18 +197,18 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         }
     }
 
-    for(const sort_field & _sort_field: sort_fields) {
-        if(document.count(_sort_field.name) == 0) {
-            return Option<>(400, "Field `" + _sort_field.name  + "` has been declared as a sort field in the schema, "
+    for(const field & sort_field: sort_fields) {
+        if(document.count(sort_field.name) == 0) {
+            return Option<>(400, "Field `" + sort_field.name  + "` has been declared as a sort field in the schema, "
                     "but is not found in the document.");
         }
 
-        if(!document[_sort_field.name].is_number()) {
-            return Option<>(400, "Sort field `" + _sort_field.name  + "` must be an integer.");
+        if(!document[sort_field.name].is_number()) {
+            return Option<>(400, "Sort field `" + sort_field.name  + "` must be a number.");
         }
 
-        spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(_sort_field.name);
-        doc_to_score->emplace(seq_id, document[_sort_field.name].get<int64_t>());
+        spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(sort_field.name);
+        doc_to_score->emplace(seq_id, document[sort_field.name].get<int64_t>());
     }
 
     return Option<>(200);
@@ -1087,7 +1087,7 @@ std::vector<std::string> Collection::get_facet_fields() {
     return facet_fields_copy;
 }
 
-std::vector<sort_field> Collection::get_sort_fields() {
+std::vector<field> Collection::get_sort_fields() {
     return sort_fields;
 }
 

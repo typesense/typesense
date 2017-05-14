@@ -12,8 +12,9 @@ protected:
     std::vector<std::string> query_fields;
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    std::vector<sort_field> sort_fields;
     std::vector<field> facet_fields;
+    std::vector<field> sort_fields_index;
+    std::vector<sort_field> sort_fields;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/collection";
@@ -29,11 +30,12 @@ protected:
         query_fields = {"title"};
         facet_fields = { };
         sort_fields = { sort_field("points", "DESC") };
+        sort_fields_index = { field("points", "INT32") };
 
         collection = collectionManager.get_collection("collection");
         if(collection == nullptr) {
             collection = collectionManager.create_collection("collection", search_fields, facet_fields,
-                                                             sort_fields, "points");
+                                                             sort_fields_index, "points");
         }
 
         std::string json_line;
@@ -358,11 +360,10 @@ TEST_F(CollectionTest, MultipleFields) {
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING),
                                  field("cast", field_types::STRING_ARRAY)};
-    std::vector<sort_field> sort_fields = { sort_field("points", "DESC") };
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, facet_fields, sort_fields);
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -439,10 +440,11 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
                                  field("years", field_types::INT32_ARRAY),
                                  field("timestamps", field_types::INT64_ARRAY)};
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<field> sort_fields_index = { field("age", "INT32") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields);
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -573,11 +575,13 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
                                  field("years", field_types::INT32_ARRAY),
                                  field("tags", field_types::STRING_ARRAY)};
+
+    std::vector<field> sort_fields_index = { field("age", "INT32") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields);
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -643,11 +647,13 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
                                  field("years", field_types::INT32_ARRAY),
                                  field("timestamps", field_types::INT64_ARRAY),
                                  field("tags", field_types::STRING_ARRAY)};
+
+    std::vector<field> sort_fields_index = { field("age", "INT32") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields);
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -697,11 +703,13 @@ TEST_F(CollectionTest, FacetCounts) {
                                  field("timestamps", field_types::INT64_ARRAY),
                                  field("tags", field_types::STRING_ARRAY)};
     facet_fields = {field("tags", field_types::STRING_ARRAY), field("name", field_types::STRING)};
+
+    std::vector<field> sort_fields_index = { field("age", "DESC") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields);
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -778,11 +786,12 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
                                  field("timestamps", field_types::INT64_ARRAY),
                                  field("tags", field_types::STRING_ARRAY)};
     facet_fields = {field("tags", field_types::STRING_ARRAY), field("name", field_types::STRING)};
+    std::vector<field> sort_fields_index = { field("age", "DESC") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields);
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
     }
 
     std::string json_line;
@@ -829,12 +838,14 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     std::vector<field> fields = {field("name", field_types::STRING)};
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
+
+    std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
 
     sample_collection = collectionManager.get_collection("sample_collection");
     if(sample_collection == nullptr) {
         sample_collection = collectionManager.create_collection("sample_collection", fields, facet_fields,
-                                                                sort_fields, "age");
+                                                                sort_fields_index, "age");
     }
 
     const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29}");
@@ -883,7 +894,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
     const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_rank_field_op.ok());
-    ASSERT_STREQ("Sort field `average` must be an integer.", bad_rank_field_op.error().c_str());
+    ASSERT_STREQ("Sort field `average` must be a number.", bad_rank_field_op.error().c_str());
 
     collectionManager.drop_collection("sample_collection");
 }
@@ -893,11 +904,13 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
 
     std::vector<field> fields = {field("name", field_types::STRING)};
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
+
+    std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
     std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
 
     empty_coll = collectionManager.get_collection("empty_coll");
     if(empty_coll == nullptr) {
-        empty_coll = collectionManager.create_collection("empty_coll", fields, facet_fields, sort_fields, "age");
+        empty_coll = collectionManager.create_collection("empty_coll", fields, facet_fields, sort_fields_index, "age");
     }
 
     nlohmann::json results = empty_coll->search("a", {"name"}, "", {}, sort_fields, 0, 10, FREQUENCY, false);
