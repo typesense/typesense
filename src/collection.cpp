@@ -605,6 +605,11 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
             result["error"] = "Could not find a sort field named `" + _sort_field.name + "` in the schema.";
             return result;
         }
+
+        if(_sort_field.order != sort_field_const::asc && _sort_field.order != sort_field_const::desc) {
+            result["error"] = "Order for sort field` " + _sort_field.name + "` should be either ASC or DESC.";
+            return result;
+        }
     }
 
     // process the filters first
@@ -927,7 +932,8 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
                                      ((uint64_t)(mscore.words_present) << 8) +
                                      (MAX_SEARCH_TOKENS - mscore.distance);
 
-        int64_t primary_rank_score = primary_rank_scores->count(seq_id) > 0 ? primary_rank_scores->at(seq_id) : 0;
+        int64_t primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
+                                     primary_rank_scores->at(seq_id) : 0;
         int64_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
                                        secondary_rank_scores->at(seq_id) : 0;
         topster.add(seq_id, match_score,

@@ -122,4 +122,8 @@ struct StringUtils {
         strtol(s.c_str(), &p, 10);
         return (*p == 0);
     }
+
+    static void toupper(std::string& str) {
+        std::transform(str.begin(), str.end(), str.begin(), ::toupper);
+    }
 };
