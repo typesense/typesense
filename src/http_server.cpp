@@ -1,6 +1,7 @@
 #include "http_server.h"
 #include "string_utils.h"
 #include <regex>
+#include <signal.h>
 
 h2o_globalconf_t HttpServer::config;
 h2o_context_t HttpServer::ctx;

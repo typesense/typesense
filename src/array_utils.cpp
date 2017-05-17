@@ -1,4 +1,5 @@
 #include "array_utils.h"
+#include <memory.h>
 
 size_t ArrayUtils::and_scalar(const uint32_t *A, const size_t lenA,
                               const uint32_t *B, const size_t lenB, uint32_t *out) {
@@ -79,7 +80,7 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
 
   // shrink fit
   *out = new uint32_t[res_index];
-  std::memmove(*out, results, res_index * sizeof(uint32_t));
+  memcpy(*out, results, res_index * sizeof(uint32_t));
   delete[] results;
 
   return res_index;

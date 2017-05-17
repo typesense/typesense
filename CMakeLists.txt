@@ -85,5 +85,5 @@ endif()
 
 target_link_libraries(typesense-server h2o-evloop for pthread ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
 target_link_libraries(search for pthread h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(benchmark for pthread ${ROCKSDB_LIBS} ${STD_LIB})
-target_link_libraries(typesense_test h2o-evloop ${OPENSSL_LIBRARIES} pthread for ${ROCKSDB_LIBS} gtest gtest_main ${STD_LIB})
+target_link_libraries(benchmark for pthread h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(typesense_test h2o-evloop ${OPENSSL_LIBRARIES} pthread for ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})

@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
     const std::string state_dir_path = "/tmp/typesense-data";
 
     std::vector<field> fields_to_index = {field("title", field_types::STRING)};
-    std::vector<sort_field> sort_fields = { sort_field("points", "DESC")};
+    std::vector<field> sort_fields = { field("points", "INT32")};
     Store *store = new Store("/tmp/typesense-data");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
 
     auto begin = std::chrono::high_resolution_clock::now();
     std::vector<std::string> search_fields = {"title"};
-    collection->search("the", search_fields, "", {}, {"points"}, 1, 100, MAX_SCORE, 0);
+    collection->search("the", search_fields, "", {}, { sort_field("points", "DESC") }, 1, 100, MAX_SCORE, 0);
     long long int timeMillis =
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "us" << endl;
