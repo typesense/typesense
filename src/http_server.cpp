@@ -203,8 +203,11 @@ void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_
     routes.push_back(rpath);
 }
 
-void HttpServer::del() {
-
+void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &)) {
+    std::vector<std::string> path_parts;
+    StringUtils::split(path, path_parts, "/");
+    route_path rpath = {"DELETE", path_parts, handler};
+    routes.push_back(rpath);
 }
 
 HttpServer::~HttpServer() {

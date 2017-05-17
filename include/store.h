@@ -24,6 +24,13 @@ public:
     }
 };
 
+enum StoreStatus {
+    FOUND,
+    OK,
+    NOT_FOUND,
+    ERROR
+};
+
 /*
  *  Abstraction for underlying KV store (RocksDB)
  */
@@ -72,9 +79,18 @@ public:
         return status.ok() && !status.IsNotFound();
     }
 
-    bool get(const std::string& key, std::string& value) {
+    StoreStatus get(const std::string& key, std::string& value) {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
-        return status.ok();
+
+        if(status.IsNotFound()) {
+            return StoreStatus::NOT_FOUND;
+        }
+
+        if(!status.ok()) {
+            return StoreStatus::ERROR;
+        }
+
+        return StoreStatus::FOUND;
     }
 
     bool remove(const std::string& key) {

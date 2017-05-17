@@ -47,6 +47,11 @@ struct http_res {
         status_code = 500;
         body = res_body;
     }
+
+    void send(uint32_t code, const std::string & message) {
+        status_code = code;
+        body = "{\"message\": \"" + message + "\"}";
+    }
 };
 
 struct http_req {
@@ -97,7 +102,7 @@ public:
 
     void put(const std::string & path, void (*handler)(http_req &, http_res &));
 
-    void del();
+    void del(const std::string & path, void (*handler)(http_req &, http_res &));
 
     int run();
 };

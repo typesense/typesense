@@ -18,6 +18,7 @@ int main(int argc, char **argv) {
     server.post("/collection", post_create_collection);
     server.post("/collection/:collection", post_add_document);
     server.get("/collection/:collection/search", get_search);
+    server.del("/collection/:collection/:id", del_remove_document);
 
     server.run();
     return 0;

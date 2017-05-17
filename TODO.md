@@ -33,10 +33,12 @@
 - ~~Desc/Asc ordering with tests~~
 - ~~Found count is wrong~~
 - ~~Filter query in the API~~
+- Handle store-get() not finding a key
 - Fix API response codes
 - Test for search without any sort_by given
 - Test for asc/desc upper/lower casing
 - Test for collection creation validation
+- Test for delete document
 - Proper pagination
 - Deprecate old split function
 - Prevent string copy during indexing

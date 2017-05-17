@@ -1002,9 +1002,15 @@ void Collection::remove_and_shift_offset_index(sorted_array &offset_index, const
     delete[] new_array;
 }
 
-void Collection::remove(std::string id) {
+Option<std::string> Collection::remove(std::string id) {
+    nlohmann::json result = nlohmann::json::object();
+
     std::string seq_id_str;
-    store->get(get_doc_id_key(id), seq_id_str);
+    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+
+    if(status == StoreStatus::NOT_FOUND) {
+        return Option<std::string>(404, "Could not find a document with id: " + id);
+    }
 
     uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
@@ -1052,6 +1058,8 @@ void Collection::remove(std::string id) {
 
     store->remove(get_doc_id_key(id));
     store->remove(get_seq_id_key(seq_id));
+
+    return Option<std::string>(id);
 }
 
 std::string Collection::get_next_seq_id_key(std::string collection_name) {

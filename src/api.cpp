@@ -194,47 +194,27 @@ void post_add_document(http_req & req, http_res & res) {
 
     Option<std::string> inserted_id_op = collection->add(req.body);
 
-    nlohmann::json json_response;
-    static h2o_generator_t generator = {NULL, NULL};
-
     if(!inserted_id_op.ok()) {
-        json_response["message"] = inserted_id_op.error();
-        res.send_500(json_response.dump());
-
+        res.send(inserted_id_op.code(), inserted_id_op.error());
     } else {
+        nlohmann::json json_response;
         json_response["id"] = inserted_id_op.get();
         res.send_201(json_response.dump());
     }
 }
 
-/*
-int del_remove_document(h2o_handler_t *self, h2o_req_t *req) {
-    h2o_iovec_t query = req->query_at != SIZE_MAX ?
-                        h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
-                        h2o_iovec_init(H2O_STRLIT(""));
-
-    std::string query_str(query.base, query.len);
-    std::map<std::string, std::string> req.params = parse_query(query_str);
-
+void del_remove_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
-    auto begin = std::chrono::high_resolution_clock::now();
-    collection->remove(doc_id);
-    long long int time_micro = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken: " << time_micro << "us" << std::endl;
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    Option<std::string> deleted_id_op = collection->remove(doc_id);
 
-    nlohmann::json json_response;
-    json_response["id"] = doc_id;
-    json_response["status"] = "SUCCESS";
-
-    static h2o_generator_t generator = {NULL, NULL};
-    req->res.status = 200;
-    req->res.reason = "OK";
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
-    h2o_start_response(req, &generator);
-    h2o_iovec_t body = h2o_strdup(&req->pool, json_response.dump().c_str(), SIZE_MAX);
-    h2o_send(req, &body, 1, 1);
-    return 0;
+    if(!deleted_id_op.ok()) {
+        res.send(deleted_id_op.code(), deleted_id_op.error());
+    } else {
+        nlohmann::json json_response;
+        json_response["id"] = deleted_id_op.get();
+        res.send_200(json_response.dump());
+    }
 }
-*/

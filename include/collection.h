@@ -114,7 +114,7 @@ public:
                           const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
-    void remove(std::string id);
+    Option<std::string> remove(std::string id);
 
     void score_results(const std::vector<sort_field> & sort_fields, const int & token_rank, Topster<100> &topster,
                        const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
