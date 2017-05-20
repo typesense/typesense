@@ -33,8 +33,8 @@
 - ~~Desc/Asc ordering with tests~~
 - ~~Found count is wrong~~
 - ~~Filter query in the API~~
+- ~~Facet limit (hardcode to top 10)~~
 - Handle store-get() not finding a key
-- Facet limit
 - Fix API response codes
 - Test for search without any sort_by given
 - Test for asc/desc upper/lower casing

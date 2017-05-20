@@ -731,14 +731,14 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(2, results["facet_counts"][0].size());
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
 
-    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ(4, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ(4, (int) results["facet_counts"][0]["counts"][0]["count"]);
 
-    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][2]["value"]);
-    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
 
-    ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][2]["count"]);
 
     // 2 facets, 1 text filter with no filters
     facets.clear();
@@ -765,13 +765,13 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(1, results["facet_counts"].size());
 
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
-    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
 
-    ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][1]["value"]);
-    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][2]["value"]);
 
     collectionManager.drop_collection("coll_array_fields");
 }

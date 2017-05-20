@@ -138,7 +138,7 @@ void get_search(http_req & req, http_res & res) {
     StringUtils::split(req.params[SEARCH_BY], search_fields, ",");
 
     std::vector<std::string> facet_fields;
-    StringUtils::split(req.params[FACET_BY], facet_fields, ",");
+    StringUtils::split(req.params[FACET_BY], facet_fields, "&&");
 
     std::vector<sort_field> sort_fields;
     if(req.params.count(SORT_BY) != 0) {

@@ -664,7 +664,19 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
-        for(auto kv: a_facet.result_map) {
+        // keep only top 10 facets
+        std::vector<std::pair<std::string, size_t>> value_to_count;
+        for (auto itr = a_facet.result_map.begin(); itr != a_facet.result_map.end(); ++itr) {
+            value_to_count.push_back(*itr);
+        }
+
+        std::sort(value_to_count.begin(), value_to_count.end(),
+                  [=](std::pair<std::string, size_t>& a, std::pair<std::string, size_t>& b) {
+                      return a.second > b.second;
+                  });
+
+        for(auto i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
+            auto kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;
             facet_value_count["count"] = kv.second;
