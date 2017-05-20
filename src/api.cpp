@@ -108,7 +108,7 @@ void post_create_collection(http_req & req, http_res & res) {
 void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
-    const char *FILTER = "filter";
+    const char *FILTER = "filter_by";
     const char *SEARCH_BY = "search_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
@@ -210,6 +210,10 @@ void del_remove_document(http_req & req, http_res & res) {
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    if(collection == nullptr) {
+        return res.send_404();
+    }
+
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if(!deleted_id_op.ok()) {
