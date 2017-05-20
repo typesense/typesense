@@ -21,9 +21,8 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
     }
 
     for(const field& field: facet_fields) {
-        art_tree *t = new art_tree;
-        art_tree_init(t);
-        facet_index.emplace(field.name, t);
+        facet_value fvalue;
+        facet_index.emplace(field.name, fvalue);
         facet_schema.emplace(field.name, field);
     }
 
@@ -41,9 +40,10 @@ Collection::~Collection() {
     }
 
     for(std::pair<std::string, field> name_field: facet_schema) {
-        art_tree *t = facet_index.at(name_field.first);
-        art_tree_destroy(t);
-        t = nullptr;
+        facet_value & fvalue = facet_index.at(name_field.first);
+        for(auto doc_value: fvalue.doc_values) {
+            delete doc_value.second;
+        }
     }
 
     for(std::pair<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> name_map: sort_index) {
@@ -176,13 +176,13 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                             "but is not found in the document.");
         }
 
-        art_tree *t = facet_index.at(field_name);
+        facet_value & fvalue = facet_index.at(field_name);
         if(field_pair.second.type == field_types::STRING) {
             if(!document[field_name].is_string()) {
                 return Option<>(400, "Facet field `" + field_name  + "` must be a STRING.");
             }
-            const std::string & text = document[field_name];
-            index_string_field(text, points, t, seq_id, true);
+            const std::string & value = document[field_name];
+            fvalue.index_values(seq_id, { value });
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
@@ -192,8 +192,8 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                 return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
             }
 
-            std::vector<std::string> strings = document[field_name];
-            index_string_array_field(strings, points, t, seq_id, true);
+            const std::vector<std::string> & values = document[field_name];
+            fvalue.index_values(seq_id, values);
         }
     }
 
@@ -330,28 +330,17 @@ void Collection::do_facets(std::vector<facet> & facets, uint32_t* result_ids, si
     for(auto & a_facet: facets) {
         // assumed that facet fields have already been validated upstream
         const field & facet_field = facet_schema.at(a_facet.field_name);
+        const facet_value & fvalue = facet_index.at(facet_field.name);
 
-        // loop through the field, get all keys and intersect those ids with result ids
-        if(facet_index.count(facet_field.name) != 0) {
-            art_tree *t = facet_index.at(facet_field.name);
-            std::vector<art_leaf *> leaves;
-
-            art_topk_iter(t->root, MAX_SCORE, 10, leaves);
-
-            for(const art_leaf* leaf: leaves) {
-                const uint32_t* facet_ids = leaf->values->ids.uncompress();
-                size_t facet_ids_size = leaf->values->ids.getLength();
-
-                uint32_t* facet_results = new uint32_t[std::min(facet_ids_size, results_size)];
-                const size_t facet_results_size = ArrayUtils::and_scalar(result_ids, results_size,
-                                                                           facet_ids, facet_ids_size,
-                                                                           facet_results);
-
-                const std::string facet_value((const char *)leaf->key, leaf->key_len-1); // drop trailing null
-                a_facet.result_map.insert(std::pair<std::string, size_t>(facet_value, facet_results_size));
-
-                delete [] facet_ids;
-                delete [] facet_results;
+        for(auto i = 0; i < results_size; i++) {
+            uint32_t doc_seq_id = result_ids[i];
+            if(fvalue.doc_values.count(doc_seq_id) != 0) {
+                // for every result document, get the values associated and increment counter
+                std::vector<uint32_t>* value_indices = fvalue.doc_values.at(doc_seq_id);
+                for(auto j = 0; j < value_indices->size(); j++) {
+                    const std::string & facet_value = fvalue.index_value.at(value_indices->at(j));
+                    a_facet.result_map[facet_value] += 1;
+                }
             }
         }
     }

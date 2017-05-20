@@ -34,6 +34,7 @@
 - ~~Found count is wrong~~
 - ~~Filter query in the API~~
 - Handle store-get() not finding a key
+- Facet limit
 - Fix API response codes
 - Test for search without any sort_by given
 - Test for asc/desc upper/lower casing
