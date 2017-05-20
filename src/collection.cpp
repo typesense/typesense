@@ -269,7 +269,7 @@ void Collection::index_string_field(const std::string & text, const uint32_t sco
         tokens.push_back(text);
         token_to_offsets[text].push_back(0);
     } else {
-        StringUtils::tokenize(text, tokens, " ", true);
+        StringUtils::split(text, tokens, " ");
         for(uint32_t i=0; i<tokens.size(); i++) {
             auto token = tokens[i];
             transform(token.begin(), token.end(), token.begin(), tolower);
@@ -706,7 +706,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
                               const size_t num_results, Topster<100> &topster, uint32_t** all_result_ids,
                               size_t & all_result_ids_len, const token_ordering token_order, const bool prefix) {
     std::vector<std::string> tokens;
-    StringUtils::tokenize(query, tokens, " ", true);
+    StringUtils::split(query, tokens, " ");
 
     const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
     const size_t max_results = std::min(num_results, (size_t) Collection::MAX_RESULTS);
@@ -1020,41 +1020,100 @@ Option<std::string> Collection::remove(std::string id) {
 
     nlohmann::json document = nlohmann::json::parse(parsed_document);
 
-    std::vector<std::string> tokens;
-    StringUtils::tokenize(document["title"], tokens, " ", true);
-
-    for(auto token: tokens) {
-        std::transform(token.begin(), token.end(), token.begin(), ::tolower);
-
-        const unsigned char *key = (const unsigned char *) token.c_str();
-        int key_len = (int) (token.length() + 1);
-
-        art_leaf* leaf = (art_leaf *) art_search(search_index.at("title"), key, key_len);
-        if(leaf != NULL) {
-            uint32_t seq_id_values[1] = {seq_id};
-
-            uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
-            uint32_t start_offset = leaf->values->offset_index.at(doc_index);
-            uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
-                                  leaf->values->offsets.getLength() :
-                                  leaf->values->offset_index.at(doc_index+1);
-
-            uint32_t doc_indices[1] = {doc_index};
-            remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
-
-            leaf->values->offsets.remove_index(start_offset, end_offset);
-            leaf->values->ids.remove_values(seq_id_values, 1);
-
-            /*len = leaf->values->offset_index.getLength();
-            for(auto i=0; i<len; i++) {
-                std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+    for(auto name_field: search_schema) {
+        std::vector<std::string> tokens;
+        if(name_field.second.type == field_types::STRING) {
+            StringUtils::split(document[name_field.first], tokens, " ");
+        } else if(name_field.second.type == field_types::STRING_ARRAY) {
+            tokens = document[name_field.first].get<std::vector<std::string>>();
+        } else if(name_field.second.type == field_types::INT32) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            int32_t value = document[name_field.first].get<int32_t>();
+            encode_int32(value, key);
+            tokens.push_back(std::string((char*)key, KEY_LEN));
+        } else if(name_field.second.type == field_types::INT32_ARRAY) {
+            std::vector<int32_t> values = document[name_field.first].get<std::vector<int32_t>>();
+            for(const int32_t value: values) {
+                const int KEY_LEN = 8;
+                unsigned char key[KEY_LEN];
+                encode_int32(value, key);
+                tokens.push_back(std::string((char*)key, KEY_LEN));
             }
-            std::cout << "----" << std::endl;*/
-
-            if(leaf->values->ids.getLength() == 0) {
-                art_delete(search_index.at("title"), key, key_len);
+        } else if(name_field.second.type == field_types::INT64) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            int64_t value = document[name_field.first].get<int64_t>();
+            encode_int64(value, key);
+            tokens.push_back(std::string((char*)key, KEY_LEN));
+        } else if(name_field.second.type == field_types::INT64_ARRAY) {
+            std::vector<int64_t> values = document[name_field.first].get<std::vector<int64_t>>();
+            for(const int64_t value: values) {
+                const int KEY_LEN = 8;
+                unsigned char key[KEY_LEN];
+                encode_int64(value, key);
+                tokens.push_back(std::string((char*)key, KEY_LEN));
             }
         }
+
+        for(auto token: tokens) {
+            const unsigned char *key;
+            int key_len;
+
+            if(name_field.second.type == field_types::STRING_ARRAY || name_field.second.type == field_types::STRING) {
+                std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+                key = (const unsigned char *) token.c_str();
+                key_len = (int) (token.length() + 1);
+            } else {
+                key = (const unsigned char *) token.c_str();
+                key_len = (int) (token.length());
+            }
+
+            if(token == "https://twitter.com/yogalayout") {
+                std::cout << "token https://twitter.com/yogalayout" << std::endl;
+            }
+
+            art_leaf* leaf = (art_leaf *) art_search(search_index.at(name_field.first), key, key_len);
+            if(leaf != NULL) {
+                uint32_t seq_id_values[1] = {seq_id};
+
+                if(leaf->values->ids.getLength() == 0) {
+                    std::cout << "HEY!!!" << std::endl;
+                }
+
+                uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
+                uint32_t start_offset = leaf->values->offset_index.at(doc_index);
+                uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
+                                      leaf->values->offsets.getLength() :
+                                      leaf->values->offset_index.at(doc_index+1);
+
+                uint32_t doc_indices[1] = {doc_index};
+                remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
+
+                leaf->values->offsets.remove_index(start_offset, end_offset);
+                leaf->values->ids.remove_values(seq_id_values, 1);
+
+                /*len = leaf->values->offset_index.getLength();
+                for(auto i=0; i<len; i++) {
+                    std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+                }
+                std::cout << "----" << std::endl;*/
+
+                if(leaf->values->ids.getLength() == 0) {
+                    art_delete(search_index.at(name_field.first), key, key_len);
+                }
+            }
+        }
+    }
+
+    // remove facets if any
+    for(auto field_facet_value: facet_index) {
+        field_facet_value.second.doc_values.erase(seq_id);
+    }
+
+    // remove sort index if any
+    for(auto field_doc_value_map: sort_index) {
+        field_doc_value_map.second->erase(seq_id);
     }
 
     store->remove(get_doc_id_key(id));

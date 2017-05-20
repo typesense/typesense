@@ -34,6 +34,8 @@
 - ~~Found count is wrong~~
 - ~~Filter query in the API~~
 - ~~Facet limit (hardcode to top 10)~~
+- ~~Deprecate old split function~~
+- ID should not have "/"
 - Handle store-get() not finding a key
 - Fix API response codes
 - Test for search without any sort_by given
@@ -41,7 +43,6 @@
 - Test for collection creation validation
 - Test for delete document
 - Proper pagination
-- Deprecate old split function
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results
