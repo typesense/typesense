@@ -23,7 +23,7 @@ void CollectionManager::init(Store *store) {
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
-    for(auto collection_meta_json: collection_meta_jsons) {
+    for(auto & collection_meta_json: collection_meta_jsons) {
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
         std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
 

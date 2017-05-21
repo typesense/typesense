@@ -33,20 +33,13 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 }
 
 Collection::~Collection() {
-    for(std::pair<std::string, field> name_field: search_schema) {
+    for(auto & name_field: search_schema) {
         art_tree *t = search_index.at(name_field.first);
         art_tree_destroy(t);
         t = nullptr;
     }
 
-    for(std::pair<std::string, field> name_field: facet_schema) {
-        facet_value & fvalue = facet_index.at(name_field.first);
-        for(auto doc_value: fvalue.doc_values) {
-            delete doc_value.second;
-        }
-    }
-
-    for(std::pair<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> name_map: sort_index) {
+    for(auto & name_map: sort_index) {
         delete name_map.second;
     }
 }
@@ -271,7 +264,7 @@ void Collection::index_string_field(const std::string & text, const uint32_t sco
     } else {
         StringUtils::split(text, tokens, " ");
         for(uint32_t i=0; i<tokens.size(); i++) {
-            auto token = tokens[i];
+            auto & token = tokens[i];
             transform(token.begin(), token.end(), token.begin(), tolower);
             token_to_offsets[token].push_back(i);
         }
@@ -336,9 +329,9 @@ void Collection::do_facets(std::vector<facet> & facets, uint32_t* result_ids, si
             uint32_t doc_seq_id = result_ids[i];
             if(fvalue.doc_values.count(doc_seq_id) != 0) {
                 // for every result document, get the values associated and increment counter
-                std::vector<uint32_t>* value_indices = fvalue.doc_values.at(doc_seq_id);
-                for(auto j = 0; j < value_indices->size(); j++) {
-                    const std::string & facet_value = fvalue.index_value.at(value_indices->at(j));
+                const std::vector<uint32_t> & value_indices = fvalue.doc_values.at(doc_seq_id);
+                for(auto j = 0; j < value_indices.size(); j++) {
+                    const std::string & facet_value = fvalue.index_value.at(value_indices.at(j));
                     a_facet.result_map[facet_value] += 1;
                 }
             }
@@ -646,7 +639,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     result["hits"] = nlohmann::json::array();
 
-    for(auto field_order_kv: field_order_kvs) {
+    for(auto & field_order_kv: field_order_kvs) {
         std::string value;
         const std::string &seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
         store->get(seq_id_key, value);
@@ -676,7 +669,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
                   });
 
         for(auto i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
-            auto kv = value_to_count[i];
+            auto & kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;
             facet_value_count["count"] = kv.second;
@@ -1004,8 +997,6 @@ void Collection::remove_and_shift_offset_index(sorted_array &offset_index, const
 }
 
 Option<std::string> Collection::remove(std::string id) {
-    nlohmann::json result = nlohmann::json::object();
-
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
 
@@ -1020,7 +1011,7 @@ Option<std::string> Collection::remove(std::string id) {
 
     nlohmann::json document = nlohmann::json::parse(parsed_document);
 
-    for(auto name_field: search_schema) {
+    for(auto & name_field: search_schema) {
         std::vector<std::string> tokens;
         if(name_field.second.type == field_types::STRING) {
             StringUtils::split(document[name_field.first], tokens, " ");
@@ -1056,7 +1047,7 @@ Option<std::string> Collection::remove(std::string id) {
             }
         }
 
-        for(auto token: tokens) {
+        for(auto & token: tokens) {
             const unsigned char *key;
             int key_len;
 
@@ -1069,19 +1060,16 @@ Option<std::string> Collection::remove(std::string id) {
                 key_len = (int) (token.length());
             }
 
-            if(token == "https://twitter.com/yogalayout") {
-                std::cout << "token https://twitter.com/yogalayout" << std::endl;
-            }
-
             art_leaf* leaf = (art_leaf *) art_search(search_index.at(name_field.first), key, key_len);
             if(leaf != NULL) {
                 uint32_t seq_id_values[1] = {seq_id};
+                uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
 
-                if(leaf->values->ids.getLength() == 0) {
-                    std::cout << "HEY!!!" << std::endl;
+                if(doc_index == leaf->values->ids.getLength()) {
+                    // not found - happens when 2 tokens repeat in a field, e.g "is it or is is not?"
+                    continue;
                 }
 
-                uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
                 uint32_t start_offset = leaf->values->offset_index.at(doc_index);
                 uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
                                       leaf->values->offsets.getLength() :
@@ -1100,19 +1088,21 @@ Option<std::string> Collection::remove(std::string id) {
                 std::cout << "----" << std::endl;*/
 
                 if(leaf->values->ids.getLength() == 0) {
-                    art_delete(search_index.at(name_field.first), key, key_len);
+                    art_values* values = (art_values*) art_delete(search_index.at(name_field.first), key, key_len);
+                    delete values;
+                    values = nullptr;
                 }
             }
         }
     }
 
     // remove facets if any
-    for(auto field_facet_value: facet_index) {
+    for(auto & field_facet_value: facet_index) {
         field_facet_value.second.doc_values.erase(seq_id);
     }
 
     // remove sort index if any
-    for(auto field_doc_value_map: sort_index) {
+    for(auto & field_doc_value_map: sort_index) {
         field_doc_value_map.second->erase(seq_id);
     }
 

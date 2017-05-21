@@ -36,6 +36,7 @@
 - ~~Facet limit (hardcode to top 10)~~
 - ~~Deprecate old split function~~
 - ID should not have "/"
+- Test for sorted_array::indexOf when length is 0
 - Handle store-get() not finding a key
 - Fix API response codes
 - Test for search without any sort_by given

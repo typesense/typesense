@@ -15,7 +15,7 @@ struct facet_value {
     spp::sparse_hash_map<std::string, uint32_t> value_index;
     spp::sparse_hash_map<uint32_t, std::string> index_value;
 
-    spp::sparse_hash_map<uint32_t, std::vector<uint32_t>*> doc_values;
+    spp::sparse_hash_map<uint32_t, std::vector<uint32_t>> doc_values;
 
     uint32_t get_value_index(const std::string & value) {
         if(value_index.count(value) != 0) {
@@ -29,9 +29,9 @@ struct facet_value {
     }
 
     void index_values(uint32_t doc_seq_id, const std::vector<std::string> & values) {
-        std::vector<uint32_t>* value_vec = new std::vector<uint32_t>(values.size());
+        std::vector<uint32_t> value_vec(values.size());
         for(auto i = 0; i < values.size(); i++) {
-            (*value_vec)[i] = get_value_index(values[i]);
+            value_vec[i] = get_value_index(values[i]);
         }
         doc_values.emplace(doc_seq_id, value_vec);
     }

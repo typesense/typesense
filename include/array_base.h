@@ -24,20 +24,6 @@ protected:
         return (uint32_t) (v == 0 ? 0 : 32 - __builtin_clz(v));
     }
 
-    uint32_t inline sorted_append_size_required(uint32_t value, uint32_t new_length) {
-        uint32_t m = std::min(min, value);
-        uint32_t M = std::max(max, value);
-        uint32_t bnew = required_bits(M - m);
-        return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
-    }
-
-    uint32_t inline unsorted_append_size_required(uint32_t value, uint32_t new_length) {
-        uint32_t m = std::min(min, value);
-        uint32_t M = std::max(max, value);
-        uint32_t bnew = required_bits(M - m);
-        return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
-    }
-
 public:
     array_base(const uint32_t n=2) {
         size_bytes = METADATA_OVERHEAD + (n * FOR_ELE_SIZE);
