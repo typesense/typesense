@@ -41,6 +41,7 @@ Collection::~Collection() {
 
     for(auto & name_map: sort_index) {
         delete name_map.second;
+        name_map.second = nullptr;
     }
 }
 
@@ -49,7 +50,7 @@ uint32_t Collection::get_next_seq_id() {
     return next_seq_id++;
 }
 
-Option<std::string> Collection::add(std::string json_str) {
+Option<std::string> Collection::add(const std::string & json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
     uint32_t seq_id = get_next_seq_id();
@@ -294,7 +295,8 @@ void Collection::index_string_field(const std::string & text, const uint32_t sco
         }
 
         art_insert(t, key, key_len, &art_doc, num_hits);
-        delete art_doc.offsets;
+        delete [] art_doc.offsets;
+        art_doc.offsets = nullptr;
     }
 }
 
@@ -996,7 +998,7 @@ void Collection::remove_and_shift_offset_index(sorted_array &offset_index, const
     delete[] new_array;
 }
 
-Option<std::string> Collection::remove(std::string id) {
+Option<std::string> Collection::remove(const std::string & id) {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
 
@@ -1112,7 +1114,7 @@ Option<std::string> Collection::remove(std::string id) {
     return Option<std::string>(id);
 }
 
-std::string Collection::get_next_seq_id_key(std::string collection_name) {
+std::string Collection::get_next_seq_id_key(const std::string & collection_name) {
     return std::string(COLLECTION_NEXT_SEQ_PREFIX) + "_" + collection_name;
 }
 
@@ -1127,7 +1129,7 @@ std::string Collection::get_seq_id_key(uint32_t seq_id) {
     return get_seq_id_collection_prefix() + "_" + std::string(bytes, bytes+4);
 }
 
-std::string Collection::get_doc_id_key(std::string doc_id) {
+std::string Collection::get_doc_id_key(const std::string & doc_id) {
     return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + doc_id;
 }
 
@@ -1159,7 +1161,7 @@ spp::sparse_hash_map<std::string, field> Collection::get_schema() {
     return search_schema;
 };
 
-std::string Collection::get_meta_key(std::string collection_name) {
+std::string Collection::get_meta_key(const std::string & collection_name) {
     return COLLECTION_META_PREFIX + collection_name;
 }
 

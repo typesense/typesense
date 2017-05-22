@@ -62,7 +62,7 @@ private:
 
     std::string token_ordering_field;
 
-    std::string get_doc_id_key(std::string doc_id);
+    std::string get_doc_id_key(const std::string & doc_id);
 
     std::string get_seq_id_key(uint32_t seq_id);
 
@@ -114,9 +114,9 @@ public:
 
     ~Collection();
 
-    static std::string get_next_seq_id_key(std::string collection_name);
+    static std::string get_next_seq_id_key(const std::string & collection_name);
 
-    static std::string get_meta_key(std::string collection_name);
+    static std::string get_meta_key(const std::string & collection_name);
 
     std::string get_seq_id_collection_prefix();
 
@@ -134,20 +134,20 @@ public:
 
     std::string get_token_ordering_field();
 
-    Option<std::string> add(std::string json_str);
+    Option<std::string> add(const std::string & json_str);
 
     nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                           const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
-    Option<std::string> remove(std::string id);
+    Option<std::string> remove(const std::string & id);
 
     void score_results(const std::vector<sort_field> & sort_fields, const int & token_rank, Topster<100> &topster,
                        const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 
-    Option<uint32_t> index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};

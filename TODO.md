@@ -36,6 +36,7 @@
 - ~~Facet limit (hardcode to top 10)~~
 - ~~Deprecate old split function~~
 - ID should not have "/"
+- Use rocksdb batch put for atomic insertion
 - Test for sorted_array::indexOf when length is 0
 - Handle store-get() not finding a key
 - Fix API response codes
