@@ -352,6 +352,19 @@ TEST_F(CollectionTest, PrefixSearching) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    std::cout << "WHAT EX..." << std::endl;
+
+    results = collection->search("what ex", query_fields, "", facets, sort_fields, 0, 10, MAX_SCORE, true);
+    ASSERT_EQ(9, results["hits"].size());
+    ids = {"6", "12", "19", "22", "13", "8", "15", "24", "21"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionTest, MultipleFields) {

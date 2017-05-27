@@ -342,7 +342,7 @@ void Collection::do_facets(std::vector<facet> & facets, uint32_t* result_ids, si
 }
 
 void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                                   const std::vector<sort_field> & sort_fields, int & token_rank,
+                                   const std::vector<sort_field> & sort_fields, int & candidate_rank,
                                    std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
                                    const size_t & max_results) {
@@ -353,7 +353,11 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_leaves, n);
-        token_rank++;
+        candidate_rank++;
+
+        /*for(auto i=0; i < query_suggestion.size(); i++) {
+            std::cout << "i: " << i << " - " << query_suggestion[i]->key << std::endl;
+        }*/
 
         // initialize results with the starting element (for further intersection)
         uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
@@ -384,7 +388,7 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             do_facets(facets, filtered_result_ids, filtered_results_size);
 
             // go through each matching document id and calculate match score
-            score_results(sort_fields, token_rank, topster, query_suggestion, filtered_result_ids, filtered_results_size);
+            score_results(sort_fields, candidate_rank, topster, query_suggestion, filtered_result_ids, filtered_results_size);
 
             delete[] filtered_result_ids;
             delete[] result_ids;
@@ -397,7 +401,7 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             delete [] *all_result_ids;
             *all_result_ids = new_all_result_ids;
 
-            score_results(sort_fields, token_rank, topster, query_suggestion, result_ids, result_size);
+            score_results(sort_fields, candidate_rank, topster, query_suggestion, result_ids, result_size);
             delete[] result_ids;
         }
 
@@ -731,7 +735,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
 
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
-    int token_rank = 0;
+    int candidate_rank = 0;
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
@@ -754,8 +758,8 @@ void Collection::search_field(std::string & query, const std::string & field, ui
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            /*std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << ", token_rank: "
-                      << token_rank << std::endl;*/
+            /*std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << ", candidate_rank: "
+                      << candidate_rank << std::endl;*/
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
@@ -801,7 +805,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
 
         if(token_leaves.size() != 0 && token_leaves.size() == tokens.size()) {
             // If all tokens were found, go ahead and search for candidates with what we have so far
-            search_candidates(filter_ids, filter_ids_length, facets, sort_fields, token_rank, token_leaves, topster,
+            search_candidates(filter_ids, filter_ids_length, facets, sort_fields, candidate_rank, token_leaves, topster,
                               total_results, all_result_ids, all_result_ids_len, max_results);
 
             if (total_results >= max_results) {
@@ -851,11 +855,11 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
     }
 }
 
-void Collection::score_results(const std::vector<sort_field> & sort_fields, const int & token_rank,
+void Collection::score_results(const std::vector<sort_field> & sort_fields, const int & candidate_rank,
                                Topster<100> & topster, const std::vector<art_leaf *> &query_suggestion,
                                const uint32_t *result_ids, const size_t result_size) const {
 
-    const int max_token_rank = 250;
+    const int max_candidate_rank = 250;
     spp::sparse_hash_map<art_leaf*, uint32_t*> leaf_to_indices;
 
     if(query_suggestion.size() != 1) {
@@ -922,11 +926,11 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
             mscore = MatchScore::match_score(seq_id, token_positions);
         }
 
-        int token_rank_score = max_token_rank - token_rank;
+        int candidate_rank_score = max_candidate_rank - candidate_rank;
 
         // Construct a single match_score from individual components (for multi-field sort)
-        const uint64_t match_score = (token_rank_score << 16) +
-                                     ((uint64_t)(mscore.words_present) << 8) +
+        const uint64_t match_score = ((uint64_t)(mscore.words_present) << 16) +
+                                     (candidate_rank_score << 8) +
                                      (MAX_SEARCH_TOKENS - mscore.distance);
 
         int64_t primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
@@ -937,7 +941,7 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
                     primary_rank_factor * primary_rank_score,
                     secondary_rank_factor * secondary_rank_score);
 
-        /*std::cout << "token_rank_score: " << token_rank_score << ", match_score: "
+        /*std::cout << "candidate_rank_score: " << candidate_rank_score << ", match_score: "
                   << match_score << ", primary_rank_score: " << primary_rank_score << ", seq_id: " << seq_id << std::endl;*/
     }
 
