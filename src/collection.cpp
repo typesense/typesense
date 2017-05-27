@@ -9,9 +9,9 @@
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &search_fields, const std::vector<field> & facet_fields,
-                       const std::vector<field> & sort_fields, const std::string token_ordering_field):
+                       const std::vector<field> & sort_fields, const std::string token_ranking_field):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       sort_fields(sort_fields), token_ordering_field(token_ordering_field) {
+                       sort_fields(sort_fields), token_ranking_field(token_ranking_field) {
 
     for(const field& field: search_fields) {
         art_tree *t = new art_tree;
@@ -74,22 +74,22 @@ Option<std::string> Collection::add(const std::string & json_str) {
 }
 
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
-    if(!token_ordering_field.empty() && document.count(token_ordering_field) == 0) {
-        return Option<>(400, "Field `" + token_ordering_field  + "` has been declared as a token ordering field, "
+    if(!token_ranking_field.empty() && document.count(token_ranking_field) == 0) {
+        return Option<>(400, "Field `" + token_ranking_field  + "` has been declared as a token ranking field, "
                         "but is not found in the document.");
     }
 
-    if(!token_ordering_field.empty() && !document[token_ordering_field].is_number()) {
-        return Option<>(400, "Token ordering field `" + token_ordering_field  + "` must be an INT32.");
+    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number()) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an INT32.");
     }
 
-    if(!token_ordering_field.empty() && document[token_ordering_field].get<int64_t>() > INT32_MAX) {
-        return Option<>(400, "Token ordering field `" + token_ordering_field  + "` exceeds maximum value of INT32.");
+    if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() > INT32_MAX) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of INT32.");
     }
 
     uint32_t points = 0;
-    if(!token_ordering_field.empty()) {
-        points = document[token_ordering_field];
+    if(!token_ranking_field.empty()) {
+        points = document[token_ranking_field];
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
@@ -622,6 +622,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
             topster.sort();
         }
 
+        // order of fields specified matter: matching docs from earlier fields are more important
         for(auto t = 0; t < topster.size && t < num_results; t++) {
             field_order_kvs.push_back(std::make_pair(search_fields.size() - i, topster.getKV(t)));
         }
@@ -635,7 +636,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         if(a.second.match_score != b.second.match_score) return a.second.match_score > b.second.match_score;
         if(a.second.primary_attr != b.second.primary_attr) return a.second.primary_attr > b.second.primary_attr;
         if(a.second.secondary_attr != b.second.secondary_attr) return a.second.secondary_attr > b.second.secondary_attr;
-        if(a.first != b.first) return a.first > b.first;
+        if(a.first != b.first) return a.first > b.first;  // field position
         return a.second.key > b.second.key;
     });
 
@@ -1169,6 +1170,6 @@ std::string Collection::get_seq_id_collection_prefix() {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
-std::string Collection::get_token_ordering_field() {
-    return token_ordering_field;
+std::string Collection::get_token_ranking_field() {
+    return token_ranking_field;
 }

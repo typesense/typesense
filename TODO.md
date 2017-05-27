@@ -35,7 +35,10 @@
 - ~~Filter query in the API~~
 - ~~Facet limit (hardcode to top 10)~~
 - ~~Deprecate old split function~~
+- When prefix=true, use token_ranking_field for token ordering
+- Search snippet
 - ID should not have "/"
+- Group results by field
 - Use rocksdb batch put for atomic insertion
 - Test for sorted_array::indexOf when length is 0
 - Handle store-get() not finding a key

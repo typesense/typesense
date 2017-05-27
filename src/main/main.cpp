@@ -31,12 +31,14 @@ int main(int argc, char* argv[]) {
     };
 
     std::vector<field> facet_fields_index = {
-//            field("lang", field_types::STRING),
-//            field("org", field_types::STRING),
-//            field("topics", field_types::STRING_ARRAY)
+            field("lang", field_types::STRING),
+            field("org", field_types::STRING),
+            field("topics", field_types::STRING_ARRAY)
     };
 
-    std::vector<field> sort_fields = { field("stars", "INT32")};
+    std::vector<field> sort_fields = {
+            field("stars", "INT32")
+    };
 
     Collection *collection = collectionManager.get_collection("github_top1k");
 
@@ -45,7 +47,7 @@ int main(int argc, char* argv[]) {
     }
 
     int j = 0;
-    while(j < 1) {
+    while(j < 1000) {
         j++;
 
         std::ifstream infile(argv[1]);
@@ -53,11 +55,14 @@ int main(int argc, char* argv[]) {
 
         cout << "BEGINNING Iteration: " << j << endl << flush;
         auto begin = std::chrono::high_resolution_clock::now();
+        int doc_id = 0;
 
         while (std::getline(infile, json_line)) {
             nlohmann::json document = nlohmann::json::parse(json_line);
+            //document["id"] = std::to_string(doc_id);
             document["id"] = document["org"].get<std::string>() + ":" + document["repo_name"].get<std::string>();
             collection->add(document.dump());
+            doc_id++;
         }
 
         infile.close();
@@ -70,16 +75,14 @@ int main(int argc, char* argv[]) {
 
         std::ifstream infile2(argv[1]);
 
-        int counter = 0;
+        doc_id = 0;
 
         while (std::getline(infile2, json_line)) {
-            counter++;
             nlohmann::json document = nlohmann::json::parse(json_line);
+            //document["id"] = std::to_string(doc_id);
             document["id"] = document["org"].get<std::string>() + ":" + document["repo_name"].get<std::string>();
             collection->remove(document["id"]);
-            /*if (counter % 100 == 0) {
-                std::cout << "Removed " << counter << " so far..." << std::endl;
-            }*/
+            doc_id++;
         }
 
         infile2.close();

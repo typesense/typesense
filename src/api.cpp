@@ -101,7 +101,17 @@ void post_create_collection(http_req & req, http_res & res) {
         sort_fields.push_back(field(sort_field_json["name"], sort_field_json["type"]));
     }
 
-    collectionManager.create_collection(req_json["name"], search_fields, facet_fields, sort_fields);
+    std::string token_ranking_field = "";
+
+    if(req_json.count("token_ranking_field") != 0) {
+        if(!req_json["token_ranking_field"].is_string()) {
+            return res.send_400("Wrong format for `token_ranking_field`. It should be a string (name of a field).");
+        }
+
+        token_ranking_field = req_json["token_ranking_field"].get<std::string>();
+    }
+
+    collectionManager.create_collection(req_json["name"], search_fields, facet_fields, sort_fields, token_ranking_field);
     res.send_201(req.body);
 }
 
@@ -112,7 +122,6 @@ void get_search(http_req & req, http_res & res) {
     const char *SEARCH_BY = "search_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
-    const char *TOKEN_ORDERING = "token_ordering";
 
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
@@ -122,17 +131,11 @@ void get_search(http_req & req, http_res & res) {
         req.params[PREFIX] = "false";
     }
 
-    if(req.params.count(TOKEN_ORDERING) == 0) {
-        req.params[TOKEN_ORDERING] = "FREQUENCY";
-    }
-
     if(req.params.count(SEARCH_BY) == 0) {
         return res.send_400(std::string("Parameter `") + SEARCH_BY + "` is required.");
     }
 
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
-
-    token_ordering token_order = (req.params[TOKEN_ORDERING] == "MAX_SCORE") ? MAX_SCORE : FREQUENCY;
 
     std::vector<std::string> search_fields;
     StringUtils::split(req.params[SEARCH_BY], search_fields, ",");
@@ -171,9 +174,16 @@ void get_search(http_req & req, http_res & res) {
         return res.send_404();
     }
 
+    bool prefix = (req.params[PREFIX] == "true");
+
+    token_ordering token_order = FREQUENCY;
+    if(prefix && !collection->get_token_ranking_field().empty()) {
+        token_order = MAX_SCORE;
+    }
+
     nlohmann::json result = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]), 100,
-                                               token_order, false);
+                                               token_order, prefix);
     const std::string & json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;

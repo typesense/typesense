@@ -76,7 +76,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(1, collection1->get_sort_fields().size());
     ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
-    ASSERT_EQ("points", collection1->get_token_ordering_field());
+    ASSERT_EQ("points", collection1->get_token_ranking_field());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, FREQUENCY, false);
     ASSERT_EQ(4, results["hits"].size());

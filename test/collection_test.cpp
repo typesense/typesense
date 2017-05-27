@@ -882,14 +882,20 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_TRUE(empty_facet_field_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ordering_field_op1 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ordering_field_op1.ok());
-    ASSERT_STREQ("Token ordering field `age` must be an INT32.", bad_token_ordering_field_op1.error().c_str());
+    const Option<std::string> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ranking_field_op1.ok());
+    ASSERT_STREQ("Token ranking field `age` must be an INT32.", bad_token_ranking_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ordering_field_op2 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ordering_field_op2.ok());
-    ASSERT_STREQ("Token ordering field `age` exceeds maximum value of INT32.", bad_token_ordering_field_op2.error().c_str());
+    const Option<std::string> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ranking_field_op2.ok());
+    ASSERT_STREQ("Token ranking field `age` exceeds maximum value of INT32.", bad_token_ranking_field_op2.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
+    const Option<std::string> & bad_token_ranking_field_op3 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ranking_field_op3.ok());
+    ASSERT_STREQ("Field `age` has been declared as a token ranking field, but is not found in the document.",
+                 bad_token_ranking_field_op3.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
     const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);
