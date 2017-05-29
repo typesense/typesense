@@ -3,28 +3,24 @@
 Typesense is an open source search engine for building a delightful search experience.
 
 - **Typo tolerance:** Handles typographical errors out-of-the-box
-- **Tunable ranking + relevancy:** Tailor your search results to perfection
+- **Tunable ranking:** Tailor your search results to perfection
 - **Blazing fast:** Meticulously designed and optimized for speed
 - **Simple and delightful:** Simple API, delightful out-of-the-box experience
 
 ## Development
 
-### Build from source
+### Building from source
 
-Please ensure that you have docker installed on your system.
+Building on your machine:
 
 ```
 $ ./build.sh [--clean]
-.
-.
-.
-$ ./dockcross build/typesense_test
-.
-.
-.
-$ ./dockcross build/typesense-server
 ```
 
-We use [dockcross](https://github.com/dockcross/dockcross) to build our development environment consistently.
+Building on a Docker container:
+
+```
+$ ./docker-build.sh
+```
 
 &copy; 2016-2017 Wreally Studios Inc.
