@@ -16,7 +16,7 @@ private:
         uint32_t m = std::min(min, value);
         uint32_t M = std::max(max, value);
         uint32_t bnew = required_bits(M - m);
-        return METADATA_OVERHEAD + for_compressed_size_bits(new_length, bnew);
+        return METADATA_OVERHEAD + 4 + for_compressed_size_bits(new_length, bnew);
     }
 
     uint32_t lower_bound_search_bits(const uint8_t *in, uint32_t imin, uint32_t imax, uint32_t base,

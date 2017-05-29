@@ -17,14 +17,14 @@ int main(int argc, char* argv[]) {
     system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
 
     std::vector<field> fields_to_index = {field("title", field_types::STRING)};
-    std::vector<std::string> rank_fields = {"points"};
+    std::vector<field> sort_fields = { field("points", "INT32")};
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store);
 
     Collection *collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", fields_to_index, {}, rank_fields);
+        collection = collectionManager.create_collection("collection", fields_to_index, {}, sort_fields);
     }
 
     std::ifstream infile("/Users/kishore/Downloads/hnstories_small.jsonl");
@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
 
     while(counter < 3000) {
         auto i = counter % 5;
-        auto results = collection->search(queries[i], search_fields, "", { }, {"points"}, 1, 100, MAX_SCORE, 0);
+        auto results = collection->search(queries[i], search_fields, "", { }, {sort_field("points", "DESC")}, 1, 100, MAX_SCORE, 0);
         results_total += results.size();
         counter++;
     }

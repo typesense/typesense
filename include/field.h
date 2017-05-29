@@ -23,7 +23,7 @@ struct field {
     std::string name;
     std::string type;
 
-    field(std::string name, std::string type): name(name), type(type) {
+    field(const std::string & name, const std::string & type): name(name), type(type) {
 
     }
 
@@ -61,6 +61,28 @@ struct filter {
         }
 
         return Option<NUM_COMPARATOR>(400, "Numerical field has an invalid comparator.");
+    }
+};
+
+namespace sort_field_const {
+    static const std::string name = "name";
+    static const std::string order = "order";
+    static const std::string asc = "ASC";
+    static const std::string desc = "DESC";
+}
+
+struct sort_field {
+    std::string name;
+    std::string order;
+
+    sort_field(const std::string & name, const std::string & order): name(name), order(order) {
+
+    }
+
+    sort_field& operator=(sort_field other) {
+        name = other.name;
+        order = other.order;
+        return *this;
     }
 };
 

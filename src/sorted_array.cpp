@@ -1,8 +1,8 @@
 #include "sorted_array.h"
-#include "intersection.h"
+#include "array_utils.h"
 
 void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_length) {
-    min = sorted_array[0];
+    min = array_length != 0 ? sorted_array[0] : 0;
     max = array_length > 1 ? sorted_array[array_length-1] : min;
 
     uint32_t size_required = (uint32_t) (sorted_append_size_required(max, array_length) * FOR_GROWTH_FACTOR);
@@ -55,6 +55,10 @@ bool sorted_array::contains(uint32_t value) {
 }
 
 uint32_t sorted_array::indexOf(uint32_t value) {
+    if(length == 0) {
+        return length;
+    }
+
     uint32_t actual;
     uint32_t index = for_lower_bound_search(in, length, value, &actual);
     if(actual == value) return index;
@@ -173,7 +177,7 @@ size_t sorted_array::intersect(uint32_t* arr, const size_t arr_length, uint32_t*
     uint32_t* curr = uncompress();
     uint32_t* results = new uint32_t[std::min(arr_length, (size_t) length)];
 
-    size_t results_length = Intersection::scalar(arr, arr_length, curr, length, results);
+    size_t results_length = ArrayUtils::and_scalar(arr, arr_length, curr, length, results);
     delete[] curr;
 
     *results_out = results;

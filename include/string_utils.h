@@ -5,46 +5,6 @@
 #include <sstream>
 
 struct StringUtils {
-
-    template<class ContainerT>
-    static void tokenize(const std::string &str, ContainerT &tokens,
-                  const std::string &delimiters = " ", bool trimEmpty = true, unsigned long maxTokenLength = 100) {
-        const std::string truncated_str = str.substr(0, maxTokenLength);
-        std::string::size_type pos, lastPos = 0;
-
-        using value_type = typename ContainerT::value_type;
-        using size_type  = typename ContainerT::size_type;
-
-        while (true) {
-            pos = truncated_str.find_first_of(delimiters, lastPos);
-            if (pos == std::string::npos) {
-                pos = truncated_str.length();
-
-                if (pos != lastPos || !trimEmpty)
-                    tokens.push_back(value_type(truncated_str.data() + lastPos,
-                                                (size_type) pos - lastPos));
-
-                break;
-            }
-            else {
-                if (pos != lastPos || !trimEmpty)
-                    tokens.push_back(value_type(truncated_str.data() + lastPos,
-                                                (size_type) pos - lastPos));
-            }
-
-            lastPos = pos + 1;
-        }
-    }
-
-    static std::string replace_all(std::string str, const std::string &from, const std::string &to) {
-        size_t start_pos = 0;
-        while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-            str.replace(start_pos, from.length(), to);
-            start_pos += to.length(); // Handles case where 'to' is a substring of 'from'
-        }
-        return str;
-    }
-
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static void split(const std::string& s, std::vector<std::string> & result, const std::string& delim, const bool keep_empty = false) {
         if (delim.empty()) {
@@ -121,5 +81,9 @@ struct StringUtils {
         char * p ;
         strtol(s.c_str(), &p, 10);
         return (*p == 0);
+    }
+
+    static void toupper(std::string& str) {
+        std::transform(str.begin(), str.end(), str.begin(), ::toupper);
     }
 };

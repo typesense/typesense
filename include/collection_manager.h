@@ -22,18 +22,18 @@ private:
     static constexpr const char* COLLECTION_ID_KEY = "id";
     static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
     static constexpr const char* COLLECTION_FACET_FIELDS_KEY = "facet_fields";
-    static constexpr const char* COLLECTION_RANK_FIELDS_KEY = "rank_fields";
-    static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ordering_field";
+    static constexpr const char* COLLECTION_SORT_FIELDS_KEY = "sort_fields";
+    static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ranking_field";
 
     CollectionManager();
 
+    ~CollectionManager() = default;
+
 public:
-    static CollectionManager& get_instance() {
+    static CollectionManager & get_instance() {
         static CollectionManager instance;
         return instance;
     }
-
-    ~CollectionManager();
 
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
@@ -42,8 +42,8 @@ public:
 
     Collection* create_collection(std::string name, const std::vector<field> & search_fields,
                                   const std::vector<field> & facet_fields,
-                                  const std::vector<std::string> & rank_fields,
-                                  const std::string & token_ordering_field = "");
+                                  const std::vector<field> & sort_fields,
+                                  const std::string & token_ranking_field = "");
 
     Collection* get_collection(std::string collection_name);
 

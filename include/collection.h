@@ -10,6 +10,33 @@
 #include <field.h>
 #include <option.h>
 
+struct facet_value {
+    // use string to int mapping for saving memory
+    spp::sparse_hash_map<std::string, uint32_t> value_index;
+    spp::sparse_hash_map<uint32_t, std::string> index_value;
+
+    spp::sparse_hash_map<uint32_t, std::vector<uint32_t>> doc_values;
+
+    uint32_t get_value_index(const std::string & value) {
+        if(value_index.count(value) != 0) {
+            return value_index[value];
+        }
+
+        uint32_t new_index = value_index.size();
+        value_index.emplace(value, new_index);
+        index_value.emplace(new_index, value);
+        return new_index;
+    }
+
+    void index_values(uint32_t doc_seq_id, const std::vector<std::string> & values) {
+        std::vector<uint32_t> value_vec(values.size());
+        for(auto i = 0; i < values.size(); i++) {
+            value_vec[i] = get_value_index(values[i]);
+        }
+        doc_values.emplace(doc_seq_id, value_vec);
+    }
+};
+
 class Collection {
 private:
     std::string name;
@@ -23,19 +50,19 @@ private:
 
     spp::sparse_hash_map<std::string, field> facet_schema;
 
-    std::vector<std::string> rank_fields;
+    std::vector<field> sort_fields;
 
     Store* store;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
-    spp::sparse_hash_map<std::string, art_tree*> facet_index;
+    spp::sparse_hash_map<std::string, facet_value> facet_index;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> rank_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
-    std::string token_ordering_field;
+    std::string token_ranking_field;
 
-    std::string get_doc_id_key(std::string doc_id);
+    std::string get_doc_id_key(const std::string & doc_id);
 
     std::string get_seq_id_key(uint32_t seq_id);
 
@@ -51,14 +78,15 @@ private:
     void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
-                      std::vector<facet> & facets, const std::vector<std::string> & rank_fields, const int num_typos,
-                      const size_t num_results, Topster<100> &topster, size_t & num_found,
-                      const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                      std::vector<facet> & facets, const std::vector<sort_field> & sort_fields, const int num_typos,
+                      const size_t num_results, Topster<100> &topster, uint32_t** all_result_ids,
+                      size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                           const std::vector<std::string> & rank_fields, int & token_rank,
+                           const std::vector<sort_field> & sort_fields, int & token_rank,
                            std::vector<std::vector<art_leaf*>> & token_leaves, Topster<100> & topster,
-                           size_t & total_results, size_t & num_found, const size_t & max_results);
+                           size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
+                           const size_t & max_results);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
                             const bool verbatim) const;
@@ -82,13 +110,13 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                const std::vector<field> & search_fields, const std::vector<field> & facet_fields,
-               const std::vector<std::string> & rank_fields, const std::string token_ordering_field);
+               const std::vector<field> & sort_fields, const std::string token_ranking_field);
 
     ~Collection();
 
-    static std::string get_next_seq_id_key(std::string collection_name);
+    static std::string get_next_seq_id_key(const std::string & collection_name);
 
-    static std::string get_meta_key(std::string collection_name);
+    static std::string get_meta_key(const std::string & collection_name);
 
     std::string get_seq_id_collection_prefix();
 
@@ -100,26 +128,26 @@ public:
 
     std::vector<std::string> get_facet_fields();
 
-    std::vector<std::string> get_rank_fields();
+    std::vector<field> get_sort_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
 
-    std::string get_token_ordering_field();
+    std::string get_token_ranking_field();
 
-    Option<std::string> add(std::string json_str);
+    Option<std::string> add(const std::string & json_str);
 
     nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<std::string> & rank_fields, const int num_typos,
+                          const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
-    void remove(std::string id);
+    Option<std::string> remove(const std::string & id);
 
-    void score_results(const std::vector<std::string> & rank_fields, const int & token_rank, Topster<100> &topster,
+    void score_results(const std::vector<sort_field> & sort_fields, const int & token_rank, Topster<100> &topster,
                        const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 
-    Option<uint32_t> index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
     enum {MAX_SEARCH_TOKENS = 20};
     enum {MAX_RESULTS = 100};

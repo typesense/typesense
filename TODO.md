@@ -30,6 +30,24 @@
 - ~~Schema validation during insertion (missing fields + type errors)~~
 - ~~Proper score field for ranking tokens~~
 - ~~Throw errors when schema is broken~~
+- ~~Desc/Asc ordering with tests~~
+- ~~Found count is wrong~~
+- ~~Filter query in the API~~
+- ~~Facet limit (hardcode to top 10)~~
+- ~~Deprecate old split function~~
+- When prefix=true, use token_ranking_field for token ordering
+- Search snippet
+- ID should not have "/"
+- Group results by field
+- Use rocksdb batch put for atomic insertion
+- Test for sorted_array::indexOf when length is 0
+- Handle store-get() not finding a key
+- Fix API response codes
+- Test for search without any sort_by given
+- Test for asc/desc upper/lower casing
+- Test for collection creation validation
+- Test for delete document
+- Proper pagination
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results
