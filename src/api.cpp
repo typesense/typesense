@@ -192,8 +192,8 @@ void get_search(http_req & req, http_res & res) {
     //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
     res.send_200(json_str);
 
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken: " << timeMillis << "us" << std::endl;
+    long long int timeMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    std::cout << "Time taken: " << timeMicros << "us" << std::endl;
 }
 
 void post_add_document(http_req & req, http_res & res) {

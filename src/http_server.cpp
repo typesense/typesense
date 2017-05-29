@@ -45,6 +45,7 @@ int HttpServer::create_listener(void) {
         return -1;
     }
 
+    ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
     sock = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
     h2o_socket_read_start(sock, on_accept);
 
