@@ -20,6 +20,7 @@ file(COPY ${CMAKE_SOURCE_DIR}/cmake/patches/build_detect_platform DESTINATION
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a)
     message("Building ${ROCKSDB_NAME} locally...")
+    set(ENV{PORTABLE} 1)
     execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
                     RESULT_VARIABLE ROCKSDB_BUILD)
     if(NOT ROCKSDB_BUILD EQUAL 0)
