@@ -8,7 +8,8 @@ h2o_context_t HttpServer::ctx;
 h2o_accept_ctx_t HttpServer::accept_ctx;
 std::vector<route_path> HttpServer::routes;
 
-HttpServer::HttpServer() {
+HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
+                       listen_address(listen_address), listen_port(listen_port) {
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
@@ -35,8 +36,8 @@ int HttpServer::create_listener(void) {
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = htonl(INADDR_ANY); //htonl(INADDR_LOOPBACK);
-    addr.sin_port = htons(8088);
+    addr.sin_port = htons(listen_port);
+    inet_pton(AF_INET, listen_address.c_str(), &(addr.sin_addr));
 
     if ((fd = socket(AF_INET, SOCK_STREAM, 0)) == -1 ||
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuseaddr_flag, sizeof(reuseaddr_flag)) != 0 ||
@@ -61,7 +62,8 @@ int HttpServer::run() {
     accept_ctx.hosts = config.hosts;
 
     if (create_listener() != 0) {
-        fprintf(stderr, "failed to listen to 127.0.0.1:1088:%s\n", strerror(errno));
+        std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << std::endl
+                  << "Error: " << strerror(errno) << std::endl;
         return 1;
     }
 

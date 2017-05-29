@@ -76,6 +76,10 @@ private:
     static h2o_accept_ctx_t accept_ctx;
     static std::vector<route_path> routes;
 
+    std::string listen_address;
+
+    uint32_t listen_port;
+
     h2o_hostconf_t *hostconf;
 
     static void on_accept(h2o_socket_t *listener, const char *err);
@@ -92,7 +96,7 @@ private:
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
 public:
-    HttpServer();
+    HttpServer(std::string listen_address, uint32_t listen_port);
 
     ~HttpServer();
 

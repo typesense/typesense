@@ -13,7 +13,7 @@ int main(int argc, char **argv) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store);
 
-    HttpServer server;
+    HttpServer server(options.get<std::string>("listen-address"), options.get<uint32_t>("listen-port"));
 
     server.post("/collection", post_create_collection);
     server.post("/collection/:collection", post_add_document);
