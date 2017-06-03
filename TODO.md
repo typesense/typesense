@@ -35,8 +35,9 @@
 - ~~Filter query in the API~~
 - ~~Facet limit (hardcode to top 10)~~
 - ~~Deprecate old split function~~
-- When prefix=true, use token_ranking_field for token ordering
-- Search snippet
+- ~~Multiple facets not working~~
+- When prefix=true, use token_ranking_field for token ordering only for last word
+- Search snippet with highlight
 - ID should not have "/"
 - Group results by field
 - Use rocksdb batch put for atomic insertion
@@ -53,7 +54,6 @@
 - Minimum results should be a variable instead of blindly going with max_results
 - Pagination parameter
 - Iterator
-- Highlight
 - UTF-8 support for fuzzy search
 - Handle searching for non-existing fields gracefully
 - test for same match score but different primary, secondary attr

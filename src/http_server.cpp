@@ -104,7 +104,7 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
         std::string key = (*i)[1].str();
         std::string raw_value = (*i)[2].str();
         std::string value = StringUtils::url_decode(raw_value);
-        if(query_map.count(value) == 0) {
+        if(query_map.count(key) == 0) {
             query_map[key] = value;
         } else {
             query_map[key] = query_map[key] + "&&" + value;

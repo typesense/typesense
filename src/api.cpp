@@ -116,6 +116,8 @@ void post_create_collection(http_req & req, http_res & res) {
 }
 
 void get_search(http_req & req, http_res & res) {
+    auto begin = std::chrono::high_resolution_clock::now();
+
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *FILTER = "filter_by";
@@ -165,8 +167,6 @@ void get_search(http_req & req, http_res & res) {
         }
     }
 
-    auto begin = std::chrono::high_resolution_clock::now();
-
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
@@ -184,6 +184,12 @@ void get_search(http_req & req, http_res & res) {
     nlohmann::json result = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]), 100,
                                                token_order, prefix);
+
+    uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                               std::chrono::high_resolution_clock::now() - begin).count();
+
+    result["took_ms"] = timeMillis;
+
     const std::string & json_str = result.dump();
     //std::cout << "JSON:" << json_str << std::endl;
     struct rusage r_usage;
@@ -192,8 +198,7 @@ void get_search(http_req & req, http_res & res) {
     //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
     res.send_200(json_str);
 
-    long long int timeMicros = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    std::cout << "Time taken: " << timeMicros << "us" << std::endl;
+    std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
 }
 
 void post_add_document(http_req & req, http_res & res) {
