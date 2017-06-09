@@ -651,6 +651,35 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         const std::string &seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
         store->get(seq_id_key, value);
         nlohmann::json document = nlohmann::json::parse(value);
+
+        // highlight query words in the result
+        const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
+        field search_field = search_schema.at(field_name);
+
+        if(search_field.type == field_types::STRING) {
+            std::vector<std::string> tokens;
+            StringUtils::split(document[field_name], tokens, " ");
+
+            tokens[field_order_kv.second.start_offset] =
+                    "<mark>" + tokens[field_order_kv.second.start_offset] + "</mark>";
+
+            for(size_t i = 1; i < field_order_kv.second.offset_diffs.bytes[0]; i++) {
+                size_t token_index = (size_t)(field_order_kv.second.start_offset + field_order_kv.second.offset_diffs.bytes[i]);
+                tokens[token_index] = "<mark>" + tokens[token_index] + "</mark>";
+            }
+
+            std::stringstream ss;
+
+            for(size_t token_index = 0; token_index < tokens.size(); ++token_index) {
+                if(token_index != 0) {
+                    ss << " ";
+                }
+                ss << tokens[token_index];
+            }
+
+            document[field_name] = ss.str();
+        }
+
         result["hits"].push_back(document);
     }
 

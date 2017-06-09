@@ -60,8 +60,9 @@ struct MatchScore {
 
   static void pack_token_offsets(const uint16_t* min_token_offset, const size_t num_tokens,
                                  TokenOffsetDiffs & offset_diffs) {
+      offset_diffs.bytes[0] = num_tokens;
       for(size_t i = 1; i < num_tokens; i++) {
-          offset_diffs.bytes[i-1] = (char)(min_token_offset[i] - min_token_offset[0]);
+          offset_diffs.bytes[i] = (char)(min_token_offset[i] - min_token_offset[0]);
       }
   }
 
@@ -120,8 +121,9 @@ struct MatchScore {
         // If a token appeared within the window, we would have recorded its offset
         if(token_offset[token_id] != MAX_DISPLACEMENT) {
           num_match++;
-          if(prev_pos == MAX_DISPLACEMENT) prev_pos = token_offset[token_id];
-          else {
+          if(prev_pos == MAX_DISPLACEMENT) { // for the first word
+            prev_pos = token_offset[token_id];
+          } else {
             // Calculate the distance between the tokens within the window
             // Ideally, this should be (NUM_TOKENS - 1) when all the tokens are adjacent to each other
             D(std::cout << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id] << std::endl);
@@ -136,10 +138,14 @@ struct MatchScore {
       // Track the best `displacement` and `num_match` seen so far across all the windows
       if(num_match >= max_match) {
         max_match = num_match;
-        if(displacement != 0 && displacement < min_displacement) {
-          min_displacement = displacement;
+        if(displacement == 0 || displacement < min_displacement) {
           // record the token positions (for highlighting)
           memcpy(min_token_offset, token_offset, token_offsets.size()*sizeof(uint16_t));
+        }
+
+        if(displacement != 0 && displacement < min_displacement) {
+          min_displacement = displacement;
+
         }
       }
 
@@ -150,9 +156,9 @@ struct MatchScore {
 
     // do run-length encoding of the min token positions/offsets
     TokenOffsetDiffs offset_diffs;
-    uint16_t start_offset = min_token_offset[0];
+    uint16_t token_start_offset = min_token_offset[0];
     pack_token_offsets(min_token_offset, token_offsets.size(), offset_diffs);
 
-    return MatchScore{max_match, min_displacement, start_offset, offset_diffs.packed};
+    return MatchScore{max_match, min_displacement, token_start_offset, offset_diffs.packed};
   }
 };

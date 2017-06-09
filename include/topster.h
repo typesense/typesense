@@ -14,7 +14,7 @@ template <size_t MAX_SIZE=100>
 struct Topster {
     struct KV {
         uint16_t start_offset;
-        TokenOffsetDiffs offset_diffs;
+        TokenOffsetDiffs offset_diffs;  // [len, offset1-start_offset, offset2-start_offset, ...]
         uint64_t key;
         uint64_t match_score;
         int64_t primary_attr;
