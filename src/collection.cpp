@@ -862,13 +862,10 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
     const int max_candidate_rank = 250;
     spp::sparse_hash_map<art_leaf*, uint32_t*> leaf_to_indices;
 
-    if(query_suggestion.size() != 1) {
-        // won't be needing positional ranking when there is only 1 token in the query
-        for (art_leaf *token_leaf : query_suggestion) {
-            uint32_t *indices = new uint32_t[result_size];
-            token_leaf->values->ids.indexOf(result_ids, result_size, indices);
-            leaf_to_indices.emplace(token_leaf, indices);
-        }
+    for (art_leaf *token_leaf : query_suggestion) {
+        uint32_t *indices = new uint32_t[result_size];
+        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
+        leaf_to_indices.emplace(token_leaf, indices);
     }
 
     spp::sparse_hash_map<uint32_t, int64_t> * primary_rank_scores = nullptr;
@@ -897,34 +894,28 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
         uint32_t seq_id = result_ids[i];
         std::vector<std::vector<uint16_t>> token_positions;
 
-        MatchScore mscore;
-
-        if(query_suggestion.size() == 1) {
-            mscore = MatchScore{1, 1};
-        } else {
-            // for each token in the query, find the positions that it appears in this document
-            for (art_leaf *token_leaf : query_suggestion) {
-                std::vector<uint16_t> positions;
-                int doc_index = leaf_to_indices.at(token_leaf)[i];
-                if(doc_index == token_leaf->values->ids.getLength()) {
-                    continue;
-                }
-
-                uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-                uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                                      token_leaf->values->offsets.getLength() :
-                                      token_leaf->values->offset_index.at(doc_index+1);
-
-                while(start_offset < end_offset) {
-                    positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
-                    start_offset++;
-                }
-
-                token_positions.push_back(positions);
+        // for each token in the query, find the positions that it appears in this document
+        for (art_leaf *token_leaf : query_suggestion) {
+            std::vector<uint16_t> positions;
+            int doc_index = leaf_to_indices.at(token_leaf)[i];
+            if(doc_index == token_leaf->values->ids.getLength()) {
+                continue;
             }
 
-            mscore = MatchScore::match_score(seq_id, token_positions);
+            uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
+            uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
+                                  token_leaf->values->offsets.getLength() :
+                                  token_leaf->values->offset_index.at(doc_index+1);
+
+            while(start_offset < end_offset) {
+                positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
+                start_offset++;
+            }
+
+            token_positions.push_back(positions);
         }
+
+        MatchScore mscore = MatchScore::match_score(seq_id, token_positions);
 
         int candidate_rank_score = max_candidate_rank - candidate_rank;
 
@@ -938,11 +929,12 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
         int64_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
                                        secondary_rank_scores->at(seq_id) : 0;
         topster.add(seq_id, match_score,
-                    primary_rank_factor * primary_rank_score,
-                    secondary_rank_factor * secondary_rank_score);
+                    primary_rank_factor * primary_rank_score, secondary_rank_factor * secondary_rank_score,
+                    mscore.start_offset, mscore.offset_diffs_packed);
 
-        /*std::cout << "candidate_rank_score: " << candidate_rank_score << ", match_score: "
-                  << match_score << ", primary_rank_score: " << primary_rank_score << ", seq_id: " << seq_id << std::endl;*/
+        /*std::cout << "candidate_rank_score: " << candidate_rank_score << ", words_present: " << mscore.words_present
+                  << ", match_score: " << match_score << ", primary_rank_score: " << primary_rank_score
+                  << ", seq_id: " << seq_id << std::endl;*/
     }
 
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {

@@ -149,7 +149,7 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
-    enum {MAX_SEARCH_TOKENS = 20};
+    enum {MAX_SEARCH_TOKENS = 10};
     enum {MAX_RESULTS = 100};
 
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
