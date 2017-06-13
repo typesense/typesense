@@ -656,25 +656,42 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
         field search_field = search_schema.at(field_name);
 
+        // only string fields are supported for now
         if(search_field.type == field_types::STRING) {
             std::vector<std::string> tokens;
             StringUtils::split(document[field_name], tokens, " ");
 
-            for(size_t i = 1; i <= field_order_kv.second.offset_diffs[0]; i++) {
+            std::vector<size_t> token_indices;
+            char num_tokens_found = field_order_kv.second.offset_diffs[0];
+            for(size_t i = 1; i <= num_tokens_found; i++) {
                 size_t token_index = (size_t)(field_order_kv.second.start_offset + field_order_kv.second.offset_diffs[i]);
-                tokens[token_index] = "<mark>" + tokens[token_index] + "</mark>";
+                token_indices.push_back(token_index);
             }
 
-            std::stringstream ss;
+            auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
 
-            for(size_t token_index = 0; token_index < tokens.size(); ++token_index) {
-                if(token_index != 0) {
-                    ss << " ";
+            // pick surrounding tokens within N tokens of min_index and max_index for the snippet
+            const size_t start_index = std::max(0, (int)(*(minmax.first)-5));
+            const size_t end_index = std::min((int)tokens.size(), (int)(*(minmax.second)+5));
+
+            std::stringstream snippet_stream;
+            size_t token_index = 0;
+
+            for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
+                if(snippet_index != 0) {
+                    snippet_stream << " ";
                 }
-                ss << tokens[token_index];
+
+                if(snippet_index == token_indices[token_index]) {
+                    token_index++;
+                    snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
+                } else {
+                    snippet_stream << tokens[snippet_index];
+                }
             }
 
-            document[field_name] = ss.str();
+            document["_snippets"] = nlohmann::json::object();
+            document["_snippets"][field_name] = snippet_stream.str();
         }
 
         result["hits"].push_back(document);
