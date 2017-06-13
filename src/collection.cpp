@@ -660,11 +660,8 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
             std::vector<std::string> tokens;
             StringUtils::split(document[field_name], tokens, " ");
 
-            tokens[field_order_kv.second.start_offset] =
-                    "<mark>" + tokens[field_order_kv.second.start_offset] + "</mark>";
-
-            for(size_t i = 1; i < field_order_kv.second.offset_diffs.bytes[0]; i++) {
-                size_t token_index = (size_t)(field_order_kv.second.start_offset + field_order_kv.second.offset_diffs.bytes[i]);
+            for(size_t i = 1; i <= field_order_kv.second.offset_diffs[0]; i++) {
+                size_t token_index = (size_t)(field_order_kv.second.start_offset + field_order_kv.second.offset_diffs[i]);
                 tokens[token_index] = "<mark>" + tokens[token_index] + "</mark>";
             }
 
@@ -957,9 +954,10 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
                                      primary_rank_scores->at(seq_id) : 0;
         int64_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
                                        secondary_rank_scores->at(seq_id) : 0;
+
         topster.add(seq_id, match_score,
                     primary_rank_factor * primary_rank_score, secondary_rank_factor * secondary_rank_score,
-                    mscore.start_offset, mscore.offset_diffs_packed);
+                    mscore.start_offset, mscore.offset_diffs);
 
         /*std::cout << "candidate_rank_score: " << candidate_rank_score << ", words_present: " << mscore.words_present
                   << ", match_score: " << match_score << ", primary_rank_score: " << primary_rank_score

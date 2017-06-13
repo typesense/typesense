@@ -14,7 +14,7 @@ template <size_t MAX_SIZE=100>
 struct Topster {
     struct KV {
         uint16_t start_offset;
-        TokenOffsetDiffs offset_diffs;  // [len, offset1-start_offset, offset2-start_offset, ...]
+        char offset_diffs[16];  // [len, offset1-start_offset, offset2-start_offset, ...]
         uint64_t key;
         uint64_t match_score;
         int64_t primary_attr;
@@ -36,7 +36,7 @@ struct Topster {
     }
 
     void add(const uint64_t &key, const uint64_t &match_score, const int64_t &primary_attr,
-             const int64_t &secondary_attr, const uint16_t &start_offset, const int16_t &offset_diffs_packed){
+             const int64_t &secondary_attr, const uint16_t &start_offset, char *offset_diffs_stacked){
         if (size >= MAX_SIZE) {
             if(!is_greater(data[0], match_score, primary_attr, secondary_attr)) {
                 // when incoming value is less than the smallest in the heap, ignore
@@ -56,7 +56,7 @@ struct Topster {
             data[0].primary_attr = primary_attr;
             data[0].secondary_attr = secondary_attr;
             data[0].start_offset = start_offset;
-            data[0].offset_diffs.packed = offset_diffs_packed;
+            memcpy(data[0].offset_diffs, offset_diffs_stacked, 16);
             uint32_t i = 0;
 
             // sift to maintain heap property
@@ -87,7 +87,7 @@ struct Topster {
             data[size].primary_attr = primary_attr;
             data[size].secondary_attr = secondary_attr;
             data[size].start_offset = start_offset;
-            data[size].offset_diffs.packed = offset_diffs_packed;
+            memcpy(data[size].offset_diffs, offset_diffs_stacked, 16);
             size++;
 
             for (uint32_t i = size - 1; i > 0;) {
