@@ -670,15 +670,18 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
             auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
 
-            // pick surrounding tokens within N tokens of min_index and max_index for the snippet
-            const size_t start_index = std::max(0, (int)(*(minmax.first)-5));
-            const size_t end_index = std::min((int)tokens.size(), (int)(*(minmax.second)+5));
+            // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
+            const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
+                                       std::max(0, (int)(*(minmax.first)-5));
+
+            const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
+                                     std::min((int)tokens.size(), (int)(*(minmax.second)+5));
 
             std::stringstream snippet_stream;
             size_t token_index = 0;
 
             for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
-                if(snippet_index != 0) {
+                if(snippet_index != start_index) {
                     snippet_stream << " ";
                 }
 

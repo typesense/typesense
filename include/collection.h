@@ -152,6 +152,9 @@ public:
     enum {MAX_SEARCH_TOKENS = 10};
     enum {MAX_RESULTS = 100};
 
+    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
+    enum {SNIPPET_STR_ABOVE_LEN = 30};
+
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";

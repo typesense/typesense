@@ -36,8 +36,12 @@
 - ~~Facet limit (hardcode to top 10)~~
 - ~~Deprecate old split function~~
 - ~~Multiple facets not working~~
+- ~~Search snippet with highlight~~
+- ~~Snippet should only be around surrounding matching tokens~~
+- Proper pagination
+- Pagination parameter
 - When prefix=true, use token_ranking_field for token ordering only for last word
-- Search snippet with highlight
+- Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
 - Use rocksdb batch put for atomic insertion
@@ -48,11 +52,10 @@
 - Test for asc/desc upper/lower casing
 - Test for collection creation validation
 - Test for delete document
-- Proper pagination
+- Test for snippets
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results
-- Pagination parameter
 - Iterator
 - UTF-8 support for fuzzy search
 - Handle searching for non-existing fields gracefully
