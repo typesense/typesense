@@ -124,6 +124,8 @@ void get_search(http_req & req, http_res & res) {
     const char *SEARCH_BY = "search_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
+    const char *PER_PAGE = "per_page";
+    const char *PAGE = "page";
 
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
@@ -135,6 +137,14 @@ void get_search(http_req & req, http_res & res) {
 
     if(req.params.count(SEARCH_BY) == 0) {
         return res.send_400(std::string("Parameter `") + SEARCH_BY + "` is required.");
+    }
+
+    if(req.params.count(PER_PAGE) == 0) {
+        req.params[PER_PAGE] = "10";
+    }
+
+    if(req.params.count(PAGE) == 0) {
+        req.params[PAGE] = "1";
     }
 
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
@@ -182,7 +192,8 @@ void get_search(http_req & req, http_res & res) {
     }
 
     nlohmann::json result = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
-                                               sort_fields, std::stoi(req.params[NUM_TYPOS]), 100,
+                                               sort_fields, std::stoi(req.params[NUM_TYPOS]),
+                                               std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
                                                token_order, prefix);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -560,7 +560,8 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
 nlohmann::json Collection::search(std::string query, const std::vector<std::string> search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_field> & sort_fields, const int num_typos,
-                                  const size_t num_results, const token_ordering token_order, const bool prefix) {
+                                  const size_t per_page, const size_t page,
+                                  const token_ordering token_order, const bool prefix) {
     nlohmann::json result = nlohmann::json::object();
     std::vector<facet> facets;
 
@@ -600,15 +601,22 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         }
     }
 
-    // process the filters first
+    // process the filters
     uint32_t* filter_ids = nullptr;
     Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
     if(!op_filter_ids_length.ok()) {
         result["error"] = op_filter_ids_length.error();
         return result;
     }
-
     const uint32_t filter_ids_length = op_filter_ids_length.get();
+
+    // check for valid pagination
+    if((page * per_page) > MAX_RESULTS) {
+        result["error"] = "Cannot paginate past " + std::to_string(MAX_RESULTS) + " results.";
+        return result;
+    }
+
+    const size_t num_results = (page * per_page);
 
     // Order of `fields` are used to sort results
     auto begin = std::chrono::high_resolution_clock::now();
@@ -646,7 +654,18 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     result["hits"] = nlohmann::json::array();
 
-    for(auto & field_order_kv: field_order_kvs) {
+    const int start_result_index = (page - 1) * per_page;
+    const int kvsize = field_order_kvs.size();
+
+    if(start_result_index > (kvsize - 1)) {
+        result["error"] = "Not found.";
+        return result;
+    }
+
+    const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
+
+    for(size_t field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
+        const auto & field_order_kv = field_order_kvs[field_order_kv_index];
         std::string value;
         const std::string &seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
         store->get(seq_id_key, value);

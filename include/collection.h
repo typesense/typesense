@@ -139,7 +139,8 @@ public:
     nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                           const std::vector<sort_field> & sort_fields, const int num_typos,
-                          const size_t num_results, const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                          const size_t per_page = 10, const size_t page = 1,
+                          const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     Option<std::string> remove(const std::string & id);
 
@@ -149,8 +150,9 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
-    enum {MAX_SEARCH_TOKENS = 10};
-    enum {MAX_RESULTS = 100};
+    //enum {MAX_SEARCH_TOKENS = 10};
+    static const int MAX_SEARCH_TOKENS = 10;
+    static const int MAX_RESULTS = 100;
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

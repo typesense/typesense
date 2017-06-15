@@ -38,8 +38,8 @@
 - ~~Multiple facets not working~~
 - ~~Search snippet with highlight~~
 - ~~Snippet should only be around surrounding matching tokens~~
-- Proper pagination
-- Pagination parameter
+- ~~Proper pagination~~
+- ~~Pagination parameter~~
 - When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
 - ID should not have "/"
@@ -53,6 +53,7 @@
 - Test for collection creation validation
 - Test for delete document
 - Test for snippets
+- Test for pagination
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results
@@ -77,12 +78,13 @@
 **API**
 
 - Support the following operations:
-    - create a new index
-    - ~~index a single document~~
+    - ~~create a new index~~
+    - ~~index a single document~~    
+    - ~~delete a document by ID~~
+    - ~~query an index~~       
+    - delete an index
     - bulk insert multiple documents
     - fetch a document by ID
-    - delete a document by ID
-    - query an index       
 
 **Clustering**
 
