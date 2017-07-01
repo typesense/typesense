@@ -441,6 +441,8 @@ TEST_F(CollectionTest, MultipleFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    collectionManager.drop_collection("coll_mul_fields");
 }
 
 TEST_F(CollectionTest, FilterOnNumericFields) {
@@ -787,6 +789,88 @@ TEST_F(CollectionTest, FacetCounts) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionTest, SortingOrder) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {field("title", field_types::STRING), field("starring", field_types::STRING),
+                                 field("cast", field_types::STRING_ARRAY)};
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, facet_fields, sort_fields_index);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    sort_fields = { sort_field("points", "ASC") };
+    nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false);
+    ASSERT_EQ(10, results["hits"].size());
+
+    std::vector<std::string> ids = {"17", "13", "10", "4", "0", "1", "8", "6", "16", "11"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // limiting results to just 5, "ASC" keyword must be case insensitive
+    sort_fields = { sort_field("points", "asc") };
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 5, 1, FREQUENCY, false);
+    ASSERT_EQ(5, results["hits"].size());
+
+    ids = {"17", "13", "10", "4", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // desc
+
+    sort_fields = { sort_field("points", "dEsc") };
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false);
+    ASSERT_EQ(10, results["hits"].size());
+
+    ids = {"11", "16", "6", "8", "1", "0", "10", "4", "13", "17"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // With empty list of sort_by fields:
+    // should be ordered desc on the seq_id, since the match score will be the same for all records.
+    sort_fields = { };
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false);
+    ASSERT_EQ(10, results["hits"].size());
+
+    ids = {"17", "16", "13", "11", "10", "8", "6", "4", "1", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("coll_mul_fields");
+}
+
 TEST_F(CollectionTest, SearchingWithMissingFields) {
     // return error without crashing when searching for fields that do not conform to the schema
     Collection *coll_array_fields;
@@ -932,4 +1016,77 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
 
     nlohmann::json results = empty_coll->search("a", {"name"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
     ASSERT_EQ(0, results["hits"].size());
+    collectionManager.drop_collection("empty_coll");
+}
+
+TEST_F(CollectionTest, DeletionOfADocument) {
+    collectionManager.drop_collection("collection");
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
+    std::vector<field> search_fields = {field("title", field_types::STRING)};
+    std::vector<std::string> query_fields = {"title"};
+    std::vector<field> facet_fields = { };
+    std::vector<sort_field> sort_fields = { sort_field("points", "DESC") };
+    std::vector<field> sort_fields_index = { field("points", "INT32") };
+
+    Collection *collection_for_del;
+    collection_for_del = collectionManager.get_collection("collection_for_del");
+    if(collection_for_del == nullptr) {
+        collection_for_del = collectionManager.create_collection("collection_for_del", search_fields, facet_fields,
+                                                         sort_fields_index, "points");
+    }
+
+    std::string json_line;
+    rocksdb::Iterator* it;
+    size_t num_keys = 0;
+
+    // dummy record for record id 0: to make the test record IDs to match with line numbers
+    json_line = "{\"points\":10,\"title\":\"z\"}";
+    collection_for_del->add(json_line);
+
+    while (std::getline(infile, json_line)) {
+        collection_for_del->add(json_line);
+    }
+
+    infile.close();
+
+    nlohmann::json results;
+
+    // asserts before removing any record
+    results = collection_for_del->search("cryogenic", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
+
+    it = store->get_iterator();
+    num_keys = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        num_keys += 1;
+    }
+    ASSERT_EQ(25+25+3, num_keys);  // 25 records, 25 id mapping, 3 meta keys
+    delete it;
+
+    // actually remove a record now
+    collection_for_del->remove("1");
+
+    results = collection_for_del->search("cryogenic", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = collection_for_del->search("archives", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false);
+    ASSERT_EQ(1, results["hits"].size());
+
+    collection_for_del->remove("foo");   // custom id record
+    results = collection_for_del->search("martian", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false);
+    ASSERT_EQ(0, results["hits"].size());
+
+    // delete all records
+    for(int id = 0; id <= 25; id++) {
+        collection_for_del->remove(std::to_string(id));
+    }
+
+    it = store->get_iterator();
+    num_keys = 0;
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        num_keys += 1;
+    }
+    delete it;
+    ASSERT_EQ(3, num_keys);
 }

@@ -588,17 +588,25 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         facets.push_back(facet(field_name));
     }
 
-    // validate sort fields
+    // validate sort fields and standardize
+
+    std::vector<sort_field> sort_fields_std;
+
     for(const sort_field & _sort_field: sort_fields) {
         if(sort_index.count(_sort_field.name) == 0) {
             result["error"] = "Could not find a sort field named `" + _sort_field.name + "` in the schema.";
             return result;
         }
 
-        if(_sort_field.order != sort_field_const::asc && _sort_field.order != sort_field_const::desc) {
+        std::string sort_order = _sort_field.order;
+        StringUtils::toupper(sort_order);
+
+        if(sort_order != sort_field_const::asc && sort_order != sort_field_const::desc) {
             result["error"] = "Order for sort field` " + _sort_field.name + "` should be either ASC or DESC.";
             return result;
         }
+
+        sort_fields_std.push_back({_sort_field.name, sort_order});
     }
 
     // process the filters
@@ -629,7 +637,7 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
         const std::string & field = search_fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
         if(simple_filter_query.size() == 0 || filter_ids_length > 0) {
-            search_field(query, field, filter_ids, filter_ids_length, facets, sort_fields, num_typos, num_results,
+            search_field(query, field, filter_ids, filter_ids_length, facets, sort_fields_std, num_typos, num_results,
                          topster, &all_result_ids, all_result_ids_len, token_order, prefix);
             topster.sort();
         }

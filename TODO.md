@@ -45,13 +45,13 @@
 - ID should not have "/"
 - Group results by field
 - Use rocksdb batch put for atomic insertion
-- Test for sorted_array::indexOf when length is 0
 - Handle store-get() not finding a key
 - Fix API response codes
-- Test for search without any sort_by given
-- Test for asc/desc upper/lower casing
-- Test for collection creation validation
-- Test for delete document
+- ~~Test for asc/desc upper/lower casing~~
+- ~~Test for search without any sort_by given~~
+- ~~Test for collection creation validation~~
+- ~~Test for delete document~~
+- Test for sorted_array::indexOf when length is 0
 - Test for snippets
 - Test for pagination
 - Prevent string copy during indexing
