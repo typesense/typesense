@@ -2,6 +2,7 @@
 #include "string_utils.h"
 #include <regex>
 #include <signal.h>
+#include <h2o.h>
 
 h2o_globalconf_t HttpServer::config;
 h2o_context_t HttpServer::ctx;
@@ -54,7 +55,6 @@ int HttpServer::create_listener(void) {
 }
 
 int HttpServer::run() {
-
     signal(SIGPIPE, SIG_IGN);
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
@@ -85,6 +85,7 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 200: return "OK";
         case 201: return "Created";
         case 400: return "Bad Request";
+        case 403: return "Forbidden";
         case 404: return "Not Found";
         case 409: return "Conflict";
         case 500: return "Internal Server Error";
@@ -161,6 +162,25 @@ int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
                 }
             }
 
+            if(rpath.authenticated) {
+                CollectionManager & collectionManager = CollectionManager::get_instance();
+                ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER,
+                                                                    strlen(AUTH_HEADER), -1);
+
+                if(auth_header_cursor == -1) {
+                    // requires authentication, but API Key is not present in the headers
+                    return send_403_forbidden(req);
+                } else {
+                    // api key is found, let's validate
+                    h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
+                    std::string auth_key_from_header = std::string(slot.base, slot.len);
+
+                    if(!collectionManager.auth_key_matches(auth_key_from_header)) {
+                        return send_403_forbidden(req);
+                    }
+                }
+            }
+
             http_req request = {query_map, req_body};
             http_res response;
             (rpath.handler)(request, response);
@@ -186,31 +206,43 @@ int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
     return 0;
 }
 
-void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &)) {
+int HttpServer::send_403_forbidden(h2o_req_t *req) {
+    h2o_generator_t generator = {NULL, NULL};
+    std::string res_body = std::string("{\"message\": \"Forbidden - ") + AUTH_HEADER + " header is invalid or not present.\"}";
+    h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
+    req->res.status = 403;
+    req->res.reason = get_status_reason(req->res.status);
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_start_response(req, &generator);
+    h2o_send(req, &body, 1, 1);
+    return 0;
+}
+
+void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"GET", path_parts, handler};
+    route_path rpath = {"GET", path_parts, handler, authenticated};
     routes.push_back(rpath);
 }
 
-void HttpServer::post(const std::string & path, void (*handler)(http_req &, http_res &)) {
+void HttpServer::post(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"POST", path_parts, handler};
+    route_path rpath = {"POST", path_parts, handler, authenticated};
     routes.push_back(rpath);
 }
 
-void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &)) {
+void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"PUT", path_parts, handler};
+    route_path rpath = {"PUT", path_parts, handler, authenticated};
     routes.push_back(rpath);
 }
 
-void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &)) {
+void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"DELETE", path_parts, handler};
+    route_path rpath = {"DELETE", path_parts, handler, authenticated};
     routes.push_back(rpath);
 }
 

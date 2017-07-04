@@ -25,6 +25,8 @@ private:
     static constexpr const char* COLLECTION_SORT_FIELDS_KEY = "sort_fields";
     static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ranking_field";
 
+    std::string auth_key;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -38,7 +40,9 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    void init(Store *store);
+    void init(Store *store, const std::string & auth_key);
+
+    bool auth_key_matches(std::string auth_key_sent);
 
     Collection* create_collection(std::string name, const std::vector<field> & search_fields,
                                   const std::vector<field> & facet_fields,

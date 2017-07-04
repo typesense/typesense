@@ -8,8 +8,9 @@ CollectionManager::CollectionManager() {
 
 }
 
-void CollectionManager::init(Store *store) {
+void CollectionManager::init(Store *store, const std::string & auth_key) {
     this->store = store;
+    this->auth_key = auth_key;
 
     std::string next_collection_id_str;
     store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
@@ -83,6 +84,10 @@ void CollectionManager::init(Store *store) {
     }
 
     std::cout << "Finished restoring all collections from disk." << std::endl;
+}
+
+bool CollectionManager::auth_key_matches(std::string auth_key_sent) {
+    return (auth_key == auth_key_sent);
 }
 
 Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,

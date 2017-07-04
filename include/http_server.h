@@ -33,13 +33,18 @@ struct http_res {
         body = "{\"message\": \"" + message + "\"}";
     }
 
+    void send_403() {
+        status_code = 403;
+        body = "{\"message\": \"Forbidden\"}";
+    }
+
     void send_404() {
         status_code = 404;
         body = "{\"message\": \"Not Found\"}";
     }
 
     void send_409(const std::string & message) {
-        status_code = 400;
+        status_code = 409;
         body = "{\"message\": \"" + message + "\"}";
     }
 
@@ -63,6 +68,7 @@ struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
     void (*handler)(http_req & req, http_res &);
+    bool authenticated;
 
     inline bool operator< (const route_path& rhs) const {
         return true;
@@ -76,9 +82,9 @@ private:
     static h2o_accept_ctx_t accept_ctx;
     static std::vector<route_path> routes;
 
-    std::string listen_address;
+    const std::string listen_address;
 
-    uint32_t listen_port;
+    const uint32_t listen_port;
 
     h2o_hostconf_t *hostconf;
 
@@ -95,18 +101,22 @@ private:
 
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
+    static int send_403_forbidden(h2o_req_t *req);
+
 public:
     HttpServer(std::string listen_address, uint32_t listen_port);
 
     ~HttpServer();
 
-    void get(const std::string & path, void (*handler)(http_req & req, http_res &));
+    void get(const std::string & path, void (*handler)(http_req & req, http_res &), bool authenticated);
 
-    void post(const std::string & path, void (*handler)(http_req &, http_res &));
+    void post(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
 
-    void put(const std::string & path, void (*handler)(http_req &, http_res &));
+    void put(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
 
-    void del(const std::string & path, void (*handler)(http_req &, http_res &));
+    void del(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
 
     int run();
+
+    static constexpr const char* AUTH_HEADER = "x-api-key";
 };
