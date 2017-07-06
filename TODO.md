@@ -41,14 +41,15 @@
 - ~~Proper pagination~~
 - ~~Pagination parameter~~
 - ~~Drop collection API~~
+- ~~JSONP response~~
+- "error":"Not found." is sent when query has no hits
+- Number of records in collection
+- Use rocksdb batch put for atomic insertion
+- Fix API response codes
 - When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
-- Number of records in collection
-- Fix API response  codes
-- JSONP response
-- Use rocksdb batch put for atomic insertion
 - Handle store-get() not finding a key
 - ~~Test for asc/desc upper/lower casing~~
 - ~~Test for search without any sort_by given~~

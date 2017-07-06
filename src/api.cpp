@@ -141,6 +141,7 @@ void get_search(http_req & req, http_res & res) {
     const char *FACET_BY = "facet_by";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
+    const char *CALLBACK = "callback";
 
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
@@ -216,13 +217,17 @@ void get_search(http_req & req, http_res & res) {
 
     result["took_ms"] = timeMillis;
 
-    const std::string & json_str = result.dump();
-    //std::cout << "JSON:" << json_str << std::endl;
+    const std::string & results_json_str = result.dump();
+
     struct rusage r_usage;
     getrusage(RUSAGE_SELF,&r_usage);
-
     //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
-    res.send_200(json_str);
+
+    if(req.params.count(CALLBACK) == 0) {
+        res.send_200(results_json_str);
+    } else {
+        res.send_200(req.params[CALLBACK] + "(" + results_json_str + ");");
+    }
 
     std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
 }
