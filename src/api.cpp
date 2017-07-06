@@ -115,6 +115,21 @@ void post_create_collection(http_req & req, http_res & res) {
     res.send_201(req.body);
 }
 
+void del_drop_collection(http_req & req, http_res & res) {
+    std::string doc_id = req.params["id"];
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
+
+    if(!drop_result.ok()) {
+        return res.send(drop_result.code(), drop_result.error());
+    }
+
+    nlohmann::json json_response;
+    json_response["collection"] = req.params["collection"];
+    res.send_200(json_response.dump());
+}
+
 void get_search(http_req & req, http_res & res) {
     auto begin = std::chrono::high_resolution_clock::now();
 

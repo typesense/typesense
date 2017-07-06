@@ -153,10 +153,10 @@ Collection* CollectionManager::get_collection(std::string collection_name) {
     return nullptr;
 }
 
-bool CollectionManager::drop_collection(std::string collection_name) {
+Option<bool> CollectionManager::drop_collection(std::string collection_name) {
     Collection* collection = get_collection(collection_name);
     if(collection == nullptr) {
-        return false;
+        return Option<bool>(404, "No collection with name `" + collection_name + "` found.");
     }
 
     store->remove(Collection::get_meta_key(collection_name));
@@ -176,7 +176,7 @@ bool CollectionManager::drop_collection(std::string collection_name) {
     delete collection;
     collection = nullptr;
 
-    return true;
+    return Option<bool>(true);
 }
 
 uint32_t CollectionManager::get_next_collection_id() {

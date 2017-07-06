@@ -19,7 +19,11 @@ int main(int argc, char **argv) {
         options.get<uint32_t>("listen-port")
     );
 
+    // collection management
     server.post("/collection", post_create_collection, true);
+    server.del("/collection/:collection", del_drop_collection, true);
+
+    // document management
     server.post("/collection/:collection", post_add_document, true);
     server.get("/collection/:collection/search", get_search, false);
     server.del("/collection/:collection/:id", del_remove_document, true);

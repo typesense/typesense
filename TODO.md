@@ -40,13 +40,16 @@
 - ~~Snippet should only be around surrounding matching tokens~~
 - ~~Proper pagination~~
 - ~~Pagination parameter~~
+- ~~Drop collection API~~
 - When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
+- Number of records in collection
+- Fix API response  codes
+- JSONP response
 - Use rocksdb batch put for atomic insertion
 - Handle store-get() not finding a key
-- Fix API response codes
 - ~~Test for asc/desc upper/lower casing~~
 - ~~Test for search without any sort_by given~~
 - ~~Test for collection creation validation~~
