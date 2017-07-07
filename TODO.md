@@ -42,7 +42,7 @@
 - ~~Pagination parameter~~
 - ~~Drop collection API~~
 - ~~JSONP response~~
-- "error":"Not found." is sent when query has no hits
+- ~~"error":"Not found." is sent when query has no hits~~
 - Number of records in collection
 - Use rocksdb batch put for atomic insertion
 - Fix API response codes

@@ -207,7 +207,7 @@ void get_search(http_req & req, http_res & res) {
         token_order = MAX_SCORE;
     }
 
-    nlohmann::json result = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
                                                std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
                                                token_order, prefix);
@@ -215,12 +215,19 @@ void get_search(http_req & req, http_res & res) {
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();
 
-    result["took_ms"] = timeMillis;
 
+    if(!result_op.ok()) {
+        const std::string & json_res_body = (req.params.count(CALLBACK) == 0) ? result_op.error() :
+                                            (req.params[CALLBACK] + "(" + result_op.error() + ");");
+        return res.send(result_op.code(), json_res_body);
+    }
+
+    nlohmann::json result = result_op.get();
+    result["took_ms"] = timeMillis;
     const std::string & results_json_str = result.dump();
 
-    struct rusage r_usage;
-    getrusage(RUSAGE_SELF,&r_usage);
+    //struct rusage r_usage;
+    //getrusage(RUSAGE_SELF,&r_usage);
     //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
 
     if(req.params.count(CALLBACK) == 0) {

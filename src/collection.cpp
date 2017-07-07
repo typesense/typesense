@@ -557,7 +557,7 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
     return Option<>(filter_ids_length);
 }
 
-nlohmann::json Collection::search(std::string query, const std::vector<std::string> search_fields,
+Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_field> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
@@ -568,22 +568,22 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
     // validate search fields
     for(const std::string & field_name: search_fields) {
         if(search_schema.count(field_name) == 0) {
-            result["error"] = "Could not find a search field named `" + field_name + "` in the schema.";
-            return result;
+            std::string error = "Could not find a search field named `" + field_name + "` in the schema.";
+            return Option<nlohmann::json>(400, error);
         }
 
         field search_field = search_schema.at(field_name);
         if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
-            result["error"] = "Search field `" + field_name + "` should be a string or a string array.";
-            return result;
+            std::string error = "Search field `" + field_name + "` should be a string or a string array.";
+            return Option<nlohmann::json>(400, error);
         }
     }
 
     // validate facet fields
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
-            result["error"] = "Could not find a facet field named `" + field_name + "` in the schema.";
-            return result;
+            std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
+            return Option<nlohmann::json>(400, error);
         }
         facets.push_back(facet(field_name));
     }
@@ -594,16 +594,16 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
     for(const sort_field & _sort_field: sort_fields) {
         if(sort_index.count(_sort_field.name) == 0) {
-            result["error"] = "Could not find a sort field named `" + _sort_field.name + "` in the schema.";
-            return result;
+            std::string error = "Could not find a sort field named `" + _sort_field.name + "` in the schema.";
+            return Option<nlohmann::json>(400, error);
         }
 
         std::string sort_order = _sort_field.order;
         StringUtils::toupper(sort_order);
 
         if(sort_order != sort_field_const::asc && sort_order != sort_field_const::desc) {
-            result["error"] = "Order for sort field` " + _sort_field.name + "` should be either ASC or DESC.";
-            return result;
+            std::string error = "Order for sort field` " + _sort_field.name + "` should be either ASC or DESC.";
+            return Option<nlohmann::json>(400, error);
         }
 
         sort_fields_std.push_back({_sort_field.name, sort_order});
@@ -613,15 +613,15 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
     uint32_t* filter_ids = nullptr;
     Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
     if(!op_filter_ids_length.ok()) {
-        result["error"] = op_filter_ids_length.error();
-        return result;
+        return Option<nlohmann::json>(op_filter_ids_length.code(), op_filter_ids_length.error());
     }
+
     const uint32_t filter_ids_length = op_filter_ids_length.get();
 
     // check for valid pagination
     if((page * per_page) > MAX_RESULTS) {
-        result["error"] = "Cannot paginate past " + std::to_string(MAX_RESULTS) + " results.";
-        return result;
+        std::string message = "Only the first " + std::to_string(MAX_RESULTS) + " results are available.";
+        return Option<nlohmann::json>(422, message);
     }
 
     const size_t num_results = (page * per_page);
@@ -661,13 +661,13 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
     });
 
     result["hits"] = nlohmann::json::array();
+    result["found"] = all_result_ids_len;
 
     const int start_result_index = (page - 1) * per_page;
     const int kvsize = field_order_kvs.size();
 
     if(start_result_index > (kvsize - 1)) {
-        result["error"] = "Not found.";
-        return result;
+        return Option<nlohmann::json>(result);
     }
 
     const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
@@ -726,8 +726,6 @@ nlohmann::json Collection::search(std::string query, const std::vector<std::stri
 
         result["hits"].push_back(document);
     }
-
-    result["found"] = all_result_ids_len;
 
     result["facet_counts"] = nlohmann::json::array();
 

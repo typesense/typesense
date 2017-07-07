@@ -136,7 +136,7 @@ public:
 
     Option<std::string> add(const std::string & json_str);
 
-    nlohmann::json search(std::string query, const std::vector<std::string> search_fields,
+    Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                           const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t per_page = 10, const size_t page = 1,

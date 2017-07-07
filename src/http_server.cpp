@@ -88,6 +88,7 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 403: return "Forbidden";
         case 404: return "Not Found";
         case 409: return "Conflict";
+        case 422: return "Unprocessable Entity";
         case 500: return "Internal Server Error";
         default: return "";
     }
