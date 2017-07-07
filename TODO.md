@@ -43,9 +43,9 @@
 - ~~Drop collection API~~
 - ~~JSONP response~~
 - ~~"error":"Not found." is sent when query has no hits~~
+- ~~Fix API response codes~~
 - Number of records in collection
 - Use rocksdb batch put for atomic insertion
-- Fix API response codes
 - When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
 - ID should not have "/"

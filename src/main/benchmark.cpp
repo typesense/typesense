@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
     std::vector<field> sort_fields = { field("points", "INT32")};
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store);
+    collectionManager.init(store, "abcd");
 
     Collection *collection = collectionManager.get_collection("collection");
     if(collection == nullptr) {
@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
 
     while(counter < 3000) {
         auto i = counter % 5;
-        auto results = collection->search(queries[i], search_fields, "", { }, {sort_field("points", "DESC")}, 1, 100, MAX_SCORE, 0);
+        auto results = collection->search(queries[i], search_fields, "", { }, {sort_field("points", "DESC")}, 1, 10, 1, MAX_SCORE, 0).get();
         results_total += results.size();
         counter++;
     }

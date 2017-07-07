@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
     Store *store = new Store("/tmp/typesense-data");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store);
+    collectionManager.init(store, "abcd");
 
     std::vector<field> fields_to_index = {
             field("lang", field_types::STRING),
