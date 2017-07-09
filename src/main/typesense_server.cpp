@@ -1,6 +1,12 @@
+#include <signal.h>
+#include <iostream>
 #include <cmdline.h>
 #include "http_server.h"
 #include "api.h"
+
+void catch_interrupt(int sig) {
+    std::cout << "Quitting Typesense..." << std::endl;
+}
 
 int main(int argc, char **argv) {
     cmdline::parser options;
@@ -9,6 +15,8 @@ int main(int argc, char **argv) {
     options.add<std::string>("listen-address", 'a', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8080);
     options.parse_check(argc, argv);
+
+    signal(SIGINT, catch_interrupt);
 
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
