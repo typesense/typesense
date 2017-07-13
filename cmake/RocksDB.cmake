@@ -11,7 +11,7 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME})
     message(STATUS "Extracting ${ROCKSDB_NAME}...")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${ROCKSDB_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
+    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${ROCKSDB_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
 endif()
 
 # Use patched build detect platform script to control what libraries RocksDB links against

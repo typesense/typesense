@@ -11,7 +11,7 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME})
     message(STATUS "Extracting ${H2O_NAME}...")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${H2O_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
+    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${H2O_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/h2o)

@@ -11,15 +11,16 @@ fi
 
 if [[ "$@" == *"--depclean"* ]]; then
   echo "Cleaning dependencies..."
-  rm -rf $PROJECT_DIR/external
+  rm -rf $PROJECT_DIR/external-Linux
+  mkdir $PROJECT_DIR/external-Linux
 fi
 
 echo "Creating development image..."
 docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag wreally/typesense-development:latest $PROJECT_DIR/docker
 
 echo "Building Typesense..."
-docker run -v $PROJECT_DIR:/typesense wreally/typesense-development cmake -H/typesense -B/typesense/build
-docker run -v $PROJECT_DIR:/typesense wreally/typesense-development make -C/typesense/build
+docker run -it -v $PROJECT_DIR:/typesense wreally/typesense-development cmake -H/typesense -B/typesense/build
+docker run -it -v $PROJECT_DIR:/typesense wreally/typesense-development make -C/typesense/build
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense server..."

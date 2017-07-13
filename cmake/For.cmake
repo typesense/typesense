@@ -11,7 +11,7 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME})
     message(STATUS "Extracting libfor...")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${FOR_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
+    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${FOR_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME}/libfor.a)

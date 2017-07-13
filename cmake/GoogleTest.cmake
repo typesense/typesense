@@ -11,7 +11,7 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${GTEST_NAME})
     message(STATUS "Extracting Google Test...")
-    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xvzf ${GTEST_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
+    execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${GTEST_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build)
