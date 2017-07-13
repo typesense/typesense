@@ -1,3 +1,8 @@
+# NOTE: Default build image is bloated. Before publishing, export from a container to squash the image:
+# $ docker run -it typesense/ubuntu-10.04-gcc:4.9.2 bash -c "exit"
+# $ docker ps -a | grep typesense
+# $ docker export <container_id> | docker import - typesense/ubuntu-10.04-gcc:4.9.2
+
 FROM ubuntu:10.04
 
 RUN sed -i -re 's/([a-z]{2}\.)?archive.ubuntu.com|security.ubuntu.com/old-releases.ubuntu.com/g' /etc/apt/sources.list

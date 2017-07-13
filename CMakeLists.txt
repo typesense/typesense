@@ -77,7 +77,13 @@ target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(benchmark PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 
-set(STD_LIB -static-libstdc++)
+if (APPLE)
+    # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
+    set(STD_LIB -static-libstdc++)
+else()
+    set(STD_LIB -static-libgcc -static-libstdc++)
+endif()
+
 set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
 
 if(NOT APPLE)

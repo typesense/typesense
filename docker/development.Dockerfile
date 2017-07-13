@@ -1,4 +1,7 @@
-FROM wreally/ubuntu-10-04-gcc:4.9.2
+FROM typesense/ubuntu-10.04-gcc:4.9.2
+
+ENV PATH /usr/local/gcc-4.9.2/bin/:$PATH
+ENV LD_LIBRARY_PATH /usr/local/gcc-4.9.2/lib64
 
 RUN apt-get update
 
