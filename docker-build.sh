@@ -16,11 +16,11 @@ if [[ "$@" == *"--depclean"* ]]; then
 fi
 
 echo "Creating development image..."
-docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag wreally/typesense-development:latest $PROJECT_DIR/docker
+docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
 
 echo "Building Typesense..."
-docker run -it -v $PROJECT_DIR:/typesense wreally/typesense-development cmake -H/typesense -B/typesense/build
-docker run -it -v $PROJECT_DIR:/typesense wreally/typesense-development make -C/typesense/build
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -H/typesense -B/typesense/build
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make -C/typesense/build
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense server..."
@@ -31,7 +31,7 @@ if [[ "$@" == *"--build-deploy-image"* ]]; then
     fi
 
     cp $PROJECT_DIR/docker/deployment.Dockerfile $PROJECT_DIR/build
-    docker build --file $PROJECT_DIR/build/deployment.Dockerfile --tag wreally/typesense-server:$TYPESENSE_IMG_VERSION \
+    docker build --file $PROJECT_DIR/build/deployment.Dockerfile --tag typesense/typesense:$TYPESENSE_IMG_VERSION \
                         $PROJECT_DIR/build
 fi
 
