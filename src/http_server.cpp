@@ -85,6 +85,7 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 200: return "OK";
         case 201: return "Created";
         case 400: return "Bad Request";
+        case 401: return "Unauthorized";
         case 403: return "Forbidden";
         case 404: return "Not Found";
         case 409: return "Conflict";
@@ -170,14 +171,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
 
                 if(auth_header_cursor == -1) {
                     // requires authentication, but API Key is not present in the headers
-                    return send_403_forbidden(req);
+                    return send_401_unauthorized(req);
                 } else {
                     // api key is found, let's validate
                     h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
                     std::string auth_key_from_header = std::string(slot.base, slot.len);
 
                     if(!collectionManager.auth_key_matches(auth_key_from_header)) {
-                        return send_403_forbidden(req);
+                        return send_401_unauthorized(req);
                     }
                 }
             }
@@ -207,11 +208,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
     return 0;
 }
 
-int HttpServer::send_403_forbidden(h2o_req_t *req) {
+int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
     std::string res_body = std::string("{\"message\": \"Forbidden - ") + AUTH_HEADER + " header is invalid or not present.\"}";
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
-    req->res.status = 403;
+    req->res.status = 401;
     req->res.reason = get_status_reason(req->res.status);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);

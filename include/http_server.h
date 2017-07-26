@@ -33,6 +33,11 @@ struct http_res {
         body = "{\"message\": \"" + message + "\"}";
     }
 
+    void send_401(const std::string & message) {
+        status_code = 400;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
     void send_403() {
         status_code = 403;
         body = "{\"message\": \"Forbidden\"}";
@@ -45,6 +50,11 @@ struct http_res {
 
     void send_409(const std::string & message) {
         status_code = 409;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
+    void send_422(const std::string & message) {
+        status_code = 422;
         body = "{\"message\": \"" + message + "\"}";
     }
 
@@ -101,7 +111,7 @@ private:
 
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
-    static int send_403_forbidden(h2o_req_t *req);
+    static int send_401_unauthorized(h2o_req_t *req);
 
 public:
     HttpServer(std::string listen_address, uint32_t listen_port);
@@ -118,5 +128,5 @@ public:
 
     int run();
 
-    static constexpr const char* AUTH_HEADER = "x-api-key";
+    static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
 };
