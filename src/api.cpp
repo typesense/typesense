@@ -6,6 +6,21 @@
 #include "collection.h"
 #include "collection_manager.h"
 
+void get_collections(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::vector<Collection*> collections = collectionManager.get_collections();
+    nlohmann::json json_response;
+    json_response["data"] = nlohmann::json::array();
+
+    for(Collection* collection: collections) {
+        nlohmann::json collection_map;
+        collection_map["name"] = collection->get_name();
+        json_response["data"].push_back(collection_map);
+    }
+
+    res.send_200(json_response.dump());
+}
+
 void post_create_collection(http_req & req, http_res & res) {
     nlohmann::json req_json;
 
@@ -255,6 +270,24 @@ void post_add_document(http_req & req, http_res & res) {
         nlohmann::json json_response;
         json_response["id"] = inserted_id_op.get();
         res.send_201(json_response.dump());
+    }
+}
+
+void get_fetch_document(http_req & req, http_res & res) {
+    std::string doc_id = req.params["id"];
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    if(collection == nullptr) {
+        return res.send_404();
+    }
+
+    Option<nlohmann::json> doc_option = collection->get(doc_id);
+
+    if(!doc_option.ok()) {
+        res.send(doc_option.code(), doc_option.error());
+    } else {
+        res.send_200(doc_option.get().dump());
     }
 }
 

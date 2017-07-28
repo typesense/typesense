@@ -145,12 +145,26 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
     return new_collection;
 }
 
-Collection* CollectionManager::get_collection(std::string collection_name) {
+Collection* CollectionManager::get_collection(const std::string & collection_name) {
     if(collections.count(Collection::get_meta_key(collection_name)) != 0) {
         return collections.at(Collection::get_meta_key(collection_name));
     }
 
     return nullptr;
+}
+
+std::vector<Collection*> CollectionManager::get_collections() {
+    std::vector<Collection*> collection_vec;
+    for(auto kv: collections) {
+        collection_vec.push_back(kv.second);
+    }
+
+    std::sort(std::begin(collection_vec), std::end(collection_vec),
+              [] (Collection* lhs, Collection* rhs) {
+                  return lhs->get_collection_id()  > rhs->get_collection_id();
+              });
+
+    return collection_vec;
 }
 
 Option<bool> CollectionManager::drop_collection(std::string collection_name) {

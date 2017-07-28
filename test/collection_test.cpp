@@ -61,6 +61,22 @@ protected:
     }
 };
 
+TEST_F(CollectionTest, RetrieveADocumentById) {
+    Option<nlohmann::json> doc_option = collection->get("1");
+    ASSERT_TRUE(doc_option.ok());
+    nlohmann::json doc = doc_option.get();
+    std::string id = doc["id"];
+
+    doc_option = collection->get("foo");
+    ASSERT_TRUE(doc_option.ok());
+    doc = doc_option.get();
+    id = doc["id"];
+    ASSERT_STREQ("foo", id.c_str());
+
+    doc_option = collection->get("baz");
+    ASSERT_FALSE(doc_option.ok());
+}
+
 TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("the", query_fields, "", facets, sort_fields, 0, 10).get();
@@ -1020,6 +1036,35 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
     collectionManager.drop_collection("empty_coll");
 }
 
+TEST_F(CollectionTest, IdFieldShouldBeAString) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING)};
+    facet_fields = {field("tags", field_types::STRING_ARRAY)};
+
+    std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
+    std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, facet_fields, sort_fields_index, "age");
+    }
+
+    nlohmann::json doc;
+    doc["id"] = 101010;
+    doc["name"] = "Jane";
+    doc["age"] = 25;
+    doc["average"] = 98;
+    doc["tags"] = nlohmann::json::array();
+    doc["tags"].push_back("tag1");
+
+    Option<std::string> inserted_id_op = coll1->add(doc.dump());
+    ASSERT_FALSE(inserted_id_op.ok());
+    ASSERT_STREQ("Document's `id` field should be a string.", inserted_id_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection");
 
@@ -1090,4 +1135,6 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     }
     delete it;
     ASSERT_EQ(3, num_keys);
+
+    collectionManager.drop_collection("collection_for_del");
 }

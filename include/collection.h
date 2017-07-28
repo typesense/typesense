@@ -120,6 +120,8 @@ public:
 
     std::string get_seq_id_collection_prefix();
 
+    std::string get_name();
+
     uint32_t get_collection_id();
 
     uint32_t get_next_seq_id();
@@ -141,6 +143,8 @@ public:
                           const std::vector<sort_field> & sort_fields, const int num_typos,
                           const size_t per_page = 10, const size_t page = 1,
                           const token_ordering token_order = FREQUENCY, const bool prefix = false);
+
+    Option<nlohmann::json> get(const std::string & id);
 
     Option<std::string> remove(const std::string & id);
 

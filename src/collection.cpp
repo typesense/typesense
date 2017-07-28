@@ -58,7 +58,11 @@ Option<std::string> Collection::add(const std::string & json_str) {
 
     if(document.count("id") == 0) {
         document["id"] = seq_id_str;
+    } else if(!document["id"].is_string()) {
+        return Option<std::string>(400, "Document's `id` field should be a string.");
     }
+
+    std::string doc_id = document["id"];
 
     const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);
 
@@ -69,7 +73,6 @@ Option<std::string> Collection::add(const std::string & json_str) {
     store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_doc_id_key(document["id"]), seq_id_str);
 
-    std::string doc_id = document["id"];
     return Option<std::string>(doc_id);
 }
 
@@ -1067,6 +1070,23 @@ void Collection::remove_and_shift_offset_index(sorted_array &offset_index, const
     delete[] new_array;
 }
 
+Option<nlohmann::json> Collection::get(const std::string & id) {
+    std::string seq_id_str;
+    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+
+    if(status == StoreStatus::NOT_FOUND) {
+        return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
+    }
+
+    uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
+
+    std::string parsed_document;
+    store->get(get_seq_id_key(seq_id), parsed_document);
+
+    nlohmann::json document = nlohmann::json::parse(parsed_document);
+    return Option<nlohmann::json>(document);
+}
+
 Option<std::string> Collection::remove(const std::string & id) {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
@@ -1200,6 +1220,10 @@ std::string Collection::get_seq_id_key(uint32_t seq_id) {
 
 std::string Collection::get_doc_id_key(const std::string & doc_id) {
     return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + doc_id;
+}
+
+std::string Collection::get_name() {
+    return name;
 }
 
 uint32_t Collection::get_collection_id() {

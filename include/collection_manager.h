@@ -49,7 +49,9 @@ public:
                                   const std::vector<field> & sort_fields,
                                   const std::string & token_ranking_field = "");
 
-    Collection* get_collection(std::string collection_name);
+    Collection* get_collection(const std::string & collection_name);
+
+    std::vector<Collection*> get_collections();
 
     Option<bool> drop_collection(std::string collection_name);
 

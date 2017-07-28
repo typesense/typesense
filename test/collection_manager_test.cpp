@@ -87,6 +87,24 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ("1", next_collection_id);
 }
 
+TEST_F(CollectionManagerTest, GetAllCollections) {
+    std::vector<Collection*> collection_vec = collectionManager.get_collections();
+    ASSERT_EQ(1, collection_vec.size());
+    ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
+
+    // try creating one more collection
+    collectionManager.create_collection("collection2", search_fields, facet_fields,
+                                        sort_fields_index, "points");
+    collection_vec = collectionManager.get_collections();
+    ASSERT_EQ(2, collection_vec.size());
+
+    // most recently created collection first
+    ASSERT_STREQ("collection2", collection_vec[0]->get_name().c_str());
+    ASSERT_STREQ("collection1", collection_vec[1]->get_name().c_str());
+
+    collectionManager.drop_collection("collection2");
+}
+
 TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::string json_line;

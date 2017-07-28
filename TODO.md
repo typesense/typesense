@@ -44,6 +44,9 @@
 - ~~JSONP response~~
 - ~~"error":"Not found." is sent when query has no hits~~
 - ~~Fix API response codes~~
+- ~~List all collections~~
+- ~~Fetch an individual document~~
+- ~~ID field should be a string: must validate~~
 - Number of records in collection
 - Use rocksdb batch put for atomic insertion
 - When prefix=true, use token_ranking_field for token ordering only for last word
@@ -86,9 +89,8 @@
     - ~~index a single document~~    
     - ~~delete a document by ID~~
     - ~~query an index~~       
-    - delete an index
-    - bulk insert multiple documents
-    - fetch a document by ID
+    - ~~Drop an index~~
+    - ~~fetch a document by ID~~
 
 **Clustering**
 

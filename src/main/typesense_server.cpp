@@ -32,8 +32,10 @@ int main(int argc, char **argv) {
     server.del("/collections/:collection", del_drop_collection, true);
 
     // document management
+    server.get("/collections", get_collections, true);
     server.post("/collections/:collection", post_add_document, true);
     server.get("/collections/:collection/search", get_search, false);
+    server.get("/collections/:collection/:id", get_fetch_document, true);
     server.del("/collections/:collection/:id", del_remove_document, true);
 
     server.run();
