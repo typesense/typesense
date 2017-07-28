@@ -28,13 +28,13 @@ int main(int argc, char **argv) {
     );
 
     // collection management
-    server.post("/collection", post_create_collection, true);
-    server.del("/collection/:collection", del_drop_collection, true);
+    server.post("/collections", post_create_collection, true);
+    server.del("/collections/:collection", del_drop_collection, true);
 
     // document management
-    server.post("/collection/:collection", post_add_document, true);
-    server.get("/collection/:collection/search", get_search, false);
-    server.del("/collection/:collection/:id", del_remove_document, true);
+    server.post("/collections/:collection", post_add_document, true);
+    server.get("/collections/:collection/search", get_search, false);
+    server.del("/collections/:collection/:id", del_remove_document, true);
 
     server.run();
     return 0;
