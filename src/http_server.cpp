@@ -1,3 +1,4 @@
+#include "http_data.h"
 #include "http_server.h"
 #include "string_utils.h"
 #include <regex>
