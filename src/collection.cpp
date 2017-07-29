@@ -30,6 +30,8 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
         sort_index.emplace(sort_field.name, doc_to_score);
     }
+
+    num_documents = 0;
 }
 
 Collection::~Collection() {
@@ -208,6 +210,7 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         doc_to_score->emplace(seq_id, document[sort_field.name].get<int64_t>());
     }
 
+    num_documents += 1;
     return Option<>(200);
 }
 
@@ -1200,6 +1203,8 @@ Option<std::string> Collection::remove(const std::string & id) {
     store->remove(get_doc_id_key(id));
     store->remove(get_seq_id_key(seq_id));
 
+    num_documents -= 1;
+
     return Option<std::string>(id);
 }
 
@@ -1224,6 +1229,10 @@ std::string Collection::get_doc_id_key(const std::string & doc_id) {
 
 std::string Collection::get_name() {
     return name;
+}
+
+size_t Collection::get_num_documents() {
+    return num_documents;
 }
 
 uint32_t Collection::get_collection_id() {

@@ -54,6 +54,7 @@
 - ID should not have "/"
 - Group results by field
 - Handle store-get() not finding a key
+- Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
 - ~~Test for asc/desc upper/lower casing~~
 - ~~Test for search without any sort_by given~~
 - ~~Test for collection creation validation~~

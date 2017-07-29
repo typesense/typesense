@@ -254,6 +254,21 @@ void get_search(http_req & req, http_res & res) {
     std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
 }
 
+void get_collection_summary(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        return res.send_404();
+    }
+
+    nlohmann::json json_response;
+
+    json_response["name"] = collection->get_name();
+    json_response["num_documents"] = collection->get_num_documents();
+    res.send_200(json_response.dump());
+}
+
 void post_add_document(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);

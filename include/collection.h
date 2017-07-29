@@ -43,6 +43,8 @@ private:
 
     uint32_t collection_id;
 
+    size_t num_documents;
+
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
 
@@ -121,6 +123,8 @@ public:
     std::string get_seq_id_collection_prefix();
 
     std::string get_name();
+
+    size_t get_num_documents();
 
     uint32_t get_collection_id();
 

@@ -10,6 +10,8 @@ void del_drop_collection(http_req & req, http_res & res);
 
 void get_search(http_req & req, http_res & res);
 
+void get_collection_summary(http_req & req, http_res & res);
+
 void post_add_document(http_req & req, http_res & res);
 
 void get_fetch_document(http_req & req, http_res & res);
