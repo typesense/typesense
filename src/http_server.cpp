@@ -5,10 +5,10 @@
 #include <signal.h>
 #include <h2o.h>
 
-h2o_globalconf_t HttpServer::config;
-h2o_context_t HttpServer::ctx;
-h2o_accept_ctx_t HttpServer::accept_ctx;
-std::vector<route_path> HttpServer::routes;
+struct h2o_custom_req_handler_t {
+    h2o_handler_t super;
+    HttpServer* http_server;
+};
 
 HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
                        listen_address(listen_address), listen_port(listen_port) {
@@ -18,6 +18,7 @@ HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
+    HttpServer *http_server = static_cast<HttpServer*>(listener->data);
     h2o_socket_t *sock;
 
     if (err != NULL) {
@@ -28,13 +29,15 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
         return;
     }
 
-    h2o_accept(&accept_ctx, sock);
+    h2o_accept(&http_server->accept_ctx, sock);
 }
 
 int HttpServer::create_listener(void) {
     struct sockaddr_in addr;
     int fd, reuseaddr_flag = 1;
-    h2o_socket_t *sock;
+
+    accept_ctx.ctx = &ctx;
+    accept_ctx.hosts = config.hosts;
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -49,8 +52,9 @@ int HttpServer::create_listener(void) {
     }
 
     ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
-    sock = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
-    h2o_socket_read_start(sock, on_accept);
+    h2o_socket_t *listener = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
+    listener->data = this;
+    h2o_socket_read_start(listener, on_accept);
 
     return 0;
 }
@@ -58,9 +62,6 @@ int HttpServer::create_listener(void) {
 int HttpServer::run() {
     signal(SIGPIPE, SIG_IGN);
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
-
-    accept_ctx.ctx = &ctx;
-    accept_ctx.hosts = config.hosts;
 
     if (create_listener() != 0) {
         std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << std::endl
@@ -75,9 +76,11 @@ int HttpServer::run() {
 
 h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const char *path,
                                  int (*on_req)(h2o_handler_t *, h2o_req_t *)) {
+    // See: https://github.com/h2o/h2o/issues/181#issuecomment-75393049
     h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, path, 0);
-    h2o_handler_t *handler = h2o_create_handler(pathconf, sizeof(*handler));
-    handler->on_req = on_req;
+    h2o_custom_req_handler_t *handler = (h2o_custom_req_handler_t *)h2o_create_handler(pathconf, sizeof(*handler));
+    handler->http_server = this;
+    handler->super.on_req = on_req;
     return pathconf;
 }
 
@@ -118,7 +121,9 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
     return query_map;
 }
 
-int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
+int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
+    h2o_custom_req_handler_t *self = (h2o_custom_req_handler_t *)_self;
+
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
     h2o_generator_t generator = {NULL, NULL};
@@ -138,7 +143,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *self, h2o_req_t *req) {
     std::map<std::string, std::string> query_map = parse_query(query_str);
     const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
-    for(const route_path & rpath: routes) {
+    for(const route_path & rpath: self->http_server->routes) {
         if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
             continue;
         }

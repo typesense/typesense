@@ -17,10 +17,10 @@ extern "C" {
 
 class HttpServer {
 private:
-    static h2o_globalconf_t config;
-    static h2o_context_t ctx;
-    static h2o_accept_ctx_t accept_ctx;
-    static std::vector<route_path> routes;
+    h2o_globalconf_t config;
+    h2o_context_t ctx;
+    h2o_accept_ctx_t accept_ctx;
+    std::vector<route_path> routes;
 
     const std::string listen_address;
 
