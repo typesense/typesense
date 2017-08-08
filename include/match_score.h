@@ -30,6 +30,10 @@ struct MatchScore {
   uint16_t start_offset;
   char offset_diffs[16];
 
+  MatchScore() {
+
+  }
+
   MatchScore(uint16_t words_present, uint16_t distance, uint16_t start_offset, char *offset_diffs_stacked):
           words_present(words_present), distance(distance), start_offset(start_offset) {
     memcpy(offset_diffs, offset_diffs_stacked, 16);

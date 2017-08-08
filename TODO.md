@@ -48,6 +48,7 @@
 - ~~Fetch an individual document~~
 - ~~ID field should be a string: must validate~~
 - ~~Number of records in collection~~
+- Add docs/explanation around ranking calc
 - Use rocksdb batch put for atomic insertion
 - When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
