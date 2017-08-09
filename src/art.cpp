@@ -11,6 +11,7 @@
 #include <iostream>
 #include <limits>
 #include <queue>
+#include <stdint.h>
 #include "art.h"
 
 /**
@@ -1395,6 +1396,14 @@ void encode_int64(int64_t n, unsigned char *chars) {
     }
 }
 
+// See: https://github.com/apache/hbase/blob/master/hbase-common/src/main/java/org/apache/hadoop/hbase/util/OrderedBytes.java#L1372
+void encode_float(float n, unsigned char *chars) {
+    int32_t i;
+    memcpy(&i, &n, sizeof(int32_t));
+    i ^= ((i >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
+    encode_int32(i, chars);
+}
+
 // Implements ==, <= and >=
 recurse_progress matches(unsigned char a, unsigned char b, NUM_COMPARATOR comparator) {
     switch(comparator) {
@@ -1602,6 +1611,13 @@ int art_int32_search(art_tree *t, int32_t value, NUM_COMPARATOR comparator, std:
 int art_int64_search(art_tree *t, int64_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results) {
     unsigned char chars[8];
     encode_int64(value, chars);
+    art_int_fuzzy_recurse(t->root, 0, chars, 8, comparator, results);
+    return 0;
+}
+
+int art_float_search(art_tree *t, float value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results) {
+    unsigned char chars[8];
+    encode_float(value, chars);
     art_int_fuzzy_recurse(t->root, 0, chars, 8, comparator, results);
     return 0;
 }

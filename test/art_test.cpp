@@ -1116,3 +1116,92 @@ TEST(ArtTest, test_int32_array) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(3, results.size());
 }
+
+TEST(ArtTest, test_encode_float_positive) {
+    art_tree t;
+    art_tree_init(&t);
+
+    float floats[6] = {0.0, 0.1044, 1.004, 1.99, 10.5678, 100.33};
+    const int CHAR_LEN = 8;
+
+    for(size_t i = 0; i < 6; i++) {
+        unsigned char chars0[CHAR_LEN];
+        encode_float(floats[i], chars0);
+        art_document doc = get_document(i);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc, 1));
+    }
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_float_search(&t, 0.0, EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 10.5678, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(4, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 10.5678, LESS_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(5, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 10.5678, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 10.5678, GREATER_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(2, results.size());
+    results.clear();
+}
+
+TEST(ArtTest, test_encode_float_positive_negative) {
+    art_tree t;
+    art_tree_init(&t);
+
+    float floats[6] = {-24.1033, -2.561, 0.0, 1.99, 10.5678, 100.33};
+    const int CHAR_LEN = 8;
+
+    for(size_t i = 0; i < 6; i++) {
+        unsigned char chars0[CHAR_LEN];
+        encode_float(floats[i], chars0);
+        art_document doc = get_document(i);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc, 1));
+    }
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_float_search(&t, -24.1033, EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(1, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 0.0, LESS_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(2, results.size());
+    results.clear();
+
+    res = art_float_search(&t, 0.0, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(3, results.size());
+    results.clear();
+
+    res = art_float_search(&t,  -2.561, LESS_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(2, results.size());
+    results.clear();
+
+    res = art_float_search(&t, -2.561, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(4, results.size());
+    results.clear();
+
+    res = art_float_search(&t, -24.1033, GREATER_THAN_EQUALS, results);
+    ASSERT_TRUE(res == 0);
+    ASSERT_EQ(6, results.size());
+    results.clear();
+}

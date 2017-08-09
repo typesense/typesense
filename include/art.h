@@ -255,9 +255,13 @@ void encode_int32(int32_t n, unsigned char *chars);
 
 void encode_int64(int64_t n, unsigned char *chars);
 
+void encode_float(float n, unsigned char *chars);
+
 int art_int32_search(art_tree *t, int32_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
 int art_int64_search(art_tree *t, int64_t value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
+
+int art_float_search(art_tree *t, float value, NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
 #ifdef __cplusplus
 }
