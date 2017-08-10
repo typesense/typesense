@@ -48,18 +48,26 @@
 - ~~Fetch an individual document~~
 - ~~ID field should be a string: must validate~~
 - ~~Number of records in collection~~
+- ~~Test for asc/desc upper/lower casing~~
+- ~~Test for search without any sort_by given~~
+- ~~Test for collection creation validation~~
+- ~~Test for delete document~~
+- ~~art float search~~
+- When prefix=true, use token_ranking_field for token ordering only for last word
+- only last token should be prefix searched
+- test for token ranking on float field
+- test for float int field deletion during doc deletion
+- Prefix-search strings should not be null terminated
+- > INT32_MAX validation for float field
+- art bool support
+- Proper logging
 - Add docs/explanation around ranking calc
 - Use rocksdb batch put for atomic insertion
-- When prefix=true, use token_ranking_field for token ordering only for last word
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
 - Handle store-get() not finding a key
 - Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
-- ~~Test for asc/desc upper/lower casing~~
-- ~~Test for search without any sort_by given~~
-- ~~Test for collection creation validation~~
-- ~~Test for delete document~~
 - Test for sorted_array::indexOf when length is 0
 - Test for snippets
 - Test for pagination
@@ -70,18 +78,12 @@
 - UTF-8 support for fuzzy search
 - Handle searching for non-existing fields gracefully
 - test for same match score but different primary, secondary attr
-- only last token should be prefix searched
-- Intersection without unpacking
 - Support nested fields via "."
 - Support search operators like +, - etc.
-- Prefix-search strings should not be null terminated
 - string_utils::tokenize should not have max length
-- art float search
-- Benchmark with -ffast-math
 - Space sensitivity
-- Use bitmap index instead of compressed array for doc list
-- Primary_rank_scores and secondary_rank_scores hashmaps should be combined
-- Proper logging
+- Use bitmap index instead of compressed array for doc list?
+- Primary_rank_scores and secondary_rank_scores hashmaps should be combined?
 - d-ary heap?
 
 **API**
@@ -106,3 +108,4 @@
 **Tech debt**
 
 - ~~Use GLOB file pattern for CMake (better IDE refactoring support)~~
+- DRY index_int64_field* methods

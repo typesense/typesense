@@ -103,13 +103,17 @@ private:
     void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
                                   uint32_t seq_id, const bool verbatim) const;
 
-    void index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int64_field(const int64_t value, uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int64_field(const int64_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_float_field(const float value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+
+    void index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);

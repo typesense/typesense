@@ -85,7 +85,7 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
     }
 
     if(!token_ranking_field.empty() && !document[token_ranking_field].is_number()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an INT32.");
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be a number.");
     }
 
     if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() > INT32_MAX) {
@@ -114,7 +114,7 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             const std::string & text = document[field_name];
             index_string_field(text, points, t, seq_id, false);
         } else if(field_pair.second.type == field_types::INT32) {
-            if(!document[field_name].is_number()) {
+            if(!document[field_name].is_number_integer()) {
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT32.");
             }
 
@@ -125,12 +125,19 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             uint32_t value = document[field_name];
             index_int32_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64) {
-            if(!document[field_name].is_number()) {
+            if(!document[field_name].is_number_integer()) {
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT64.");
             }
 
             uint64_t value = document[field_name];
             index_int64_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::FLOAT) {
+            if(!document[field_name].is_number_float()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be a FLOAT.");
+            }
+
+            float value = document[field_name];
+            index_float_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Search field `" + field_name  + "` must be a STRING_ARRAY.");
@@ -147,7 +154,7 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
             }
 
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
             }
 
@@ -158,12 +165,23 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
             }
 
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
                 return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
             }
 
             std::vector<int64_t> values = document[field_name];
             index_int64_array_field(values, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an FLOAT_ARRAY.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
+                return Option<>(400, "Search field `" + field_name  + "` must be an FLOAT_ARRAY.");
+            }
+
+            std::vector<float> values = document[field_name];
+            index_float_array_field(values, points, t, seq_id);
         }
     }
 
@@ -260,6 +278,30 @@ void Collection::index_int64_field(const int64_t value, uint32_t score, art_tree
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
+void Collection::index_float_field(const float value, uint32_t score, art_tree *t, uint32_t seq_id) const {
+    const int KEY_LEN = 8;
+    unsigned char key[KEY_LEN];
+
+    encode_float(value, key);
+
+    uint32_t num_hits = 0;
+    art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
+    if(leaf != NULL) {
+        num_hits = leaf->values->ids.getLength();
+    }
+
+    num_hits += 1;
+
+    art_document art_doc;
+    art_doc.id = seq_id;
+    art_doc.score = score;
+    art_doc.offsets_len = 0;
+    art_doc.offsets = nullptr;
+
+    art_insert(t, key, KEY_LEN, &art_doc, num_hits);
+}
+
+
 void Collection::index_string_field(const std::string & text, const uint32_t score, art_tree *t,
                                     uint32_t seq_id, const bool verbatim) const {
     std::vector<std::string> tokens;
@@ -324,6 +366,13 @@ void Collection::index_int64_array_field(const std::vector<int64_t> & values, co
                                          uint32_t seq_id) const {
     for(const int64_t value: values) {
         index_int64_field(value, score, t, seq_id);
+    }
+}
+
+void Collection::index_float_array_field(const std::vector<float> & values, const float score, art_tree *t,
+                             uint32_t seq_id) const {
+    for(const float value: values) {
+        index_float_field(value, score, t, seq_id);
     }
 }
 
@@ -466,15 +515,19 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
         const std::string & raw_value = expression_parts[1];
         filter f;
 
-        if(_field.integer()) {
+        if(_field.is_integer() || _field.is_float()) {
             // could be a single value or a list
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
 
                 for(const std::string & filter_value: filter_values) {
-                    if(!StringUtils::is_integer(filter_value)) {
+                    if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
                         return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                    }
+
+                    if(_field.is_float() && !StringUtils::is_float(filter_value)) {
+                        return Option<>(400, "Error with field `" + _field.name + "`: Not a float.");
                     }
                 }
 
@@ -498,13 +551,17 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
 
                 filter_value = StringUtils::trim(filter_value);
 
-                if(!StringUtils::is_integer(filter_value)) {
+                if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
                     return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                }
+
+                if(_field.is_float() && !StringUtils::is_float(filter_value)) {
+                    return Option<>(400, "Error with field `" + _field.name + "`: Not a float.");
                 }
 
                 f = {field_name, {filter_value}, op_comparator.get()};
             }
-        } else {
+        } else if(_field.is_string()) {
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
@@ -512,6 +569,8 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
             } else {
                 f = {field_name, {raw_value}, EQUALS};
             }
+        } else {
+            return Option<>(400, "Error with field `" + _field.name + "`: Unidentified field type.");
         }
 
         filters.push_back(f);
@@ -527,7 +586,7 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
             field f = search_schema.at(a_filter.field_name);
             std::vector<const art_leaf*> leaves;
 
-            if(f.integer()) {
+            if(f.is_integer()) {
                 for(const std::string & filter_value: a_filter.values) {
                     if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
                         int32_t value = (int32_t) std::stoi(filter_value);
@@ -537,7 +596,12 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
                         art_int64_search(t, value, a_filter.compare_operator, leaves);
                     }
                 }
-            } else if(f.type == field_types::STRING || f.type == field_types::STRING_ARRAY) {
+            } else if(f.is_float()) {
+                for(const std::string & filter_value: a_filter.values) {
+                    float value = (float) std::atof(filter_value.c_str());
+                    art_float_search(t, value, a_filter.compare_operator, leaves);
+                }
+            } else if(f.is_string()) {
                 for(const std::string & filter_value: a_filter.values) {
                     art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(), filter_value.length()+1);
                     if(leaf != nullptr) {
@@ -1153,6 +1217,7 @@ Option<std::string> Collection::remove(const std::string & id) {
     nlohmann::json document = nlohmann::json::parse(parsed_document);
 
     for(auto & name_field: search_schema) {
+        // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> tokens;
         if(name_field.second.type == field_types::STRING) {
             StringUtils::split(document[name_field.first], tokens, " ");
@@ -1184,6 +1249,20 @@ Option<std::string> Collection::remove(const std::string & id) {
                 const int KEY_LEN = 8;
                 unsigned char key[KEY_LEN];
                 encode_int64(value, key);
+                tokens.push_back(std::string((char*)key, KEY_LEN));
+            }
+        } else if(name_field.second.type == field_types::FLOAT) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            int64_t value = document[name_field.first].get<int64_t>();
+            encode_float(value, key);
+            tokens.push_back(std::string((char*)key, KEY_LEN));
+        } else if(name_field.second.type == field_types::FLOAT_ARRAY) {
+            std::vector<float> values = document[name_field.first].get<std::vector<float>>();
+            for(const float value: values) {
+                const int KEY_LEN = 8;
+                unsigned char key[KEY_LEN];
+                encode_float(value, key);
                 tokens.push_back(std::string((char*)key, KEY_LEN));
             }
         }

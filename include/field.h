@@ -9,6 +9,8 @@ namespace field_types {
     static const std::string STRING = "STRING";
     static const std::string INT32 = "INT32";
     static const std::string INT64 = "INT64";
+    static const std::string FLOAT = "FLOAT";
+    static const std::string FLOAT_ARRAY = "FLOAT_ARRAY";
     static const std::string STRING_ARRAY = "STRING_ARRAY";
     static const std::string INT32_ARRAY = "INT32_ARRAY";
     static const std::string INT64_ARRAY = "INT64_ARRAY";
@@ -27,9 +29,17 @@ struct field {
 
     }
 
-    bool integer() {
-        return type == field_types::INT32 || type == field_types::INT32_ARRAY ||
-               type == field_types::INT64 || type == field_types::INT64_ARRAY;
+    bool is_integer() {
+        return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
+               type == field_types::INT64 || type == field_types::INT64_ARRAY);
+    }
+
+    bool is_float() {
+        return (type == field_types::FLOAT || type == field_types::FLOAT_ARRAY);
+    }
+
+    bool is_string() {
+        return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
 };
 

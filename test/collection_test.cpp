@@ -597,6 +597,143 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionTest, FilterOnFloatFields) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
+                                 field("top_3", field_types::FLOAT_ARRAY),
+                                 field("rating", field_types::FLOAT)};
+    std::vector<field> sort_fields_index = { field("rating", "FLOAT") };
+    std::vector<sort_field> sort_fields_desc = { sort_field("rating", "DESC") };
+    std::vector<sort_field> sort_fields_asc = { sort_field("rating", "ASC") };
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, facet_fields, sort_fields_index);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_fields->add(json_line);
+    }
+
+    infile.close();
+
+    // Plain search with no filters - results should be sorted by rating field DESC
+    query_fields = {"name"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::vector<std::string> ids = {"1", "2", "4", "0", "3"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Plain search with no filters - results should be sorted by rating field ASC
+    results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    ids = {"3", "0", "4", "2", "1"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Searching on a float field, sorted desc by rating
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:>0.0", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"1", "2", "4", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Searching a float against an float array field
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"1", "2"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // multiple filters
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8 && rating:>7.9", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"1"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // multiple search values (works like SQL's IN operator) against a single float field
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:[1.09, 7.812]", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"2", "0"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // multiple search values against a float array field - also use extra padding between symbols
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3 : [ 5.431, 0.001 , 7.812, 11.992]", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"2", "4", "0"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // when filters don't match any record, no results should be returned
+    Option<nlohmann::json> results_op = coll_array_fields->search("Jeremy", query_fields, "rating:<-2.78", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_TRUE(results_op.ok());
+    results = results_op.get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // rank tokens by token ranking field
+    results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, 0, 10, 1, MAX_SCORE, true).get();
+    ASSERT_TRUE(results_op.ok());
+    results = results_op.get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    ids = {"1", "2", "4", "0", "3"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("coll_array_fields");
+}
+
 TEST_F(CollectionTest, FilterOnTextFields) {
     Collection *coll_array_fields;
 

@@ -72,6 +72,28 @@ struct StringUtils {
         return escaped.str();
     }
 
+    // See: https://stackoverflow.com/a/19751887/131050
+    static bool is_float(const std::string &s) {
+        std::string::const_iterator it = s.begin();
+        bool decimalPoint = false;
+        int minSize = 0;
+        if(s.size() > 0 && (s[0] == '-' || s[0] == '+')) {
+            it++;
+            minSize++;
+        }
+
+        while(it != s.end()){
+            if(*it == '.') {
+                if(!decimalPoint) decimalPoint = true;
+                else break;
+            } else if(!std::isdigit(*it) && ((*it!='f') || it+1 != s.end() || !decimalPoint)) {
+                break;
+            }
+            ++it;
+        }
+        return s.size() > minSize && it == s.end();
+    }
+
     // Adapted from: http://stackoverflow.com/a/2845275/131050
     static bool is_integer(const std::string &s) {
         if(s.empty() || ((!isdigit(s[0])) && (s[0] != '-') && (s[0] != '+'))) {

@@ -22,14 +22,15 @@ int main(int argc, char* argv[]) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, "abcd");
 
-    Collection *collection = collectionManager.get_collection("collection");
+    Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("collection", fields_to_index, {}, sort_fields);
+        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, {}, sort_fields);
     }
 
-    std::ifstream infile("/Users/kishore/Downloads/hnstories_small.jsonl");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
+    auto begin = std::chrono::high_resolution_clock::now();
 
     while (std::getline(infile, json_line)) {
         collection->add(json_line);
@@ -38,7 +39,7 @@ int main(int argc, char* argv[]) {
     infile.close();
     cout << "FINISHED INDEXING!" << endl << flush;
 
-    std::vector<std::string> search_fields = {"title"};
+    /*std::vector<std::string> search_fields = {"title"};
 
     std::vector<string> queries = {"the", "and", "to", "of", "in"};
     auto counter = 0;
@@ -51,10 +52,10 @@ int main(int argc, char* argv[]) {
         auto results = collection->search(queries[i], search_fields, "", { }, {sort_field("points", "DESC")}, 1, 10, 1, MAX_SCORE, 0).get();
         results_total += results.size();
         counter++;
-    }
+    }*/
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     cout << "Time taken: " << timeMillis << "ms" << endl;
-    cout << "Total: " << results_total << endl;
+    //cout << "Total: " << results_total << endl;
     return 0;
 }
