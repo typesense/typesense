@@ -84,12 +84,16 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                         "but is not found in the document.");
     }
 
-    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be a number.");
+    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_unsigned()) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an unsigned INT32.");
     }
 
     if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() > INT32_MAX) {
         return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of INT32.");
+    }
+
+    if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() < 0) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must not be negative.");
     }
 
     uint32_t points = 0;
@@ -369,7 +373,7 @@ void Collection::index_int64_array_field(const std::vector<int64_t> & values, co
     }
 }
 
-void Collection::index_float_array_field(const std::vector<float> & values, const float score, art_tree *t,
+void Collection::index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t,
                              uint32_t seq_id) const {
     for(const float value: values) {
         index_float_field(value, score, t, seq_id);

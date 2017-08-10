@@ -1133,7 +1133,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
     const Option<std::string> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op1.ok());
-    ASSERT_STREQ("Token ranking field `age` must be an INT32.", bad_token_ranking_field_op1.error().c_str());
+    ASSERT_STREQ("Token ranking field `age` must be an unsigned INT32.", bad_token_ranking_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
     const Option<std::string> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
@@ -1150,6 +1150,11 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_rank_field_op.ok());
     ASSERT_STREQ("Sort field `average` must be a number.", bad_rank_field_op.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": -10, \"tags\": [], \"average\": 34 }";
+    const Option<std::string> & bad_token_ranking_field_op4 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_token_ranking_field_op4.ok());
+    ASSERT_STREQ("Token ranking field `age` must be an unsigned INT32.", bad_token_ranking_field_op4.error().c_str());
 
     collectionManager.drop_collection("sample_collection");
 }
