@@ -91,7 +91,7 @@ bool compare_art_node_frequency_pq(const art_node *a, const art_node *b) {
 }
 
 bool compare_art_node_score_pq(const art_node* a, const art_node* b) {
-    return !compare_art_node_frequency(a, b);
+    return !compare_art_node_score(a, b);
 }
 
 /**

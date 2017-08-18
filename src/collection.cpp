@@ -405,7 +405,7 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
                                    std::vector<std::vector<art_leaf*>> & token_to_candidates,
                                    std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
-                                   const size_t & max_results) {
+                                   const size_t & max_results, const bool prefix) {
     const size_t combination_limit = 10;
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_to_candidates.begin(), token_to_candidates.end(), 1LL, product);
@@ -422,9 +422,16 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
         uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
         size_t result_size = query_suggestion[0]->values->ids.getLength();
 
-        if(result_size == 0) continue;
+        if(result_size == 0) {
+            continue;
+        }
 
         candidate_rank += 1;
+
+        int actual_candidate_rank = candidate_rank;
+        if(prefix) {
+            actual_candidate_rank = 0;
+        }
 
         // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
         for(auto i=1; i < query_suggestion.size(); i++) {
@@ -449,7 +456,7 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             do_facets(facets, filtered_result_ids, filtered_results_size);
 
             // go through each matching document id and calculate match score
-            score_results(sort_fields, searched_queries.size(), candidate_rank, topster, query_suggestion,
+            score_results(sort_fields, searched_queries.size(), actual_candidate_rank, topster, query_suggestion,
                           filtered_result_ids, filtered_results_size);
 
             delete[] filtered_result_ids;
@@ -463,14 +470,19 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             delete [] *all_result_ids;
             *all_result_ids = new_all_result_ids;
 
-            score_results(sort_fields, searched_queries.size(), candidate_rank, topster, query_suggestion, result_ids, result_size);
+            score_results(sort_fields, searched_queries.size(), actual_candidate_rank, topster, query_suggestion,
+                          result_ids, result_size);
             delete[] result_ids;
         }
 
         total_results += topster.size;
         searched_queries.push_back(query_suggestion);
 
-        if(total_results >= max_results) {
+        if(!prefix && total_results >= max_results) {
+            break;
+        }
+
+        if(prefix && candidate_rank >= max_results) {
             break;
         }
     }
@@ -944,7 +956,6 @@ void Collection::search_field(std::string & query, const std::string & field, ui
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
-
                 int count = search_index.count(field);
 
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
@@ -985,10 +996,15 @@ void Collection::search_field(std::string & query, const std::string & field, ui
         if(token_to_candidates.size() != 0 && token_to_candidates.size() == tokens.size()) {
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(filter_ids, filter_ids_length, facets, sort_fields, candidate_rank, token_to_candidates,
-                              searched_queries, topster, total_results, all_result_ids, all_result_ids_len, max_results);
+                              searched_queries, topster, total_results, all_result_ids, all_result_ids_len,
+                              max_results, prefix);
 
-            if (total_results >= max_results) {
+            if (!prefix && total_results >= max_results) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
+                break;
+            }
+
+            if(prefix && candidate_rank > 10) {
                 break;
             }
         }

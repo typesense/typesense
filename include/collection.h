@@ -95,7 +95,7 @@ private:
                            std::vector<std::vector<art_leaf*>> & token_to_candidates,
                            std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
                            size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
-                           const size_t & max_results);
+                           const size_t & max_results, const bool prefix);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
                             const bool verbatim) const;

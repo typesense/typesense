@@ -24,7 +24,7 @@ int main(int argc, char* argv[]) {
 
     Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, {}, sort_fields);
+        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, {}, sort_fields, "points");
     }
 
     std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");

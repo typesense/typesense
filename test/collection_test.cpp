@@ -349,7 +349,7 @@ TEST_F(CollectionTest, PrefixSearching) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ex", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, true).get();
     ASSERT_EQ(2, results["hits"].size());
-    std::vector<std::string> ids = {"12", "6"};
+    std::vector<std::string> ids = {"6", "12"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -372,6 +372,29 @@ TEST_F(CollectionTest, PrefixSearching) {
     results = collection->search("what ex", query_fields, "", facets, sort_fields, 0, 10, 1, MAX_SCORE, true).get();
     ASSERT_EQ(9, results["hits"].size());
     ids = {"6", "12", "19", "22", "13", "8", "15", "24", "21"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // restrict to only 2 results and differentiate between MAX_SCORE and FREQUENCY
+    results = collection->search("t", query_fields, "", facets, sort_fields, 0, 2, 1, MAX_SCORE, true).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ids = {"19", "22"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("t", query_fields, "", facets, sort_fields, 0, 2, 1, FREQUENCY, true).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ids = {"1", "6"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
