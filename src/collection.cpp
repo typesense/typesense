@@ -955,11 +955,12 @@ void Collection::search_field(std::string & query, const std::string & field, ui
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
-                int token_len = prefix ? (int) token.length() : (int) token.length() + 1;
-                int count = search_index.count(field);
+                // prefix should apply only for last token
+                const bool prefix_search = prefix && ((token_index == tokens.size()-1) ? true : false);
+                const int token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], costs[token_index], 3, token_order, prefix, leaves);
+                                 costs[token_index], costs[token_index], 3, token_order, prefix_search, leaves);
 
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);
@@ -1014,7 +1015,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
 
     // When there are not enough overall results and atleast one token has results
     if(topster.size < max_results && token_to_count.size() > 1) {
-        // Drop certain token with least hits and try searching again
+        // Drop token with least hits and try searching again
         std::string truncated_query;
 
         std::vector<std::pair<std::string, uint32_t>> token_count_pairs;
@@ -1029,9 +1030,8 @@ void Collection::search_field(std::string & query, const std::string & field, ui
         );
 
         for(uint32_t i = 0; i < token_count_pairs.size()-1; i++) {
-            if(token_to_count.count(token_count_pairs[i].first) != 0) {
-                truncated_query += " " + token_count_pairs.at(i).first;
-            }
+            // iterate till last but one
+            truncated_query += " " + token_count_pairs.at(i).first;
         }
 
         return search_field(truncated_query, field, filter_ids, filter_ids_length, facets, sort_fields, num_typos,

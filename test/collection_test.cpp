@@ -402,6 +402,10 @@ TEST_F(CollectionTest, PrefixSearching) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // only the last token in the query should be used for prefix search - so, "math" should not match "mathematics"
+    results = collection->search("math fx", query_fields, "", facets, sort_fields, 0, 1, 1, FREQUENCY, true).get();
+    ASSERT_EQ(0, results["hits"].size());
 }
 
 TEST_F(CollectionTest, MultipleFields) {

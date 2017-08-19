@@ -53,11 +53,11 @@
 - ~~Test for collection creation validation~~
 - ~~Test for delete document~~
 - ~~art float search~~
-- When prefix=true, use token_ranking_field for token ordering only for last word
-- only last token should be prefix searched
+- ~~When prefix=true, use token_ranking_field for token ordering only for last word~~
+- ~~only last token should be prefix searched~~
+- ~~Prefix-search strings should not be null terminated~~
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
-- Prefix-search strings should not be null terminated
 - > INT32_MAX validation for float field
 - art bool support
 - Proper logging

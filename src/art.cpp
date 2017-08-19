@@ -1169,7 +1169,9 @@ static inline int levenshtein_dist(const int depth, const char p, const char c, 
             krow[column] = std::min(krow[column], irow[column-2] + cost);
         }
 
-        if(krow[column] < row_min) row_min = krow[column];
+        if(krow[column] < row_min) {
+            row_min = krow[column];
+        }
     }
 
     return row_min;
@@ -1267,7 +1269,16 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
         printf("\nIS_LEAF\nLEAF KEY: %s, depth: %d\n", l->key, depth);
 
-        const int end_index = min(l->key_len, term_len+max_cost);
+        /*
+           For prefix search, when key is longer than term, we could potentially iterate till `term_len+max_cost` for:
+           term = `th`, leaf = `mathematics` - if we compared only first 2 chars, exceeds max_cost
+           However, we refrain from doing so for performance reasons, or atleast until we hear strong objections.
+
+           Also, for prefix searches we don't compare with full leaf key.
+         */
+        const int end_index = prefix ? min(l->key_len, term_len) : l->key_len;
+
+        // If at any point, `cost > 2*max_cost` we can terminate immediately as we can never recover from that
         while(depth < end_index && cost <= 2*max_cost) {
             c = l->key[depth];
             cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
