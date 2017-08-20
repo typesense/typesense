@@ -747,11 +747,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     // All fields are sorted descending
     std::sort(field_order_kvs.begin(), field_order_kvs.end(),
       [](const std::pair<int, Topster<100>::KV> & a, const std::pair<int, Topster<100>::KV> & b) {
-        if(a.second.match_score != b.second.match_score) return a.second.match_score > b.second.match_score;
-        if(a.second.primary_attr != b.second.primary_attr) return a.second.primary_attr > b.second.primary_attr;
-        if(a.second.secondary_attr != b.second.secondary_attr) return a.second.secondary_attr > b.second.secondary_attr;
-        if(a.first != b.first) return a.first > b.first;  // field position
-        return a.second.key > b.second.key;
+          return std::tie(a.second.match_score, a.second.primary_attr, a.second.secondary_attr, a.first, a.second.key) >
+                 std::tie(b.second.match_score, b.second.primary_attr, b.second.secondary_attr, b.first, b.second.key);
     });
 
     result["hits"] = nlohmann::json::array();

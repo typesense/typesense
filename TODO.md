@@ -56,6 +56,8 @@
 - ~~When prefix=true, use token_ranking_field for token ordering only for last word~~
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
+- sort results by float field
+- test for string filter comparison: title < "foo"
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - > INT32_MAX validation for float field
