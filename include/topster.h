@@ -6,56 +6,13 @@
 #include <algorithm>
 #include <sparsepp.h>
 #include <match_score.h>
+#include <number.h>
 
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
 template <size_t MAX_SIZE=100>
 struct Topster {
-    struct number_t {
-        bool is_float;
-        union {
-            float floatval;
-            int64_t intval;
-        };
-
-        number_t(): intval(0), is_float(false) {
-
-        }
-
-        number_t(float val): floatval(val), is_float(true) {
-
-        }
-
-        number_t(int64_t val): intval(val), is_float(false) {
-
-        }
-
-        inline void operator = (const float & val) {
-            floatval = val;
-            is_float = true;
-        }
-
-        inline void operator = (const int64_t & val) {
-            intval = val;
-            is_float = false;
-        }
-
-        inline bool operator < (const number_t & rhs) const  {
-            if(is_float) {
-                return floatval < rhs.floatval;
-            }
-            return intval < rhs.intval;
-        }
-
-        inline bool operator > (const number_t & rhs) const {
-            if(is_float) {
-                return floatval > rhs.floatval;
-            }
-            return intval > rhs.intval;
-        }
-    };
-
     struct KV {
         uint16_t query_index;
         uint64_t key;

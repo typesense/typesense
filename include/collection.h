@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <art.h>
+#include <number.h>
 #include <sparsepp.h>
 #include <store.h>
 #include <topster.h>
@@ -52,7 +53,7 @@ private:
 
     spp::sparse_hash_map<std::string, field> facet_schema;
 
-    std::vector<field> sort_fields;
+    spp::sparse_hash_map<std::string, field> sort_schema;
 
     Store* store;
 
@@ -60,7 +61,7 @@ private:
 
     spp::sparse_hash_map<std::string, facet_value> facet_index;
 
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
 
     std::string token_ranking_field;
 
@@ -84,14 +85,14 @@ private:
                                   size_t result_index, std::vector<std::vector<uint16_t>> &token_positions) const;
 
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
-                      std::vector<facet> & facets, const std::vector<sort_field> & sort_fields,
+                      std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, const size_t num_results,
                       std::vector<std::vector<art_leaf*>> & searched_queries, int & searched_queries_index,
                       Topster<100> & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                           const std::vector<sort_field> & sort_fields, int & candidate_rank,
+                           const std::vector<sort_by> & sort_fields, int & candidate_rank,
                            std::vector<std::vector<art_leaf*>> & token_to_candidates,
                            std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
                            size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
@@ -155,7 +156,7 @@ public:
 
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<sort_field> & sort_fields, const int num_typos,
+                          const std::vector<sort_by> & sort_fields, const int num_typos,
                           const size_t per_page = 10, const size_t page = 1,
                           const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
@@ -163,7 +164,7 @@ public:
 
     Option<std::string> remove(const std::string & id);
 
-    void score_results(const std::vector<sort_field> & sort_fields, const int & query_index, const int & candidate_rank,
+    void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const int & candidate_rank,
                        Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 

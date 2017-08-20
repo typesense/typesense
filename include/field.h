@@ -81,15 +81,15 @@ namespace sort_field_const {
     static const std::string desc = "DESC";
 }
 
-struct sort_field {
+struct sort_by {
     std::string name;
     std::string order;
 
-    sort_field(const std::string & name, const std::string & order): name(name), order(order) {
+    sort_by(const std::string & name, const std::string & order): name(name), order(order) {
 
     }
 
-    sort_field& operator=(sort_field other) {
+    sort_by& operator=(sort_by other) {
         name = other.name;
         order = other.order;
         return *this;

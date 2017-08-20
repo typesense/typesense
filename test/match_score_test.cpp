@@ -19,4 +19,10 @@ TEST(MatchScoreTest, ShouldPackTokenOffsets) {
     ASSERT_EQ(0, offset_diffs[1]);
     ASSERT_EQ(1, offset_diffs[2]);
     ASSERT_EQ(2, offset_diffs[3]);
+
+    uint16_t min_token_offset3[1] = {123};
+    MatchScore::pack_token_offsets(min_token_offset3, 1, 0, offset_diffs);
+
+    ASSERT_EQ(1, offset_diffs[0]);
+    ASSERT_EQ(0, offset_diffs[1]);
 }

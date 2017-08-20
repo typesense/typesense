@@ -14,7 +14,7 @@ protected:
     std::vector<field> facet_fields;
     std::vector<field> sort_fields_index;
 
-    std::vector<sort_field> sort_fields;
+    std::vector<sort_by> sort_fields;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
@@ -26,7 +26,7 @@ protected:
 
         search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
         facet_fields = {field("starring", field_types::STRING)};
-        sort_fields = { sort_field("points", "DESC") };
+        sort_fields = { sort_by("points", "DESC") };
         sort_fields_index = { field("points", "INT32") };
 
         collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,

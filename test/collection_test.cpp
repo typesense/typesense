@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
+#include "person.h"
+#include "number.h"
 
 class CollectionTest : public ::testing::Test {
 protected:
@@ -14,7 +16,7 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<field> facet_fields;
     std::vector<field> sort_fields_index;
-    std::vector<sort_field> sort_fields;
+    std::vector<sort_by> sort_fields;
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/collection";
@@ -29,7 +31,7 @@ protected:
 
         query_fields = {"title"};
         facet_fields = { };
-        sort_fields = { sort_field("points", "DESC") };
+        sort_fields = { sort_by("points", "DESC") };
         sort_fields_index = { field("points", "INT32") };
 
         collection = collectionManager.get_collection("collection");
@@ -94,7 +96,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     }
 
     // check ASC sorting
-    std::vector<sort_field> sort_fields_asc = { sort_field("points", "ASC") };
+    std::vector<sort_by> sort_fields_asc = { sort_by("points", "ASC") };
 
     results = collection->search("the", query_fields, "", facets, sort_fields_asc, 0, 10).get();
     ASSERT_EQ(7, results["hits"].size());
@@ -135,7 +137,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     }
 
     // Check ASC sort order
-    std::vector<sort_field> sort_fields_asc = { sort_field("points", "ASC") };
+    std::vector<sort_by> sort_fields_asc = { sort_by("points", "ASC") };
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, 0, 10).get();
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
@@ -495,7 +497,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     std::vector<field> fields = {field("name", field_types::STRING), field("age", field_types::INT32),
                                  field("years", field_types::INT32_ARRAY),
                                  field("timestamps", field_types::INT64_ARRAY)};
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
     std::vector<field> sort_fields_index = { field("age", "INT32") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
@@ -632,8 +634,8 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
                                  field("top_3", field_types::FLOAT_ARRAY),
                                  field("rating", field_types::FLOAT)};
     std::vector<field> sort_fields_index = { field("rating", "FLOAT") };
-    std::vector<sort_field> sort_fields_desc = { sort_field("rating", "DESC") };
-    std::vector<sort_field> sort_fields_asc = { sort_field("rating", "ASC") };
+    std::vector<sort_by> sort_fields_desc = { sort_by("rating", "DESC") };
+    std::vector<sort_by> sort_fields_asc = { sort_by("rating", "ASC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
@@ -673,7 +675,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["id"];
         std::string id = ids.at(i);
-        ASSERT_STREQ(id.c_str(), result_id.c_str());
+        ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
     }
 
     // Searching on a float field, sorted desc by rating
@@ -761,6 +763,72 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionTest, SortOnFloatFields) {
+    Collection *coll_float_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/float_documents.jsonl");
+    std::vector<field> fields = {field("title", field_types::STRING), field("score", field_types::FLOAT)};
+    std::vector<field> sort_fields_index = { field("score", "FLOAT"), field("average", "FLOAT") };
+    std::vector<sort_by> sort_fields_desc = { sort_by("score", "DESC"), sort_by("average", "DESC") };
+
+    coll_float_fields = collectionManager.get_collection("coll_float_fields");
+    if(coll_float_fields == nullptr) {
+        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields, facet_fields, sort_fields_index);
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_float_fields->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(7, results["hits"].size());
+
+    std::vector<std::string> ids = {"2", "0", "3", "1", "5", "4", "6"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        EXPECT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    std::vector<sort_by> sort_fields_asc = { sort_by("score", "ASC"), sort_by("average", "ASC") };
+    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(7, results["hits"].size());
+
+    ids = {"6", "4", "5", "1", "3", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        EXPECT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // second field by desc
+
+    std::vector<sort_by> sort_fields_asc_desc = { sort_by("score", "ASC"), sort_by("average", "DESC") };
+    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc_desc, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(7, results["hits"].size());
+
+    ids = {"5", "4", "6", "1", "3", "0", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        EXPECT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("coll_float_fields");
+}
+
 TEST_F(CollectionTest, FilterOnTextFields) {
     Collection *coll_array_fields;
 
@@ -770,7 +838,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
                                  field("tags", field_types::STRING_ARRAY)};
 
     std::vector<field> sort_fields_index = { field("age", "INT32") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
@@ -842,7 +910,7 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
                                  field("tags", field_types::STRING_ARRAY)};
 
     std::vector<field> sort_fields_index = { field("age", "INT32") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
@@ -898,7 +966,7 @@ TEST_F(CollectionTest, FacetCounts) {
     facet_fields = {field("tags", field_types::STRING_ARRAY), field("name", field_types::STRING)};
 
     std::vector<field> sort_fields_index = { field("age", "DESC") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
@@ -991,7 +1059,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     query_fields = {"title"};
     std::vector<std::string> facets;
-    sort_fields = { sort_field("points", "ASC") };
+    sort_fields = { sort_by("points", "ASC") };
     nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false).get();
     ASSERT_EQ(10, results["hits"].size());
 
@@ -1005,7 +1073,7 @@ TEST_F(CollectionTest, SortingOrder) {
     }
 
     // limiting results to just 5, "ASC" keyword must be case insensitive
-    sort_fields = { sort_field("points", "asc") };
+    sort_fields = { sort_by("points", "asc") };
     results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 5, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
@@ -1020,7 +1088,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     // desc
 
-    sort_fields = { sort_field("points", "dEsc") };
+    sort_fields = { sort_by("points", "dEsc") };
     results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false).get();
     ASSERT_EQ(10, results["hits"].size());
 
@@ -1062,7 +1130,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
                                  field("tags", field_types::STRING_ARRAY)};
     facet_fields = {field("tags", field_types::STRING_ARRAY), field("name", field_types::STRING)};
     std::vector<field> sort_fields_index = { field("age", "DESC") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
@@ -1097,11 +1165,11 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     ASSERT_STREQ("Could not find a facet field named `timestamps` in the schema.", res_op.error().c_str());
 
     // when a rank field is not defined in the schema
-    res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_field("timestamps", "ASC") }, 0, 10);
+    res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("timestamps", "ASC") }, 0, 10);
     ASSERT_EQ(400, res_op.code());
     ASSERT_STREQ("Could not find a sort field named `timestamps` in the schema.", res_op.error().c_str());
 
-    res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_field("_rank", "ASC") }, 0, 10);
+    res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("_rank", "ASC") }, 0, 10);
     ASSERT_EQ(400, res_op.code());
     ASSERT_STREQ("Could not find a sort field named `_rank` in the schema.", res_op.error().c_str());
 
@@ -1116,7 +1184,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
 
     std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
     sample_collection = collectionManager.get_collection("sample_collection");
     if(sample_collection == nullptr) {
@@ -1193,7 +1261,7 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
 
     std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
     empty_coll = collectionManager.get_collection("empty_coll");
     if(empty_coll == nullptr) {
@@ -1212,7 +1280,7 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
     facet_fields = {field("tags", field_types::STRING_ARRAY)};
 
     std::vector<field> sort_fields_index = { field("age", "INT32"), field("average", "INT32") };
-    std::vector<sort_field> sort_fields = { sort_field("age", "DESC"), sort_field("average", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
@@ -1241,7 +1309,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     std::vector<field> search_fields = {field("title", field_types::STRING)};
     std::vector<std::string> query_fields = {"title"};
     std::vector<field> facet_fields = { };
-    std::vector<sort_field> sort_fields = { sort_field("points", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
     std::vector<field> sort_fields_index = { field("points", "INT32") };
 
     Collection *collection_for_del;

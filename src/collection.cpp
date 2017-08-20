@@ -11,7 +11,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
                        const std::vector<field> &search_fields, const std::vector<field> & facet_fields,
                        const std::vector<field> & sort_fields, const std::string token_ranking_field):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       sort_fields(sort_fields), token_ranking_field(token_ranking_field) {
+                       token_ranking_field(token_ranking_field) {
 
     for(const field& field: search_fields) {
         art_tree *t = new art_tree;
@@ -27,8 +27,9 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
     }
 
     for(const field & sort_field: sort_fields) {
-        spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+        spp::sparse_hash_map<uint32_t, number_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, number_t>();
         sort_index.emplace(sort_field.name, doc_to_score);
+        sort_schema.emplace(sort_field.name, sort_field);
     }
 
     num_documents = 0;
@@ -218,7 +219,9 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         }
     }
 
-    for(const field & sort_field: sort_fields) {
+    for(const std::pair<std::string, field> & field_pair: sort_schema) {
+        const field & sort_field = field_pair.second;
+
         if(document.count(sort_field.name) == 0) {
             return Option<>(400, "Field `" + sort_field.name  + "` has been declared as a sort field in the schema, "
                     "but is not found in the document.");
@@ -228,8 +231,13 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             return Option<>(400, "Sort field `" + sort_field.name  + "` must be a number.");
         }
 
-        spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(sort_field.name);
-        doc_to_score->emplace(seq_id, document[sort_field.name].get<int64_t>());
+        spp::sparse_hash_map<uint32_t, number_t> *doc_to_score = sort_index.at(sort_field.name);
+
+        if(document[sort_field.name].is_number_integer()) {
+            doc_to_score->emplace(seq_id, document[sort_field.name].get<int64_t>());
+        } else {
+            doc_to_score->emplace(seq_id, document[sort_field.name].get<float>());
+        }
     }
 
     num_documents += 1;
@@ -401,7 +409,7 @@ void Collection::do_facets(std::vector<facet> & facets, uint32_t* result_ids, si
 }
 
 void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                                   const std::vector<sort_field> & sort_fields, int & candidate_rank,
+                                   const std::vector<sort_by> & sort_fields, int & candidate_rank,
                                    std::vector<std::vector<art_leaf*>> & token_to_candidates,
                                    std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
@@ -649,7 +657,7 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
 
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                                  const std::vector<sort_field> & sort_fields, const int num_typos,
+                                  const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix) {
     nlohmann::json result = nlohmann::json::object();
@@ -680,9 +688,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // validate sort fields and standardize
 
-    std::vector<sort_field> sort_fields_std;
+    std::vector<sort_by> sort_fields_std;
 
-    for(const sort_field & _sort_field: sort_fields) {
+    for(const sort_by & _sort_field: sort_fields) {
         if(sort_index.count(_sort_field.name) == 0) {
             std::string error = "Could not find a sort field named `" + _sort_field.name + "` in the schema.";
             return Option<nlohmann::json>(400, error);
@@ -888,7 +896,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
    5. Sort the docs based on some ranking criteria
 */
 void Collection::search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
-                              std::vector<facet> & facets, const std::vector<sort_field> & sort_fields, const int num_typos,
+                              std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                               const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
                               int & searched_queries_index, Topster<100> &topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
                               const token_ordering token_order, const bool prefix) {
@@ -1048,7 +1056,7 @@ void Collection::log_leaves(const int cost, const std::string &token, const std:
     }
 }
 
-void Collection::score_results(const std::vector<sort_field> & sort_fields, const int & query_index, const int & candidate_rank,
+void Collection::score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const int & candidate_rank,
                                Topster<100> & topster, const std::vector<art_leaf *> &query_suggestion,
                                const uint32_t *result_ids, const size_t result_size) const {
 
@@ -1061,25 +1069,43 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
         leaf_to_indices.emplace(token_leaf, indices);
     }
 
-    spp::sparse_hash_map<uint32_t, int64_t> * primary_rank_scores = nullptr;
-    spp::sparse_hash_map<uint32_t, int64_t> * secondary_rank_scores = nullptr;
+    spp::sparse_hash_map<uint32_t, number_t> * primary_rank_scores = nullptr;
+    spp::sparse_hash_map<uint32_t, number_t> * secondary_rank_scores = nullptr;
 
     // Used for asc/desc ordering. NOTE: Topster keeps biggest keys (i.e. it's desc in nature)
-    int64_t primary_rank_factor = 1;
-    int64_t secondary_rank_factor = 1;
+    number_t primary_rank_factor;
+    number_t secondary_rank_factor;
 
     if(sort_fields.size() > 0) {
         // assumed that rank field exists in the index - checked earlier in the chain
         primary_rank_scores = sort_index.at(sort_fields[0].name);
+
+        // initialize primary_rank_factor
+        field sort_field = sort_schema.at(sort_fields[0].name);
+        if(sort_field.is_integer()) {
+            primary_rank_factor = ((int64_t) 1);
+        } else {
+            primary_rank_factor = ((float) 1);
+        }
+
         if(sort_fields[0].order == sort_field_const::asc) {
-            primary_rank_factor = -1;
+            primary_rank_factor = -primary_rank_factor;
         }
     }
 
     if(sort_fields.size() > 1) {
         secondary_rank_scores = sort_index.at(sort_fields[1].name);
+
+        // initialize secondary_rank_factor
+        field sort_field = sort_schema.at(sort_fields[1].name);
+        if(sort_field.is_integer()) {
+            secondary_rank_factor = ((int64_t) 1);
+        } else {
+            secondary_rank_factor = ((float) 1);
+        }
+
         if(sort_fields[1].order == sort_field_const::asc) {
-            secondary_rank_factor = -1;
+            secondary_rank_factor = -secondary_rank_factor;
         }
     }
 
@@ -1105,13 +1131,15 @@ void Collection::score_results(const std::vector<sort_field> & sort_fields, cons
                                      (candidate_rank_score << 8) +
                                      (MAX_SEARCH_TOKENS - mscore.distance);
 
-        int64_t primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
-                                     primary_rank_scores->at(seq_id) : 0;
-        int64_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
-                                       secondary_rank_scores->at(seq_id) : 0;
+        const int64_t default_score = 0;
+        number_t primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
+                                     primary_rank_scores->at(seq_id) : default_score;
+        number_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
+                                       secondary_rank_scores->at(seq_id) : default_score;
 
-        topster.add(seq_id, query_index, match_score, primary_rank_factor * primary_rank_score,
-                    secondary_rank_factor * secondary_rank_score);
+        const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
+        const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
+        topster.add(seq_id, query_index, match_score, primary_rank_value, secondary_rank_value);
 
         /*std::cout << "candidate_rank_score: " << candidate_rank_score << ", words_present: " << mscore.words_present
                   << ", match_score: " << match_score << ", primary_rank_score: " << primary_rank_score
@@ -1399,7 +1427,12 @@ std::vector<std::string> Collection::get_facet_fields() {
 }
 
 std::vector<field> Collection::get_sort_fields() {
-    return sort_fields;
+    std::vector<field> sort_fields_copy;
+    for(auto it = sort_schema.begin(); it != sort_schema.end(); ++it) {
+        sort_fields_copy.push_back(it->second);
+    }
+
+    return sort_fields_copy;
 }
 
 spp::sparse_hash_map<std::string, field> Collection::get_schema() {

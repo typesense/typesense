@@ -188,7 +188,7 @@ void get_search(http_req & req, http_res & res) {
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, "&&");
 
-    std::vector<sort_field> sort_fields;
+    std::vector<sort_by> sort_fields;
     if(req.params.count(SORT_BY) != 0) {
         std::vector<std::string> sort_field_strs;
         StringUtils::split(req.params[SORT_BY], sort_field_strs, ",");
@@ -206,7 +206,7 @@ void get_search(http_req & req, http_res & res) {
             }
 
             StringUtils::toupper(expression_parts[1]);
-            sort_fields.push_back(sort_field(expression_parts[0], expression_parts[1]));
+            sort_fields.push_back(sort_by(expression_parts[0], expression_parts[1]));
         }
     }
 
