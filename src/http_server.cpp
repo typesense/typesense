@@ -12,13 +12,14 @@ struct h2o_custom_req_handler_t {
 
 HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
                        listen_address(listen_address), listen_port(listen_port) {
+    accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
-    HttpServer *http_server = static_cast<HttpServer*>(listener->data);
+    HttpServer *http_server = reinterpret_cast<HttpServer*>(listener->data);
     h2o_socket_t *sock;
 
     if (err != NULL) {
@@ -29,15 +30,15 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
         return;
     }
 
-    h2o_accept(&http_server->accept_ctx, sock);
+    h2o_accept(http_server->accept_ctx, sock);
 }
 
 int HttpServer::create_listener(void) {
     struct sockaddr_in addr;
     int fd, reuseaddr_flag = 1;
 
-    accept_ctx.ctx = &ctx;
-    accept_ctx.hosts = config.hosts;
+    accept_ctx->ctx = &ctx;
+    accept_ctx->hosts = config.hosts;
 
     memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
@@ -69,7 +70,7 @@ int HttpServer::run() {
         return 1;
     }
 
-    while (h2o_evloop_run(ctx.loop) == 0);
+    while (h2o_evloop_run(ctx.loop, INT32_MAX) == 0);
 
     return 0;
 }
@@ -78,7 +79,7 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
                                  int (*on_req)(h2o_handler_t *, h2o_req_t *)) {
     // See: https://github.com/h2o/h2o/issues/181#issuecomment-75393049
     h2o_pathconf_t *pathconf = h2o_config_register_path(hostconf, path, 0);
-    h2o_custom_req_handler_t *handler = (h2o_custom_req_handler_t *)h2o_create_handler(pathconf, sizeof(*handler));
+    h2o_custom_req_handler_t *handler = reinterpret_cast<h2o_custom_req_handler_t*>(h2o_create_handler(pathconf, sizeof(*handler)));
     handler->http_server = this;
     handler->super.on_req = on_req;
     return pathconf;
@@ -196,9 +197,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
             h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
             req->res.status = response.status_code;
             req->res.reason = get_status_reason(response.status_code);
-            h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+            h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
             h2o_start_response(req, &generator);
-            h2o_send(req, &body, 1, 1);
+            h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 
             return 0;
         }
@@ -207,9 +208,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     h2o_iovec_t res_body = h2o_strdup(&req->pool, "{ \"message\": \"Not Found\"}", SIZE_MAX);
     req->res.status = 404;
     req->res.reason = get_status_reason(404);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
-    h2o_send(req, &res_body, 1, 1);
+    h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
 
     return 0;
 }
@@ -220,9 +221,9 @@ int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
     req->res.status = 401;
     req->res.reason = get_status_reason(req->res.status);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
-    h2o_send(req, &body, 1, 1);
+    h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
     return 0;
 }
 
@@ -255,5 +256,5 @@ void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_
 }
 
 HttpServer::~HttpServer() {
-
+    delete accept_ctx;
 }
