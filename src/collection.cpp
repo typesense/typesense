@@ -1132,10 +1132,10 @@ void Collection::score_results(const std::vector<sort_by> & sort_fields, const i
                                      (MAX_SEARCH_TOKENS - mscore.distance);
 
         const int64_t default_score = 0;
-        number_t primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
+        const number_t & primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
                                      primary_rank_scores->at(seq_id) : default_score;
-        number_t secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
-                                       secondary_rank_scores->at(seq_id) : default_score;
+        const number_t & secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
+                                     secondary_rank_scores->at(seq_id) : default_score;
 
         const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
