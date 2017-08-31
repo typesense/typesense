@@ -39,6 +39,9 @@ int main(int argc, char **argv) {
     server.get("/collections/:collection/:id", get_fetch_document, true);
     server.del("/collections/:collection/:id", del_remove_document, true);
 
+    // replication
+    server.get("/replication/updates", get_replication_updates, true);
+
     server.run();
     return 0;
 }

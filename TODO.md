@@ -57,6 +57,9 @@
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
+- Validate before string to int conversion in the http api layer
+- When field of "id" but not string, what happens?
+- Typo in prefix search
 - test for string filter comparison: title < "foo"
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
@@ -73,6 +76,7 @@
 - Test for sorted_array::indexOf when length is 0
 - Test for snippets
 - Test for pagination
+- Test for string utils
 - Prevent string copy during indexing
 - clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results

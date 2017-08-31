@@ -196,3 +196,7 @@ Option<bool> CollectionManager::drop_collection(std::string collection_name) {
 uint32_t CollectionManager::get_next_collection_id() {
     return next_collection_id;
 }
+
+Store* CollectionManager::get_store() {
+    return store;
+}

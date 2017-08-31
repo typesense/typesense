@@ -70,7 +70,7 @@ add_executable(search ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${SRC_FILES} src/main/benchmark.cpp)
 add_executable(typesense_test ${SRC_FILES} test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
                test/collection_test.cpp test/collection_manager_test.cpp
-               test/topster_test.cpp test/match_score_test.cpp)
+               test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp)
 
 target_compile_definitions(typesense-server PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")

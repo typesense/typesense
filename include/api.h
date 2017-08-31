@@ -17,3 +17,5 @@ void post_add_document(http_req & req, http_res & res);
 void get_fetch_document(http_req & req, http_res & res);
 
 void del_remove_document(http_req & req, http_res & res);
+
+void get_replication_updates(http_req &req, http_res &res);

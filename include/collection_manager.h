@@ -57,5 +57,7 @@ public:
 
     uint32_t get_next_collection_id();
 
+    Store* get_store();
+
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
 };

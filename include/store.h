@@ -3,9 +3,12 @@
 #include <stdint.h>
 #include <cstdlib>
 #include <string>
+#include <memory>
+#include <option.h>
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
+#include <rocksdb/transaction_log.h>
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
 public:
@@ -55,6 +58,10 @@ public:
         options.write_buffer_size = 4*1048576;
         options.max_write_buffer_number = 2;
         options.merge_operator.reset(new UInt64AddOperator);
+
+        // these need to be high for replication scenarios
+        options.WAL_ttl_seconds = 24*60*60;
+        options.WAL_size_limit_MB = 1024;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
@@ -122,9 +129,36 @@ public:
         db->Merge(rocksdb::WriteOptions(), key, std::to_string(value));
     }
 
+    Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number, const uint64_t max_updates) {
+        Option<std::vector<std::string>*> updates_op(new std::vector<std::string>());
+
+        rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
+        rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
+
+        if(!status.ok()) {
+            return Option<std::vector<std::string>*>(500, "Could not fetch updates from the disk store.");
+        }
+
+        uint64_t num_updates = 0;
+        while(iter->Valid() && num_updates < max_updates) {
+            rocksdb::BatchResult batch_result = iter->GetBatch();
+            const std::string & write_batch_serialized = batch_result.writeBatchPtr->Data();
+            updates_op.get()->push_back(write_batch_serialized);
+            num_updates += 1;
+            iter->Next();
+        }
+
+        return updates_op;
+    }
+
     void close() {
         delete db;
         db = nullptr;
+    }
+
+    // Only for internal tests
+    rocksdb::DB* _get_db_unsafe() {
+        return db;
     }
 
     void print_memory_usage() {

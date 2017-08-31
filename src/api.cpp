@@ -333,3 +333,29 @@ void del_remove_document(http_req & req, http_res & res) {
         res.send_200(json_response.dump());
     }
 }
+
+void get_replication_updates(http_req &req, http_res &res) {
+    if(!StringUtils::is_uint64_t(req.params["seq_number"])) {
+        return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
+    }
+
+    const uint64_t MAX_UPDATES_TO_SEND = 2000;
+    uint64_t seq_number = std::stoull(req.params["seq_number"]);
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Store* store = collectionManager.get_store();
+    Option<std::vector<std::string>*> updates_op = store->get_updates_since(seq_number, MAX_UPDATES_TO_SEND);
+    if(!updates_op.ok()) {
+        return res.send(updates_op.code(), updates_op.error());
+    }
+
+    nlohmann::json json_response;
+    json_response["updates"] = nlohmann::json::array();
+
+    std::vector<std::string> *updates = updates_op.get();
+    for(const std::string & update: *updates) {
+        json_response["updates"].push_back(StringUtils::base64_encode(update));
+    }
+
+    res.send_200(json_response.dump());
+}
