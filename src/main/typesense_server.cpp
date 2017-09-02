@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
     server.del("/collections/:collection/:id", del_remove_document, true);
 
     // replication
-    server.get("/replication/updates", get_replication_updates, true);
+    server.get("/replication/updates", get_replication_updates, true, true);
 
     server.run();
     return 0;

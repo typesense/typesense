@@ -67,8 +67,9 @@ struct http_req {
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
-    void (*handler)(http_req & req, http_res &);
+    void (*handler)(http_req &, http_res &);
     bool authenticated;
+    bool async;
 
     inline bool operator< (const route_path& rhs) const {
         return true;

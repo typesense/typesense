@@ -20,14 +20,15 @@ private:
     h2o_globalconf_t config;
     h2o_context_t ctx;
     h2o_accept_ctx_t* accept_ctx;
+    h2o_hostconf_t *hostconf;
+    h2o_multithread_queue_t* message_queue;
+    h2o_multithread_receiver_t* message_receiver;
 
     std::vector<route_path> routes;
 
     const std::string listen_address;
 
     const uint32_t listen_port;
-
-    h2o_hostconf_t *hostconf;
 
     static void on_accept(h2o_socket_t *listener, const char *err);
 
@@ -42,20 +43,24 @@ private:
 
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
+    static void on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t *messages);
+
     static int send_401_unauthorized(h2o_req_t *req);
+
+    void send_response(h2o_req_t* req, h2o_generator_t & generator, const http_res & response);
 
 public:
     HttpServer(std::string listen_address, uint32_t listen_port);
 
     ~HttpServer();
 
-    void get(const std::string & path, void (*handler)(http_req & req, http_res &), bool authenticated);
+    void get(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
-    void post(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
+    void post(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
-    void put(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
+    void put(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
-    void del(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated);
+    void del(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
     int run();
 

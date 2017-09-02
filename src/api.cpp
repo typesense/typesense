@@ -334,7 +334,7 @@ void del_remove_document(http_req & req, http_res & res) {
     }
 }
 
-void get_replication_updates(http_req &req, http_res &res) {
+void get_replication_updates(http_req & req, http_res & res) {
     if(!StringUtils::is_uint64_t(req.params["seq_number"])) {
         return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
     }
