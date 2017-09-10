@@ -49,6 +49,8 @@ private:
 
     void send_response(h2o_req_t* req, h2o_generator_t & generator, const http_res & response);
 
+    static constexpr const char* SEND_RESPONSE_MSG = "send_response";
+
 public:
     HttpServer(std::string listen_address, uint32_t listen_port);
 

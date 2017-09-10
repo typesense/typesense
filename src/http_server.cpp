@@ -11,11 +11,16 @@ struct h2o_custom_req_handler_t {
     HttpServer* http_server;
 };
 
+struct request_response {
+    h2o_req_t* req;
+    http_res* response;
+};
+
 struct h2o_custom_res_message_t {
     h2o_multithread_message_t super;
-    h2o_req_t *req;
-    http_res* response;
     HttpServer* http_server;
+    std::string type;
+    void* data;
 };
 
 HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
@@ -27,7 +32,7 @@ HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
-    HttpServer *http_server = reinterpret_cast<HttpServer*>(listener->data);
+    HttpServer* http_server = reinterpret_cast<HttpServer*>(listener->data);
     h2o_socket_t *sock;
 
     if (err != NULL) {
@@ -92,9 +97,15 @@ void HttpServer::on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t
         h2o_generator_t generator = {NULL, NULL};
         h2o_multithread_message_t *message = H2O_STRUCT_FROM_MEMBER(h2o_multithread_message_t, link, messages->next);
         h2o_custom_res_message_t *custom_message = reinterpret_cast<h2o_custom_res_message_t*>(message);
-        custom_message->http_server->send_response(custom_message->req, generator, *custom_message->response);
+
+        if(custom_message->type == SEND_RESPONSE_MSG) {
+            request_response* req_res = static_cast<request_response*>(custom_message->data);
+            custom_message->http_server->send_response(req_res->req, generator, *req_res->response);
+            delete req_res->response;
+            delete req_res;
+        }
+
         h2o_linklist_unlink(&message->link);
-        delete custom_message->response;
         delete custom_message;
     }
 }
@@ -222,8 +233,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                     http_req request = {query_map, req_body};
                     http_res* response = new http_res();
                     (rpath.handler)(request, *response);
-                    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, req, response,
-                                                                                     self->http_server};
+                    request_response* req_res = new request_response{req, response};
+                    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, self->http_server,
+                                                                                     SEND_RESPONSE_MSG, req_res};
                     h2o_multithread_send_message(self->http_server->message_receiver, &message->super);
                 });
 
