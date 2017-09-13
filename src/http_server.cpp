@@ -11,11 +11,6 @@ struct h2o_custom_req_handler_t {
     HttpServer* http_server;
 };
 
-struct request_response {
-    h2o_req_t* req;
-    http_res* response;
-};
-
 struct h2o_custom_res_message_t {
     h2o_multithread_message_t super;
     HttpServer* http_server;
@@ -98,11 +93,9 @@ void HttpServer::on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t
         h2o_multithread_message_t *message = H2O_STRUCT_FROM_MEMBER(h2o_multithread_message_t, link, messages->next);
         h2o_custom_res_message_t *custom_message = reinterpret_cast<h2o_custom_res_message_t*>(message);
 
-        if(custom_message->type == SEND_RESPONSE_MSG) {
-            request_response* req_res = static_cast<request_response*>(custom_message->data);
-            custom_message->http_server->send_response(req_res->req, generator, *req_res->response);
-            delete req_res->response;
-            delete req_res;
+        if(custom_message->http_server->message_handlers.count(custom_message->type) != 0) {
+            auto handler = custom_message->http_server->message_handlers.at(custom_message->type);
+            (handler)(custom_message->data);
         }
 
         h2o_linklist_unlink(&message->link);
@@ -224,30 +217,17 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                 }
             }
 
-            if(rpath.async) {
-                /*
-                     Must call h2o_start_response and h2o_send functions within the same thread that
-                     called the on_req callback.
-                */
-                std::thread response_thread([=]() {
-                    http_req request = {query_map, req_body};
-                    http_res* response = new http_res();
-                    (rpath.handler)(request, *response);
-                    request_response* req_res = new request_response{req, response};
-                    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, self->http_server,
-                                                                                     SEND_RESPONSE_MSG, req_res};
-                    h2o_multithread_send_message(self->http_server->message_receiver, &message->super);
-                });
+            http_req* request = new http_req{req, query_map, req_body};
+            http_res* response = new http_res();
+            response->server = self->http_server;
+            (rpath.handler)(*request, *response);
 
-                response_thread.detach();
-                return 0;
+            if(!rpath.async) {
+                // If a handler is marked async, it's assumed that it's responsible for sending the response itself
+                // later in an async fashion by calling into the main http thread via a message
+                self->http_server->send_response(request, response);
             }
 
-            http_req request = {query_map, req_body};
-            http_res response;
-            h2o_generator_t generator = {NULL, NULL};
-            (rpath.handler)(request, response);
-            self->http_server->send_response(req, generator, response);
             return 0;
         }
     }
@@ -263,13 +243,24 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     return 0;
 }
 
-void HttpServer::send_response(h2o_req_t* req, h2o_generator_t & generator, const http_res & response) {
-    h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
-    req->res.status = response.status_code;
-    req->res.reason = get_status_reason(response.status_code);
+void HttpServer::send_message(const std::string & type, void* data) {
+    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, this, type.c_str(), data};
+    h2o_multithread_send_message(message_receiver, &message->super);
+}
+
+void HttpServer::send_response(http_req* request, const http_res* response) {
+    h2o_req_t* req = request->_req;
+    h2o_generator_t generator = {NULL, NULL};
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
+    req->res.status = response->status_code;
+    req->res.reason = get_status_reason(response->status_code);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
+
+    delete request;
+    delete response;
 }
 
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
@@ -310,6 +301,11 @@ void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"DELETE", path_parts, handler, authenticated, async};
     routes.push_back(rpath);
+}
+
+
+void HttpServer::on(const std::string & message, void (*handler)(void*)) {
+    message_handlers.emplace(message, handler);
 }
 
 HttpServer::~HttpServer() {

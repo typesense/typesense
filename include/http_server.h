@@ -15,6 +15,11 @@ extern "C" {
 #include "collection.h"
 #include "collection_manager.h"
 
+struct request_response {
+    http_req* req;
+    http_res* response;
+};
+
 class HttpServer {
 private:
     h2o_globalconf_t config;
@@ -25,6 +30,8 @@ private:
     h2o_multithread_receiver_t* message_receiver;
 
     std::vector<route_path> routes;
+
+    std::map<std::string, void (*)(void*)> message_handlers;
 
     const std::string listen_address;
 
@@ -47,8 +54,6 @@ private:
 
     static int send_401_unauthorized(h2o_req_t *req);
 
-    void send_response(h2o_req_t* req, h2o_generator_t & generator, const http_res & response);
-
     static constexpr const char* SEND_RESPONSE_MSG = "send_response";
 
 public:
@@ -63,6 +68,12 @@ public:
     void put(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
     void del(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
+
+    void on(const std::string & message, void (*handler)(void*));
+
+    void send_message(const std::string & type, void* data);
+
+    void send_response(http_req* request, const http_res* response);
 
     int run();
 

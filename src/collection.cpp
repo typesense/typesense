@@ -53,6 +53,14 @@ uint32_t Collection::get_next_seq_id() {
     return next_seq_id++;
 }
 
+void Collection::set_next_seq_id(uint32_t seq_id) {
+    next_seq_id = seq_id;
+}
+
+void Collection::increment_next_seq_id_field() {
+    next_seq_id++;
+}
+
 Option<std::string> Collection::add(const std::string & json_str) {
     nlohmann::json document = nlohmann::json::parse(json_str);
 
@@ -73,8 +81,8 @@ Option<std::string> Collection::add(const std::string & json_str) {
         return Option<std::string>(index_memory_op.code(), index_memory_op.error());
     }
 
-    store->insert(get_seq_id_key(seq_id), document.dump());
     store->insert(get_doc_id_key(document["id"]), seq_id_str);
+    store->insert(get_seq_id_key(seq_id), document.dump());
 
     return Option<std::string>(doc_id);
 }
@@ -1384,7 +1392,8 @@ std::string Collection::get_next_seq_id_key(const std::string & collection_name)
 }
 
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
-    // We can't simply do std::to_string() because we want to preserve the byte order
+    // We can't simply do std::to_string() because we want to preserve the byte order.
+    // & 0xFF masks all but the lowest eight bits.
     unsigned char bytes[4];
     bytes[0] = (unsigned char) ((seq_id >> 24) & 0xFF);
     bytes[1] = (unsigned char) ((seq_id >> 16) & 0xFF);
@@ -1392,6 +1401,12 @@ std::string Collection::get_seq_id_key(uint32_t seq_id) {
     bytes[3] = (unsigned char) ((seq_id & 0xFF));
 
     return get_seq_id_collection_prefix() + "_" + std::string(bytes, bytes+4);
+}
+
+uint32_t Collection::deserialize_seq_id_key(std::string serialized_seq_id) {
+    uint32_t seq_id = ((serialized_seq_id[0] & 0xFF) << 24) | ((serialized_seq_id[1] & 0xFF) << 16) |
+                      ((serialized_seq_id[2] & 0xFF) << 8)  | (serialized_seq_id[3] & 0xFF);
+    return seq_id;
 }
 
 std::string Collection::get_doc_id_key(const std::string & doc_id) {
@@ -1440,7 +1455,7 @@ spp::sparse_hash_map<std::string, field> Collection::get_schema() {
 };
 
 std::string Collection::get_meta_key(const std::string & collection_name) {
-    return COLLECTION_META_PREFIX + collection_name;
+    return std::string(COLLECTION_META_PREFIX) + "_" + collection_name;
 }
 
 std::string Collection::get_seq_id_collection_prefix() {

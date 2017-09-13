@@ -14,6 +14,8 @@ private:
 
     spp::sparse_hash_map<std::string, Collection*> collections;
 
+    spp::sparse_hash_map<uint32_t, std::string> collection_id_names;
+
     // Auto incrementing ID assigned to each collection
     // Using a ID instead of a collection's name makes renaming possible
     uint32_t next_collection_id;
@@ -42,6 +44,10 @@ public:
 
     void init(Store *store, const std::string & auth_key);
 
+    Collection* init_collection(const std::string & collection_meta_json);
+
+    void add_to_collections(Collection* collection);
+
     bool auth_key_matches(std::string auth_key_sent);
 
     Collection* create_collection(std::string name, const std::vector<field> & search_fields,
@@ -51,11 +57,15 @@ public:
 
     Collection* get_collection(const std::string & collection_name);
 
+    Collection* get_collection_with_id(uint32_t collection_id);
+
     std::vector<Collection*> get_collections();
 
     Option<bool> drop_collection(std::string collection_name);
 
     uint32_t get_next_collection_id();
+
+    void set_next_collection_id(uint32_t next_id);
 
     Store* get_store();
 

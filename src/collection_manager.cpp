@@ -8,6 +8,55 @@ CollectionManager::CollectionManager() {
 
 }
 
+Collection* CollectionManager::init_collection(const std::string & collection_meta_json) {
+    nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
+    std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
+
+    std::vector<field> search_fields;
+    nlohmann::json search_fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
+
+    for (nlohmann::json::iterator it = search_fields_map.begin(); it != search_fields_map.end(); ++it) {
+        search_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
+    }
+
+    std::vector<field> facet_fields;
+    nlohmann::json facet_fields_map = collection_meta[COLLECTION_FACET_FIELDS_KEY];
+
+    for (nlohmann::json::iterator it = facet_fields_map.begin(); it != facet_fields_map.end(); ++it) {
+        facet_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
+    }
+
+    std::string collection_next_seq_id_str;
+    store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
+    uint32_t collection_next_seq_id = collection_next_seq_id_str.size() == 0 ? 0 :
+                                      (const uint32_t) std::stoi(collection_next_seq_id_str);
+
+    std::vector<field> collection_sort_fields;
+    nlohmann::json sort_fields_map = collection_meta[COLLECTION_SORT_FIELDS_KEY];
+
+    for (nlohmann::json::iterator it = sort_fields_map.begin(); it != sort_fields_map.end(); ++it) {
+        collection_sort_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
+    }
+
+    std::string token_ranking_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
+
+    Collection* collection = new Collection(this_collection_name,
+                                            collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
+                                            collection_next_seq_id,
+                                            store,
+                                            search_fields,
+                                            facet_fields,
+                                            collection_sort_fields,
+                                            token_ranking_field);
+
+    return collection;
+}
+
+void CollectionManager::add_to_collections(Collection* collection) {
+    collections.emplace(Collection::get_meta_key(collection->get_name()), collection);
+    collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
+}
+
 void CollectionManager::init(Store *store, const std::string & auth_key) {
     this->store = store;
     this->auth_key = auth_key;
@@ -18,52 +67,13 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
         next_collection_id = (uint32_t) stoi(next_collection_id_str);
     } else {
         next_collection_id = 0;
-        store->insert(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
     }
 
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
     for(auto & collection_meta_json: collection_meta_jsons) {
-        nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
-        std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
-
-        std::vector<field> search_fields;
-        nlohmann::json search_fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
-
-        for (nlohmann::json::iterator it = search_fields_map.begin(); it != search_fields_map.end(); ++it) {
-            search_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
-        }
-
-        std::vector<field> facet_fields;
-        nlohmann::json facet_fields_map = collection_meta[COLLECTION_FACET_FIELDS_KEY];
-
-        for (nlohmann::json::iterator it = facet_fields_map.begin(); it != facet_fields_map.end(); ++it) {
-            facet_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
-        }
-        
-        std::string collection_next_seq_id_str;
-        store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
-
-        uint32_t collection_next_seq_id = (const uint32_t) std::stoi(collection_next_seq_id_str);
-
-        std::vector<field> collection_sort_fields;
-        nlohmann::json sort_fields_map = collection_meta[COLLECTION_SORT_FIELDS_KEY];
-
-        for (nlohmann::json::iterator it = sort_fields_map.begin(); it != sort_fields_map.end(); ++it) {
-            collection_sort_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
-        }
-
-        std::string token_ranking_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
-
-        Collection* collection = new Collection(this_collection_name,
-                                                collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
-                                                collection_next_seq_id,
-                                                store,
-                                                search_fields,
-                                                facet_fields,
-                                                collection_sort_fields,
-                                                token_ranking_field);
+        Collection* collection = init_collection(collection_meta_json);
 
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
@@ -80,7 +90,7 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
 
         delete iter;
 
-        collections.emplace(Collection::get_meta_key(this_collection_name), collection);
+        add_to_collections(collection);
     }
 
     std::cout << "Finished restoring all collections from disk." << std::endl;
@@ -133,14 +143,13 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
 
     Collection* new_collection = new Collection(name, next_collection_id, 0, store, search_fields, facet_fields,
                                                 sort_fields, token_ranking_field);
-
-    store->insert(Collection::get_meta_key(name), collection_meta.dump());
-    store->insert(Collection::get_next_seq_id_key(name), std::to_string(0));
-
     next_collection_id++;
+
+    store->insert(Collection::get_next_seq_id_key(name), std::to_string(0));
+    store->insert(Collection::get_meta_key(name), collection_meta.dump());
     store->insert(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
 
-    collections.emplace(Collection::get_meta_key(name), new_collection);
+    add_to_collections(new_collection);
 
     return new_collection;
 }
@@ -148,6 +157,14 @@ Collection* CollectionManager::create_collection(std::string name, const std::ve
 Collection* CollectionManager::get_collection(const std::string & collection_name) {
     if(collections.count(Collection::get_meta_key(collection_name)) != 0) {
         return collections.at(Collection::get_meta_key(collection_name));
+    }
+
+    return nullptr;
+}
+
+Collection* CollectionManager::get_collection_with_id(uint32_t collection_id) {
+    if(collection_id_names.count(collection_id) != 0) {
+        return get_collection(collection_id_names.at(collection_id));
     }
 
     return nullptr;
@@ -186,6 +203,7 @@ Option<bool> CollectionManager::drop_collection(std::string collection_name) {
     delete iter;
 
     collections.erase(Collection::get_meta_key(collection_name));
+    collection_id_names.erase(collection->get_collection_id());
 
     delete collection;
     collection = nullptr;
@@ -195,6 +213,10 @@ Option<bool> CollectionManager::drop_collection(std::string collection_name) {
 
 uint32_t CollectionManager::get_next_collection_id() {
     return next_collection_id;
+}
+
+void CollectionManager::set_next_collection_id(uint32_t next_id) {
+    next_collection_id = next_id;
 }
 
 Store* CollectionManager::get_store() {

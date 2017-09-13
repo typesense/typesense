@@ -19,3 +19,8 @@ void get_fetch_document(http_req & req, http_res & res);
 void del_remove_document(http_req & req, http_res & res);
 
 void get_replication_updates(http_req &req, http_res &res);
+
+void on_send_response(void *data);
+
+static constexpr const char* SEND_RESPONSE_MSG = "send_response";
+static constexpr const char* REPLICATION_EVENT_MSG = "replication_event";

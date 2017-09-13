@@ -24,5 +24,7 @@ RUN make -C /opt/openssl-1.0.2k depend
 RUN make -C /opt/openssl-1.0.2k -j4
 RUN make -C /opt/openssl-1.0.2k install
 
+RUN apt-get install curl
+
 ENV CC /usr/local/gcc-4.9.2/bin/gcc
 ENV CXX /usr/local/gcc-4.9.2/bin/g++

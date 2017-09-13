@@ -1,5 +1,6 @@
 #include <regex>
 #include <chrono>
+#include <thread>
 #include <sys/resource.h>
 #include "api.h"
 #include "string_utils.h"
@@ -335,27 +336,42 @@ void del_remove_document(http_req & req, http_res & res) {
 }
 
 void get_replication_updates(http_req & req, http_res & res) {
-    if(!StringUtils::is_uint64_t(req.params["seq_number"])) {
-        return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
-    }
+    // Could be heavy - spawn a new thread so we don't block the main thread
+    std::thread response_thread([&]() {
+        if(!StringUtils::is_uint64_t(req.params["seq_number"])) {
+            return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
+        }
 
-    const uint64_t MAX_UPDATES_TO_SEND = 2000;
-    uint64_t seq_number = std::stoull(req.params["seq_number"]);
+        const uint64_t MAX_UPDATES_TO_SEND = 2000;
+        uint64_t seq_number = std::stoull(req.params["seq_number"]);
 
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Store* store = collectionManager.get_store();
-    Option<std::vector<std::string>*> updates_op = store->get_updates_since(seq_number, MAX_UPDATES_TO_SEND);
-    if(!updates_op.ok()) {
-        return res.send(updates_op.code(), updates_op.error());
-    }
+        CollectionManager & collectionManager = CollectionManager::get_instance();
+        Store* store = collectionManager.get_store();
+        Option<std::vector<std::string>*> updates_op = store->get_updates_since(seq_number, MAX_UPDATES_TO_SEND);
+        if(!updates_op.ok()) {
+            res.send(updates_op.code(), updates_op.error());
+            res.server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
+            return ;
+        }
 
-    nlohmann::json json_response;
-    json_response["updates"] = nlohmann::json::array();
+        nlohmann::json json_response;
+        json_response["updates"] = nlohmann::json::array();
 
-    std::vector<std::string> *updates = updates_op.get();
-    for(const std::string & update: *updates) {
-        json_response["updates"].push_back(StringUtils::base64_encode(update));
-    }
+        std::vector<std::string> *updates = updates_op.get();
+        for(const std::string & update: *updates) {
+            json_response["updates"].push_back(StringUtils::base64_encode(update));
+        }
 
-    res.send_200(json_response.dump());
+        res.send_200(json_response.dump());
+        res.server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
+        delete updates;
+    });
+
+    response_thread.detach();
+}
+
+void on_send_response(void *data) {
+    request_response* req_res = static_cast<request_response*>(data);
+    req_res->response->server->send_response(req_res->req, req_res->response);
+    delete req_res;
 }

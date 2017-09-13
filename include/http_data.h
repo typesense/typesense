@@ -1,12 +1,21 @@
 #pragma once
+
 #include <stdint.h>
 #include <string>
 #include <map>
 #include <vector>
 
+#define H2O_USE_LIBUV 0
+extern "C" {
+    #include "h2o.h"
+}
+
+class HttpServer;
+
 struct http_res {
     uint32_t status_code;
     std::string body;
+    HttpServer* server;
 
     void send_200(const std::string & res_body) {
         status_code = 200;
@@ -60,6 +69,7 @@ struct http_res {
 };
 
 struct http_req {
+    h2o_req_t* _req;
     std::map<std::string, std::string> params;
     std::string body;
 };

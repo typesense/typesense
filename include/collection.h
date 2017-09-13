@@ -142,6 +142,12 @@ public:
 
     uint32_t get_next_seq_id();
 
+    void set_next_seq_id(uint32_t seq_id);
+
+    void increment_next_seq_id_field();
+
+    static uint32_t deserialize_seq_id_key(std::string serialized_seq_id);
+
     uint32_t doc_id_to_seq_id(std::string doc_id);
 
     std::vector<std::string> get_facet_fields();

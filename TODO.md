@@ -57,6 +57,8 @@
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
+- Collection Manager collections map should store plain collection name
+- init_collection of Collection manager should probably take seq_id as param
 - Validate before string to int conversion in the http api layer
 - When field of "id" but not string, what happens?
 - Typo in prefix search

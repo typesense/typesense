@@ -40,7 +40,7 @@ enum StoreStatus {
 class Store {
 private:
 
-    std::string state_dir_path;
+    const std::string state_dir_path;
 
     rocksdb::DB *db;
     rocksdb::Options options;
@@ -49,7 +49,7 @@ public:
 
     Store() = delete;
 
-    Store(std::string state_dir_path): state_dir_path(state_dir_path) {
+    Store(const std::string & state_dir_path): state_dir_path(state_dir_path) {
         // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
@@ -80,13 +80,13 @@ public:
         return status.ok();
     }
 
-    bool contains(const std::string& key) {
+    bool contains(const std::string& key) const {
         std::string value;
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
         return status.ok() && !status.IsNotFound();
     }
 
-    StoreStatus get(const std::string& key, std::string& value) {
+    StoreStatus get(const std::string& key, std::string& value) const {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
 
         if(status.IsNotFound()) {
@@ -129,26 +129,34 @@ public:
         db->Merge(rocksdb::WriteOptions(), key, std::to_string(value));
     }
 
-    Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number, const uint64_t max_updates) {
-        Option<std::vector<std::string>*> updates_op(new std::vector<std::string>());
+    uint64_t get_latest_seq_number() const {
+        return db->GetLatestSequenceNumber();
+    }
 
+    /*
+       Since `GetLatestSequenceNumber` returns 0 when the DB is empty and when there is 1 record:
+       get_updates_since(0) == get_updates_since(1) - so always query for 1 sequence number greater than the number
+       returned by GetLatestSequenceNumber() locally.
+     */
+    Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number, const uint64_t max_updates) const {
         rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
-
         if(!status.ok()) {
-            return Option<std::vector<std::string>*>(500, "Could not fetch updates from the disk store.");
+            return Option<std::vector<std::string>*>(204, "Invalid sequence number.");
         }
 
         uint64_t num_updates = 0;
+        std::vector<std::string>* updates = new std::vector<std::string>();
+
         while(iter->Valid() && num_updates < max_updates) {
             rocksdb::BatchResult batch_result = iter->GetBatch();
             const std::string & write_batch_serialized = batch_result.writeBatchPtr->Data();
-            updates_op.get()->push_back(write_batch_serialized);
+            updates->push_back(write_batch_serialized);
             num_updates += 1;
             iter->Next();
         }
 
-        return updates_op;
+        return Option<std::vector<std::string>*>(updates);
     }
 
     void close() {
@@ -157,7 +165,7 @@ public:
     }
 
     // Only for internal tests
-    rocksdb::DB* _get_db_unsafe() {
+    rocksdb::DB* _get_db_unsafe() const {
         return db;
     }
 
