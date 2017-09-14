@@ -154,6 +154,9 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 
     infile.close();
 
+    ASSERT_FALSE(nullptr == collectionManager.get_collection_with_id(0));
+    ASSERT_FALSE(nullptr == collectionManager.get_collection("collection1"));
+
     collectionManager.drop_collection("collection1");
 
     rocksdb::Iterator* it = store->get_iterator();
@@ -168,6 +171,7 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_TRUE(it->status().ok());
 
     ASSERT_EQ(nullptr, collectionManager.get_collection("collection1"));
+    ASSERT_EQ(nullptr, collectionManager.get_collection_with_id(0));
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;

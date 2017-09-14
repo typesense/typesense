@@ -168,7 +168,7 @@ public:
 
     Option<nlohmann::json> get(const std::string & id);
 
-    Option<std::string> remove(const std::string & id);
+    Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
 
     void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const int & candidate_rank,
                        Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,

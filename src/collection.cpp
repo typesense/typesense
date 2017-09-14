@@ -1254,7 +1254,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     return Option<nlohmann::json>(document);
 }
 
-Option<std::string> Collection::remove(const std::string & id) {
+Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
 
@@ -1379,8 +1379,10 @@ Option<std::string> Collection::remove(const std::string & id) {
         field_doc_value_map.second->erase(seq_id);
     }
 
-    store->remove(get_doc_id_key(id));
-    store->remove(get_seq_id_key(seq_id));
+    if(remove_from_store) {
+        store->remove(get_doc_id_key(id));
+        store->remove(get_seq_id_key(seq_id));
+    }
 
     num_documents -= 1;
 
@@ -1410,7 +1412,7 @@ uint32_t Collection::deserialize_seq_id_key(std::string serialized_seq_id) {
 }
 
 std::string Collection::get_doc_id_key(const std::string & doc_id) {
-    return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + doc_id;
+    return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_" + doc_id;
 }
 
 std::string Collection::get_name() {

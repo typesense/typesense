@@ -184,23 +184,27 @@ std::vector<Collection*> CollectionManager::get_collections() {
     return collection_vec;
 }
 
-Option<bool> CollectionManager::drop_collection(std::string collection_name) {
+Option<bool> CollectionManager::drop_collection(std::string collection_name, const bool remove_from_store) {
     Collection* collection = get_collection(collection_name);
     if(collection == nullptr) {
         return Option<bool>(404, "No collection with name `" + collection_name + "` found.");
     }
 
-    store->remove(Collection::get_meta_key(collection_name));
-    store->remove(Collection::get_next_seq_id_key(collection_name));
+    if(remove_from_store) {
+        const std::string &collection_id_str = std::to_string(collection->get_collection_id());
 
-    const std::string &collection_id_str = std::to_string(collection->get_collection_id());
-    rocksdb::Iterator* iter = store->scan(collection_id_str);
-    while(iter->Valid() && iter->key().starts_with(collection_id_str)) {
-        store->remove(iter->key().ToString());
-        iter->Next();
+        // Note: The following order of dropping documents first before dropping collection meta is important for
+        // replication to work properly!
+        rocksdb::Iterator* iter = store->scan(collection_id_str);
+        while(iter->Valid() && iter->key().starts_with(collection_id_str)) {
+            store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
+        store->remove(Collection::get_next_seq_id_key(collection_name));
+        store->remove(Collection::get_meta_key(collection_name));
     }
-
-    delete iter;
 
     collections.erase(Collection::get_meta_key(collection_name));
     collection_id_names.erase(collection->get_collection_id());

@@ -61,7 +61,7 @@ public:
 
     std::vector<Collection*> get_collections();
 
-    Option<bool> drop_collection(std::string collection_name);
+    Option<bool> drop_collection(std::string collection_name, const bool remove_from_store = true);
 
     uint32_t get_next_collection_id();
 

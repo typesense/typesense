@@ -11,16 +11,13 @@
 
 
 struct ReplicationEvent {
-    std::mutex m;
-    std::condition_variable cv;
     std::string type;
-    uint32_t collection_id;
     std::string key;
     std::string value;
 
     ReplicationEvent(const std::string& type, const uint32_t collection_id,
                      const std::string& key, const std::string& value):
-                    type(type), collection_id(collection_id), key(key), value(value) {
+                    type(type), key(key), value(value) {
 
     }
 };
@@ -64,6 +61,18 @@ public:
     }
 
     void Delete(const rocksdb::Slice& key) {
+        std::vector<std::string> parts;
+        StringUtils::split(key.ToString(), parts, "_");
+
+        if(parts.size() == 3 && parts[1] == Collection::DOC_ID_PREFIX) {
+            ReplicationEvent* replication_event = new ReplicationEvent("REMOVE_DOCUMENT", 0, key.ToString(), "");
+            server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        }
+
+        if(parts.size() >= 2 && parts[0] == Collection::COLLECTION_META_PREFIX) {
+            ReplicationEvent* replication_event = new ReplicationEvent("DROP_COLLECTION", 0, key.ToString(), "");
+            server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        }
 
     }
 
@@ -128,7 +137,9 @@ public:
 
         if(replication_event->type == "ADD_DOCUMENT") {
             CollectionManager & collection_manager = CollectionManager::get_instance();
-            Collection* collection = collection_manager.get_collection_with_id(replication_event->collection_id);
+            std::vector<std::string> parts;
+            StringUtils::split(replication_event->key, parts, "_"); // collection_id, seq_id_prefix, seq_id
+            Collection* collection = collection_manager.get_collection_with_id(std::stoi(parts[0]));
             nlohmann::json document = nlohmann::json::parse(replication_event->value);
 
             // last 4 bytes of the key would be the serialized version of the sequence id
@@ -139,13 +150,24 @@ public:
 
         if(replication_event->type == "INCR_COLLECTION_NEXT_SEQ") {
             CollectionManager & collection_manager = CollectionManager::get_instance();
-            std::string collection_name = replication_event->key.substr(strlen(Collection::COLLECTION_NEXT_SEQ_PREFIX)+1);
+            const std::string & collection_name = replication_event->key.substr(strlen(Collection::COLLECTION_NEXT_SEQ_PREFIX)+1);
             Collection* collection = collection_manager.get_collection(collection_name);
             collection->increment_next_seq_id_field();
         }
 
-        if(replication_event->type == "REMOVE") {
+        if(replication_event->type == "REMOVE_DOCUMENT") {
+            std::vector<std::string> parts;
+            StringUtils::split(replication_event->key, parts, "_"); // collection_id, doc_id_prefix, doc_id
+            CollectionManager & collection_manager = CollectionManager::get_instance();
+            Collection* collection = collection_manager.get_collection_with_id(std::stoi(parts[0]));
+            collection->remove(parts[2], false);
+        }
 
+        if(replication_event->type == "DROP_COLLECTION") {
+            CollectionManager & collection_manager = CollectionManager::get_instance();
+            // <collection_meta_prefix>_<collection_name>
+            const std::string & collection_name = replication_event->key.substr(strlen(Collection::COLLECTION_META_PREFIX)+1);
+            collection_manager.drop_collection(collection_name, false);
         }
 
         delete replication_event;
