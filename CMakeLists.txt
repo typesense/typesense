@@ -3,7 +3,6 @@ project(typesense)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++11 -O0")
-# set(CMAKE_EXE_LINKER_FLAGS "--verbose")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
@@ -19,6 +18,7 @@ if (APPLE)
     set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
+    set(CMAKE_PREFIX_PATH /usr/local/opt/curl)  # findCurl does not have a way to set CURL_ROOT :(
 endif (APPLE)
 
 # Ensure that we only use the static versions of libraries to link against
@@ -29,20 +29,10 @@ ELSE()
     SET(CMAKE_FIND_LIBRARY_SUFFIXES .a)
 ENDIF()
 
-function(find_static_library LIB_NAME OUT)
-    find_library(FOUND_${LIB_NAME} ${LIB_NAME})
-    message("FINDING: ${LIB_NAME} and got ${FOUND_${LIB_NAME}}")
-
-    if(NOT FOUND_${LIB_NAME})
-        message(FATAL_ERROR "Unable to find static library ${LIB_NAME}")
-    endif()
-
-    set(${OUT} ${FOUND_${LIB_NAME}} PARENT_SCOPE)
-endfunction()
-
 FIND_PACKAGE(OpenSSL 1.0.2 REQUIRED)
 FIND_PACKAGE(Snappy REQUIRED)
 FIND_PACKAGE(ZLIB REQUIRED)
+FIND_PACKAGE(CURL REQUIRED)
 
 include(cmake/For.cmake)
 include(cmake/H2O.cmake)
@@ -55,6 +45,7 @@ FILE(GLOB SRC_FILES src/*.cpp)
 
 include_directories(include)
 include_directories(${OPENSSL_INCLUDE_DIR})
+include_directories(${CURL_INCLUDE_DIR})
 include_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 include_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/include)
 include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
@@ -80,6 +71,7 @@ target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/
 if (APPLE)
     # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
     set(STD_LIB -static-libstdc++)
+    set(CURL_LIBRARIES curl)
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
 endif()
@@ -90,7 +82,7 @@ if(NOT APPLE)
     list(APPEND ROCKSDB_LIBS rt)
 endif()
 
-target_link_libraries(typesense-server h2o-evloop for pthread curl ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(search for pthread h2o-evloop curl ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(benchmark for pthread curl h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(typesense-server h2o-evloop for pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(search for pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(benchmark for pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
 target_link_libraries(typesense_test h2o-evloop ${OPENSSL_LIBRARIES} pthread for ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})
