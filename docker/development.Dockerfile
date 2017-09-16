@@ -24,7 +24,9 @@ RUN make -C /opt/openssl-1.0.2k depend
 RUN make -C /opt/openssl-1.0.2k -j4
 RUN make -C /opt/openssl-1.0.2k install
 
-RUN apt-get install curl
+RUN curl -L -o /opt/curl-7.55.1.tar.bz2 https://github.com/curl/curl/releases/download/curl-7_55_1/curl-7.55.1.tar.bz2
+RUN tar -C /opt -xf /opt/curl-7.55.1.tar.bz2
+RUN cd /opt/curl-7.55.1 && ./configure && make && make install
 
 ENV CC /usr/local/gcc-4.9.2/bin/gcc
 ENV CXX /usr/local/gcc-4.9.2/bin/g++
