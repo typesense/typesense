@@ -819,6 +819,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             MatchScore mscore = MatchScore::match_score(field_order_kv.second.key, token_positions);
 
+            // unpack `mscore.offset_diffs` into `token_indices`
             std::vector<size_t> token_indices;
             char num_tokens_found = mscore.offset_diffs[0];
             for(size_t i = 1; i <= num_tokens_found; i++) {
@@ -835,20 +836,17 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
                                      std::min((int)tokens.size(), (int)(*(minmax.second)+5));
 
-            std::stringstream snippet_stream;
-            size_t token_index = 0;
+            for(const size_t token_index: token_indices) {
+                tokens[token_index] = "<mark>" + tokens[token_index] + "</mark>";
+            }
 
+            std::stringstream snippet_stream;
             for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
                 if(snippet_index != start_index) {
                     snippet_stream << " ";
                 }
 
-                if(snippet_index == token_indices[token_index]) {
-                    token_index++;
-                    snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
-                } else {
-                    snippet_stream << tokens[snippet_index];
-                }
+                snippet_stream << tokens[snippet_index];
             }
 
             document["_snippets"] = nlohmann::json::object();
@@ -1191,7 +1189,7 @@ inline std::vector<art_leaf *> Collection::next_suggestion(const std::vector<std
 
     // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
-    for(long long i=token_leaves.size()-1 ; 0<=i ; --i ) {
+    for(long long i = 0 ; i < token_leaves.size(); i++) {
         q = ldiv(q.quot, token_leaves[i].size());
         query_suggestion[i] = token_leaves[i][q.rem];
     }

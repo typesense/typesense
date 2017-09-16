@@ -32,6 +32,7 @@ size_t ArrayUtils::and_scalar(const uint32_t *A, const size_t lenA,
   return (out - initout); // NOTREACHED
 }
 
+// merges two sorted arrays and also removes duplicates
 size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
                              const uint32_t *B, const size_t lenB, uint32_t **out) {
     size_t indexA = 0, indexB = 0, res_index = 0;
@@ -45,23 +46,24 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
     uint32_t* results = new uint32_t[lenA+lenB];
 
     while (indexA < lenA && indexB < lenB) {
-    if (A[indexA] < B[indexB]) {
-      if(res_index == 0 || results[res_index-1] != A[indexA]) {
-        results[res_index] = A[indexA];
-        res_index++;
+      if (A[indexA] < B[indexB]) {
+        // check for duplicate
+        if(res_index == 0 || results[res_index-1] != A[indexA]) {
+          results[res_index] = A[indexA];
+          res_index++;
+        }
+        indexA++;
+      } else {
+        if(res_index == 0 || results[res_index-1] != B[indexB]) {
+          results[res_index] = B[indexB];
+          res_index++;
+        }
+        indexB++;
       }
-      indexA++;
-    } else {
-      if(res_index == 0 || results[res_index-1] != B[indexB]) {
-        results[res_index] = B[indexB];
-        res_index++;
-      }
-      indexB++;
-    }
   }
 
   while (indexA < lenA) {
-    if(results[res_index-1] != A[indexA]) {
+    if(res_index == 0 || results[res_index-1] != A[indexA]) {
       results[res_index] = A[indexA];
       res_index++;
     }
@@ -70,7 +72,7 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
   }
 
   while (indexB < lenB) {
-    if(results[res_index-1] != B[indexB]) {
+    if(res_index == 0 || results[res_index-1] != B[indexB]) {
       results[res_index] = B[indexB];
       res_index++;
     }
