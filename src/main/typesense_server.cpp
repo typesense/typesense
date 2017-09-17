@@ -9,8 +9,17 @@
 #include "string_utils.h"
 #include "replicator.h"
 
+HttpServer* server;
+
+void free_server() {
+    delete server;
+}
+
 void catch_interrupt(int sig) {
-    std::cout << "Quitting Typesense..." << std::endl;
+    std::cout << "Stopping Typesense server..." << std::endl;
+    signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    server->stop(&free_server);
 }
 
 int main(int argc, char **argv) {
@@ -29,28 +38,28 @@ int main(int argc, char **argv) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, options.get<std::string>("api-auth-key"));
 
-    HttpServer server(
+    server = new HttpServer(
         options.get<std::string>("listen-address"),
         options.get<uint32_t>("listen-port")
     );
 
     // collection management
-    server.post("/collections", post_create_collection, true);
-    server.get("/collections", get_collections, true);
-    server.del("/collections/:collection", del_drop_collection, true);
+    server->post("/collections", post_create_collection, true);
+    server->get("/collections", get_collections, true);
+    server->del("/collections/:collection", del_drop_collection, true);
 
     // document management
-    server.post("/collections/:collection", post_add_document, true);
-    server.get("/collections/:collection", get_collection_summary, true);
-    server.get("/collections/:collection/search", get_search, false);
-    server.get("/collections/:collection/:id", get_fetch_document, true);
-    server.del("/collections/:collection/:id", del_remove_document, true);
+    server->post("/collections/:collection", post_add_document, true);
+    server->get("/collections/:collection", get_collection_summary, true);
+    server->get("/collections/:collection/search", get_search, false);
+    server->get("/collections/:collection/:id", get_fetch_document, true);
+    server->del("/collections/:collection/:id", del_remove_document, true);
 
     // replication
-    server.get("/replication/updates", get_replication_updates, true, true);
+    server->get("/replication/updates", get_replication_updates, true, true);
 
-    server.on(SEND_RESPONSE_MSG, on_send_response);
-    server.on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
+    server->on(SEND_RESPONSE_MSG, on_send_response);
+    server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
 
     // start a background replication thread if the server is started as a read-only replica
     if(!options.get<std::string>("master").empty()) {
@@ -63,13 +72,14 @@ int main(int argc, char **argv) {
         }
 
         std::cout << "Typesense server started as a read-only replica... Spawning replication thread..." << std::endl;
-        std::thread replication_thread([&server, &master_host_port, &store]() {
-            Replicator::start(&server, master_host_port, store);
+        std::thread replication_thread([&master_host_port, &store]() {
+            Replicator::start(::server, master_host_port, store);
         });
 
         replication_thread.detach();
     }
 
-    server.run();
+    server->run();
+
     return 0;
 }

@@ -6,6 +6,7 @@ extern "C" {
     #include "h2o.h"
     #include "h2o/http1.h"
     #include "h2o/http2.h"
+    #include "h2o/multithread.h"
 }
 
 #include <map>
@@ -26,8 +27,10 @@ private:
     h2o_context_t ctx;
     h2o_accept_ctx_t* accept_ctx;
     h2o_hostconf_t *hostconf;
+    h2o_socket_t* listener_socket;
     h2o_multithread_queue_t* message_queue;
     h2o_multithread_receiver_t* message_receiver;
+    bool exit_loop = false;
 
     std::vector<route_path> routes;
 
@@ -77,5 +80,11 @@ public:
 
     int run();
 
+    void stop(void (*callback)(void));
+
+    static void on_stop_server(void *data);
+
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+    static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
+
 };

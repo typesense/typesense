@@ -61,9 +61,9 @@ int HttpServer::create_listener(void) {
     }
 
     ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
-    h2o_socket_t *listener = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
-    listener->data = this;
-    h2o_socket_read_start(listener, on_accept);
+    listener_socket = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
+    listener_socket->data = this;
+    h2o_socket_read_start(listener_socket, on_accept);
 
     return 0;
 }
@@ -82,9 +82,25 @@ int HttpServer::run() {
         return 1;
     }
 
-    while (h2o_evloop_run(ctx.loop, INT32_MAX) == 0);
+    on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
+
+    while(!exit_loop) {
+        h2o_evloop_run(ctx.loop, INT32_MAX);
+    }
 
     return 0;
+}
+
+void HttpServer::on_stop_server(void *data) {
+    auto callback = reinterpret_cast<void (*)(void)>(data);
+    callback();
+}
+
+void HttpServer::stop(void (*callback)(void)) {
+    exit_loop = true;
+    h2o_socket_read_stop(listener_socket);
+    h2o_socket_close(listener_socket);
+    send_message(STOP_SERVER_MESSAGE, (void *)callback);
 }
 
 void HttpServer::on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t *messages) {
@@ -309,6 +325,12 @@ void HttpServer::on(const std::string & message, void (*handler)(void*)) {
 }
 
 HttpServer::~HttpServer() {
-    delete accept_ctx;
+    h2o_multithread_unregister_receiver(message_queue, message_receiver);
+    h2o_multithread_destroy_queue(message_queue);
     delete message_receiver;
+
+    h2o_context_dispose(&ctx);
+    h2o_evloop_destroy(ctx.loop);
+    h2o_config_dispose(&config);
+    delete accept_ctx;
 }
