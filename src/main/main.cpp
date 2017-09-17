@@ -16,7 +16,9 @@ using namespace std;
 
 int main(int argc, char* argv[]) {
     const std::string state_dir_path = "/tmp/typesense-data";
-    Store *store = new Store("/tmp/typesense-data");
+    system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
+
+    Store *store = new Store(state_dir_path);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, "abcd");
@@ -41,7 +43,6 @@ int main(int argc, char* argv[]) {
     };
 
     Collection *collection = collectionManager.get_collection("github_top1k");
-
     if(collection == nullptr) {
         collection = collectionManager.create_collection("github_top1k", fields_to_index, facet_fields_index, sort_fields);
     }
@@ -96,7 +97,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Time taken for deletion: " << timeMillis << "ms" << std::endl;
     }
 
-    delete collection;
+    collectionManager.dispose();
     delete store;
     return 0;
 }

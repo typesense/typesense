@@ -11,15 +11,15 @@
 
 HttpServer* server;
 
-void free_server() {
+void free_resources() {
+    CollectionManager::get_instance().dispose();
     delete server;
 }
 
 void catch_interrupt(int sig) {
-    std::cout << "Stopping Typesense server..." << std::endl;
+    std::cout << "Stopping Typesense server...1" << std::endl;
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    server->stop(&free_server);
+    server->stop(&free_resources);
 }
 
 int main(int argc, char **argv) {
@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-auth-key", 'k', "Key for authenticating the API endpoints.", true);
     options.add<std::string>("listen-address", 'a', "Address to which Typesense server binds.", false, "0.0.0.0");
-    options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8080);
+    options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
     options.add<std::string>("master", 'm', "<master_address>:<master_port> combination to start the server as a "
                                             "read-only replica.", false, "");
     options.parse_check(argc, argv);

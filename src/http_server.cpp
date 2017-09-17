@@ -274,6 +274,7 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
+    h2o_dispose_request(req);
 
     delete request;
     delete response;
@@ -318,7 +319,6 @@ void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_
     route_path rpath = {"DELETE", path_parts, handler, authenticated, async};
     routes.push_back(rpath);
 }
-
 
 void HttpServer::on(const std::string & message, void (*handler)(void*)) {
     message_handlers.emplace(message, handler);

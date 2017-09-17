@@ -36,16 +36,20 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 }
 
 Collection::~Collection() {
-    for(auto & name_field: search_schema) {
-        art_tree *t = search_index.at(name_field.first);
-        art_tree_destroy(t);
-        t = nullptr;
+    for(auto & name_tree: search_index) {
+        art_tree_destroy(name_tree.second);
+        delete name_tree.second;
+        name_tree.second = nullptr;
     }
+
+    search_index.clear();
 
     for(auto & name_map: sort_index) {
         delete name_map.second;
         name_map.second = nullptr;
     }
+
+    sort_index.clear();
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -759,6 +763,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     delete [] filter_ids;
+    delete [] all_result_ids;
 
     // All fields are sorted descending
     std::sort(field_order_kvs.begin(), field_order_kvs.end(),

@@ -96,6 +96,15 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
     std::cout << "Finished restoring all collections from disk." << std::endl;
 }
 
+void CollectionManager::dispose() {
+    for(auto & name_collection: collections) {
+        delete name_collection.second;
+        name_collection.second = nullptr;
+    }
+
+    collections.clear();
+}
+
 bool CollectionManager::auth_key_matches(std::string auth_key_sent) {
     return (auth_key == auth_key_sent);
 }
