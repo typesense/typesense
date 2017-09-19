@@ -110,8 +110,8 @@ void post_create_collection(http_req & req, http_res & res) {
                                         "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
         }
 
-        if(sort_field_json["type"] != "INT32" && sort_field_json["type"] != "INT64") {
-            return res.send_400("Sort field `" + sort_field_json["name"].get<std::string>()  + "` must be a number.");
+        if(sort_field_json["type"] != field_types::INT32 && sort_field_json["type"] != field_types::INT64) {
+            return res.send_400("Sort field `" + sort_field_json["name"].get<std::string>()  + "` must be an integer.");
         }
 
         sort_fields.push_back(field(sort_field_json["name"], sort_field_json["type"]));
@@ -122,7 +122,7 @@ void post_create_collection(http_req & req, http_res & res) {
 
     if(req_json.count(PREFIX_RANKING_FIELD) != 0) {
         if(!req_json[PREFIX_RANKING_FIELD].is_string()) {
-            return res.send_400(std::string("Wrong format for `") + PREFIX_RANKING_FIELD + "`. It should be the name of an unsigned INT32 field.");
+            return res.send_400(std::string("`") + PREFIX_RANKING_FIELD + "` should be the name of an unsigned integer field.");
         }
 
         token_ranking_field = req_json[PREFIX_RANKING_FIELD].get<std::string>();

@@ -6,14 +6,14 @@
 #include "string_utils.h"
 
 namespace field_types {
-    static const std::string STRING = "STRING";
-    static const std::string INT32 = "INT32";
-    static const std::string INT64 = "INT64";
+    static const std::string STRING = "string";
+    static const std::string INT32 = "int32";
+    static const std::string INT64 = "int64";
     static const std::string FLOAT = "FLOAT";
-    static const std::string FLOAT_ARRAY = "FLOAT_ARRAY";
-    static const std::string STRING_ARRAY = "STRING_ARRAY";
-    static const std::string INT32_ARRAY = "INT32_ARRAY";
-    static const std::string INT64_ARRAY = "INT64_ARRAY";
+    static const std::string FLOAT_ARRAY = "float[]";
+    static const std::string STRING_ARRAY = "string[]";
+    static const std::string INT32_ARRAY = "int32[]";
+    static const std::string INT64_ARRAY = "int64[]";
 }
 
 namespace fields {

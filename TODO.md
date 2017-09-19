@@ -62,6 +62,9 @@
 - Validate before string to int conversion in the http api layer
 - When field of "id" but not string, what happens?
 - Typo in prefix search
+- node score should be int32, no longer uint16 like in document struct 
+- json::parse must be wrapped in try catch
+- test for num_documents
 - test for string filter comparison: title < "foo"
 - test for token ranking on float field
 - test for float int field deletion during doc deletion

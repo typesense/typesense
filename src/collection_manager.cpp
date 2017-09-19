@@ -109,12 +109,12 @@ bool CollectionManager::auth_key_matches(std::string auth_key_sent) {
     return (auth_key == auth_key_sent);
 }
 
-Collection* CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,
+Option<Collection*> CollectionManager::create_collection(std::string name, const std::vector<field> & search_fields,
                                                  const std::vector<field> & facet_fields,
                                                  const std::vector<field> & sort_fields,
                                                  const std::string & token_ranking_field) {
     if(store->contains(Collection::get_meta_key(name))) {
-        return nullptr;
+        return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
 
     nlohmann::json collection_meta;

@@ -39,12 +39,12 @@ int main(int argc, char* argv[]) {
     };
 
     std::vector<field> sort_fields = {
-            field("stars", "INT32")
+            field("stars", field_types::INT32)
     };
 
     Collection *collection = collectionManager.get_collection("github_top1k");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("github_top1k", fields_to_index, facet_fields_index, sort_fields);
+        collection = collectionManager.create_collection("github_top1k", fields_to_index, facet_fields_index, sort_fields).get();
     }
 
     int j = 0;

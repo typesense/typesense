@@ -53,7 +53,7 @@ public:
 
     bool auth_key_matches(std::string auth_key_sent);
 
-    Collection* create_collection(std::string name, const std::vector<field> & search_fields,
+    Option<Collection*> create_collection(std::string name, const std::vector<field> & search_fields,
                                   const std::vector<field> & facet_fields,
                                   const std::vector<field> & sort_fields,
                                   const std::string & token_ranking_field = "");

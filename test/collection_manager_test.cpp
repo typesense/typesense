@@ -27,10 +27,10 @@ protected:
         search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
         facet_fields = {field("starring", field_types::STRING)};
         sort_fields = { sort_by("points", "DESC") };
-        sort_fields_index = { field("points", "INT32") };
+        sort_fields_index = { field("points", field_types::INT32) };
 
         collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,
-                                                          sort_fields_index, "points");
+                                                          sort_fields_index, "points").get();
     }
 
     virtual void SetUp() {
@@ -79,10 +79,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
 
     ASSERT_EQ(3, num_keys);
     ASSERT_EQ("1", next_seq_id); // we already call `collection1->get_next_seq_id` above, which is side-effecting
-    ASSERT_EQ("{\"facet_fields\":[{\"name\":\"starring\",\"type\":\"STRING\"}],\"id\":0,\"name\":\"collection1\","
-               "\"search_fields\":[{\"name\":\"title\",\"type\":\"STRING\"},"
-               "{\"name\":\"starring\",\"type\":\"STRING\"}],"
-               "\"sort_fields\":[{\"name\":\"points\",\"type\":\"INT32\"}],"
+    ASSERT_EQ("{\"facet_fields\":[{\"name\":\"starring\",\"type\":\"string\"}],\"id\":0,\"name\":\"collection1\","
+               "\"search_fields\":[{\"name\":\"title\",\"type\":\"string\"},"
+               "{\"name\":\"starring\",\"type\":\"string\"}],"
+               "\"sort_fields\":[{\"name\":\"points\",\"type\":\"int32\"}],"
                "\"token_ranking_field\":\"points\"}", collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }

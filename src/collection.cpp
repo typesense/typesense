@@ -66,7 +66,12 @@ void Collection::increment_next_seq_id_field() {
 }
 
 Option<std::string> Collection::add(const std::string & json_str) {
-    nlohmann::json document = nlohmann::json::parse(json_str);
+    nlohmann::json document;
+    try {
+        document = nlohmann::json::parse(json_str);
+    } catch(...) {
+        return Option<std::string>(400, "Bad JSON.");
+    }
 
     uint32_t seq_id = get_next_seq_id();
     std::string seq_id_str = std::to_string(seq_id);
@@ -97,12 +102,12 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
                         "but is not found in the document.");
     }
 
-    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_unsigned()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an unsigned INT32.");
+    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer()) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an int32.");
     }
 
     if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() > INT32_MAX) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of INT32.");
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of int32.");
     }
 
     if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() < 0) {
@@ -126,75 +131,75 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
         if(field_pair.second.type == field_types::STRING) {
             if(!document[field_name].is_string()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be a STRING.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a string.");
             }
             const std::string & text = document[field_name];
             index_string_field(text, points, t, seq_id, false);
         } else if(field_pair.second.type == field_types::INT32) {
             if(!document[field_name].is_number_integer()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT32.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int32.");
             }
 
             if(document[field_name].get<int64_t>() > INT32_MAX) {
-                return Option<>(400, "Search field `" + field_name  + "` exceeds maximum value of INT32.");
+                return Option<>(400, "Search field `" + field_name  + "` exceeds maximum value of int32.");
             }
 
             uint32_t value = document[field_name];
             index_int32_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64) {
             if(!document[field_name].is_number_integer()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT64.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int64.");
             }
 
             uint64_t value = document[field_name];
             index_int64_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::FLOAT) {
             if(!document[field_name].is_number_float()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be a FLOAT.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a float.");
             }
 
             float value = document[field_name];
             index_float_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be a STRING_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a string array.");
             }
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be a STRING_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a string array.");
             }
 
             std::vector<std::string> strings = document[field_name];
             index_string_array_field(strings, points, t, seq_id, false);
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int32 array.");
             }
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT32_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int32 array.");
             }
 
             std::vector<int32_t> values = document[field_name];
             index_int32_array_field(values, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64_ARRAY) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int64 array.");
             }
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an INT64_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be an int64 array.");
             }
 
             std::vector<int64_t> values = document[field_name];
             index_int64_array_field(values, points, t, seq_id);
         } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an FLOAT_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a float array.");
             }
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
-                return Option<>(400, "Search field `" + field_name  + "` must be an FLOAT_ARRAY.");
+                return Option<>(400, "Search field `" + field_name  + "` must be a float array.");
             }
 
             std::vector<float> values = document[field_name];
@@ -213,17 +218,17 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         facet_value & fvalue = facet_index.at(field_name);
         if(field_pair.second.type == field_types::STRING) {
             if(!document[field_name].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING.");
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string.");
             }
             const std::string & value = document[field_name];
             fvalue.index_values(seq_id, { value });
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
             }
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a STRING_ARRAY.");
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
             }
 
             const std::vector<std::string> & values = document[field_name];
