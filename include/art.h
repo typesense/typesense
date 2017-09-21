@@ -44,7 +44,7 @@ typedef struct {
     uint8_t num_children;
     uint8_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
-    uint32_t max_score;
+    int32_t max_score;
     uint32_t max_token_count;
 } art_node;
 
@@ -98,7 +98,7 @@ typedef struct {
  * `offsets` refer to the index locations where a token appeared in the document
  */
 typedef struct {
-    uint16_t score;
+    int32_t score;
     uint32_t id;
     uint32_t offsets_len;
     uint32_t* offsets;
@@ -110,7 +110,7 @@ typedef struct {
  */
 typedef struct {
     art_values* values;
-    uint32_t max_score;
+    int32_t max_score;
     uint32_t key_len;
     unsigned char key[];
 } art_leaf;

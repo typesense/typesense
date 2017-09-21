@@ -11,7 +11,7 @@
 
 art_document get_document(uint32_t id) {
     art_document document;
-    document.score = (uint16_t) id;
+    document.score = id;
     document.id = id;
     document.offsets = new uint32_t[1]{0};
     document.offsets_len = 1;

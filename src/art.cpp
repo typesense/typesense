@@ -67,7 +67,7 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
 }
 
 bool compare_art_node_score(const art_node* a, const art_node* b) {
-    uint32_t a_value = 0, b_value = 0;
+    int32_t a_value = 0, b_value = 0;
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
@@ -542,7 +542,7 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         memmove(n->children+idx+1, n->children+idx,
                 (n->n.num_children - idx)*sizeof(void*));
 
-        uint16_t child_max_score = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->max_score : ((art_node *) child)->max_score;
+        int32_t child_max_score = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->max_score : ((art_node *) child)->max_score;
         uint32_t child_token_count = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->values->ids.getLength() : ((art_node *) child)->max_token_count;
 
         n->n.max_score = MAX(n->n.max_score, child_max_score);
@@ -648,7 +648,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->max_score = (uint16_t) MAX(n->max_score, (const uint16_t &) document->score);
+    n->max_score = MAX(n->max_score, document->score);
     n->max_token_count = MAX(n->max_token_count, num_hits);
 
     // Check if given node has a prefix

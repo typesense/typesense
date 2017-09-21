@@ -60,12 +60,12 @@
 - ~~json::parse must be wrapped in try catch~~
 - ~~Collection Manager collections map should store plain collection name~~
 - ~~init_collection of Collection manager should probably take seq_id as param~~
-- node score should be int32, no longer uint16 like in document struct 
+- ~~node score should be int32, no longer uint16 like in document struct~~ 
+- Typo in prefix search
 - Proper logging
 - https support
 - Validate before string to int conversion in the http api layer
 - When field of "id" but not string, what happens?
-- Typo in prefix search
 - test for num_documents
 - test for string filter comparison: title < "foo"
 - test for token ranking on float field
