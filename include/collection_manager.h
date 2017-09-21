@@ -47,7 +47,7 @@ public:
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();
 
-    Option<Collection*> init_collection(const std::string & collection_meta_json);
+    Collection* init_collection(const nlohmann::json & collection_meta, const uint32_t collection_next_seq_id);
 
     void add_to_collections(Collection* collection);
 

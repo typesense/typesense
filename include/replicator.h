@@ -130,17 +130,18 @@ public:
         }
 
         if(replication_event->type == "ADD_COLLECTION_META") {
-            CollectionManager & collection_manager = CollectionManager::get_instance();
-            Option<Collection*> collection_op = collection_manager.init_collection(replication_event->value);
-
-            if(!collection_op.ok()) {
-                std::cerr << "Failed to initialize collection. Error: " << collection_op.error() << std::endl;
+            nlohmann::json collection_meta;
+            try {
+                collection_meta = nlohmann::json::parse(replication_event->value);
+            } catch(...) {
+                std::cerr << "Failed to parse collection meta JSON." << std::endl;
                 std::cerr << "Replication event value: " << replication_event->value << std::endl;
                 delete replication_event;
                 exit(1);
             }
 
-            Collection* collection = collection_op.get();
+            CollectionManager & collection_manager = CollectionManager::get_instance();
+            Collection* collection = collection_manager.init_collection(replication_event->value, 0);
             collection_manager.add_to_collections(collection);
         }
 

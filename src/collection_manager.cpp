@@ -8,15 +8,8 @@ CollectionManager::CollectionManager() {
 
 }
 
-Option<Collection*> CollectionManager::init_collection(const std::string & collection_meta_json) {
-    nlohmann::json collection_meta;
-
-    try {
-        collection_meta = nlohmann::json::parse(collection_meta_json);
-    } catch(...) {
-        return Option<Collection*>(500, "Error while parsing collection meta.");
-    }
-
+Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
+                                                       const uint32_t collection_next_seq_id) {
     std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> search_fields;
@@ -32,11 +25,6 @@ Option<Collection*> CollectionManager::init_collection(const std::string & colle
     for (nlohmann::json::iterator it = facet_fields_map.begin(); it != facet_fields_map.end(); ++it) {
         facet_fields.push_back({it.value()[fields::name], it.value()[fields::type]});
     }
-
-    std::string collection_next_seq_id_str;
-    store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
-    uint32_t collection_next_seq_id = collection_next_seq_id_str.size() == 0 ? 0 :
-                                      (const uint32_t) std::stoi(collection_next_seq_id_str);
 
     std::vector<field> collection_sort_fields;
     nlohmann::json sort_fields_map = collection_meta[COLLECTION_SORT_FIELDS_KEY];
@@ -56,11 +44,11 @@ Option<Collection*> CollectionManager::init_collection(const std::string & colle
                                             collection_sort_fields,
                                             token_ranking_field);
 
-    return Option<Collection*>(collection);
+    return collection;
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
-    collections.emplace(Collection::get_meta_key(collection->get_name()), collection);
+    collections.emplace(collection->get_name(), collection);
     collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
 }
 
@@ -80,13 +68,21 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key)
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
     for(auto & collection_meta_json: collection_meta_jsons) {
-        Option<Collection*> collection_op = init_collection(collection_meta_json);
+        nlohmann::json collection_meta;
 
-        if(!collection_op.ok()) {
-            return Option<bool>(collection_op.code(), collection_op.error());
+        try {
+            collection_meta = nlohmann::json::parse(collection_meta_json);
+        } catch(...) {
+            return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        Collection* collection = collection_op.get();
+        const std::string & this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
+        std::string collection_next_seq_id_str;
+        store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
+        uint32_t collection_next_seq_id = collection_next_seq_id_str.size() == 0 ? 0 :
+                                          (const uint32_t) std::stoi(collection_next_seq_id_str);
+
+        Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
@@ -187,8 +183,8 @@ Option<Collection*> CollectionManager::create_collection(std::string name, const
 }
 
 Collection* CollectionManager::get_collection(const std::string & collection_name) {
-    if(collections.count(Collection::get_meta_key(collection_name)) != 0) {
-        return collections.at(Collection::get_meta_key(collection_name));
+    if(collections.count(collection_name) != 0) {
+        return collections.at(collection_name);
     }
 
     return nullptr;
@@ -238,7 +234,7 @@ Option<bool> CollectionManager::drop_collection(std::string collection_name, con
         store->remove(Collection::get_meta_key(collection_name));
     }
 
-    collections.erase(Collection::get_meta_key(collection_name));
+    collections.erase(collection_name);
     collection_id_names.erase(collection->get_collection_id());
 
     delete collection;

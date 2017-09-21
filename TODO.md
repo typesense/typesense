@@ -58,20 +58,23 @@
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
 - ~~json::parse must be wrapped in try catch~~
-- Collection Manager collections map should store plain collection name
-- init_collection of Collection manager should probably take seq_id as param
+- ~~Collection Manager collections map should store plain collection name~~
+- ~~init_collection of Collection manager should probably take seq_id as param~~
+- node score should be int32, no longer uint16 like in document struct 
+- Proper logging
 - https support
 - Validate before string to int conversion in the http api layer
 - When field of "id" but not string, what happens?
 - Typo in prefix search
-- node score should be int32, no longer uint16 like in document struct 
 - test for num_documents
 - test for string filter comparison: title < "foo"
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
+- Test for sorted_array::indexOf when length is 0
+- Test for snippets
+- Test for pagination
 - > INT32_MAX validation for float field
 - art bool support
-- Proper logging
 - Add docs/explanation around ranking calc
 - Use rocksdb batch put for atomic insertion
 - Query token ids should match query token ordering
@@ -79,9 +82,6 @@
 - Group results by field
 - Handle store-get() not finding a key
 - Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
-- Test for sorted_array::indexOf when length is 0
-- Test for snippets
-- Test for pagination
 - Test for string utils
 - Prevent string copy during indexing
 - clean special chars before indexing
