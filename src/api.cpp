@@ -110,7 +110,8 @@ void post_create_collection(http_req & req, http_res & res) {
                                         "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
         }
 
-        if(sort_field_json["type"] != field_types::INT32 && sort_field_json["type"] != field_types::INT64) {
+        const std::string & sort_field_type = sort_field_json["type"].get<std::string>();
+        if(sort_field_type != field_types::INT32 && sort_field_type != field_types::INT64) {
             return res.send_400("Sort field `" + sort_field_json["name"].get<std::string>()  + "` must be an integer.");
         }
 
@@ -187,7 +188,7 @@ void get_search(http_req & req, http_res & res) {
     StringUtils::split(req.params[SEARCH_BY], search_fields, ",");
 
     std::vector<std::string> facet_fields;
-    StringUtils::split(req.params[FACET_BY], facet_fields, "&&");
+    StringUtils::split(req.params[FACET_BY], facet_fields, ",");
 
     std::vector<sort_by> sort_fields;
     if(req.params.count(SORT_BY) != 0) {

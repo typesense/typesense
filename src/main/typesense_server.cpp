@@ -36,7 +36,14 @@ int main(int argc, char **argv) {
 
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, options.get<std::string>("api-auth-key"));
+    Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-auth-key"));
+
+    if(init_op.ok()) {
+        std::cout << "Finished restoring all collections from disk." << std::endl;
+    } else {
+        std::cerr << "Failed initializing collections from store..." << std::endl;
+        std::cerr << init_op.error() << std::endl;
+    }
 
     server = new HttpServer(
         options.get<std::string>("listen-address"),

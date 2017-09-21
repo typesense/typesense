@@ -8,8 +8,15 @@ CollectionManager::CollectionManager() {
 
 }
 
-Collection* CollectionManager::init_collection(const std::string & collection_meta_json) {
-    nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
+Option<Collection*> CollectionManager::init_collection(const std::string & collection_meta_json) {
+    nlohmann::json collection_meta;
+
+    try {
+        collection_meta = nlohmann::json::parse(collection_meta_json);
+    } catch(...) {
+        return Option<Collection*>(500, "Error while parsing collection meta.");
+    }
+
     std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> search_fields;
@@ -49,7 +56,7 @@ Collection* CollectionManager::init_collection(const std::string & collection_me
                                             collection_sort_fields,
                                             token_ranking_field);
 
-    return collection;
+    return Option<Collection*>(collection);
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
@@ -57,7 +64,7 @@ void CollectionManager::add_to_collections(Collection* collection) {
     collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
 }
 
-void CollectionManager::init(Store *store, const std::string & auth_key) {
+Option<bool> CollectionManager::init(Store *store, const std::string & auth_key) {
     this->store = store;
     this->auth_key = auth_key;
 
@@ -73,7 +80,13 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
     for(auto & collection_meta_json: collection_meta_jsons) {
-        Collection* collection = init_collection(collection_meta_json);
+        Option<Collection*> collection_op = init_collection(collection_meta_json);
+
+        if(!collection_op.ok()) {
+            return Option<bool>(collection_op.code(), collection_op.error());
+        }
+
+        Collection* collection = collection_op.get();
 
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
@@ -82,7 +95,17 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             const std::string doc_json_str = iter->value().ToString();
-            nlohmann::json document = nlohmann::json::parse(doc_json_str);
+
+            nlohmann::json document;
+            try {
+                document = nlohmann::json::parse(doc_json_str);
+            } catch(...) {
+                delete iter;
+                return Option<bool>(500,
+                       std::string("Error while parsing stored document from collection " + collection->get_name() +
+                                   " with key: ") + iter->key().ToString());
+            }
+
             uint32_t seq_id = collection->doc_id_to_seq_id(document["id"]);
             collection->index_in_memory(document, seq_id);
             iter->Next();
@@ -93,7 +116,7 @@ void CollectionManager::init(Store *store, const std::string & auth_key) {
         add_to_collections(collection);
     }
 
-    std::cout << "Finished restoring all collections from disk." << std::endl;
+    return Option<bool>(true);
 }
 
 void CollectionManager::dispose() {

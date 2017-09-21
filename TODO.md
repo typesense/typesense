@@ -57,13 +57,14 @@
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
+- ~~json::parse must be wrapped in try catch~~
 - Collection Manager collections map should store plain collection name
 - init_collection of Collection manager should probably take seq_id as param
+- https support
 - Validate before string to int conversion in the http api layer
 - When field of "id" but not string, what happens?
 - Typo in prefix search
 - node score should be int32, no longer uint16 like in document struct 
-- json::parse must be wrapped in try catch
 - test for num_documents
 - test for string filter comparison: title < "foo"
 - test for token ranking on float field

@@ -791,10 +791,17 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     for(size_t field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
+        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
+
         std::string value;
-        const std::string &seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
         store->get(seq_id_key, value);
-        nlohmann::json document = nlohmann::json::parse(value);
+
+        nlohmann::json document;
+        try {
+            document = nlohmann::json::parse(value);
+        } catch(...) {
+            return Option<nlohmann::json>(500, "Error while parsing stored document.");
+        }
 
         // highlight query words in the result
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
@@ -1258,7 +1265,13 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     std::string parsed_document;
     store->get(get_seq_id_key(seq_id), parsed_document);
 
-    nlohmann::json document = nlohmann::json::parse(parsed_document);
+    nlohmann::json document;
+    try {
+        document = nlohmann::json::parse(parsed_document);
+    } catch(...) {
+        return Option<nlohmann::json>(500, "Error while parsing stored document.");
+    }
+
     return Option<nlohmann::json>(document);
 }
 
@@ -1275,7 +1288,12 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     std::string parsed_document;
     store->get(get_seq_id_key(seq_id), parsed_document);
 
-    nlohmann::json document = nlohmann::json::parse(parsed_document);
+    nlohmann::json document;
+    try {
+        document = nlohmann::json::parse(parsed_document);
+    } catch(...) {
+        return Option<std::string>(500, "Error while parsing stored document.");
+    }
 
     for(auto & name_field: search_schema) {
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index

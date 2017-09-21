@@ -42,12 +42,12 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    void init(Store *store, const std::string & auth_key);
+    Option<bool> init(Store *store, const std::string & auth_key);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();
 
-    Collection* init_collection(const std::string & collection_meta_json);
+    Option<Collection*> init_collection(const std::string & collection_meta_json);
 
     void add_to_collections(Collection* collection);
 
