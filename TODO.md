@@ -61,7 +61,7 @@
 - ~~Collection Manager collections map should store plain collection name~~
 - ~~init_collection of Collection manager should probably take seq_id as param~~
 - ~~node score should be int32, no longer uint16 like in document struct~~ 
-- Typo in prefix search
+- ~~Typo in prefix search~~
 - Proper logging
 - https support
 - Validate before string to int conversion in the http api layer

@@ -351,7 +351,7 @@ TEST_F(CollectionTest, PrefixSearching) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ex", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, true).get();
     ASSERT_EQ(2, results["hits"].size());
-    std::vector<std::string> ids = {"6", "12"};
+    std::vector<std::string> ids = {"12", "6"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -408,6 +408,18 @@ TEST_F(CollectionTest, PrefixSearching) {
     // only the last token in the query should be used for prefix search - so, "math" should not match "mathematics"
     results = collection->search("math fx", query_fields, "", facets, sort_fields, 0, 1, 1, FREQUENCY, true).get();
     ASSERT_EQ(0, results["hits"].size());
+
+    // single and double char prefixes should set a ceiling on the num_typos possible
+    results = collection->search("x", query_fields, "", facets, sort_fields, 2, 2, 1, FREQUENCY, true).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = collection->search("xq", query_fields, "", facets, sort_fields, 2, 2, 1, FREQUENCY, true).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // prefix with a typo
+    results = collection->search("late propx", query_fields, "", facets, sort_fields, 2, 1, 1, FREQUENCY, true).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("16", results["hits"].at(0)["id"]);
 }
 
 TEST_F(CollectionTest, MultipleFields) {
