@@ -62,17 +62,17 @@
 - ~~init_collection of Collection manager should probably take seq_id as param~~
 - ~~node score should be int32, no longer uint16 like in document struct~~ 
 - ~~Typo in prefix search~~
+- ~~When field of "id" but not string, what happens?~~
+- ~~test for num_documents~~
+- ~~test for string filter comparison: title < "foo"~~
+- ~~Test for sorted_array::indexOf when length is 0~~
+- test for token ranking on float field
+- test for float int field deletion during doc deletion
+- Test for snippets
+- Test for pagination
 - Proper logging
 - https support
 - Validate before string to int conversion in the http api layer
-- When field of "id" but not string, what happens?
-- test for num_documents
-- test for string filter comparison: title < "foo"
-- test for token ranking on float field
-- test for float int field deletion during doc deletion
-- Test for sorted_array::indexOf when length is 0
-- Test for snippets
-- Test for pagination
 - > INT32_MAX validation for float field
 - art bool support
 - Add docs/explanation around ranking calc

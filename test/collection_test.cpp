@@ -63,6 +63,11 @@ protected:
     }
 };
 
+TEST_F(CollectionTest, VerifyCountOfDocuments) {
+    // we have 1 dummy record to match the line numbers on the fixtures file with sequence numbers
+    ASSERT_EQ(24+1, collection->get_num_documents());
+}
+
 TEST_F(CollectionTest, RetrieveADocumentById) {
     Option<nlohmann::json> doc_option = collection->get("1");
     ASSERT_TRUE(doc_option.ok());
@@ -908,6 +913,16 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags: BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    // when comparators are used, should just treat them as part of search string
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:<BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll_array_fields");
 }
 
@@ -1342,6 +1357,8 @@ TEST_F(CollectionTest, DeletionOfADocument) {
         collection_for_del->add(json_line);
     }
 
+    ASSERT_EQ(25, collection_for_del->get_num_documents());
+
     infile.close();
 
     nlohmann::json results;
@@ -1375,6 +1392,8 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     for(int id = 0; id <= 25; id++) {
         collection_for_del->remove(std::to_string(id));
     }
+
+    ASSERT_EQ(0, collection_for_del->get_num_documents());
 
     it = store->get_iterator();
     num_keys = 0;

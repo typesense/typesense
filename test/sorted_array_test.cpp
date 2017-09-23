@@ -9,6 +9,7 @@ TEST(SortedArrayTest, Append) {
     const int SIZE = 10 * 1000;
 
     EXPECT_EQ(arr.getLength(), 0);
+    EXPECT_EQ(arr.indexOf(100), 0);  // when not found must be equal to length (0 in this case)
 
     for(uint32_t i=0; i < SIZE; i++) {
         arr.append(i);
