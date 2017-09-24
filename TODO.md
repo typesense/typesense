@@ -66,10 +66,11 @@
 - ~~test for num_documents~~
 - ~~test for string filter comparison: title < "foo"~~
 - ~~Test for sorted_array::indexOf when length is 0~~
+- ~~Test for pagination~~
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - Test for snippets
-- Test for pagination
+- Test for replication
 - Proper logging
 - https support
 - Validate before string to int conversion in the http api layer

@@ -352,6 +352,47 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     }
 }
 
+TEST_F(CollectionTest, Pagination) {
+    nlohmann::json results = collection->search("the", query_fields, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<uint32_t>());
+
+    std::vector<std::string> ids = {"1", "6", "foo"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("the", query_fields, "", {}, sort_fields, 0, 3, 2, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<uint32_t>());
+
+    ids = {"13", "10", "8"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = collection->search("the", query_fields, "", {}, sort_fields, 0, 3, 3, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<uint32_t>());
+
+    ids = {"16"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}
+
 TEST_F(CollectionTest, PrefixSearching) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ex", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, true).get();
