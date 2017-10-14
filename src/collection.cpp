@@ -861,8 +861,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 snippet_stream << tokens[snippet_index];
             }
 
-            document["_snippets"] = nlohmann::json::object();
-            document["_snippets"][field_name] = snippet_stream.str();
+            document["_highlight"] = nlohmann::json::object();
+            document["_highlight"][field_name] = snippet_stream.str();
         }
 
         result["hits"].push_back(document);

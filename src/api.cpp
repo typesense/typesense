@@ -16,7 +16,8 @@ void get_collections(http_req & req, http_res & res) {
     for(Collection* collection: collections) {
         nlohmann::json collection_map;
         collection_map["name"] = collection->get_name();
-        json_response["data"].push_back(collection_map);
+        collection_map["num_documents"] = collection->get_num_documents();
+        json_response["collections"].push_back(collection_map);
     }
 
     res.send_200(json_response.dump());
