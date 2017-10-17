@@ -22,9 +22,7 @@ private:
 
     static constexpr const char* COLLECTION_NAME_KEY = "name";
     static constexpr const char* COLLECTION_ID_KEY = "id";
-    static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "search_fields";
-    static constexpr const char* COLLECTION_FACET_FIELDS_KEY = "facet_fields";
-    static constexpr const char* COLLECTION_SORT_FIELDS_KEY = "sort_fields";
+    static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "fields";
     static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ranking_field";
 
     std::string auth_key;
@@ -53,10 +51,8 @@ public:
 
     bool auth_key_matches(std::string auth_key_sent);
 
-    Option<Collection*> create_collection(std::string name, const std::vector<field> & search_fields,
-                                  const std::vector<field> & facet_fields,
-                                  const std::vector<field> & sort_fields,
-                                  const std::string & token_ranking_field = "");
+    Option<Collection*> create_collection(std::string name, const std::vector<field> & fields,
+                                          const std::string & token_ranking_field = "");
 
     Collection* get_collection(const std::string & collection_name);
 

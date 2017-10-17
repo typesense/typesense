@@ -67,6 +67,11 @@
 - ~~test for string filter comparison: title < "foo"~~
 - ~~Test for sorted_array::indexOf when length is 0~~
 - ~~Test for pagination~~
+- ~~search_fields, sort_fields and facet fields should be combined~~
+- ~~facet fields should be indexed verbatim~~
+- change "search_by" to "query_by"
+- during index_in_memory() validations should be front loaded
+- NOT operator support
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - Test for snippets

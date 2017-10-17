@@ -24,27 +24,17 @@ int main(int argc, char* argv[]) {
     collectionManager.init(store, "abcd");
 
     std::vector<field> fields_to_index = {
-            field("lang", field_types::STRING),
-            field("description", field_types::STRING),
-            field("topics", field_types::STRING_ARRAY),
-            field("stars", field_types::INT32),
-            field("repo_name", field_types::STRING),
-            field("org", field_types::STRING)
-    };
-
-    std::vector<field> facet_fields_index = {
-            field("lang", field_types::STRING),
-            field("org", field_types::STRING),
-            field("topics", field_types::STRING_ARRAY)
-    };
-
-    std::vector<field> sort_fields = {
-            field("stars", field_types::INT32)
+            field("lang", field_types::STRING, true),
+            field("description", field_types::STRING, false),
+            field("topics", field_types::STRING_ARRAY, true),
+            field("stars", field_types::INT32, false),
+            field("repo_name", field_types::STRING, false),
+            field("org", field_types::STRING, true)
     };
 
     Collection *collection = collectionManager.get_collection("github_top1k");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("github_top1k", fields_to_index, facet_fields_index, sort_fields).get();
+        collection = collectionManager.create_collection("github_top1k", fields_to_index).get();
     }
 
     int j = 0;

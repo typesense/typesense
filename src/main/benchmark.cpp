@@ -16,15 +16,16 @@ using namespace std;
 int main(int argc, char* argv[]) {
     system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
 
-    std::vector<field> fields_to_index = {field("title", field_types::STRING)};
-    std::vector<field> sort_fields = { field("points", field_types::INT32)};
+    std::vector<field> fields_to_index = { field("title", field_types::STRING, false),
+                                           field("points", field_types::INT32, false) };
+
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, "abcd");
 
     Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, {}, sort_fields, "points").get();
+        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, "points").get();
     }
 
     std::ifstream infile("/Users/kishore/Downloads/hnstories_tiny.jsonl");

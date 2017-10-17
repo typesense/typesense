@@ -11,9 +11,6 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection *collection1;
     std::vector<field> search_fields;
-    std::vector<field> facet_fields;
-    std::vector<field> sort_fields_index;
-
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
@@ -24,13 +21,15 @@ protected:
         store = new Store(state_dir_path);
         collectionManager.init(store, "auth_key");
 
-        search_fields = {field("title", field_types::STRING), field("starring", field_types::STRING)};
-        facet_fields = {field("starring", field_types::STRING)};
-        sort_fields = { sort_by("points", "DESC") };
-        sort_fields_index = { field("points", field_types::INT32) };
+        search_fields = {
+                field("title", field_types::STRING, false),
+                field("starring", field_types::STRING, false),
+                field("cast", field_types::STRING_ARRAY, true),
+                field("points", field_types::INT32, false)
+        };
 
-        collection1 = collectionManager.create_collection("collection1", search_fields, facet_fields,
-                                                          sort_fields_index, "points").get();
+        sort_fields = { sort_by("points", "DESC") };
+        collection1 = collectionManager.create_collection("collection1", search_fields, "points").get();
     }
 
     virtual void SetUp() {
@@ -49,7 +48,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_NE(nullptr, collection1);
 
     spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
-    std::vector<std::string> facet_fields_expected = {facet_fields[0].name};
+    std::vector<std::string> facet_fields_expected = {"cast"};
 
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
@@ -79,11 +78,11 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
 
     ASSERT_EQ(3, num_keys);
     ASSERT_EQ("1", next_seq_id); // we already call `collection1->get_next_seq_id` above, which is side-effecting
-    ASSERT_EQ("{\"facet_fields\":[{\"name\":\"starring\",\"type\":\"string\"}],\"id\":0,\"name\":\"collection1\","
-               "\"search_fields\":[{\"name\":\"title\",\"type\":\"string\"},"
-               "{\"name\":\"starring\",\"type\":\"string\"}],"
-               "\"sort_fields\":[{\"name\":\"points\",\"type\":\"int32\"}],"
-               "\"token_ranking_field\":\"points\"}", collection_meta_json);
+    ASSERT_EQ("{\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
+              "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
+              "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
+              "{\"facet\":false,\"name\":\"points\",\"type\":\"int32\"}"
+              "],\"id\":0,\"name\":\"collection1\",\"token_ranking_field\":\"points\"}", collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
 
@@ -93,8 +92,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
     // try creating one more collection
-    collectionManager.create_collection("collection2", search_fields, facet_fields,
-                                        sort_fields_index, "points");
+    collectionManager.create_collection("collection2", search_fields, "points");
     collection_vec = collectionManager.get_collections();
     ASSERT_EQ(2, collection_vec.size());
 
@@ -130,7 +128,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
 
-    std::vector<std::string> facet_fields_expected = {facet_fields[0].name};
+    std::vector<std::string> facet_fields_expected = {"cast"};
 
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());

@@ -19,27 +19,41 @@ namespace field_types {
 namespace fields {
     static const std::string name = "name";
     static const std::string type = "type";
+    static const std::string facet = "facet";
 }
 
 struct field {
     std::string name;
     std::string type;
+    bool facet;
 
-    field(const std::string & name, const std::string & type): name(name), type(type) {
+    field(const std::string & name, const std::string & type, const bool & facet): name(name), type(type), facet(facet) {
 
     }
 
-    bool is_integer() {
+    bool is_single_integer() const {
+        return (type == field_types::INT32 || type == field_types::INT64);
+    }
+
+    bool is_single_float() const {
+        return (type == field_types::FLOAT);
+    }
+
+    bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
                type == field_types::INT64 || type == field_types::INT64_ARRAY);
     }
 
-    bool is_float() {
+    bool is_float() const {
         return (type == field_types::FLOAT || type == field_types::FLOAT_ARRAY);
     }
 
-    bool is_string() {
+    bool is_string() const {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
+    }
+
+    bool is_facet() const {
+        return facet;
     }
 };
 
