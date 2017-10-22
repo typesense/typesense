@@ -112,7 +112,7 @@ void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *FILTER = "filter_by";
-    const char *SEARCH_BY = "search_by";
+    const char *SEARCH_BY = "query_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
     const char *PER_PAGE = "per_page";
