@@ -436,19 +436,20 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
         }*/
 
         // initialize results with the starting element (for further intersection)
-        uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
         size_t result_size = query_suggestion[0]->values->ids.getLength();
-
         if(result_size == 0) {
             continue;
         }
 
+        uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
         candidate_rank += 1;
 
         // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
         for(auto i=1; i < query_suggestion.size(); i++) {
             uint32_t* out = nullptr;
-            result_size = query_suggestion[i]->values->ids.intersect(result_ids, result_size, &out);
+            uint32_t* ids = query_suggestion[i]->values->ids.uncompress();
+            result_size = ArrayUtils::and_scalar(ids, query_suggestion[i]->values->ids.getLength(), result_ids, result_size, &out);
+            delete[] ids;
             delete[] result_ids;
             result_ids = out;
         }
@@ -500,16 +501,17 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
     }
 }
 
-size_t Collection::union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint32_t **results_out) {
+size_t Collection::union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_array_pairs,
+                                uint32_t **results_out) {
     uint32_t *results = nullptr;
     size_t results_length = 0;
 
     uint32_t *prev_results = nullptr;
     size_t prev_results_length = 0;
 
-    for(const art_leaf* leaf: leaves) {
-        results_length = leaf->values->ids.do_union(prev_results, prev_results_length, &results);
-
+    for(const std::pair<uint32_t*, size_t> & result_array_pair: result_array_pairs) {
+        results_length = ArrayUtils::or_scalar(prev_results, prev_results_length, result_array_pair.first,
+                                               result_array_pair.second, &results);
         delete [] prev_results;
         prev_results = results;
         prev_results_length = results_length;
@@ -540,7 +542,7 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
         }
 
         field _field = search_schema.at(field_name);
-        const std::string & raw_value = expression_parts[1];
+        std::string & raw_value = expression_parts[1];
         filter f;
 
         if(_field.is_integer() || _field.is_float()) {
@@ -590,10 +592,6 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
                 f = {field_name, {filter_value}, op_comparator.get()};
             }
         } else if(_field.is_string()) {
-            if(!_field.facet) {
-                return Option<>(400, "Field `" + _field.name + "` is not a faceted field - only a field marked as a "
-                                     "facet can be filtered on.");
-            }
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
@@ -616,9 +614,11 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
         if(search_index.count(a_filter.field_name) != 0) {
             art_tree* t = search_index.at(a_filter.field_name);
             field f = search_schema.at(a_filter.field_name);
-            std::vector<const art_leaf*> leaves;
+            std::vector<std::pair<uint32_t*, size_t>> filter_result_array_pairs;
 
             if(f.is_integer()) {
+                std::vector<const art_leaf*> leaves;
+
                 for(const std::string & filter_value: a_filter.values) {
                     if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
                         int32_t value = (int32_t) std::stoi(filter_value);
@@ -627,23 +627,62 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
                         int64_t value = (int64_t) std::stoi(filter_value);
                         art_int64_search(t, value, a_filter.compare_operator, leaves);
                     }
+
+                    for(const art_leaf* leaf: leaves) {
+                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
+                                                                leaf->values->ids.getLength()));
+                    }
                 }
             } else if(f.is_float()) {
+                std::vector<const art_leaf*> leaves;
+
                 for(const std::string & filter_value: a_filter.values) {
                     float value = (float) std::atof(filter_value.c_str());
                     art_float_search(t, value, a_filter.compare_operator, leaves);
+                    for(const art_leaf* leaf: leaves) {
+                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
+                                                                leaf->values->ids.getLength()));
+                    }
                 }
             } else if(f.is_string()) {
                 for(const std::string & filter_value: a_filter.values) {
-                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(), filter_value.length()+1);
-                    if(leaf != nullptr) {
-                        leaves.push_back(leaf);
+                    // we have to tokenize the string, standardize it and then do an exact match
+                    std::vector<std::string> str_tokens;
+                    StringUtils::split(filter_value, str_tokens, " ");
+
+                    uint32_t* filtered_ids = nullptr;
+                    size_t filtered_size = 0;
+
+                    for(auto i = 0; i < str_tokens.size(); i++) {
+                        std::string & str_token = str_tokens[i];
+                        std::transform(str_token.begin(), str_token.end(), str_token.begin(), tolower);
+                        art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
+                                                                 str_token.length()+1);
+                        if(leaf == nullptr) {
+                            continue;
+                        }
+
+                        if(i == 0) {
+                            filtered_ids = leaf->values->ids.uncompress();
+                            filtered_size = leaf->values->ids.getLength();
+                        } else {
+                            // do AND for an exact match
+                            uint32_t* out = nullptr;
+                            uint32_t* leaf_ids = leaf->values->ids.uncompress();
+                            filtered_size = ArrayUtils::and_scalar(filtered_ids, filtered_size, leaf_ids,
+                                                                   leaf->values->ids.getLength(), &out);
+                            delete[] leaf_ids;
+                            delete[] filtered_ids;
+                            filtered_ids = out;
+                        }
                     }
+
+                    filter_result_array_pairs.push_back(std::make_pair(filtered_ids, filtered_size));
                 }
             }
 
             uint32_t* result_ids = nullptr;
-            size_t result_ids_length = union_of_leaf_ids(leaves, &result_ids);
+            size_t result_ids_length = union_of_ids(filter_result_array_pairs, &result_ids);
 
             if(filter_ids == nullptr) {
                 filter_ids = result_ids;
@@ -652,9 +691,13 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
                 uint32_t* filtered_results = nullptr;
                 filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
                                                              result_ids_length, &filtered_results);
-                delete [] filter_ids;
                 delete [] result_ids;
+                delete [] filter_ids;
                 filter_ids = filtered_results;
+            }
+
+            for(std::pair<uint32_t*, size_t> & filter_result_array_pair: filter_result_array_pairs) {
+                delete[] filter_result_array_pair.first;
             }
         }
     }

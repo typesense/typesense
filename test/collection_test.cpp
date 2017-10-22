@@ -547,6 +547,18 @@ TEST_F(CollectionTest, MultipleFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // filtering on unfaceted multi-valued string field
+    query_fields = {"title"};
+    results = coll_mul_fields->search("captain", query_fields, "cast: chris", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ids = {"6"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     collectionManager.drop_collection("coll_mul_fields");
 }
 
@@ -584,14 +596,13 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
     ASSERT_EQ(400, result_op.code());
     ASSERT_EQ("Field `cast` is a faceted field - it cannot be used as a query field.", result_op.error());
 
-    // only faceted fields should be allowed for filtering
+    // filtering on string field should be possible
     query_fields = {"title"};
-    result_op = coll_mul_fields->search("captain", query_fields, "starring: Samuel", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "starring: Samuel L. Jackson", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
-    ASSERT_EQ(false, result_op.ok());
-    ASSERT_EQ(400, result_op.code());
-    ASSERT_EQ("Field `starring` is not a faceted field - only a field marked as a facet can be filtered on.",
-              result_op.error());
+    ASSERT_EQ(true, result_op.ok());
+    nlohmann::json results = result_op.get();
+    ASSERT_EQ(1, results["hits"].size());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
@@ -1010,12 +1021,12 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // should be exact matches (no normalization or fuzzy searching should happen)
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
+    // need not be exact matches (normalization can happen)
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: BrONZe", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
 
     // when comparators are used, should just treat them as part of search string
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:<BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:<bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();

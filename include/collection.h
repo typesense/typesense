@@ -74,7 +74,7 @@ private:
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    size_t union_of_leaf_ids(std::vector<const art_leaf *> &leaves, uint32_t **results_out);
+    size_t union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_array_pairs, uint32_t **results_out);
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::string & simple_filter_str);
 

@@ -93,3 +93,24 @@ TEST(SortedArrayTest, OrScalarMergeShouldRemoveDuplicatesAtBoundary) {
     delete[] arr1;
     delete[] arr2;
 }
+
+TEST(SortedArrayTest, OrScalarWithEitherArrayAsNull) {
+    const size_t size1 = 9;
+    uint32_t *arr1 = new uint32_t[size1];
+    for(auto i = 0; i < 9; i++) {
+        arr1[i] = i;
+    }
+
+    uint32_t *results = nullptr;
+    uint32_t results_size = ArrayUtils::or_scalar(arr1, size1, nullptr, 0, &results);
+    ASSERT_EQ(9, results_size);
+
+    delete[] results;
+    results = nullptr;
+
+    results_size = ArrayUtils::or_scalar(nullptr, 0, arr1, size1, &results);
+    ASSERT_EQ(9, results_size);
+
+    delete[] results;
+    results = nullptr;
+}

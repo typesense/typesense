@@ -62,7 +62,7 @@ TEST(ArrayTest, Uncompress) {
         ASSERT_EQ(raw_unsorted_arr[i], unsorted.at(i));
     }
 
-    delete raw_unsorted_arr;
+    delete[] raw_unsorted_arr;
 }
 
 TEST(ArrayTest, RemoveBetweenIndices) {

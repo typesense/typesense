@@ -47,6 +47,12 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
         return lenB;
     }
 
+    if(B == nullptr) {
+      *out = new uint32_t[lenA];
+      memcpy(*out, A, lenA * sizeof(uint32_t));
+      return lenA;
+    }
+
     uint32_t* results = new uint32_t[lenA+lenB];
 
     while (indexA < lenA && indexB < lenB) {

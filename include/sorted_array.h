@@ -43,8 +43,4 @@ public:
     bool append(uint32_t value);
 
     void remove_values(uint32_t *sorted_values, uint32_t values_length);
-
-    size_t intersect(uint32_t* arr, const size_t arr_length, uint32_t** results_out);
-
-    size_t do_union(uint32_t* arr, const size_t arr_length, uint32_t** results_out);
 };
