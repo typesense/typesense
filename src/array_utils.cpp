@@ -2,11 +2,15 @@
 #include <memory.h>
 
 size_t ArrayUtils::and_scalar(const uint32_t *A, const size_t lenA,
-                              const uint32_t *B, const size_t lenB, uint32_t *out) {
-  const uint32_t *const initout(out);
-  if (lenA == 0 || lenB == 0)
+                              const uint32_t *B, const size_t lenB, uint32_t **results) {
+  if (lenA == 0 || lenB == 0) {
     return 0;
+  }
 
+  *results = new uint32_t[std::min(lenA, lenB)];
+  uint32_t *out = *results;
+
+  const uint32_t *const initout(out);
   const uint32_t *endA = A + lenA;
   const uint32_t *endB = B + lenB;
 

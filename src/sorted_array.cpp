@@ -175,9 +175,9 @@ void sorted_array::remove_values(uint32_t *sorted_values, uint32_t values_length
 
 size_t sorted_array::intersect(uint32_t* arr, const size_t arr_length, uint32_t** results_out) {
     uint32_t* curr = uncompress();
-    uint32_t* results = new uint32_t[std::min(arr_length, (size_t) length)];
+    uint32_t* results = nullptr;
 
-    size_t results_length = ArrayUtils::and_scalar(arr, arr_length, curr, length, results);
+    size_t results_length = ArrayUtils::and_scalar(arr, arr_length, curr, length, &results);
     delete[] curr;
 
     *results_out = results;

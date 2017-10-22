@@ -455,9 +455,9 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
 
         if(filter_ids != nullptr) {
             // intersect once again with filter ids
-            uint32_t* filtered_result_ids = new uint32_t[std::min(filter_ids_length, result_size)];
+            uint32_t* filtered_result_ids = nullptr;
             size_t filtered_results_size = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
-                                                                  result_size, filtered_result_ids);
+                                                                  result_size, &filtered_result_ids);
 
             uint32_t* new_all_result_ids;
             all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, filtered_result_ids,
@@ -649,9 +649,9 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
                 filter_ids = result_ids;
                 filter_ids_length = result_ids_length;
             } else {
-                uint32_t* filtered_results = new uint32_t[std::min((size_t)filter_ids_length, result_ids_length)];
+                uint32_t* filtered_results = nullptr;
                 filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
-                                                             result_ids_length, filtered_results);
+                                                             result_ids_length, &filtered_results);
                 delete [] filter_ids;
                 delete [] result_ids;
                 filter_ids = filtered_results;
