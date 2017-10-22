@@ -120,6 +120,10 @@ struct StringUtils {
         std::transform(str.begin(), str.end(), str.begin(), ::toupper);
     }
 
+    static void normalize(std::string& str) {
+        std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    }
+
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {
         std::string out;

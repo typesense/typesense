@@ -655,7 +655,7 @@ Option<uint32_t> Collection::do_filtering(uint32_t** filter_ids_out, const std::
 
                     for(auto i = 0; i < str_tokens.size(); i++) {
                         std::string & str_token = str_tokens[i];
-                        std::transform(str_token.begin(), str_token.end(), str_token.begin(), tolower);
+                        StringUtils::normalize(str_token);
                         art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                                  str_token.length()+1);
                         if(leaf == nullptr) {
@@ -993,7 +993,7 @@ void Collection::search_field(std::string & query, const std::string & field, ui
         }
 
         token_to_costs.push_back(all_costs);
-        std::transform(tokens[token_index].begin(), tokens[token_index].end(), tokens[token_index].begin(), ::tolower);
+        StringUtils::normalize(tokens[token_index]);
     }
 
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
@@ -1400,7 +1400,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
             int key_len;
 
             if(name_field.second.type == field_types::STRING_ARRAY || name_field.second.type == field_types::STRING) {
-                std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+                StringUtils::normalize(token);
                 key = (const unsigned char *) token.c_str();
                 key_len = (int) (token.length() + 1);
             } else {
