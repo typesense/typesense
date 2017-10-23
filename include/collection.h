@@ -118,6 +118,7 @@ private:
 
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);
+    Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id);
 
 public:
     Collection() = delete;

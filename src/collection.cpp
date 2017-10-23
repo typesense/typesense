@@ -95,10 +95,10 @@ Option<std::string> Collection::add(const std::string & json_str) {
     return Option<std::string>(doc_id);
 }
 
-Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
+Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
     if(!token_ranking_field.empty() && document.count(token_ranking_field) == 0) {
         return Option<>(400, "Field `" + token_ranking_field  + "` has been declared as a token ranking field, "
-                        "but is not found in the document.");
+                "but is not found in the document.");
     }
 
     if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer()) {
@@ -113,17 +113,12 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must not be negative.");
     }
 
-    uint32_t points = 0;
-    if(!token_ranking_field.empty()) {
-        points = document[token_ranking_field];
-    }
-
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
         if(document.count(field_name) == 0) {
             return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
-                            "but is not found in the document.");
+                    "but is not found in the document.");
         }
 
         art_tree *t = search_index.at(field_name);
@@ -132,8 +127,6 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             if(!document[field_name].is_string()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a string.");
             }
-            const std::string & text = document[field_name];
-            index_string_field(text, points, t, seq_id, field_pair.second.is_facet());
         } else if(field_pair.second.type == field_types::INT32) {
             if(!document[field_name].is_number_integer()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int32.");
@@ -142,34 +135,21 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             if(document[field_name].get<int64_t>() > INT32_MAX) {
                 return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
             }
-
-            uint32_t value = document[field_name];
-            index_int32_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64) {
             if(!document[field_name].is_number_integer()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int64.");
             }
-
-            uint64_t value = document[field_name];
-            index_int64_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::FLOAT) {
             if(!document[field_name].is_number_float()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a float.");
             }
-
-            float value = document[field_name];
-            index_float_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a string array.");
             }
-
             if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a string array.");
             }
-
-            std::vector<std::string> strings = document[field_name];
-            index_string_array_field(strings, points, t, seq_id, field_pair.second.is_facet());
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
@@ -178,9 +158,6 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
             }
-
-            std::vector<int32_t> values = document[field_name];
-            index_int32_array_field(values, points, t, seq_id);
         } else if(field_pair.second.type == field_types::INT64_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
@@ -189,9 +166,6 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
                 return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
             }
-
-            std::vector<int64_t> values = document[field_name];
-            index_int64_array_field(values, points, t, seq_id);
         } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a float array.");
@@ -200,7 +174,76 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a float array.");
             }
+        }
+    }
 
+    for(const std::pair<std::string, field> & field_pair: facet_schema) {
+        const std::string & field_name = field_pair.first;
+
+        if(document.count(field_name) == 0) {
+            return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
+                    "but is not found in the document.");
+        }
+
+        facet_value & fvalue = facet_index.at(field_name);
+        if(field_pair.second.type == field_types::STRING) {
+            if(!document[field_name].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string.");
+            }
+        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
+            }
+        } else {
+            return Option<>(400, "Facet field `" + field_name  + "` must be a string or a string[].");
+        }
+    }
+
+    return Option<>(200);
+}
+
+Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
+    Option<uint32_t> validation_op = validate_index_in_memory(document, seq_id);
+
+    if(!validation_op.ok()) {
+        return validation_op;
+    }
+
+    uint32_t points = 0;
+    if(!token_ranking_field.empty()) {
+        points = document[token_ranking_field];
+    }
+
+    for(const std::pair<std::string, field> & field_pair: search_schema) {
+        const std::string & field_name = field_pair.first;
+        art_tree *t = search_index.at(field_name);
+
+        if(field_pair.second.type == field_types::STRING) {
+            const std::string & text = document[field_name];
+            index_string_field(text, points, t, seq_id, field_pair.second.is_facet());
+        } else if(field_pair.second.type == field_types::INT32) {
+            uint32_t value = document[field_name];
+            index_int32_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::INT64) {
+            uint64_t value = document[field_name];
+            index_int64_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::FLOAT) {
+            float value = document[field_name];
+            index_float_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            std::vector<std::string> strings = document[field_name];
+            index_string_array_field(strings, points, t, seq_id, field_pair.second.is_facet());
+        } else if(field_pair.second.type == field_types::INT32_ARRAY) {
+            std::vector<int32_t> values = document[field_name];
+            index_int32_array_field(values, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+            std::vector<int64_t> values = document[field_name];
+            index_int64_array_field(values, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
             std::vector<float> values = document[field_name];
             index_float_array_field(values, points, t, seq_id);
         }
@@ -220,32 +263,13 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
     for(const std::pair<std::string, field> & field_pair: facet_schema) {
         const std::string & field_name = field_pair.first;
-
-        if(document.count(field_name) == 0) {
-            return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
-                            "but is not found in the document.");
-        }
-
         facet_value & fvalue = facet_index.at(field_name);
         if(field_pair.second.type == field_types::STRING) {
-            if(!document[field_name].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string.");
-            }
             const std::string & value = document[field_name];
             fvalue.index_values(seq_id, { value });
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
-            }
-
-            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
-            }
-
             const std::vector<std::string> & values = document[field_name];
             fvalue.index_values(seq_id, values);
-        } else {
-            return Option<>(400, "Facet field `" + field_name  + "` must be a string or a string[].");
         }
     }
 
