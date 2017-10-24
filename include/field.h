@@ -9,7 +9,7 @@ namespace field_types {
     static const std::string STRING = "string";
     static const std::string INT32 = "int32";
     static const std::string INT64 = "int64";
-    static const std::string FLOAT = "FLOAT";
+    static const std::string FLOAT = "float";
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";

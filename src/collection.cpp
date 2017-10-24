@@ -772,7 +772,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     for(const sort_by & _sort_field: sort_fields) {
         if(sort_index.count(_sort_field.name) == 0) {
-            std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema.";
+            std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema for sorting.";
             return Option<nlohmann::json>(400, error);
         }
 
