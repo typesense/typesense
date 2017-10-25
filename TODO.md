@@ -71,6 +71,8 @@
 - ~~facet fields should be indexed verbatim~~
 - ~~change "search_by" to "query_by"~~
 - ~~during index_in_memory() validations should be front loaded~~
+- ~~Support token ranking field being a float~~
+- get collection should show schema
 - NOT operator support
 - test for token ranking on float field
 - test for float int field deletion during doc deletion

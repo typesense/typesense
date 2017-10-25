@@ -101,16 +101,19 @@ Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &docu
                 "but is not found in the document.");
     }
 
-    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be an int32.");
+    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer() &&
+       !document[token_ranking_field].is_number_float()) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be a number.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() > INT32_MAX) {
+    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_integer() &&
+       document[token_ranking_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
         return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of int32.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].get<int64_t>() < 0) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must not be negative.");
+    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_float() &&
+       document[token_ranking_field].get<float>() > std::numeric_limits<float>::max()) {
+        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of a float.");
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
@@ -213,9 +216,18 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         return validation_op;
     }
 
-    uint32_t points = 0;
+    int32_t points = 0;
+
     if(!token_ranking_field.empty()) {
-        points = document[token_ranking_field];
+        if(document[token_ranking_field].is_number_float()) {
+            // serialize float to an integer and reverse the inverted range
+            float n = document[token_ranking_field];
+            memcpy(&points, &n, sizeof(int32_t));
+            points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
+            points = -1 * (INT32_MAX - points);
+        } else {
+            points = document[token_ranking_field];
+        }
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {

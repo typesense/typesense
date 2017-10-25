@@ -75,16 +75,16 @@ void post_create_collection(http_req & req, http_res & res) {
         );
     }
 
-    const char* PREFIX_RANKING_FIELD = "prefix_ranking_field";
+    const char* PREFIX_SORT_FIELD = "prefix_sort_field";
     std::string token_ranking_field = "";
 
-    if(req_json.count(PREFIX_RANKING_FIELD) != 0) {
-        if(!req_json[PREFIX_RANKING_FIELD].is_string()) {
-            return res.send_400(std::string("`") + PREFIX_RANKING_FIELD +
+    if(req_json.count(PREFIX_SORT_FIELD) != 0) {
+        if(!req_json[PREFIX_SORT_FIELD].is_string()) {
+            return res.send_400(std::string("`") + PREFIX_SORT_FIELD +
                                 "` should be a string. It should be the name of an unsigned integer field.");
         }
 
-        token_ranking_field = req_json[PREFIX_RANKING_FIELD].get<std::string>();
+        token_ranking_field = req_json[PREFIX_SORT_FIELD].get<std::string>();
     }
 
     collectionManager.create_collection(req_json["name"], fields, token_ranking_field);

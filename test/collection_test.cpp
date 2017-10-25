@@ -1310,11 +1310,11 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     // when a rank field is not defined in the schema
     res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("timestamps", "ASC") }, 0, 10);
     ASSERT_EQ(400, res_op.code());
-    ASSERT_STREQ("Could not find a field named `timestamps` in the schema.", res_op.error().c_str());
+    ASSERT_STREQ("Could not find a field named `timestamps` in the schema for sorting.", res_op.error().c_str());
 
     res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("_rank", "ASC") }, 0, 10);
     ASSERT_EQ(400, res_op.code());
-    ASSERT_STREQ("Could not find a field named `_rank` in the schema.", res_op.error().c_str());
+    ASSERT_STREQ("Could not find a field named `_rank` in the schema for sorting.", res_op.error().c_str());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -1370,7 +1370,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
     const Option<std::string> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op1.ok());
-    ASSERT_STREQ("Token ranking field `age` must be an int32.", bad_token_ranking_field_op1.error().c_str());
+    ASSERT_STREQ("Token ranking field `age` must be a number.", bad_token_ranking_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
     const Option<std::string> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
