@@ -460,6 +460,8 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
                                    const size_t & max_results, const bool prefix) {
     const size_t combination_limit = 10;
+    const size_t prefix_candidates_limit = 5;
+
     auto product = []( long long a, std::vector<art_leaf*>& b ) { return a*b.size(); };
     long long int N = std::accumulate(token_to_candidates.begin(), token_to_candidates.end(), 1LL, product);
 
@@ -531,7 +533,7 @@ void Collection::search_candidates(uint32_t* filter_ids, size_t filter_ids_lengt
             break;
         }
 
-        if(prefix && candidate_rank >= max_results) {
+        if(prefix && candidate_rank >= prefix_candidates_limit) {
             break;
         }
     }

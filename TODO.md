@@ -73,6 +73,7 @@
 - ~~during index_in_memory() validations should be front loaded~~
 - ~~Support token ranking field being a float~~
 - get collection should show schema
+- highlight of string arrays?
 - NOT operator support
 - test for token ranking on float field
 - test for float int field deletion during doc deletion

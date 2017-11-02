@@ -440,7 +440,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     results = collection->search("t", query_fields, "", facets, sort_fields, 0, 2, 1, FREQUENCY, true).get();
     ASSERT_EQ(2, results["hits"].size());
-    ids = {"1", "6"};
+    ids = {"1", "foo"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
