@@ -811,6 +811,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     const uint32_t filter_ids_length = op_filter_ids_length.get();
 
     // check for valid pagination
+    if(page < 1) {
+        std::string message = "Page must be an integer of value greater than 0.";
+        return Option<nlohmann::json>(422, message);
+    }
+
     if((page * per_page) > MAX_RESULTS) {
         std::string message = "Only the first " + std::to_string(MAX_RESULTS) + " results are available.";
         return Option<nlohmann::json>(422, message);
@@ -889,6 +894,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             std::vector<std::string> tokens;
             StringUtils::split(document[field_name], tokens, " ");
 
+            // positions in the document of each token in the query
             std::vector<std::vector<uint16_t>> token_positions;
 
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.second.query_index]) {
@@ -917,8 +923,10 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             std::vector<size_t> token_indices;
             char num_tokens_found = mscore.offset_diffs[0];
             for(size_t i = 1; i <= num_tokens_found; i++) {
-                size_t token_index = (size_t)(mscore.start_offset + mscore.offset_diffs[i]);
-                token_indices.push_back(token_index);
+                if(mscore.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
+                    size_t token_index = (size_t)(mscore.start_offset + mscore.offset_diffs[i]);
+                    token_indices.push_back(token_index);
+                }
             }
 
             auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());

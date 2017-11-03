@@ -14,6 +14,10 @@
 
 #define TokenOffsetHeap std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset>
 
+const size_t WINDOW_SIZE = 10;
+const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
+
+
 struct TokenOffset {
     uint8_t token_id;         // token identifier
     uint16_t offset;          // token's offset in the text
@@ -63,10 +67,17 @@ struct MatchScore {
   }
 
   static void pack_token_offsets(const uint16_t* min_token_offset, const size_t num_tokens,
-                                 const size_t start_token_index, char *offset_diffs) {
+                                 const uint16_t token_start_offset, char *offset_diffs) {
       offset_diffs[0] = (char) num_tokens;
-      for(size_t i = start_token_index; i < num_tokens; i++) {
-        offset_diffs[1+i] = (int8_t)(min_token_offset[i] - min_token_offset[start_token_index]);
+      size_t j = 1;
+
+      for(size_t i = 0; i < num_tokens; i++) {
+        if(min_token_offset[i] != MAX_DISPLACEMENT) {
+          offset_diffs[j] = (int8_t)(min_token_offset[i] - token_start_offset);
+        } else {
+          offset_diffs[j] = std::numeric_limits<int8_t>::max();
+        }
+        j++;
       }
   }
 
@@ -79,9 +90,6 @@ struct MatchScore {
   *  compute the max_match and min_displacement of target tokens across the windows.
   */
   static MatchScore match_score(uint32_t doc_id, std::vector<std::vector<uint16_t>> &token_offsets) {
-    const size_t WINDOW_SIZE = 10;
-    const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
-
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
     for(uint8_t token_id=0; token_id < token_offsets.size(); token_id++) {
@@ -157,12 +165,11 @@ struct MatchScore {
 
     // do run-length encoding of the min token positions/offsets
     uint16_t token_start_offset = 0;
-    char offset_diffs[16];
-    std::fill_n(offset_diffs, 16, 0);
-
-    int token_index = 0;
+    char packed_offset_diffs[16];
+    std::fill_n(packed_offset_diffs, 16, 0);
 
     // identify the first token which is actually present and use that as the base for run-length encoding
+    int token_index = 0;
     while(token_index < token_offsets.size()) {
       if(min_token_offset[token_index] != MAX_DISPLACEMENT) {
         token_start_offset = min_token_offset[token_index];
@@ -171,7 +178,7 @@ struct MatchScore {
       token_index++;
     }
 
-    pack_token_offsets(min_token_offset, token_offsets.size(), token_index, offset_diffs);
-    return MatchScore(max_match, min_displacement, token_start_offset, offset_diffs);
+    pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
+    return MatchScore(max_match, min_displacement, token_start_offset, packed_offset_diffs);
   }
 };
