@@ -141,7 +141,7 @@ public:
             }
 
             CollectionManager & collection_manager = CollectionManager::get_instance();
-            Collection* collection = collection_manager.init_collection(replication_event->value, 0);
+            Collection* collection = collection_manager.init_collection(collection_meta, 0);
             collection_manager.add_to_collections(collection);
         }
 
