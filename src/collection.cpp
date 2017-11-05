@@ -143,7 +143,7 @@ Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &docu
                 return Option<>(400, "Field `" + field_name  + "` must be an int64.");
             }
         } else if(field_pair.second.type == field_types::FLOAT) {
-            if(!document[field_name].is_number_float()) {
+            if(!document[field_name].is_number()) { // allows integer to be passed to a float field
                 return Option<>(400, "Field `" + field_name  + "` must be a float.");
             }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {

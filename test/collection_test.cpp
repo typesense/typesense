@@ -1446,6 +1446,29 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("average", field_types::FLOAT, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields).get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "101010";
+    doc["name"] = "Jane";
+    doc["average"] = 98;
+
+    Option<std::string> inserted_id_op = coll1->add(doc.dump());
+    EXPECT_TRUE(inserted_id_op.ok());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection");
 
