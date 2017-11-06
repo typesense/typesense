@@ -1,4 +1,4 @@
-#include "collection.h"
+#include "index.h"
 
 #include <numeric>
 #include <chrono>
@@ -801,15 +801,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         sort_fields_std.push_back({_sort_field.name, sort_order});
     }
 
-    // process the filters
-    uint32_t* filter_ids = nullptr;
-    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
-    if(!op_filter_ids_length.ok()) {
-        return Option<nlohmann::json>(op_filter_ids_length.code(), op_filter_ids_length.error());
-    }
-
-    const uint32_t filter_ids_length = op_filter_ids_length.get();
-
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
@@ -822,6 +813,15 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     const size_t num_results = (page * per_page);
+
+    // process the filters
+    uint32_t* filter_ids = nullptr;
+    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
+    if(!op_filter_ids_length.ok()) {
+        return Option<nlohmann::json>(op_filter_ids_length.code(), op_filter_ids_length.error());
+    }
+
+    const uint32_t filter_ids_length = op_filter_ids_length.get();
 
     // Order of `fields` are used to sort results
     auto begin = std::chrono::high_resolution_clock::now();
