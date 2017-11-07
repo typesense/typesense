@@ -11,34 +11,7 @@
 #include <field.h>
 #include <option.h>
 
-struct facet_value {
-    // use string to int mapping for saving memory
-    spp::sparse_hash_map<std::string, uint32_t> value_index;
-    spp::sparse_hash_map<uint32_t, std::string> index_value;
-
-    spp::sparse_hash_map<uint32_t, std::vector<uint32_t>> doc_values;
-
-    uint32_t get_value_index(const std::string & value) {
-        if(value_index.count(value) != 0) {
-            return value_index[value];
-        }
-
-        uint32_t new_index = value_index.size();
-        value_index.emplace(value, new_index);
-        index_value.emplace(new_index, value);
-        return new_index;
-    }
-
-    void index_values(uint32_t doc_seq_id, const std::vector<std::string> & values) {
-        std::vector<uint32_t> value_vec(values.size());
-        for(auto i = 0; i < values.size(); i++) {
-            value_vec[i] = get_value_index(values[i]);
-        }
-        doc_values.emplace(doc_seq_id, value_vec);
-    }
-};
-
-class Collection {
+class Index {
 private:
     std::string name;
 
@@ -46,28 +19,17 @@ private:
 
     size_t num_documents;
 
-    // Auto incrementing record ID used internally for indexing - not exposed to the client
-    uint32_t next_seq_id;
-
     spp::sparse_hash_map<std::string, field> search_schema;
 
     spp::sparse_hash_map<std::string, field> facet_schema;
 
     spp::sparse_hash_map<std::string, field> sort_schema;
 
-    Store* store;
-
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
     spp::sparse_hash_map<std::string, facet_value> facet_index;
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
-
-    std::string token_ranking_field;
-
-    std::string get_doc_id_key(const std::string & doc_id);
-
-    std::string get_seq_id_key(uint32_t seq_id);
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
                                                           long long int n);
@@ -87,7 +49,7 @@ private:
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, const size_t num_results,
-                      std::vector<std::vector<art_leaf*>> & searched_queries, int & searched_queries_index,
+                      std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster<100> & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
@@ -118,63 +80,30 @@ private:
 
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);
-    Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id);
 
 public:
-    Collection() = delete;
+    Index() = delete;
 
-    Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & fields, const std::string & token_ranking_field);
+    Index(const std::string name, spp::sparse_hash_map<std::string, field> search_schema,
+          spp::sparse_hash_map<std::string, field> facet_schema, spp::sparse_hash_map<std::string, field> sort_schema);
 
-    ~Collection();
+    ~Index();
 
-    static std::string get_next_seq_id_key(const std::string & collection_name);
+    Option<size_t> search(std::string query, const std::vector<std::string> search_fields,
+                          const std::string & simple_filter_query, std::vector<facet> facets,
+                          std::vector<sort_by> sort_fields_std, const int num_typos,
+                          const size_t per_page, const size_t page,
+                          const token_ordering token_order, const bool prefix,
+                          std::vector<std::pair<int, Topster<100>::KV>> & field_order_kv,
+                          size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries);
 
-    static std::string get_meta_key(const std::string & collection_name);
-
-    std::string get_seq_id_collection_prefix();
-
-    std::string get_name();
-
-    size_t get_num_documents();
-
-    uint32_t get_collection_id();
-
-    uint32_t get_next_seq_id();
-
-    void set_next_seq_id(uint32_t seq_id);
-
-    void increment_next_seq_id_field();
-
-    static uint32_t deserialize_seq_id_key(std::string serialized_seq_id);
-
-    uint32_t doc_id_to_seq_id(std::string doc_id);
-
-    std::vector<std::string> get_facet_fields();
-
-    std::vector<field> get_sort_fields();
-
-    spp::sparse_hash_map<std::string, field> get_schema();
-
-    std::string get_token_ranking_field();
-
-    Option<std::string> add(const std::string & json_str);
-
-    Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
-                          const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<sort_by> & sort_fields, const int num_typos,
-                          const size_t per_page = 10, const size_t page = 1,
-                          const token_ordering token_order = FREQUENCY, const bool prefix = false);
-
-    Option<nlohmann::json> get(const std::string & id);
-
-    Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
+    Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
     void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const int & candidate_rank,
                        Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
                        const size_t result_size) const;
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
 
     static const int MAX_SEARCH_TOKENS = 10;
     static const int MAX_RESULTS = 100;
