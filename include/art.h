@@ -93,17 +93,6 @@ typedef struct {
     array offsets;
 } art_values;
 
-/*
- * Represents a document to be indexed.
- * `offsets` refer to the index locations where a token appeared in the document
- */
-typedef struct {
-    int32_t score;
-    uint32_t id;
-    uint32_t offsets_len;
-    uint32_t* offsets;
-} art_document;
-
 /**
  * Represents a leaf. These are
  * of arbitrary size, as they include the key.
@@ -122,6 +111,17 @@ typedef struct {
     art_node *root;
     uint64_t size;
 } art_tree;
+
+/*
+ * Represents a document to be indexed.
+ * `offsets` refer to the index locations where a token appeared in the document
+ */
+typedef struct {
+    int32_t score;
+    uint32_t id;
+    uint32_t offsets_len;
+    uint32_t* offsets;
+} art_document;
 
 enum token_ordering {
     FREQUENCY,

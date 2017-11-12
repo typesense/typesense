@@ -27,7 +27,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 
     num_indices = 4;
     for(auto i = 0; i < num_indices; i++) {
-        indices.push_back(new Index(name, search_schema, facet_schema, sort_schema));
+        indices.push_back(new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema));
     }
 
     num_documents = 0;
@@ -295,11 +295,13 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     std::vector<std::vector<art_leaf*>> searched_queries;
 
     std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
-    size_t all_result_ids_len = 0;
+    size_t total_found = 0;
 
     for(Index* index: indices) {
+        size_t all_result_ids_len = 0;
         index->search(query, search_fields, simple_filter_query, facets, sort_fields_std, num_typos,
                       per_page, page, token_order, prefix, field_order_kvs, all_result_ids_len, searched_queries);
+        total_found += all_result_ids_len;
     }
 
     // All fields are sorted descending
@@ -312,7 +314,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     nlohmann::json result = nlohmann::json::object();
 
     result["hits"] = nlohmann::json::array();
-    result["found"] = all_result_ids_len;
+    result["found"] = total_found;
 
     const int start_result_index = (page - 1) * per_page;
     const int kvsize = field_order_kvs.size();

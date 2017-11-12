@@ -11,6 +11,12 @@
 #include <field.h>
 #include <option.h>
 
+struct token_candidates {
+    std::string token;
+    size_t cost;
+    std::vector<art_leaf*> candidates;
+};
+
 class Index {
 private:
     std::string name;
@@ -31,7 +37,7 @@ private:
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
 
-    static inline std::vector<art_leaf *> next_suggestion(const std::vector<std::vector<art_leaf *>> &token_leaves,
+    static inline std::vector<art_leaf *> next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                                           long long int n);
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
@@ -54,11 +60,10 @@ private:
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
-                           const std::vector<sort_by> & sort_fields, int & candidate_rank,
-                           std::vector<std::vector<art_leaf*>> & token_to_candidates,
-                           std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
-                           size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
-                           const size_t & max_results, const bool prefix);
+                           const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
+                           const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
+                           Topster<100> & topster, size_t & total_results, uint32_t** all_result_ids,
+                           size_t & all_result_ids_len, const size_t & max_results, const bool prefix);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
                             const bool verbatim) const;
@@ -90,7 +95,7 @@ public:
     ~Index();
 
     Option<size_t> search(std::string query, const std::vector<std::string> search_fields,
-                          const std::string & simple_filter_query, std::vector<facet> facets,
+                          const std::string & simple_filter_query, std::vector<facet> & facets,
                           std::vector<sort_by> sort_fields_std, const int num_typos,
                           const size_t per_page, const size_t page,
                           const token_ordering token_order, const bool prefix,
@@ -99,9 +104,9 @@ public:
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
-    void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const int & candidate_rank,
-                       Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion, const uint32_t *result_ids,
-                       const size_t result_size) const;
+    void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const uint32_t total_cost,
+                       Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion,
+                       const uint32_t *result_ids, const size_t result_size) const;
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
 
