@@ -17,6 +17,35 @@ struct token_candidates {
     std::vector<art_leaf*> candidates;
 };
 
+struct search_args {
+    std::string query;
+    std::vector<std::string> search_fields;
+    std::string simple_filter_query;
+    std::vector<facet> facets;
+    std::vector<sort_by> sort_fields_std;
+    int num_typos;
+    size_t per_page;
+    size_t page;
+    token_ordering token_order;
+    bool prefix;
+    std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
+    size_t all_result_ids_len;
+    std::vector<std::vector<art_leaf*>> searched_queries;
+
+    search_args() {
+
+    }
+
+    search_args(std::string query, std::vector<std::string> search_fields, std::string simple_filter_query,
+                std::vector<facet> facets, std::vector<sort_by> sort_fields_std, int num_typos,
+                size_t per_page, size_t page, token_ordering token_order, bool prefix):
+            query(query), search_fields(search_fields), simple_filter_query(simple_filter_query), facets(facets),
+            sort_fields_std(sort_fields_std), num_typos(num_typos), per_page(per_page), page(page),
+            token_order(token_order), prefix(prefix), all_result_ids_len(0) {
+
+    }
+};
+
 class Index {
 private:
     std::string name;
@@ -94,6 +123,8 @@ public:
 
     ~Index();
 
+    void run_search();
+
     Option<size_t> search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, std::vector<facet> & facets,
                           std::vector<sort_by> sort_fields_std, const int num_typos,
@@ -121,5 +152,19 @@ public:
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
+
+    /*
+     * Concurrency Primitives
+    */
+
+    // Used for passing control back and forth between main and worker threads
+    std::mutex m;
+    std::condition_variable cv;
+
+    bool ready;       // prevents spurious wake up of the worker thread
+    bool processed;   // prevents spurious wake up of the main thread
+    bool terminate;   // used for interrupting the thread during tear down
+
+    search_args search_params;
 };
 

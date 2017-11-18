@@ -27,15 +27,25 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 
     num_indices = 4;
     for(auto i = 0; i < num_indices; i++) {
-        indices.push_back(new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema));
+        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
+        indices.push_back(index);
+        std::thread* thread = new std::thread(&Index::run_search, index);
+        index_threads.push_back(thread);
     }
 
     num_documents = 0;
 }
 
 Collection::~Collection() {
-    for(auto index: indices) {
-        delete index;
+    for(auto i = 0; i < indices.size(); i++) {
+        std::thread *t = index_threads[i];
+        Index* index = indices[i];
+        index->ready = true;
+        index->terminate = true;
+        index->cv.notify_one();
+        t->join();
+        delete t;
+        delete indices[i];
     }
 }
 
@@ -293,15 +303,56 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
-
     std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
     size_t total_found = 0;
 
+    // send data to individual index threads
     for(Index* index: indices) {
-        size_t all_result_ids_len = 0;
-        index->search(query, search_fields, simple_filter_query, facets, sort_fields_std, num_typos,
-                      per_page, page, token_order, prefix, field_order_kvs, all_result_ids_len, searched_queries);
-        total_found += all_result_ids_len;
+        index->search_params = search_args(query, search_fields, simple_filter_query, facets, sort_fields_std,
+                                           num_typos, per_page, page, token_order, prefix);
+        {
+            std::lock_guard<std::mutex> lk(index->m);
+            index->ready = true;
+            index->processed = false;
+        }
+        index->cv.notify_one();
+    }
+
+    for(Index* index: indices) {
+        // wait for the worker
+        {
+            std::unique_lock<std::mutex> lk(index->m);
+            index->cv.wait(lk, [index]{return index->processed;});
+        }
+
+        // need to remap the search query index before appending
+        for(auto & field_order_kv: index->search_params.field_order_kvs) {
+            field_order_kv.second.query_index += searched_queries.size();
+            field_order_kvs.push_back(field_order_kv);
+        }
+
+        searched_queries.insert(searched_queries.end(), index->search_params.searched_queries.begin(),
+                                index->search_params.searched_queries.end());
+
+        for(auto fi = 0; fi < index->search_params.facets.size(); fi++) {
+            auto & this_facet = index->search_params.facets[fi];
+            auto & acc_facet = facets[fi];
+
+            for(auto & facet_kv: this_facet.result_map) {
+                size_t count = 0;
+
+                if(acc_facet.result_map.count(facet_kv.first) == 0) {
+                    // not found, so set it
+                    count = facet_kv.second;
+                } else {
+                    count = acc_facet.result_map[facet_kv.first] + facet_kv.second;
+                }
+
+                acc_facet.result_map[facet_kv.first] = count;
+            }
+        }
+
+        total_found += index->search_params.all_result_ids_len;
     }
 
     // All fields are sorted descending

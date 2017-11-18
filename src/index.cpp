@@ -28,6 +28,10 @@ Index::Index(const std::string name, spp::sparse_hash_map<std::string, field> se
     }
 
     num_documents = 0;
+
+    ready = false;
+    processed = false;
+    terminate = false;
 }
 
 Index::~Index() {
@@ -565,12 +569,38 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::strin
     return Option<>(filter_ids_length);
 }
 
+void Index::run_search() {
+    while(true) {
+        // wait until main thread sends data
+        std::unique_lock<std::mutex> lk(m);
+        cv.wait(lk, [this]{return ready;});
+
+        if(terminate) {
+            break;
+        }
+
+        // after the wait, we own the lock.
+        search(search_params.query, search_params.search_fields, search_params.simple_filter_query, search_params.facets,
+               search_params.sort_fields_std, search_params.num_typos, search_params.per_page, search_params.page,
+               search_params.token_order, search_params.prefix, search_params.field_order_kvs,
+               search_params.all_result_ids_len, search_params.searched_queries);
+
+        // hand control back to main thread
+        processed = true;
+        ready = false;
+
+        // manual unlocking is done before notifying, to avoid waking up the waiting thread only to block again
+        lk.unlock();
+        cv.notify_one();
+    }
+}
+
 Option<size_t> Index::search(std::string query, const std::vector<std::string> search_fields,
-                                  const std::string & simple_filter_query, std::vector<facet> & facets,
-                                  std::vector<sort_by> sort_fields_std, const int num_typos,
-                                  const size_t per_page, const size_t page, const token_ordering token_order,
-                                  const bool prefix, std::vector<std::pair<int, Topster<100>::KV>> & field_order_kvs,
-                                  size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries) {
+                             const std::string & simple_filter_query, std::vector<facet> & facets,
+                             std::vector<sort_by> sort_fields_std, const int num_typos,
+                             const size_t per_page, const size_t page, const token_ordering token_order,
+                             const bool prefix, std::vector<std::pair<int, Topster<100>::KV>> & field_order_kvs,
+                             size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     const size_t num_results = (page * per_page);
 

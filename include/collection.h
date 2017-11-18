@@ -1,7 +1,8 @@
 #pragma once
 
 #include <string>
-#include <vector>
+#include <string>
+#include <thread>
 #include <art.h>
 #include <index.h>
 #include <number.h>
@@ -23,6 +24,8 @@ private:
     size_t num_indices;
 
     std::vector<Index*> indices;
+
+    std::vector<std::thread*> index_threads;
 
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
