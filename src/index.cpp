@@ -871,8 +871,10 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         }
     }
 
+    //auto begin = std::chrono::high_resolution_clock::now();
+
     for(auto i=0; i<result_size; i++) {
-        uint32_t seq_id = result_ids[i];
+        const uint32_t seq_id = result_ids[i];
         MatchScore mscore;
 
         if(query_suggestion.size() == 1) {
@@ -887,17 +889,23 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         }
 
         // Construct a single match_score from individual components (for multi-field sort)
-        const uint64_t match_score = ((int64_t)(mscore.words_present) << 56) |
-                                     ((int64_t)(255 - total_cost) << 48) |
-                                     ((int64_t)(1) << 16) |
+        const uint64_t match_score = ((int64_t)(mscore.words_present) << 24) |
+                                     ((int64_t)(255 - total_cost) << 16) |
                                      ((int64_t)(MAX_SEARCH_TOKENS - mscore.distance));
 
-
         const int64_t default_score = 0;
-        const number_t & primary_rank_score = (primary_rank_scores && primary_rank_scores->count(seq_id) > 0) ?
-                                     primary_rank_scores->at(seq_id) : default_score;
-        const number_t & secondary_rank_score = (secondary_rank_scores && secondary_rank_scores->count(seq_id) > 0) ?
-                                     secondary_rank_scores->at(seq_id) : default_score;
+        number_t primary_rank_score = default_score;
+        number_t secondary_rank_score = default_score;
+
+        if(primary_rank_scores) {
+            auto it = primary_rank_scores->find(seq_id);
+            primary_rank_score = (it == primary_rank_scores->end()) ? default_score : it->second;
+        }
+
+        if(secondary_rank_scores) {
+            auto it = secondary_rank_scores->find(seq_id);
+            secondary_rank_score = (it == secondary_rank_scores->end()) ? default_score : it->second;
+        }
 
         const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
@@ -908,6 +916,9 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
                   << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << mscore.distance
                   << ", seq_id: " << seq_id << std::endl;*/
     }
+
+    //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    //std::cout << "Time taken for results iteration: " << timeNanos << "ms" << std::endl;
 
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
         delete [] it->second;
