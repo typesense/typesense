@@ -11,15 +11,10 @@
 
 HttpServer* server;
 
-void free_resources() {
-    CollectionManager::get_instance().dispose();
-    delete server;
-}
-
 void catch_interrupt(int sig) {
-    std::cout << "Stopping Typesense server...1" << std::endl;
+    std::cout << "Stopping Typesense server..." << std::endl;
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
-    server->stop(&free_resources);
+    server->stop();
 }
 
 int main(int argc, char **argv) {
@@ -88,5 +83,8 @@ int main(int argc, char **argv) {
 
     server->run();
 
+    // we are out of the event loop here
+    delete server;
+    CollectionManager::get_instance().dispose();
     return 0;
 }

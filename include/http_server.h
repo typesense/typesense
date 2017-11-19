@@ -80,7 +80,7 @@ public:
 
     int run();
 
-    void stop(void (*callback)(void));
+    void stop();
 
     static void on_stop_server(void *data);
 

@@ -92,20 +92,19 @@ int HttpServer::run() {
 }
 
 void HttpServer::on_stop_server(void *data) {
-    auto callback = reinterpret_cast<void (*)(void)>(data);
-    callback();
+    // do nothing
 }
 
-void HttpServer::stop(void (*callback)(void)) {
+void HttpServer::stop() {
+    // this will break the event loop
     exit_loop = true;
-    h2o_socket_read_stop(listener_socket);
-    h2o_socket_close(listener_socket);
-    send_message(STOP_SERVER_MESSAGE, (void *)callback);
+
+    // send a message to activate idle event loop, just in case
+    send_message(STOP_SERVER_MESSAGE, nullptr);
 }
 
 void HttpServer::on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t *messages) {
     while (!h2o_linklist_is_empty(messages)) {
-        h2o_generator_t generator = {NULL, NULL};
         h2o_multithread_message_t *message = H2O_STRUCT_FROM_MEMBER(h2o_multithread_message_t, link, messages->next);
         h2o_custom_res_message_t *custom_message = reinterpret_cast<h2o_custom_res_message_t*>(message);
 
@@ -325,11 +324,20 @@ void HttpServer::on(const std::string & message, void (*handler)(void*)) {
 }
 
 HttpServer::~HttpServer() {
+    h2o_socket_read_stop(listener_socket);
+    h2o_socket_close(listener_socket);
+
+    // drain all existing messages
+    on_message(message_receiver, &message_receiver->_messages);
+
     h2o_multithread_unregister_receiver(message_queue, message_receiver);
     h2o_multithread_destroy_queue(message_queue);
+    free(message_queue);
     delete message_receiver;
 
     h2o_context_dispose(&ctx);
+    free(ctx.globalconf->server_name.base);
+    free(ctx.queue);
     h2o_evloop_destroy(ctx.loop);
     h2o_config_dispose(&config);
     delete accept_ctx;

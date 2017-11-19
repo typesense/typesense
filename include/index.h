@@ -2,6 +2,8 @@
 
 #include <string>
 #include <vector>
+#include <mutex>
+#include <condition_variable>
 #include <art.h>
 #include <number.h>
 #include <sparsepp.h>
