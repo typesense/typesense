@@ -95,7 +95,37 @@ void HttpServer::on_stop_server(void *data) {
     // do nothing
 }
 
+void HttpServer::clear_timeouts(std::vector<h2o_timeout_t*> & timeouts) {
+    for(h2o_timeout_t* timeout: timeouts) {
+        while (!h2o_linklist_is_empty(&timeout->_entries)) {
+            std::cout << "Removing entry..." << std::endl;
+            h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
+            h2o_linklist_unlink(&entry->_link);
+            entry->registered_at = 0;
+            entry->cb(entry);
+            h2o_timeout__do_post_callback(ctx.loop);
+        }
+    }
+}
+
 void HttpServer::stop() {
+    h2o_socket_read_stop(listener_socket);
+    h2o_socket_close(listener_socket);
+
+    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
+    std::vector<h2o_timeout_t*> timeouts = {
+        &ctx.zero_timeout,
+        &ctx.one_sec_timeout,
+        &ctx.hundred_ms_timeout,
+        &ctx.handshake_timeout,
+        &ctx.http1.req_timeout,
+        &ctx.http2.idle_timeout,
+        &ctx.http2.graceful_shutdown_timeout,
+        &ctx.proxy.io_timeout
+    };
+
+    clear_timeouts(timeouts);
+
     // this will break the event loop
     exit_loop = true;
 
@@ -324,9 +354,6 @@ void HttpServer::on(const std::string & message, void (*handler)(void*)) {
 }
 
 HttpServer::~HttpServer() {
-    h2o_socket_read_stop(listener_socket);
-    h2o_socket_close(listener_socket);
-
     // drain all existing messages
     on_message(message_receiver, &message_receiver->_messages);
 

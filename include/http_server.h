@@ -82,6 +82,8 @@ public:
 
     void stop();
 
+    void clear_timeouts(std::vector<h2o_timeout_t*> & timeouts);
+
     static void on_stop_server(void *data);
 
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
