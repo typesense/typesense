@@ -170,7 +170,7 @@ static void destroy_node(art_node *n) {
 
         case NODE48:
             p.p3 = (art_node48*)n;
-            for (i=0;i<n->num_children;i++) {
+            for (i=0;i<48;i++) {
                 destroy_node(p.p3->children[i]);
             }
             break;
