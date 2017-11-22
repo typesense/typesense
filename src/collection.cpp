@@ -542,9 +542,8 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
         return Option<std::string>(500, "Error while parsing stored document.");
     }
 
-    for(Index* index: indices) {
-        index->remove(seq_id, document);
-    }
+    Index* index = indices[seq_id % num_indices];
+    index->remove(seq_id, document);
 
     if(remove_from_store) {
         store->remove(get_doc_id_key(id));
