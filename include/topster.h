@@ -11,7 +11,7 @@
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
-template <size_t MAX_SIZE=100>
+template <size_t MAX_SIZE=512>
 struct Topster {
     struct KV {
         uint16_t query_index;

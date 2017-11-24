@@ -102,7 +102,7 @@ public:
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
     static const int MAX_SEARCH_TOKENS = 10;
-    static const int MAX_RESULTS = 100;
+    static const int MAX_RESULTS = 500;
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

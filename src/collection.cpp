@@ -303,7 +303,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
-    std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
+    std::vector<std::pair<int, Topster<512>::KV>> field_order_kvs;
     size_t total_found = 0;
 
     // send data to individual index threads
@@ -357,7 +357,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // All fields are sorted descending
     std::sort(field_order_kvs.begin(), field_order_kvs.end(),
-      [](const std::pair<int, Topster<100>::KV> & a, const std::pair<int, Topster<100>::KV> & b) {
+      [](const std::pair<int, Topster<512>::KV> & a, const std::pair<int, Topster<512>::KV> & b) {
           return std::tie(a.second.match_score, a.second.primary_attr, a.second.secondary_attr, a.first, a.second.key) >
                  std::tie(b.second.match_score, b.second.primary_attr, b.second.secondary_attr, b.first, b.second.key);
     });

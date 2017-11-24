@@ -279,7 +279,7 @@ void Index::do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t 
 void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                                    const std::vector<sort_by> & sort_fields,
                                    std::vector<token_candidates> & token_candidates_vec, const token_ordering token_order,
-                                   std::vector<std::vector<art_leaf*>> & searched_queries, Topster<100> & topster,
+                                   std::vector<std::vector<art_leaf*>> & searched_queries, Topster<512> & topster,
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
                                    const size_t & max_results, const bool prefix) {
     const size_t combination_limit = 10;
@@ -599,7 +599,7 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
                              const std::string & simple_filter_query, std::vector<facet> & facets,
                              std::vector<sort_by> sort_fields_std, const int num_typos,
                              const size_t per_page, const size_t page, const token_ordering token_order,
-                             const bool prefix, std::vector<std::pair<int, Topster<100>::KV>> & field_order_kvs,
+                             const bool prefix, std::vector<std::pair<int, Topster<512>::KV>> & field_order_kvs,
                              size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     const size_t num_results = (page * per_page);
@@ -619,7 +619,7 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
     uint32_t* all_result_ids = nullptr;
 
     for(int i = 0; i < search_fields.size(); i++) {
-        Topster<100> topster;
+        Topster<512> topster;
         const std::string & field = search_fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
         if(simple_filter_query.size() == 0 || filter_ids_length > 0) {
@@ -655,13 +655,13 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
 void Index::search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                               std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                               const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
-                              Topster<100> &topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
+                              Topster<512> &topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
                               const token_ordering token_order, const bool prefix) {
     std::vector<std::string> tokens;
     StringUtils::split(query, tokens, " ");
 
     const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-    const size_t max_results = Index::MAX_RESULTS;
+    const size_t max_results = Index::SEARCH_LIMIT_NUM;
 
     size_t total_results = topster.size;
 
@@ -819,7 +819,7 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 }
 
 void Index::score_results(const std::vector<sort_by> & sort_fields, const int & query_index,
-                          const uint32_t total_cost, Topster<100> & topster,
+                          const uint32_t total_cost, Topster<512> & topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           const uint32_t *result_ids, const size_t result_size) const {
 

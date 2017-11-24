@@ -30,7 +30,7 @@ struct search_args {
     size_t page;
     token_ordering token_order;
     bool prefix;
-    std::vector<std::pair<int, Topster<100>::KV>> field_order_kvs;
+    std::vector<std::pair<int, Topster<512>::KV>> field_order_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
 
@@ -87,13 +87,13 @@ private:
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, const size_t num_results,
                       std::vector<std::vector<art_leaf*>> & searched_queries,
-                      Topster<100> & topster, uint32_t** all_result_ids,
+                      Topster<512> & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster<100> & topster, size_t & total_results, uint32_t** all_result_ids,
+                           Topster<512> & topster, size_t & total_results, uint32_t** all_result_ids,
                            size_t & all_result_ids_len, const size_t & max_results, const bool prefix);
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
@@ -132,19 +132,19 @@ public:
                           std::vector<sort_by> sort_fields_std, const int num_typos,
                           const size_t per_page, const size_t page,
                           const token_ordering token_order, const bool prefix,
-                          std::vector<std::pair<int, Topster<100>::KV>> & field_order_kv,
+                          std::vector<std::pair<int, Topster<512>::KV>> & field_order_kv,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries);
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
     void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const uint32_t total_cost,
-                       Topster<100> &topster, const std::vector<art_leaf *> & query_suggestion,
+                       Topster<512> &topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
 
     static const int MAX_SEARCH_TOKENS = 10;
-    static const int MAX_RESULTS = 100;
+    static const int SEARCH_LIMIT_NUM = 100;  // for limiting number of results on multiple candidates / query rewrites
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};
