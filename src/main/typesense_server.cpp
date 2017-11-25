@@ -20,11 +20,15 @@ void catch_interrupt(int sig) {
 int main(int argc, char **argv) {
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
-    options.add<std::string>("api-auth-key", 'k', "Key for authenticating the API endpoints.", true);
-    options.add<std::string>("listen-address", 'a', "Address to which Typesense server binds.", false, "0.0.0.0");
+    options.add<std::string>("api-auth-key", 'a', "Key for authenticating the API endpoints.", true);
+    options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
-    options.add<std::string>("master", 'm', "<master_address>:<master_port> combination to start the server as a "
-                                            "read-only replica.", false, "");
+    options.add<std::string>("master", 'm', "Master host in http(s)://<master_address>:<master_port> format "
+                                            "to start the server as a read-only replica.", false, "");
+
+    options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
+    options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
+
     options.parse_check(argc, argv);
 
     signal(SIGINT, catch_interrupt);
@@ -42,7 +46,9 @@ int main(int argc, char **argv) {
 
     server = new HttpServer(
         options.get<std::string>("listen-address"),
-        options.get<uint32_t>("listen-port")
+        options.get<uint32_t>("listen-port"),
+        options.get<std::string>("ssl-certificate"),
+        options.get<std::string>("ssl-certificate-key")
     );
 
     // collection management
@@ -68,8 +74,8 @@ int main(int argc, char **argv) {
         const std::string & master_host_port = options.get<std::string>("master");
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
-        if(parts.size() != 2) {
-            std::cerr << "Invalid value for --master option. Usage: <master_address>:<master_port>" << std::endl;
+        if(parts.size() != 3) {
+            std::cerr << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>" << std::endl;
             return 1;
         }
 

@@ -18,8 +18,10 @@ struct h2o_custom_res_message_t {
     void* data;
 };
 
-HttpServer::HttpServer(std::string listen_address, uint32_t listen_port):
-                       listen_address(listen_address), listen_port(listen_port) {
+HttpServer::HttpServer(std::string listen_address, uint32_t listen_port,
+                       std::string ssl_cert_path, std::string ssl_cert_key_path):
+                       listen_address(listen_address), listen_port(listen_port),
+                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -41,9 +43,52 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
     h2o_accept(http_server->accept_ctx, sock);
 }
 
+int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
+    SSL_load_error_strings();
+    SSL_library_init();
+
+    accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
+
+    // As recommended by:
+    // https://github.com/ssllabs/research/wiki/SSL-and-TLS-Deployment-Best-Practices#23-use-secure-cipher-suites
+    SSL_CTX_set_cipher_list(accept_ctx->ssl_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:"
+            "ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:"
+            "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:"
+            "ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:"
+            "DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA256");
+
+    // Without this, DH and ECDH ciphers will be ignored by OpenSSL
+    int nid = NID_X9_62_prime256v1;
+    EC_KEY *key = EC_KEY_new_by_curve_name(nid);
+    if (key == NULL) {
+        std::cout << "Failed to create DH/ECDH." << std::endl;
+        return -1;
+    }
+    SSL_CTX_set_tmp_ecdh(accept_ctx->ssl_ctx, key);
+    EC_KEY_free(key);
+
+    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
+
+    if (SSL_CTX_use_certificate_file(accept_ctx->ssl_ctx, cert_file, SSL_FILETYPE_PEM) != 1) {
+        std::cout << "An error occurred while trying to load server certificate file:" << cert_file << std::endl;
+        return -1;
+    }
+    if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
+        std::cout << "An error occurred while trying to load private key file: " << key_file << std::endl;
+        return -1;
+    }
+
+    h2o_ssl_register_alpn_protocols(accept_ctx->ssl_ctx, h2o_http2_alpn_protocols);
+    return 0;
+}
+
 int HttpServer::create_listener(void) {
     struct sockaddr_in addr;
     int fd, reuseaddr_flag = 1;
+
+    if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
+        setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+    }
 
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;

@@ -23,6 +23,7 @@ public:
     long get_reponse(std::string & response) {
         CURL *curl = curl_easy_init();
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // to allow self-signed certs
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
 

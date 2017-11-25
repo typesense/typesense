@@ -72,6 +72,7 @@
 - ~~change "search_by" to "query_by"~~
 - ~~during index_in_memory() validations should be front loaded~~
 - ~~Support token ranking field being a float~~
+- ~~https support~~
 - get collection should show schema
 - highlight of string arrays?
 - NOT operator support
@@ -80,7 +81,6 @@
 - Test for snippets
 - Test for replication
 - Proper logging
-- https support
 - Validate before string to int conversion in the http api layer
 - > INT32_MAX validation for float field
 - art bool support

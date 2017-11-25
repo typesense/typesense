@@ -40,7 +40,13 @@ private:
 
     const uint32_t listen_port;
 
+    std::string ssl_cert_path;
+
+    std::string ssl_cert_key_path;
+
     static void on_accept(h2o_socket_t *listener, const char *err);
+
+    int setup_ssl(const char *cert_file, const char *key_file);
 
     int create_listener();
 
@@ -60,7 +66,8 @@ private:
     static constexpr const char* SEND_RESPONSE_MSG = "send_response";
 
 public:
-    HttpServer(std::string listen_address, uint32_t listen_port);
+    HttpServer(std::string listen_address, uint32_t listen_port,
+               std::string ssl_cert_path, std::string ssl_cert_key_path);
 
     ~HttpServer();
 
