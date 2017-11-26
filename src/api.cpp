@@ -140,6 +140,18 @@ void get_search(http_req & req, http_res & res) {
         req.params[PAGE] = "1";
     }
 
+    if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
+        return res.send_400("Parameter `" + NUM_TYPOS + "` must be an unsigned integer.");
+    }
+
+    if(!StringUtils::is_uint64_t(req.params[PER_PAGE])) {
+        return res.send_400("Parameter `" + PER_PAGE + "` must be an unsigned integer.");
+    }
+
+    if(!StringUtils::is_uint64_t(req.params[PAGE])) {
+        return res.send_400("Parameter `" + PAGE + "` must be an unsigned integer.");
+    }
+
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
 
     std::vector<std::string> search_fields;
