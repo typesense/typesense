@@ -13,8 +13,6 @@ extern "C" {
 #include <string>
 #include <stdio.h>
 #include "http_data.h"
-#include "collection.h"
-#include "collection_manager.h"
 
 struct request_response {
     http_req* req;
@@ -44,6 +42,8 @@ private:
 
     std::string ssl_cert_key_path;
 
+    bool (*auth_handler)(const route_path & rpath, const std::string & auth_key);
+
     static void on_accept(h2o_socket_t *listener, const char *err);
 
     int setup_ssl(const char *cert_file, const char *key_file);
@@ -71,6 +71,8 @@ public:
 
     ~HttpServer();
 
+    void set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key));
+
     void get(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
 
     void post(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
@@ -95,5 +97,4 @@ public:
 
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
-
 };

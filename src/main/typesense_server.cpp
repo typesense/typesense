@@ -20,14 +20,16 @@ void catch_interrupt(int sig) {
 int main(int argc, char **argv) {
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
-    options.add<std::string>("api-auth-key", 'a', "Key for authenticating the API endpoints.", true);
+    options.add<std::string>("api-key", 'k', "API key that allows all operations.", true);
+    options.add<std::string>("search-only-api-key", 's', "API key that allows only searches.", false);
+
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
     options.add<std::string>("master", 'm', "Master host in http(s)://<master_address>:<master_port> format "
                                             "to start the server as a read-only replica.", false, "");
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
-    options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
+    options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");
 
     options.parse_check(argc, argv);
 
@@ -35,7 +37,8 @@ int main(int argc, char **argv) {
 
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-auth-key"));
+    Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-key"),
+                                                  options.get<std::string>("search-only-api-key"));
 
     if(init_op.ok()) {
         std::cout << "Finished restoring all collections from disk." << std::endl;
@@ -52,6 +55,7 @@ int main(int argc, char **argv) {
     );
 
     // collection management
+    server->set_auth_handler(handle_authentication);
     server->post("/collections", post_create_collection, true);
     server->get("/collections", get_collections, true);
     server->del("/collections/:collection", del_drop_collection, true);

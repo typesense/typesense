@@ -2,6 +2,8 @@
 
 #include "http_server.h"
 
+bool handle_authentication(const route_path & rpath, const std::string & auth_key);
+
 void get_collections(http_req & req, http_res & res);
 
 void post_create_collection(http_req & req, http_res & res);

@@ -5,6 +5,7 @@
 #include <thread>
 #include <signal.h>
 #include <h2o.h>
+#include <iostream>
 
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
@@ -261,6 +262,15 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     std::map<std::string, std::string> query_map = parse_query(query_str);
     const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
+    // extract auth key from header if present
+    std::string auth_key_from_header = "";
+    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER,
+                                                        strlen(AUTH_HEADER), -1);
+    if(auth_header_cursor != -1) {
+        h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
+        auth_key_from_header = std::string(slot.base, slot.len);
+    }
+
     for(const route_path & rpath: self->http_server->routes) {
         if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
             continue;
@@ -280,30 +290,16 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         check_next_route:
 
         if(found) {
-            // routes match - iterate and extract path params
+            bool authenticated = self->http_server->auth_handler(rpath, auth_key_from_header);
+            if(!authenticated) {
+                return send_401_unauthorized(req);
+            }
+
+            // routes match and is an authenticated request - iterate and extract path params
             for(size_t i = 0; i < rpath.path_parts.size(); i++) {
                 const std::string & path_part = rpath.path_parts[i];
                 if(path_part[0] == ':') {
                     query_map.emplace(path_part.substr(1), path_parts[i]);
-                }
-            }
-
-            if(rpath.authenticated) {
-                CollectionManager & collectionManager = CollectionManager::get_instance();
-                ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER,
-                                                                    strlen(AUTH_HEADER), -1);
-
-                if(auth_header_cursor == -1) {
-                    // requires authentication, but API Key is not present in the headers
-                    return send_401_unauthorized(req);
-                } else {
-                    // api key is found, let's validate
-                    h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
-                    std::string auth_key_from_header = std::string(slot.base, slot.len);
-
-                    if(!collectionManager.auth_key_matches(auth_key_from_header)) {
-                        return send_401_unauthorized(req);
-                    }
                 }
             }
 
@@ -364,6 +360,10 @@ int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
     return 0;
+}
+
+void HttpServer::set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key)) {
+    auth_handler = handler;
 }
 
 void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated, bool async) {

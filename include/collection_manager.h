@@ -26,6 +26,7 @@ private:
     static constexpr const char* COLLECTION_TOKEN_ORDERING_FIELD_KEY = "token_ranking_field";
 
     std::string auth_key;
+    std::string search_only_auth_key;
 
     CollectionManager();
 
@@ -40,7 +41,7 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    Option<bool> init(Store *store, const std::string & auth_key);
+    Option<bool> init(Store *store, const std::string & auth_key, const std::string & search_only_auth_key);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();
@@ -50,6 +51,8 @@ public:
     void add_to_collections(Collection* collection);
 
     bool auth_key_matches(std::string auth_key_sent);
+
+    bool search_only_auth_key_matches(std::string auth_key_sent);
 
     Option<Collection*> create_collection(std::string name, const std::vector<field> & fields,
                                           const std::string & token_ranking_field = "");

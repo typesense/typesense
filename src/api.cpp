@@ -7,6 +7,15 @@
 #include "collection.h"
 #include "collection_manager.h"
 
+bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    if(rpath.handler == get_search) {
+        return collectionManager.auth_key_matches(auth_key) || collectionManager.search_only_auth_key_matches(auth_key);
+    }
+
+    return collectionManager.auth_key_matches(auth_key);
+}
+
 void get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<Collection*> collections = collectionManager.get_collections();
@@ -141,15 +150,15 @@ void get_search(http_req & req, http_res & res) {
     }
 
     if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
-        return res.send_400("Parameter `" + NUM_TYPOS + "` must be an unsigned integer.");
+        return res.send_400("Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
     }
 
     if(!StringUtils::is_uint64_t(req.params[PER_PAGE])) {
-        return res.send_400("Parameter `" + PER_PAGE + "` must be an unsigned integer.");
+        return res.send_400("Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
     }
 
     if(!StringUtils::is_uint64_t(req.params[PAGE])) {
-        return res.send_400("Parameter `" + PAGE + "` must be an unsigned integer.");
+        return res.send_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
     }
 
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
