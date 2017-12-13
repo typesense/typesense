@@ -1,0 +1,10 @@
+{"popular": true, "title": "Shawshank Redemption", "rating": 9.9, "bool_array": [true, true]}
+{"popular": true, "title": "The Godfather", "rating": 9.9, "bool_array": [false, true]}
+{"popular": false, "title": "Daniel the Wizard", "rating": 1.6, "bool_array": [true, true]}
+{"popular": true, "title": "The Schindler's List", "rating": 9.8, "bool_array": [false, false]}
+{"popular": true, "title": "The Wizard of Oz", "rating": 8.9, "bool_array": [true, true]}
+{"popular": true, "title": "Casablanca", "rating": 9.1, "bool_array": [true, false]}
+{"popular": true, "title": "Raging Bull", "rating": 9.0, "bool_array": [true, true]}
+{"popular": true, "title": "Citizen Kane", "rating": 8.9, "bool_array": [false, false]}
+{"popular": false, "title": "Saving Christmas", "rating": 1.5, "bool_array": [false, true]}
+{"popular": false, "title": "The Legend of the Titanic", "rating": 2.0, "bool_array": [true, false]}

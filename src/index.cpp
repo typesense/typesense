@@ -69,6 +69,9 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         } else if(field_pair.second.type == field_types::FLOAT) {
             float value = document[field_name];
             index_float_field(value, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::BOOL) {
+            bool value = document[field_name];
+            index_bool_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             std::vector<std::string> strings = document[field_name];
             index_string_array_field(strings, points, t, seq_id, field_pair.second.is_facet());
@@ -81,17 +84,22 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
             std::vector<float> values = document[field_name];
             index_float_array_field(values, points, t, seq_id);
+        } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+            std::vector<bool> values = document[field_name];
+            index_bool_array_field(values, points, t, seq_id);
         }
 
         // add numerical values automatically into sort index
         if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64 ||
-                field_pair.second.type == field_types::FLOAT) {
+                field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL) {
             spp::sparse_hash_map<uint32_t, number_t> *doc_to_score = sort_index.at(field_pair.first);
 
             if(document[field_pair.first].is_number_integer()) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<int64_t>());
             } else if(document[field_pair.first].is_number_float()) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<float>());
+            } else if(document[field_pair.first].is_boolean()) {
+                doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
             }
         }
     }
@@ -140,6 +148,29 @@ void Index::index_int64_field(const int64_t value, uint32_t score, art_tree *t, 
     unsigned char key[KEY_LEN];
 
     encode_int64(value, key);
+
+    uint32_t num_hits = 0;
+    art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
+    if(leaf != NULL) {
+        num_hits = leaf->values->ids.getLength();
+    }
+
+    num_hits += 1;
+
+    art_document art_doc;
+    art_doc.id = seq_id;
+    art_doc.score = score;
+    art_doc.offsets_len = 0;
+    art_doc.offsets = nullptr;
+
+    art_insert(t, key, KEY_LEN, &art_doc, num_hits);
+}
+
+void Index::index_bool_field(const bool value, const uint32_t score, art_tree *t, uint32_t seq_id) const {
+    const int KEY_LEN = 1;
+    unsigned char key[KEY_LEN];
+    key[0] = value ? '1' : '0';
+    //key[1] = '\0';
 
     uint32_t num_hits = 0;
     art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
@@ -246,6 +277,13 @@ void Index::index_int64_array_field(const std::vector<int64_t> & values, const u
                                          uint32_t seq_id) const {
     for(const int64_t value: values) {
         index_int64_field(value, score, t, seq_id);
+    }
+}
+
+void Index::index_bool_array_field(const std::vector<bool> & values, const uint32_t score, art_tree *t,
+                                   uint32_t seq_id) const {
+    for(const bool value: values) {
+        index_bool_field(value, score, t, seq_id);
     }
 }
 
@@ -382,95 +420,10 @@ size_t Index::union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_ar
     return results_length;
 }
 
-Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::string & simple_filter_str) {
-    // parse the filter string
-    std::vector<std::string> filter_blocks;
-    StringUtils::split(simple_filter_str, filter_blocks, "&&");
-
-    std::vector<filter> filters;
-
-    for(const std::string & filter_block: filter_blocks) {
-        // split into [field_name, value]
-        std::vector<std::string> expression_parts;
-        StringUtils::split(filter_block, expression_parts, ":");
-        if(expression_parts.size() != 2) {
-            return Option<>(400, "Could not parse the filter query.");
-        }
-
-        const std::string & field_name = expression_parts[0];
-        if(search_schema.count(field_name) == 0) {
-            return Option<>(400, "Could not find a filter field named `" + field_name + "` in the schema.");
-        }
-
-        field _field = search_schema.at(field_name);
-        std::string & raw_value = expression_parts[1];
-        filter f;
-
-        if(_field.is_integer() || _field.is_float()) {
-            // could be a single value or a list
-            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
-                std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-
-                for(const std::string & filter_value: filter_values) {
-                    if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
-                        return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
-                    }
-
-                    if(_field.is_float() && !StringUtils::is_float(filter_value)) {
-                        return Option<>(400, "Error with field `" + _field.name + "`: Not a float.");
-                    }
-                }
-
-                f = {field_name, filter_values, EQUALS};
-            } else {
-                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
-                if(!op_comparator.ok()) {
-                    return Option<>(400, "Error with field `" + _field.name + "`: " + op_comparator.error());
-                }
-
-                // extract numerical value
-                std::string filter_value;
-                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
-                    filter_value = raw_value.substr(1);
-                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
-                    filter_value = raw_value.substr(2);
-                } else {
-                    // EQUALS
-                    filter_value = raw_value;
-                }
-
-                filter_value = StringUtils::trim(filter_value);
-
-                if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
-                    return Option<>(400, "Error with field `" + _field.name + "`: Not an integer.");
-                }
-
-                if(_field.is_float() && !StringUtils::is_float(filter_value)) {
-                    return Option<>(400, "Error with field `" + _field.name + "`: Not a float.");
-                }
-
-                f = {field_name, {filter_value}, op_comparator.get()};
-            }
-        } else if(_field.is_string()) {
-            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
-                std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-                f = {field_name, filter_values, EQUALS};
-            } else {
-                f = {field_name, {raw_value}, EQUALS};
-            }
-        } else {
-            return Option<>(400, "Error with field `" + _field.name + "`: Unidentified field type.");
-        }
-
-        filters.push_back(f);
-    }
-
+Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
 
-    // process the filters first
     for(auto i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
@@ -505,6 +458,17 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::strin
                     for(const art_leaf* leaf: leaves) {
                         filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
                                                                 leaf->values->ids.getLength()));
+                    }
+                }
+            } else if(f.is_bool()) {
+                std::vector<const art_leaf*> leaves;
+
+                for(const std::string & filter_value: a_filter.values) {
+                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(),
+                                                             filter_value.length());
+                    if(leaf) {
+                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
+                                                                           leaf->values->ids.getLength()));
                     }
                 }
             } else if(f.is_string()) {
@@ -580,7 +544,8 @@ void Index::run_search() {
         }
 
         // after the wait, we own the lock.
-        search(search_params.query, search_params.search_fields, search_params.simple_filter_query, search_params.facets,
+        search(search_params.outcome, search_params.query, search_params.search_fields,
+               search_params.filters, search_params.facets,
                search_params.sort_fields_std, search_params.num_typos, search_params.per_page, search_params.page,
                search_params.token_order, search_params.prefix, search_params.field_order_kvs,
                search_params.all_result_ids_len, search_params.searched_queries);
@@ -595,8 +560,8 @@ void Index::run_search() {
     }
 }
 
-Option<size_t> Index::search(std::string query, const std::vector<std::string> search_fields,
-                             const std::string & simple_filter_query, std::vector<facet> & facets,
+void Index::search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> search_fields,
+                             const std::vector<filter> & filters, std::vector<facet> & facets,
                              std::vector<sort_by> sort_fields_std, const int num_typos,
                              const size_t per_page, const size_t page, const token_ordering token_order,
                              const bool prefix, std::vector<std::pair<int, Topster<512>::KV>> & field_order_kvs,
@@ -607,9 +572,10 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
     // process the filters first
 
     uint32_t* filter_ids = nullptr;
-    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, simple_filter_query);
+    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, filters);
     if(!op_filter_ids_length.ok()) {
-        return Option<size_t>(op_filter_ids_length.code(), op_filter_ids_length.error());
+        outcome = Option<uint32_t>(op_filter_ids_length);
+        return ;
     }
 
     const uint32_t filter_ids_length = op_filter_ids_length.get();
@@ -622,7 +588,7 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
         Topster<512> topster;
         const std::string & field = search_fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
-        if(simple_filter_query.size() == 0 || filter_ids_length > 0) {
+        if(filters.size() == 0 || filter_ids_length > 0) {
             search_field(query, field, filter_ids, filter_ids_length, facets, sort_fields_std, num_typos, num_results,
                          searched_queries, topster, &all_result_ids, all_result_ids_len, token_order, prefix);
             topster.sort();
@@ -640,7 +606,7 @@ Option<size_t> Index::search(std::string query, const std::vector<std::string> s
     long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
 
-    return Option<size_t>(field_order_kvs.size());
+    outcome = Option<uint32_t>(field_order_kvs.size());
 }
 
 /*
@@ -1051,6 +1017,20 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
                 const int KEY_LEN = 8;
                 unsigned char key[KEY_LEN];
                 encode_float(value, key);
+                tokens.push_back(std::string((char*)key, KEY_LEN));
+            }
+        } else if(name_field.second.type == field_types::BOOL) {
+            const int KEY_LEN = 1;
+            unsigned char key[KEY_LEN];
+            bool value = document[name_field.first].get<bool>();
+            key[0] = value ? '1' : '0';
+            tokens.push_back(std::string((char*)key, KEY_LEN));
+        } else if(name_field.second.type == field_types::BOOL_ARRAY) {
+            std::vector<bool> values = document[name_field.first].get<std::vector<bool>>();
+            for(const bool value: values) {
+                const int KEY_LEN = 1;
+                unsigned char key[KEY_LEN];
+                key[0] = value ? '1' : '0';
                 tokens.push_back(std::string((char*)key, KEY_LEN));
             }
         }

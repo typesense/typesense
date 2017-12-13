@@ -22,7 +22,7 @@ struct token_candidates {
 struct search_args {
     std::string query;
     std::vector<std::string> search_fields;
-    std::string simple_filter_query;
+    std::vector<filter> filters;
     std::vector<facet> facets;
     std::vector<sort_by> sort_fields_std;
     int num_typos;
@@ -33,17 +33,18 @@ struct search_args {
     std::vector<std::pair<int, Topster<512>::KV>> field_order_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
+    Option<uint32_t> outcome;
 
-    search_args() {
+    search_args(): outcome(0) {
 
     }
 
-    search_args(std::string query, std::vector<std::string> search_fields, std::string simple_filter_query,
+    search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::vector<sort_by> sort_fields_std, int num_typos,
                 size_t per_page, size_t page, token_ordering token_order, bool prefix):
-            query(query), search_fields(search_fields), simple_filter_query(simple_filter_query), facets(facets),
+            query(query), search_fields(search_fields), filters(filters), facets(facets),
             sort_fields_std(sort_fields_std), num_typos(num_typos), per_page(per_page), page(page),
-            token_order(token_order), prefix(prefix), all_result_ids_len(0) {
+            token_order(token_order), prefix(prefix), all_result_ids_len(0), outcome(0) {
 
     }
 };
@@ -75,7 +76,7 @@ private:
 
     size_t union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_array_pairs, uint32_t **results_out);
 
-    Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::string & simple_filter_str);
+    Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
     void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
@@ -107,12 +108,16 @@ private:
     void index_int64_field(const int64_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_float_field(const float value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    
+    void index_bool_field(const bool value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    
+    void index_bool_array_field(const std::vector<bool> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);
@@ -127,8 +132,8 @@ public:
 
     void run_search();
 
-    Option<size_t> search(std::string query, const std::vector<std::string> search_fields,
-                          const std::string & simple_filter_query, std::vector<facet> & facets,
+    void search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> search_fields,
+                          const std::vector<filter> & filters, std::vector<facet> & facets,
                           std::vector<sort_by> sort_fields_std, const int num_typos,
                           const size_t per_page, const size_t page,
                           const token_ordering token_order, const bool prefix,

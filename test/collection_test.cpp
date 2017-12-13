@@ -22,7 +22,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, "auth_key");
+        collectionManager.init(store, "auth_key", "search_auth_key");
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         std::vector<field> search_fields = {
@@ -956,6 +956,93 @@ TEST_F(CollectionTest, SortOnFloatFields) {
     collectionManager.drop_collection("coll_float_fields");
 }
 
+TEST_F(CollectionTest, QueryBoolFields) {
+    Collection *coll_bool;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
+    std::vector<field> fields = {
+        field("popular", field_types::BOOL, false),
+        field("title", field_types::STRING, false),
+        field("rating", field_types::FLOAT, false),
+        field("bool_array", field_types::BOOL_ARRAY, false),
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("popular", "DESC"), sort_by("rating", "DESC") };
+
+    coll_bool = collectionManager.get_collection("coll_bool");
+    if(coll_bool == nullptr) {
+        coll_bool = collectionManager.create_collection("coll_bool", fields).get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        Option<std::string> op = coll_bool->add(json_line);
+    }
+
+    infile.close();
+
+    // Plain search with no filters - results should be sorted correctly
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_bool->search("the", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::vector<std::string> ids = {"1", "3", "4", "9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Searching on a bool field
+    results = coll_bool->search("the", query_fields, "popular:true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "3", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll_bool->search("the", query_fields, "popular:false", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // searching against a bool array field
+
+    // should be able to search only with a single boolean value
+    Option<nlohmann::json> res_op = coll_bool->search("the", query_fields, "bool_array:[true, false]", facets,
+                                                      sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_EQ(false, res_op.ok());
+
+    results = coll_bool->search("the", query_fields, "bool_array: true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ids = {"1", "4", "9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("coll_bool");
+}
+
 TEST_F(CollectionTest, FilterOnTextFields) {
     Collection *coll_array_fields;
 
@@ -1082,9 +1169,9 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
     results = coll_array_fields->search("Jeremy", query_fields, "timestamps abcdef", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
-    // just empty spaces
+    // just spaces - must be treated as empty filter
     results = coll_array_fields->search("Jeremy", query_fields, "  ", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(5, results["hits"].size());
 
     // wrapping number with quotes
     results = coll_array_fields->search("Jeremy", query_fields, "age: '21'", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();

@@ -10,10 +10,12 @@ namespace field_types {
     static const std::string INT32 = "int32";
     static const std::string INT64 = "int64";
     static const std::string FLOAT = "float";
-    static const std::string FLOAT_ARRAY = "float[]";
+    static const std::string BOOL = "bool";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";
     static const std::string INT64_ARRAY = "int64[]";
+    static const std::string FLOAT_ARRAY = "float[]";
+    static const std::string BOOL_ARRAY = "bool[]";
 }
 
 namespace fields {
@@ -39,6 +41,10 @@ struct field {
         return (type == field_types::FLOAT);
     }
 
+    bool is_single_bool() const {
+        return (type == field_types::BOOL);
+    }
+
     bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
                type == field_types::INT64 || type == field_types::INT64_ARRAY);
@@ -46,6 +52,10 @@ struct field {
 
     bool is_float() const {
         return (type == field_types::FLOAT || type == field_types::FLOAT_ARRAY);
+    }
+
+    bool is_bool() const {
+        return (type == field_types::BOOL || type == field_types::BOOL_ARRAY);
     }
 
     bool is_string() const {

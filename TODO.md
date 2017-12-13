@@ -74,17 +74,19 @@
 - ~~Support token ranking field being a float~~
 - ~~https support~~
 - ~~Validate before string to int conversion in the http api layer~~
+- ~~art bool support~~
+- NOT operator support
 - handle hyphens (replace them)
 - get collection should show schema
+- Iterator
+- clean special chars before indexing
+- > INT32_MAX validation for float field
+- Proper logging
 - highlight of string arrays?
-- NOT operator support
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - Test for snippets
 - Test for replication
-- Proper logging
-- > INT32_MAX validation for float field
-- art bool support
 - Add docs/explanation around ranking calc
 - Use rocksdb batch put for atomic insertion
 - Query token ids should match query token ordering
@@ -94,9 +96,7 @@
 - Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
 - Test for string utils
 - Prevent string copy during indexing
-- clean special chars before indexing
 - Minimum results should be a variable instead of blindly going with max_results
-- Iterator
 - UTF-8 support for fuzzy search
 - Handle searching for non-existing fields gracefully
 - test for same match score but different primary, secondary attr

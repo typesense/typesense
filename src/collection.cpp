@@ -20,7 +20,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
             facet_schema.emplace(field.name, field);
         }
 
-        if(field.is_single_integer() || field.is_single_float()) {
+        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool()) {
             sort_schema.emplace(field.name, field);
         }
     }
@@ -142,6 +142,10 @@ Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &docu
             if(!document[field_name].is_number()) { // allows integer to be passed to a float field
                 return Option<>(400, "Field `" + field_name  + "` must be a float.");
             }
+        } else if(field_pair.second.type == field_types::BOOL) {
+            if(!document[field_name].is_boolean()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool.");
+            }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a string array.");
@@ -172,6 +176,14 @@ Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &docu
 
             if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a float array.");
+            }
+        } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_boolean()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
             }
         }
     }
@@ -258,6 +270,95 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         }
     }
 
+    // validate filter fields
+    std::vector<std::string> filter_blocks;
+    StringUtils::split(simple_filter_query, filter_blocks, "&&");
+
+    std::vector<filter> filters;
+    for(const std::string & filter_block: filter_blocks) {
+        // split into [field_name, value]
+        std::vector<std::string> expression_parts;
+        StringUtils::split(filter_block, expression_parts, ":");
+        if(expression_parts.size() != 2) {
+            return Option<nlohmann::json>(400, "Could not parse the filter query.");
+        }
+
+        const std::string & field_name = expression_parts[0];
+        if(search_schema.count(field_name) == 0) {
+            return Option<nlohmann::json>(400, "Could not find a filter field named `" + field_name + "` in the schema.");
+        }
+
+        field _field = search_schema.at(field_name);
+        std::string & raw_value = expression_parts[1];
+        filter f;
+
+        if(_field.is_integer() || _field.is_float()) {
+            // could be a single value or a list
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+                for(const std::string & filter_value: filter_values) {
+                    if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
+                        return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                    }
+
+                    if(_field.is_float() && !StringUtils::is_float(filter_value)) {
+                        return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not a float.");
+                    }
+                }
+
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
+                if(!op_comparator.ok()) {
+                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: " + op_comparator.error());
+                }
+
+                // extract numerical value
+                std::string filter_value;
+                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
+                    filter_value = raw_value.substr(1);
+                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
+                    filter_value = raw_value.substr(2);
+                } else {
+                    // EQUALS
+                    filter_value = raw_value;
+                }
+
+                filter_value = StringUtils::trim(filter_value);
+
+                if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
+                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                }
+
+                if(_field.is_float() && !StringUtils::is_float(filter_value)) {
+                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not a float.");
+                }
+
+                f = {field_name, {filter_value}, op_comparator.get()};
+            }
+        } else if(_field.is_bool()) {
+            if(raw_value != "true" && raw_value != "false") {
+                return Option<nlohmann::json>(400, "Value of field `" + _field.name + "`: must be `true` or `false`.");
+            }
+            std::string bool_value = (raw_value == "true") ? "1" : "0";
+            f = {field_name, {bool_value}, EQUALS};
+        } else if(_field.is_string()) {
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                f = {field_name, {raw_value}, EQUALS};
+            }
+        } else {
+            return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Unidentified field type.");
+        }
+
+        filters.push_back(f);
+    }
+
     // validate facet fields
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
@@ -308,7 +409,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // send data to individual index threads
     for(Index* index: indices) {
-        index->search_params = search_args(query, search_fields, simple_filter_query, facets, sort_fields_std,
+        index->search_params = search_args(query, search_fields, filters, facets, sort_fields_std,
                                            num_typos, per_page, page, token_order, prefix);
         {
             std::lock_guard<std::mutex> lk(index->m);
@@ -318,11 +419,23 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         index->cv.notify_one();
     }
 
+    Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
+
     for(Index* index: indices) {
         // wait for the worker
         {
             std::unique_lock<std::mutex> lk(index->m);
             index->cv.wait(lk, [index]{return index->processed;});
+        }
+
+        if(!index->search_params.outcome.ok()) {
+            index_search_op = Option<nlohmann::json>(index->search_params.outcome.code(),
+                                                    index->search_params.outcome.error());
+        }
+
+        if(!index_search_op.ok()) {
+            // we still need to iterate without breaking to release the locks
+            continue;
         }
 
         // need to remap the search query index before appending
@@ -353,6 +466,10 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         }
 
         total_found += index->search_params.all_result_ids_len;
+    }
+
+    if(!index_search_op.ok()) {
+        return index_search_op;
     }
 
     // All fields are sorted descending

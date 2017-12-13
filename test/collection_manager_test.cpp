@@ -19,7 +19,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, "auth_key");
+        collectionManager.init(store, "auth_key", "search_auth_key");
 
         search_fields = {
                 field("title", field_types::STRING, false),
@@ -123,7 +123,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, "auth_key");
+    collectionManager2.init(store, "auth_key", "search_auth_key");
 
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
