@@ -71,8 +71,13 @@ void post_create_collection(http_req & req, http_res & res) {
             field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
             !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
 
-            return res.send_400("Wrong format for `fields`. It should be an array like: "
-                                "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+            return res.send_400("Wrong format for `fields`. It should be an array of objects containing "
+                                "`name`, `type` and optionally, `facet` properties.");
+        }
+
+        if(field_json.count("facet") != 0 && !field_json.at(fields::facet).is_boolean()) {
+            return res.send_400(std::string("The `facet` property of the field `") +
+                                field_json.at(fields::name).get<std::string>() + "` should be a boolean.");
         }
 
         if(field_json.count("facet") == 0) {
@@ -256,6 +261,21 @@ void get_collection_summary(http_req & req, http_res & res) {
 
     json_response["name"] = collection->get_name();
     json_response["num_documents"] = collection->get_num_documents();
+
+    const std::vector<field> & coll_fields = collection->get_fields();
+    nlohmann::json fields_arr;
+
+    for(const field & coll_field: coll_fields) {
+        nlohmann::json field_json;
+        field_json[fields::name] = coll_field.name;
+        field_json[fields::type] = coll_field.type;
+        field_json[fields::facet] = coll_field.facet;
+        fields_arr.push_back(field_json);
+    }
+
+    json_response["fields"] = fields_arr;
+    json_response["prefix_sort_field"] = collection->get_token_ranking_field();
+
     res.send_200(json_response.dump());
 }
 

@@ -33,6 +33,8 @@ private:
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
 
+    std::vector<field> fields;
+
     spp::sparse_hash_map<std::string, field> search_schema;
 
     spp::sparse_hash_map<std::string, field> facet_schema;
@@ -82,6 +84,8 @@ public:
     std::vector<std::string> get_facet_fields();
 
     std::vector<field> get_sort_fields();
+
+    std::vector<field> get_fields();
 
     spp::sparse_hash_map<std::string, field> get_schema();
 

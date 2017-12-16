@@ -10,7 +10,7 @@
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & token_ranking_field):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       token_ranking_field(token_ranking_field) {
+                       fields(fields), token_ranking_field(token_ranking_field) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -733,6 +733,10 @@ std::vector<field> Collection::get_sort_fields() {
     }
 
     return sort_fields_copy;
+}
+
+std::vector<field> Collection::get_fields() {
+    return fields;
 }
 
 spp::sparse_hash_map<std::string, field> Collection::get_schema() {

@@ -76,7 +76,7 @@
 - ~~Validate before string to int conversion in the http api layer~~
 - ~~art bool support~~
 - ~~Export collection~~
-- get collection should show schema
+- ~~get collection should show schema~~
 - handle hyphens (replace them)
 - clean special chars before indexing
 - NOT operator support
