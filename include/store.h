@@ -134,12 +134,17 @@ public:
     }
 
     /*
-       Since `GetLatestSequenceNumber` returns 0 when the DB is empty and when there is 1 record:
-       get_updates_since(0) == get_updates_since(1) - so always query for 1 sequence number greater than the number
+       Since: GetUpdatesSince(0) == GetUpdatesSince(1), always query for 1 sequence number greater than the number
        returned by GetLatestSequenceNumber() locally.
      */
     Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number, const uint64_t max_updates) const {
         rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
+
+        if(seq_number == db->GetLatestSequenceNumber()+1) {
+            std::vector<std::string>* updates = new std::vector<std::string>();
+            return Option<std::vector<std::string>*>(updates);
+        }
+
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
         if(!status.ok()) {
             return Option<std::vector<std::string>*>(204, "Invalid sequence number.");

@@ -10,8 +10,10 @@ class HttpClient {
 private:
     std::string buffer;
     std::string url;
+    std::string api_key;
+
 public:
-    HttpClient(std::string url): url(url) {
+    HttpClient(std::string url, std::string api_key): url(url), api_key(api_key) {
 
     }
 
@@ -28,7 +30,8 @@ public:
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
 
         struct curl_slist *chunk = NULL;
-        chunk = curl_slist_append(chunk, "x-typesense-api-key: abcd");
+        std::string api_key_header = std::string("x-typesense-api-key: ") + api_key;
+        chunk = curl_slist_append(chunk, api_key_header.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
 
         curl_easy_perform(curl);

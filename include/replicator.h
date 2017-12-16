@@ -90,13 +90,15 @@ public:
 
 class Replicator {
 public:
-    static void start(HttpServer* server, const std::string& master_host_port, Store& store) {
+    static void start(HttpServer* server, const std::string master_host_port, const std::string api_key, Store& store) {
         while(true) {
             IterateBatchHandler handler(server);
             uint64_t latest_seq_num = store.get_latest_seq_number();
             std::cout << "latest_seq_num: " << latest_seq_num << std::endl;
 
-            HttpClient client(master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1));
+            HttpClient client(
+                master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1), api_key
+            );
 
             std::string json_response;
             long status_code = client.get_reponse(json_response);

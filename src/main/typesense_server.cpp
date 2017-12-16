@@ -86,8 +86,8 @@ int main(int argc, char **argv) {
         }
 
         std::cout << "Typesense server started as a read-only replica... Spawning replication thread..." << std::endl;
-        std::thread replication_thread([&master_host_port, &store]() {
-            Replicator::start(::server, master_host_port, store);
+        std::thread replication_thread([&master_host_port, &store, &options]() {
+            Replicator::start(::server, master_host_port, options.get<std::string>("api-key"), store);
         });
 
         replication_thread.detach();
