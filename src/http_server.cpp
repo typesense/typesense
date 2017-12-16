@@ -19,6 +19,13 @@ struct h2o_custom_res_message_t {
     void* data;
 };
 
+struct h2o_custom_generator_t {
+    h2o_generator_t super;
+    void (*handler)(http_req* req, http_res* res, void* data);
+    request_response req_res;
+    void* data;
+};
+
 HttpServer::HttpServer(std::string listen_address, uint32_t listen_port,
                        std::string ssl_cert_path, std::string ssl_cert_key_path):
                        listen_address(listen_address), listen_port(listen_port),
@@ -144,7 +151,6 @@ void HttpServer::on_stop_server(void *data) {
 void HttpServer::clear_timeouts(std::vector<h2o_timeout_t*> & timeouts) {
     for(h2o_timeout_t* timeout: timeouts) {
         while (!h2o_linklist_is_empty(&timeout->_entries)) {
-            std::cout << "Removing entry..." << std::endl;
             h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
             h2o_linklist_unlink(&entry->_link);
             entry->registered_at = 0;
@@ -350,6 +356,48 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     delete response;
 }
 
+void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+    custom_generator->handler(custom_generator->req_res.req, custom_generator->req_res.response,
+                              custom_generator->data);
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, custom_generator->req_res.response->body.c_str(), SIZE_MAX);
+    const h2o_send_state_t state = custom_generator->req_res.response->final ?
+                                   H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    h2o_send(req, &body, 1, state);
+
+    if(custom_generator->req_res.response->final) {
+        h2o_dispose_request(req);
+        delete custom_generator->req_res.req;
+        delete custom_generator->req_res.response;
+    }
+}
+
+void HttpServer::response_stop(h2o_generator_t *generator, h2o_req_t *req) {
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+
+    h2o_dispose_request(req);
+    delete custom_generator->req_res.req;
+    delete custom_generator->req_res.response;
+}
+
+void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, void* data),
+                                 http_req & request, http_res & response, void* data) {
+    h2o_req_t* req = request._req;
+    h2o_custom_generator_t* custom_generator = new h2o_custom_generator_t {
+        h2o_generator_t {response_proceed, response_stop}, handler, request_response {&request, &response}, data
+    };
+
+    req->res.status = response.status_code;
+    req->res.reason = get_status_reason(response.status_code);
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, response.content_type_header.c_str(),
+                   response.content_type_header.size());
+    h2o_start_response(req, &custom_generator->super);
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, "", SIZE_MAX);
+    h2o_send(req, &body, 1, H2O_SEND_STATE_IN_PROGRESS);
+}
+
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
     std::string res_body = std::string("{\"message\": \"Forbidden - ") + AUTH_HEADER + " header is invalid or not present.\"}";
@@ -366,31 +414,31 @@ void HttpServer::set_auth_handler(bool (*handler)(const route_path & rpath, cons
     auth_handler = handler;
 }
 
-void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated, bool async) {
+void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"GET", path_parts, handler, authenticated, async};
+    route_path rpath = {"GET", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::post(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated, bool async) {
+void HttpServer::post(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"POST", path_parts, handler, authenticated, async};
+    route_path rpath = {"POST", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated, bool async) {
+void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"PUT", path_parts, handler, authenticated, async};
+    route_path rpath = {"PUT", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &), bool authenticated, bool async) {
+void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"DELETE", path_parts, handler, authenticated, async};
+    route_path rpath = {"DELETE", path_parts, handler, async};
     routes.push_back(rpath);
 }
 

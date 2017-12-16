@@ -14,8 +14,14 @@ class HttpServer;
 
 struct http_res {
     uint32_t status_code;
+    std::string content_type_header;
     std::string body;
     HttpServer* server;
+    bool final;
+
+    http_res(): content_type_header("application/json; charset=utf-8"), final(true) {
+
+    }
 
     void send_200(const std::string & res_body) {
         status_code = 200;
@@ -78,7 +84,6 @@ struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
     void (*handler)(http_req &, http_res &);
-    bool authenticated;
     bool async;
 
     inline bool operator< (const route_path& rhs) const {

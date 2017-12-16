@@ -73,19 +73,26 @@ public:
 
     void set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key));
 
-    void get(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
+    void get(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void post(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
+    void post(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void put(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
+    void put(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void del(const std::string & path, void (*handler)(http_req & req, http_res & res), bool authenticated, bool async = false);
+    void del(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
 
     void on(const std::string & message, void (*handler)(void*));
 
     void send_message(const std::string & type, void* data);
 
     void send_response(http_req* request, const http_res* response);
+
+    void stream_response(void (*handler)(http_req* req, http_res* res, void* data), http_req & request,
+                         http_res & response, void* data);
+
+    static void response_proceed(h2o_generator_t *generator, h2o_req_t *req);
+
+    static void response_stop(h2o_generator_t *generator, h2o_req_t *req);
 
     int run();
 

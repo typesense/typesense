@@ -259,6 +259,50 @@ void get_collection_summary(http_req & req, http_res & res) {
     res.send_200(json_response.dump());
 }
 
+void collection_export_handler(http_req* req, http_res* res, void* data) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req->params["collection"]);
+    const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+
+    rocksdb::Iterator* it = reinterpret_cast<rocksdb::Iterator*>(data);
+
+    if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+        res->body = it->value().ToString();
+        res->final = false;
+        it->Next();
+
+        // apppend a new line character if there is going to be one more record to send
+        if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+            res->body += "\n";
+        }
+
+    } else {
+        res->body = true;
+        res->final = true;
+        delete it;
+    }
+}
+
+void get_collection_export(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.send_404();
+        res.server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
+        return ;
+    }
+
+    const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+
+    rocksdb::Iterator* it = collectionManager.get_store()->get_iterator();
+    it->Seek(seq_id_prefix);
+
+    res.content_type_header = "application/octet-stream";
+    res.status_code = 200;
+    res.server->stream_response(collection_export_handler, req, res, (void *) it);
+}
+
 void post_add_document(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);

@@ -56,21 +56,23 @@ int main(int argc, char **argv) {
 
     // collection management
     server->set_auth_handler(handle_authentication);
-    server->post("/collections", post_create_collection, true);
-    server->get("/collections", get_collections, true);
-    server->del("/collections/:collection", del_drop_collection, true);
+    server->post("/collections", post_create_collection);
+    server->get("/collections", get_collections);
+    server->del("/collections/:collection", del_drop_collection);
+    server->get("/collections/:collection", get_collection_summary);
+    server->get("/collections/:collection/export", get_collection_export, true);
 
     // document management
-    server->post("/collections/:collection", post_add_document, true);
-    server->get("/collections/:collection", get_collection_summary, true);
-    server->get("/collections/:collection/search", get_search, false);
-    server->get("/collections/:collection/:id", get_fetch_document, true);
-    server->del("/collections/:collection/:id", del_remove_document, true);
+    server->post("/collections/:collection", post_add_document);
+    server->get("/collections/:collection/search", get_search);
+    server->get("/collections/:collection/:id", get_fetch_document);
+    server->del("/collections/:collection/:id", del_remove_document);
 
     // replication
-    server->get("/replication/updates", get_replication_updates, true, true);
+    server->get("/replication/updates", get_replication_updates, true);
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
+
     server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
 
     // start a background replication thread if the server is started as a read-only replica

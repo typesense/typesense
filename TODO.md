@@ -75,11 +75,11 @@
 - ~~https support~~
 - ~~Validate before string to int conversion in the http api layer~~
 - ~~art bool support~~
-- NOT operator support
-- handle hyphens (replace them)
+- ~~Export collection~~
 - get collection should show schema
-- Iterator
+- handle hyphens (replace them)
 - clean special chars before indexing
+- NOT operator support
 - > INT32_MAX validation for float field
 - Proper logging
 - highlight of string arrays?

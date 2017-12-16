@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
 
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store, "abcd");
+    collectionManager.init(store, "abcd", "1234");
 
     Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
