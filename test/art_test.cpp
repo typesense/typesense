@@ -617,15 +617,12 @@ TEST(ArtTest, test_art_fuzzy_search) {
     char buf[512];
     FILE *f = fopen(words_file_path, "r");
 
-    uint64_t xor_mask = 0;
     uintptr_t line = 1, nlines;
     while (fgets(buf, sizeof buf, f)) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document doc = get_document((uint32_t) line);
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
-
-        xor_mask ^= (line * (buf[0] + len));
         line++;
     }
 
@@ -682,6 +679,27 @@ TEST(ArtTest, test_art_fuzzy_search) {
     for(auto leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
     }
+
+    // fuzzy prefix search
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "lionhear", strlen("lionhear"), 0, 0, 10, FREQUENCY, true, leaves);
+    ASSERT_EQ(3, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "lineage", strlen("lineage"), 0, 0, 10, FREQUENCY, true, leaves);
+    ASSERT_EQ(2, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "liq", strlen("liq"), 0, 0, 50, FREQUENCY, true, leaves);
+    ASSERT_EQ(39, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "antitraditian", strlen("antitraditian"), 0, 1, 10, FREQUENCY, true, leaves);
+    ASSERT_EQ(1, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, leaves);
+    ASSERT_EQ(6, leaves.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);

@@ -1188,7 +1188,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
             printf("\nNODE4\n");
             for (int i=n->num_children-1; i >= 0; i--) {
                 child_char = ((art_node4*)n)->keys[i];
-                printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
+                printf("4!child_char: %c, %d, depth: %d\n", child_char, child_char, depth);
                 child = ((art_node4*)n)->children[i];
                 art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, min_cost, max_cost, prefix, results);
             }
@@ -1197,7 +1197,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
             printf("\nNODE16\n");
             for (int i=n->num_children-1; i >= 0; i--) {
                 child_char = ((art_node16*)n)->keys[i];
-                printf("\n16!child_char: %c, depth: %d", child_char, depth);
+                printf("16!child_char: %c, depth: %d\n", child_char, depth);
                 child = ((art_node16*)n)->children[i];
                 art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, min_cost, max_cost, prefix, results);
             }
@@ -1209,7 +1209,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
                 if (!ix) continue;
                 child = ((art_node48*)n)->children[ix - 1];
                 child_char = (char)i;
-                printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
+                printf("48!child_char: %c, depth: %d, ix: %d\n", child_char, depth, ix);
                 art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, min_cost, max_cost, prefix, results);
             }
             break;
@@ -1218,7 +1218,7 @@ static inline void art_fuzzy_children(char p, const art_node *n, int depth, cons
             for (int i=255; i >= 0; i--) {
                 if (!((art_node256*)n)->children[i]) continue;
                 child_char = (char) i;
-                printf("\n256!child_char: %c, depth: %d", child_char, depth);
+                printf("256!child_char: %c, depth: %d\n", child_char, depth);
                 child = ((art_node256*)n)->children[i];
                 art_fuzzy_recurse(p, child_char, child, depth, term, term_len, irow, jrow, min_cost, max_cost, prefix, results);
             }
@@ -1256,7 +1256,7 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
 
     depth++;
 
-    printf("\nRecurse char: %c, cost: %d", c, cost);
+    printf("Recurse char: %c, cost: %d, depth: %d\n", c, cost, depth);
 
     if(cost > max_cost) {
         // We do this to speed up things drastically, but at the cost of missing out on some genuine typos
@@ -1297,28 +1297,34 @@ static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, cons
         return ;
     }
 
+    if(prefix && depth >= term_len && rows[j][columns-1] <= max_cost) {
+        // For a prefix search, we store the node and not recurse further right now
+        results.push_back(n);
+        return ;
+    }
+
     const int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
     const int end_index = min(partial_len, term_len+max_cost);
 
-    printf("\npartial_len: %d", partial_len);
-
+    printf("partial_len: %d\n", partial_len);
+    
     for(int idx=0; idx<end_index; idx++) {
         c = n->partial[idx];
-        printf("partial: %c ", c);
+        printf("partial: %c\n", c);
         rows[k][0] = rows[j][0] + 1;
         cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
         p = c;
+        
+        if(prefix && depth+idx+1 >= term_len && rows[j][columns-1] <= max_cost) {
+            // For a prefix search, we store the node and not recurse further right now
+            results.push_back(n);
+            return ;
+        }
     }
 
     depth += n->partial_len;
-    printf("\ncost: %d", cost);
-
-    // For a prefix search, we store the node and not recurse further right now
-    if(prefix && depth >= term_len-1 && rows[j][columns-1] <= max_cost) {
-        results.push_back(n);
-        return ;
-    }
+    printf("cost: %d\n", cost);
 
     art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], min_cost, max_cost, prefix, results);
 }
@@ -1493,7 +1499,7 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
             printf("\nNODE4\n");
             for (int i=n->num_children-1; i >= 0; i--) {
                 child_char = ((art_node4*)n)->keys[i];
-                printf("\n4!child_char: %c, %d, depth: %d", child_char, child_char, depth);
+                printf("4!child_char: %c, %d, depth: %d\n", child_char, child_char, depth);
                 child = ((art_node4*)n)->children[i];
                 recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
@@ -1507,7 +1513,7 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
             printf("\nNODE16\n");
             for (int i=n->num_children-1; i >= 0; i--) {
                 child_char = ((art_node16*)n)->keys[i];
-                printf("\n16!child_char: %c, depth: %d", child_char, depth);
+                printf("16!child_char: %c, depth: %d\n", child_char, depth);
                 child = ((art_node16*)n)->children[i];
                 recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
@@ -1524,7 +1530,7 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
                 if (!ix) continue;
                 child = ((art_node48*)n)->children[ix - 1];
                 child_char = (unsigned char)i;
-                printf("\n48!child_char: %c, depth: %d, ix: %d", child_char, depth, ix);
+                printf("48!child_char: %c, depth: %d, ix: %d\n", child_char, depth, ix);
                 recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
                     art_int_fuzzy_recurse(child, depth+1, int_str, int_str_len, comparator, results);
@@ -1538,7 +1544,7 @@ static inline void art_int_fuzzy_children(const art_node *n, int depth, const un
             for (int i=255; i >= 0; i--) {
                 if (!((art_node256*)n)->children[i]) continue;
                 child_char = (unsigned char) i;
-                printf("\n256!child_char: %c, depth: %d", child_char, depth);
+                printf("256!child_char: %c, depth: %d\n", child_char, depth);
                 child = ((art_node256*)n)->children[i];
                 recurse_progress progress = matches(child_char, int_str[depth], comparator);
                 if(progress == RECURSE) {
