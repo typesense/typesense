@@ -372,6 +372,7 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
         h2o_dispose_request(req);
         delete custom_generator->req_res.req;
         delete custom_generator->req_res.response;
+        delete custom_generator;
     }
 }
 
@@ -381,6 +382,7 @@ void HttpServer::response_stop(h2o_generator_t *generator, h2o_req_t *req) {
     h2o_dispose_request(req);
     delete custom_generator->req_res.req;
     delete custom_generator->req_res.response;
+    delete custom_generator;
 }
 
 void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, void* data),
