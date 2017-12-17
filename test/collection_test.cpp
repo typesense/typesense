@@ -592,7 +592,7 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
     query_fields = {"cast"};
     Option<nlohmann::json> result_op =
             coll_mul_fields->search("anton", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_EQ(false, result_op.ok());
+    ASSERT_FALSE(result_op.ok());
     ASSERT_EQ(400, result_op.code());
     ASSERT_EQ("Field `cast` is a faceted field - it cannot be used as a query field.", result_op.error());
 
@@ -1027,7 +1027,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
     // should be able to search only with a single boolean value
     Option<nlohmann::json> res_op = coll_bool->search("the", query_fields, "bool_array:[true, false]", facets,
                                                       sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_EQ(false, res_op.ok());
+    ASSERT_FALSE(res_op.ok());
 
     results = coll_bool->search("the", query_fields, "bool_array: true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
