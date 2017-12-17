@@ -72,6 +72,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
         std::cout << "Failed to create DH/ECDH." << std::endl;
         return -1;
     }
+
     SSL_CTX_set_tmp_ecdh(accept_ctx->ssl_ctx, key);
     EC_KEY_free(key);
 
@@ -465,5 +466,7 @@ HttpServer::~HttpServer() {
     free(ctx.queue);
     h2o_evloop_destroy(ctx.loop);
     h2o_config_dispose(&config);
+
+    SSL_CTX_free(accept_ctx->ssl_ctx);
     delete accept_ctx;
 }
