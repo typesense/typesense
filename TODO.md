@@ -77,6 +77,7 @@
 - ~~art bool support~~
 - ~~Export collection~~
 - ~~get collection should show schema~~
+- ~~API key should be allowed as a GET parameter also (for JSONP)~~
 - handle hyphens (replace them)
 - clean special chars before indexing
 - NOT operator support

@@ -68,5 +68,9 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_TRUE(updates_op.ok());
     ASSERT_EQ(1, updates_op.get()->size());
 
+    updates_op = primary_store.get_updates_since(4, 100);
+    ASSERT_TRUE(updates_op.ok());
+    ASSERT_EQ(0, updates_op.get()->size());
+
     delete updates_op.get();
 }

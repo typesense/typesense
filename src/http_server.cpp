@@ -228,7 +228,7 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
 
 std::map<std::string, std::string> HttpServer::parse_query(const std::string& query) {
     std::map<std::string, std::string> query_map;
-    std::regex pattern("([\\w+%]+)=([^&]*)");
+    std::regex pattern("([\\w+%-]+)=([^&]*)");
 
     auto words_begin = std::sregex_iterator(query.begin(), query.end(), pattern);
     auto words_end = std::sregex_iterator();
@@ -268,13 +268,15 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     std::map<std::string, std::string> query_map = parse_query(query_str);
     const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
-    // extract auth key from header if present
+    // Extract auth key from header. If that does not exist, look for a GET parameter.
     std::string auth_key_from_header = "";
-    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER,
-                                                        strlen(AUTH_HEADER), -1);
+
+    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER, strlen(AUTH_HEADER), -1);
     if(auth_header_cursor != -1) {
         h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
         auth_key_from_header = std::string(slot.base, slot.len);
+    } else if(query_map.count(AUTH_HEADER) != 0) {
+        auth_key_from_header = query_map[AUTH_HEADER];
     }
 
     for(const route_path & rpath: self->http_server->routes) {
@@ -400,7 +402,8 @@ void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, v
 
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
-    std::string res_body = std::string("{\"message\": \"Forbidden - ") + AUTH_HEADER + " header is invalid or not present.\"}";
+    std::string res_body = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
+                                       "` header or GET parameter must be sent.\"}";
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
     req->res.status = 401;
     req->res.reason = get_status_reason(req->res.status);
