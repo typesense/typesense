@@ -47,7 +47,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
 
-    spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
+    std::unordered_map<std::string, field> schema = collection1->get_schema();
     std::vector<std::string> facet_fields_expected = {"cast"};
 
     ASSERT_EQ(0, collection1->get_collection_id());
@@ -119,7 +119,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
-    spp::sparse_hash_map<std::string, field> schema = collection1->get_schema();
+    std::unordered_map<std::string, field> schema = collection1->get_schema();
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -35,11 +36,11 @@ private:
 
     std::vector<field> fields;
 
-    spp::sparse_hash_map<std::string, field> search_schema;
+    std::unordered_map<std::string, field> search_schema;
 
-    spp::sparse_hash_map<std::string, field> facet_schema;
+    std::unordered_map<std::string, field> facet_schema;
 
-    spp::sparse_hash_map<std::string, field> sort_schema;
+    std::unordered_map<std::string, field> sort_schema;
 
     Store* store;
 
@@ -87,7 +88,7 @@ public:
 
     std::vector<field> get_fields();
 
-    spp::sparse_hash_map<std::string, field> get_schema();
+    std::unordered_map<std::string, field> get_schema();
 
     std::string get_token_ranking_field();
 

@@ -2,13 +2,14 @@
 
 #include <numeric>
 #include <chrono>
+#include <unordered_map>
 #include <array_utils.h>
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
 
-Index::Index(const std::string name, spp::sparse_hash_map<std::string, field> search_schema,
-             spp::sparse_hash_map<std::string, field> facet_schema, spp::sparse_hash_map<std::string, field> sort_schema):
+Index::Index(const std::string name, std::unordered_map<std::string, field> search_schema,
+             std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
         name(name), search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema) {
 
     for(const auto pair: search_schema) {
@@ -635,7 +636,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
 
     // Used to drop the least occurring token(s) for partial searches
-    spp::sparse_hash_map<std::string, uint32_t> token_to_count;
+    std::unordered_map<std::string, uint32_t> token_to_count;
 
     std::vector<std::vector<int>> token_to_costs;
 
@@ -877,10 +878,12 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
         topster.add(seq_id, query_index, match_score, primary_rank_value, secondary_rank_value);
 
-        /*std::cout << name << ", total_cost: " << total_cost
-                  << ", words_present: " << mscore.words_present << ", match_score: " << match_score
-                  << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << mscore.distance
-                  << ", seq_id: " << seq_id << std::endl;*/
+        /*std::ostringstream os;
+        os << name << ", total_cost: " << (255 - total_cost)
+                << ", words_present: " << mscore.words_present << ", match_score: " << match_score
+                << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - mscore.distance)
+                << ", seq_id: " << seq_id << std::endl;
+        std::cout << os.str();*/
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();

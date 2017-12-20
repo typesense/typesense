@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <mutex>
 #include <condition_variable>
@@ -57,11 +58,11 @@ private:
 
     size_t num_documents;
 
-    spp::sparse_hash_map<std::string, field> search_schema;
+    std::unordered_map<std::string, field> search_schema;
 
-    spp::sparse_hash_map<std::string, field> facet_schema;
+    std::unordered_map<std::string, field> facet_schema;
 
-    spp::sparse_hash_map<std::string, field> sort_schema;
+    std::unordered_map<std::string, field> sort_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
@@ -125,8 +126,8 @@ private:
 public:
     Index() = delete;
 
-    Index(const std::string name, spp::sparse_hash_map<std::string, field> search_schema,
-          spp::sparse_hash_map<std::string, field> facet_schema, spp::sparse_hash_map<std::string, field> sort_schema);
+    Index(const std::string name, std::unordered_map<std::string, field> search_schema,
+          std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
 
     ~Index();
 

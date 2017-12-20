@@ -1424,10 +1424,10 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op1.ok());
-    ASSERT_STREQ("Field `name` has been declared in the schema, but is not found in the document.",
+    ASSERT_STREQ("Field `tags` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op1.error().c_str());
 
-    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"namez\": \"foo\", \"age\": 34, \"average\": 78}");
+    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"namez\": \"foo\", \"tags\": [], \"age\": 34, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op2.ok());
     ASSERT_STREQ("Field `name` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op2.error().c_str());

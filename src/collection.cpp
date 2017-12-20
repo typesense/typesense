@@ -6,6 +6,8 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
+#include <thread>
+#include <chrono>
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & token_ranking_field):
@@ -417,6 +419,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             index->processed = false;
         }
         index->cv.notify_one();
+        //std::this_thread::sleep_for(std::chrono::milliseconds(400));
     }
 
     Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
@@ -739,7 +742,7 @@ std::vector<field> Collection::get_fields() {
     return fields;
 }
 
-spp::sparse_hash_map<std::string, field> Collection::get_schema() {
+std::unordered_map<std::string, field> Collection::get_schema() {
     return search_schema;
 };
 
