@@ -99,6 +99,8 @@ int HttpServer::create_listener(void) {
         setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
     }
 
+    ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
+
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;
 
@@ -114,7 +116,6 @@ int HttpServer::create_listener(void) {
         return -1;
     }
 
-    ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
     listener_socket = h2o_evloop_socket_create(ctx.loop, fd, H2O_SOCKET_FLAG_DONT_READ);
     listener_socket->data = this;
     h2o_socket_read_start(listener_socket, on_accept);
@@ -131,9 +132,11 @@ int HttpServer::run() {
     h2o_multithread_register_receiver(message_queue, message_receiver, on_message);
 
     if (create_listener() != 0) {
-        std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << std::endl
-                  << "Error: " << strerror(errno) << std::endl;
+        std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << " - "
+                  << strerror(errno) << std::endl;
         return 1;
+    } else {
+        std::cout << "Server has started. Ready to accept requests on port " << listen_port << std::endl;
     }
 
     on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);

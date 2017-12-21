@@ -78,6 +78,7 @@
 - ~~Export collection~~
 - ~~get collection should show schema~~
 - ~~API key should be allowed as a GET parameter also (for JSONP)~~
+- ~~Don't crash when the data directory is not found~~
 - handle hyphens (replace them)
 - clean special chars before indexing
 - NOT operator support

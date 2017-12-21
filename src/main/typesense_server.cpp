@@ -3,11 +3,14 @@
 #include <vector>
 #include <string>
 #include <thread>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <cmdline.h>
 #include "http_server.h"
 #include "api.h"
 #include "string_utils.h"
 #include "replicator.h"
+#include "typesense_version.h"
 
 HttpServer* server;
 
@@ -15,6 +18,11 @@ void catch_interrupt(int sig) {
     std::cout << "Stopping Typesense server..." << std::endl;
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
     server->stop();
+}
+
+bool directory_exists(const std::string & dir_path) {
+    struct stat info;
+    return stat(dir_path.c_str(), &info) == 0 && (info.st_mode & S_IFDIR);
 }
 
 int main(int argc, char **argv) {
@@ -35,16 +43,25 @@ int main(int argc, char **argv) {
 
     signal(SIGINT, catch_interrupt);
 
+    std::cout << "Typesense version " << TYPESENSE_VERSION << std::endl;
+
+    if(!directory_exists(options.get<std::string>("data-dir"))) {
+        std::cerr << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
+                  << " does not exist." << std::endl;
+        return 1;
+    }
+
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-key"),
                                                   options.get<std::string>("search-only-api-key"));
 
     if(init_op.ok()) {
-        std::cout << "Finished restoring all collections from disk." << std::endl;
+        std::cout << "Finished loading collections from disk." << std::endl;
     } else {
-        std::cerr << "Failed initializing collections from store..." << std::endl;
-        std::cerr << init_op.error() << std::endl;
+        std::cerr << "Typesense failed to start. " << "Could not load collections from disk: "
+                  << init_op.error() << std::endl;
+        return 1;
     }
 
     server = new HttpServer(
