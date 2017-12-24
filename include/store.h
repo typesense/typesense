@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <cstdlib>
 #include <string>
+#include <sstream>
 #include <memory>
 #include <option.h>
 #include <rocksdb/db.h>
@@ -138,16 +139,27 @@ public:
        returned by GetLatestSequenceNumber() locally.
      */
     Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number, const uint64_t max_updates) const {
-        rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
+        const uint64_t local_latest_seq_num = db->GetLatestSequenceNumber();
 
-        if(seq_number == db->GetLatestSequenceNumber()+1) {
+        if(seq_number == local_latest_seq_num+1) {
+            // replica has caught up, send an empty list as result
             std::vector<std::string>* updates = new std::vector<std::string>();
             return Option<std::vector<std::string>*>(updates);
         }
 
+        rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
+
         if(!status.ok()) {
-            return Option<std::vector<std::string>*>(204, "Invalid sequence number.");
+            std::ostringstream error;
+            error << "Unable to fetch updates. " << "Master's latest sequence number is " << local_latest_seq_num;
+            return Option<std::vector<std::string>*>(400, error.str());
+        }
+
+        if(!iter->Valid() && !(local_latest_seq_num == 0 && seq_number == 0)) {
+            std::ostringstream error;
+            error << "Invalid iterator. " << "Master's latest sequence number is " << local_latest_seq_num;
+            return Option<std::vector<std::string>*>(400, error.str());
         }
 
         uint64_t num_updates = 0;

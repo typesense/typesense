@@ -33,8 +33,8 @@ int main(int argc, char **argv) {
 
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
-    options.add<std::string>("master", 'm', "Master host in http(s)://<master_address>:<master_port> format "
-                                            "to start the server as a read-only replica.", false, "");
+    options.add<std::string>("master", 'm', "Provide the master's address in http(s)://<master_address>:<master_port> "
+                                            "format to start the server as a read-only replica.", false, "");
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");

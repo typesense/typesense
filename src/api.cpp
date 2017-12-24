@@ -407,6 +407,9 @@ void get_replication_updates(http_req & req, http_res & res) {
             json_response["updates"].push_back(StringUtils::base64_encode(update));
         }
 
+        uint64_t latest_seq_num = store->get_latest_seq_number();
+        json_response["latest_seq_num"] = latest_seq_num;
+
         res.send_200(json_response.dump());
         res.server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
         delete updates;

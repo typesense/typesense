@@ -118,8 +118,12 @@ public:
                     store._get_db_unsafe()->Write(rocksdb::WriteOptions(), &write_batch);
                 }
             } else {
-                std::cout << "Replication error while fetching records from master, status_code="
+                std::cerr << "Replication error while fetching records from master, status_code="
                           << status_code << std::endl;
+
+                if(status_code != 0) {
+                    std::cerr << json_response << std::endl;
+                }
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(3000));
