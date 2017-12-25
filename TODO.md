@@ -81,7 +81,7 @@
 - ~~Don't crash when the data directory is not found~~
 - ~~When the first sequence ID is not zero, bail out~~
 - ~~Proper status code when sequence number to fetch is bad~~
-- Replica should be read-only
+- ~~Replica should be read-only~~
 - handle hyphens (replace them)
 - clean special chars before indexing
 - NOT operator support

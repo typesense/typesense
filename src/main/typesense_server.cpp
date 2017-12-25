@@ -25,6 +25,38 @@ bool directory_exists(const std::string & dir_path) {
     return stat(dir_path.c_str(), &info) == 0 && (info.st_mode & S_IFDIR);
 }
 
+void master_server_routes() {
+    // collection management
+    server->post("/collections", post_create_collection);
+    server->get("/collections", get_collections);
+    server->del("/collections/:collection", del_drop_collection);
+    server->get("/collections/:collection", get_collection_summary);
+    server->get("/collections/:collection/export", get_collection_export, true);
+
+    // document management
+    server->post("/collections/:collection", post_add_document);
+    server->get("/collections/:collection/search", get_search);
+    server->get("/collections/:collection/:id", get_fetch_document);
+    server->del("/collections/:collection/:id", del_remove_document);
+
+    // replication
+    server->get("/replication/updates", get_replication_updates, true);
+}
+
+void replica_server_routes() {
+    // collection management
+    server->get("/collections", get_collections);
+    server->get("/collections/:collection", get_collection_summary);
+    server->get("/collections/:collection/export", get_collection_export, true);
+
+    // document management
+    server->get("/collections/:collection/search", get_search);
+    server->get("/collections/:collection/:id", get_fetch_document);
+
+    // replication
+    server->get("/replication/updates", get_replication_updates, true);
+}
+
 int main(int argc, char **argv) {
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
@@ -71,29 +103,16 @@ int main(int argc, char **argv) {
         options.get<std::string>("ssl-certificate-key")
     );
 
-    // collection management
     server->set_auth_handler(handle_authentication);
-    server->post("/collections", post_create_collection);
-    server->get("/collections", get_collections);
-    server->del("/collections/:collection", del_drop_collection);
-    server->get("/collections/:collection", get_collection_summary);
-    server->get("/collections/:collection/export", get_collection_export, true);
-
-    // document management
-    server->post("/collections/:collection", post_add_document);
-    server->get("/collections/:collection/search", get_search);
-    server->get("/collections/:collection/:id", get_fetch_document);
-    server->del("/collections/:collection/:id", del_remove_document);
-
-    // replication
-    server->get("/replication/updates", get_replication_updates, true);
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
-
     server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
 
-    // start a background replication thread if the server is started as a read-only replica
-    if(!options.get<std::string>("master").empty()) {
+    if(options.get<std::string>("master").empty()) {
+        master_server_routes();
+    } else {
+        replica_server_routes();
+
         const std::string & master_host_port = options.get<std::string>("master");
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
