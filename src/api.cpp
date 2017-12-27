@@ -89,16 +89,16 @@ void post_create_collection(http_req & req, http_res & res) {
         );
     }
 
-    const char* PREFIX_SORT_FIELD = "prefix_sort_field";
+    const char* TOKEN_RANKING_FIELD = "token_ranking_field";
     std::string token_ranking_field = "";
 
-    if(req_json.count(PREFIX_SORT_FIELD) != 0) {
-        if(!req_json[PREFIX_SORT_FIELD].is_string()) {
-            return res.send_400(std::string("`") + PREFIX_SORT_FIELD +
+    if(req_json.count(TOKEN_RANKING_FIELD) != 0) {
+        if(!req_json[TOKEN_RANKING_FIELD].is_string()) {
+            return res.send_400(std::string("`") + TOKEN_RANKING_FIELD +
                                 "` should be a string. It should be the name of an unsigned integer field.");
         }
 
-        token_ranking_field = req_json[PREFIX_SORT_FIELD].get<std::string>();
+        token_ranking_field = req_json[TOKEN_RANKING_FIELD].get<std::string>();
     }
 
     collectionManager.create_collection(req_json["name"], fields, token_ranking_field);
@@ -132,7 +132,7 @@ void get_search(http_req & req, http_res & res) {
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
-    const char *SORT_PREFIXES_BY = "sort_prefixes_by";
+    const char *RANK_TOKENS_BY = "rank_tokens_by";
 
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
@@ -205,16 +205,16 @@ void get_search(http_req & req, http_res & res) {
 
     bool prefix = (req.params[PREFIX] == "true");
 
-    if(req.params.count(SORT_PREFIXES_BY) == 0) {
+    if(req.params.count(RANK_TOKENS_BY) == 0) {
         if(prefix && !collection->get_token_ranking_field().empty()) {
-            req.params[SORT_PREFIXES_BY] = "PREFIX_SORT_FIELD";
+            req.params[RANK_TOKENS_BY] = "TOKEN_RANKING_FIELD";
         } else {
-            req.params[SORT_PREFIXES_BY] = "TERM_FREQUENCY";
+            req.params[RANK_TOKENS_BY] = "TERM_FREQUENCY";
         }
     }
 
-    StringUtils::toupper(req.params[SORT_PREFIXES_BY]);
-    token_ordering token_order = (req.params[SORT_PREFIXES_BY] == "PREFIX_SORT_FIELD") ? MAX_SCORE : FREQUENCY;
+    StringUtils::toupper(req.params[RANK_TOKENS_BY]);
+    token_ordering token_order = (req.params[RANK_TOKENS_BY] == "TOKEN_RANKING_FIELD") ? MAX_SCORE : FREQUENCY;
 
     Option<nlohmann::json> result_op = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
@@ -274,7 +274,7 @@ void get_collection_summary(http_req & req, http_res & res) {
     }
 
     json_response["fields"] = fields_arr;
-    json_response["prefix_sort_field"] = collection->get_token_ranking_field();
+    json_response["token_ranking_field"] = collection->get_token_ranking_field();
 
     res.send_200(json_response.dump());
 }
