@@ -28,17 +28,17 @@ struct TokenOffset {
     }
 };
 
-struct MatchScore {
+struct Match {
   uint16_t words_present;
   uint16_t distance;
   uint16_t start_offset;
   char offset_diffs[16];
 
-  MatchScore() {
+  Match() {
 
   }
 
-  MatchScore(uint16_t words_present, uint16_t distance, uint16_t start_offset, char *offset_diffs_stacked):
+  Match(uint16_t words_present, uint16_t distance, uint16_t start_offset, char *offset_diffs_stacked):
           words_present(words_present), distance(distance), start_offset(start_offset) {
     memcpy(offset_diffs, offset_diffs_stacked, 16);
   }
@@ -89,7 +89,7 @@ struct MatchScore {
   *  We use a priority queue to read the offset vectors in a sorted manner, slide a window of a given size, and
   *  compute the max_match and min_displacement of target tokens across the windows.
   */
-  static MatchScore match_score(uint32_t doc_id, std::vector<std::vector<uint16_t>> &token_offsets) {
+  static Match match(uint32_t doc_id, std::vector<std::vector<uint16_t>> &token_offsets) {
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
     for(uint8_t token_id=0; token_id < token_offsets.size(); token_id++) {
@@ -179,6 +179,6 @@ struct MatchScore {
     }
 
     pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
-    return MatchScore(max_match, min_displacement, token_start_offset, packed_offset_diffs);
+    return Match(max_match, min_displacement, token_start_offset, packed_offset_diffs);
   }
 };

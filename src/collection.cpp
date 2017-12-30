@@ -542,14 +542,14 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 token_positions.push_back(positions);
             }
 
-            MatchScore mscore = MatchScore::match_score(field_order_kv.second.key, token_positions);
+            Match match = Match::match(field_order_kv.second.key, token_positions);
 
-            // unpack `mscore.offset_diffs` into `token_indices`
+            // unpack `match.offset_diffs` into `token_indices`
             std::vector<size_t> token_indices;
-            char num_tokens_found = mscore.offset_diffs[0];
+            char num_tokens_found = match.offset_diffs[0];
             for(size_t i = 1; i <= num_tokens_found; i++) {
-                if(mscore.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
-                    size_t token_index = (size_t)(mscore.start_offset + mscore.offset_diffs[i]);
+                if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
+                    size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
                     token_indices.push_back(token_index);
                 }
             }

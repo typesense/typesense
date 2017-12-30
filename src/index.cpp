@@ -840,25 +840,30 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
 
     //auto begin = std::chrono::high_resolution_clock::now();
 
+    char empty_offset_diffs[16];
+    std::fill_n(empty_offset_diffs, 16, 0);
+    Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
+    const uint64_t single_token_match_score = ((int64_t)(single_token_match.words_present) << 24) |
+                                              ((int64_t)(255 - total_cost) << 16) |
+                                              ((int64_t)(MAX_SEARCH_TOKENS - single_token_match.distance));
+
     for(auto i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
-        MatchScore mscore;
+
+        uint64_t match_score = 0;
 
         if(query_suggestion.size() == 1) {
-            // short circuit to speed up single token searches (use dummy offsets for now)
-            char offset_diffs[16];
-            std::fill_n(offset_diffs, 16, 0);
-            mscore = MatchScore(1, 0, 0, offset_diffs);
+            match_score = single_token_match_score;
         } else {
             std::vector<std::vector<uint16_t>> token_positions;
             populate_token_positions(query_suggestion, leaf_to_indices, i, token_positions);
-            mscore = MatchScore::match_score(seq_id, token_positions);
-        }
+            const Match & match = Match::match(seq_id, token_positions);
 
-        // Construct a single match_score from individual components (for multi-field sort)
-        const uint64_t match_score = ((int64_t)(mscore.words_present) << 24) |
-                                     ((int64_t)(255 - total_cost) << 16) |
-                                     ((int64_t)(MAX_SEARCH_TOKENS - mscore.distance));
+            // Construct a single match score from individual components (for multi-field sort)
+            match_score = ((int64_t)(match.words_present) << 24) |
+                          ((int64_t)(255 - total_cost) << 16) |
+                          ((int64_t)(MAX_SEARCH_TOKENS - match.distance));
+        }
 
         const int64_t default_score = 0;
         number_t primary_rank_score = default_score;
@@ -880,8 +885,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
 
         /*std::ostringstream os;
         os << name << ", total_cost: " << (255 - total_cost)
-                << ", words_present: " << mscore.words_present << ", match_score: " << match_score
-                << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - mscore.distance)
+                << ", words_present: " << match.words_present << ", match_score: " << match
+                << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - match.distance)
                 << ", seq_id: " << seq_id << std::endl;
         std::cout << os.str();*/
     }
