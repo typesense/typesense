@@ -222,30 +222,6 @@ EOF
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
     fi
 
-    # Test whether gflags library is installed
-    # http://gflags.github.io/gflags/
-    # check if the namespace is gflags
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
-      #include <gflags/gflags.h>
-      using namespace gflags;
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=gflags"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-    else
-      # check if namespace is google
-      $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
-        #include <gflags/gflags.h>
-        using namespace google;
-        int main() {}
-EOF
-      if [ "$?" = 0 ]; then
-          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-      fi
-    fi
-
     # Test whether zlib library is installed
     $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <zlib.h>
@@ -253,82 +229,8 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DZLIB"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lz"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -Wl,-Bstatic -lz"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lz"
-    fi
-
-    # Test whether bzip library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <bzlib.h>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DBZIP2"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lbz2"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lbz2"
-    fi
-
-    # Test whether lz4 library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <lz4.h>
-      #include <lz4hc.h>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -llz4"
-    fi
-
-    # Test whether zstd library is installed
-    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <zstd.h>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DZSTD"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzstd"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lzstd"
-    fi
-
-    # Test whether numa is available
-    $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
-      #include <numa.h>
-      #include <numaif.h>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
-    fi
-
-    # Test whether tbb is available
-    $CXX $CFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
-      #include <tbb/tbb.h>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DTBB"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
-    fi
-
-    # Test whether jemalloc is available
-    if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
-      2>/dev/null; then
-        # This will enable some preprocessor identifiers in the Makefile
-        JEMALLOC=1
-        # JEMALLOC can be enabled either using the flag (like here) or by
-        # providing direct link to the jemalloc library
-        WITH_JEMALLOC_FLAG=1
-    else
-        # jemalloc is not available. Let's try tcmalloc
-        if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
-          -ltcmalloc 2>/dev/null; then
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
-            JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
-        fi
     fi
 
     # Test whether malloc_usable_size is available
@@ -353,33 +255,6 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX"
-    fi
-
-    # Test whether backtrace is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <execinfo.h>>
-      int main() {
-        void* frames[1];
-        backtrace_symbols(frames, backtrace(frames, 1));
-        return 0;
-      }
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
-    else
-        # Test whether execinfo library is installed
-        $CXX $CFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
-          #include <execinfo.h>
-          int main() {
-            void* frames[1];
-            backtrace_symbols(frames, backtrace(frames, 1));
-          }
-EOF
-        if [ "$?" = 0 ]; then
-            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lexecinfo"
-            JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
-        fi
     fi
 
     # Test if -pg is supported
