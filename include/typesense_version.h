@@ -1,1 +1,1 @@
-#define TYPESENSE_VERSION "0.7.0"
+#define TYPESENSE_VERSION "0.7.1"

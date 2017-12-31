@@ -1,7 +1,7 @@
-FROM typesense/ubuntu-10.04-gcc:4.9.2
+FROM typesense/ubuntu-10-04-gcc:6.4.0
 
-ENV PATH /usr/local/gcc-4.9.2/bin/:$PATH
-ENV LD_LIBRARY_PATH /usr/local/gcc-4.9.2/lib64
+ENV PATH /usr/local/gcc-6.4.0/bin/:$PATH
+ENV LD_LIBRARY_PATH /usr/local/gcc-6.4.0/lib64
 
 RUN apt-get update
 
@@ -28,5 +28,5 @@ RUN curl -L -o /opt/curl-7.55.1.tar.bz2 https://github.com/curl/curl/releases/do
 RUN tar -C /opt -xf /opt/curl-7.55.1.tar.bz2
 RUN cd /opt/curl-7.55.1 && ./configure && make && make install
 
-ENV CC /usr/local/gcc-4.9.2/bin/gcc
-ENV CXX /usr/local/gcc-4.9.2/bin/g++
+ENV CC /usr/local/gcc-6.4.0/bin/gcc
+ENV CXX /usr/local/gcc-6.4.0/bin/g++

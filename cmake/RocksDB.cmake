@@ -1,6 +1,6 @@
 # Download and build RocksDB
 
-set(ROCKSDB_VERSION 4.13.5)
+set(ROCKSDB_VERSION 5.9.2)
 set(ROCKSDB_NAME rocksdb-${ROCKSDB_VERSION})
 set(ROCKSDB_TAR_PATH ${DEP_ROOT_DIR}/${ROCKSDB_NAME}.tar.gz)
 
@@ -21,6 +21,8 @@ file(COPY ${CMAKE_SOURCE_DIR}/cmake/patches/build_detect_platform DESTINATION
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a)
     message("Building ${ROCKSDB_NAME} locally...")
     set(ENV{PORTABLE} 1)
+    set(ENV{DEBUG_LEVEL} 0)
+    set(ENV{USE_RTTI} 1)
     execute_process(COMMAND make "clean" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
     execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
                     RESULT_VARIABLE ROCKSDB_BUILD)
