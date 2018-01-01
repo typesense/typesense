@@ -42,6 +42,8 @@ private:
 
     std::string ssl_cert_key_path;
 
+    bool cors_enabled;
+
     bool (*auth_handler)(const route_path & rpath, const std::string & auth_key);
 
     static void on_accept(h2o_socket_t *listener, const char *err);
@@ -67,7 +69,7 @@ private:
 
 public:
     HttpServer(std::string listen_address, uint32_t listen_port,
-               std::string ssl_cert_path, std::string ssl_cert_key_path);
+               std::string ssl_cert_path, std::string ssl_cert_key_path, bool cors_enabled);
 
     ~HttpServer();
 

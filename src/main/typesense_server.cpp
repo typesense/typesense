@@ -71,6 +71,8 @@ int main(int argc, char **argv) {
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");
 
+    options.add("enable-cors", '\0', "Enable CORS requests.");
+
     options.parse_check(argc, argv);
 
     signal(SIGINT, catch_interrupt);
@@ -100,7 +102,8 @@ int main(int argc, char **argv) {
         options.get<std::string>("listen-address"),
         options.get<uint32_t>("listen-port"),
         options.get<std::string>("ssl-certificate"),
-        options.get<std::string>("ssl-certificate-key")
+        options.get<std::string>("ssl-certificate-key"),
+        options.exist("enable-cors")
     );
 
     server->set_auth_handler(handle_authentication);

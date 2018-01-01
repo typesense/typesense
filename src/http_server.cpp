@@ -26,10 +26,10 @@ struct h2o_custom_generator_t {
     void* data;
 };
 
-HttpServer::HttpServer(std::string listen_address, uint32_t listen_port,
-                       std::string ssl_cert_path, std::string ssl_cert_key_path):
-                       listen_address(listen_address), listen_port(listen_port),
-                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path) {
+HttpServer::HttpServer(std::string listen_address, uint32_t listen_port, std::string ssl_cert_path,
+                       std::string ssl_cert_key_path, bool cors_enabled):
+                       listen_address(listen_address), listen_port(listen_port), ssl_cert_path(ssl_cert_path),
+                       ssl_cert_key_path(ssl_cert_key_path), cors_enabled(cors_enabled) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -281,6 +281,40 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         auth_key_from_header = std::string(slot.base, slot.len);
     } else if(query_map.count(AUTH_HEADER) != 0) {
         auth_key_from_header = query_map[AUTH_HEADER];
+    }
+
+    // Handle OPTIONS for CORS
+    if(self->http_server->cors_enabled && http_method == "OPTIONS") {
+        // locate request access control headers
+        const char* ACL_REQ_HEADERS = "access-control-request-headers";
+        ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, strlen(ACL_REQ_HEADERS), -1);
+
+        if(acl_header_cursor != -1) {
+            h2o_iovec_t &slot = req->headers.entries[acl_header_cursor].value;
+            const char* acl_req_headers = std::string(slot.base, slot.len).c_str();
+
+            h2o_generator_t generator = {NULL, NULL};
+            h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
+            req->res.status = 200;
+            req->res.reason = get_status_reason(200);
+
+            h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                  H2O_STRLIT("Access-Control-Allow-Origin"),
+                                  0, NULL, H2O_STRLIT("*"));
+            h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                  H2O_STRLIT("Access-Control-Allow-Methods"),
+                                  0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
+            h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                  H2O_STRLIT("Access-Control-Allow-Headers"),
+                                  0, NULL, acl_req_headers, strlen(acl_req_headers));
+            h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                  H2O_STRLIT("Access-Control-Max-Age"),
+                                  0, NULL, H2O_STRLIT("86400"));
+
+            h2o_start_response(req, &generator);
+            h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
+            return 0;
+        }
     }
 
     for(const route_path & rpath: self->http_server->routes) {
