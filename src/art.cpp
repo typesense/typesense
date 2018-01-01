@@ -606,7 +606,7 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, uint32_t num_hits, int depth, int *old_val) {
+static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, uint32_t num_hits, int depth, int *old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
         *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
@@ -619,15 +619,14 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
 
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
-            *old_val = 1;
+            *old = 1;
+            art_values *ret_val = l->values;
 
             // updates are not supported
-            if(l->values->ids.contains(document->id)) {
-                return old_val;
+            if(!l->values->ids.contains(document->id)) {
+                add_document_to_leaf(document, l);
             }
-
-            art_values *ret_val = l->values;
-            add_document_to_leaf(document, l);
+            
             return ret_val;
         }
 
@@ -691,7 +690,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, document, num_hits, depth + 1, old_val);
+        return recursive_insert(*child, child, key, key_len, document, num_hits, depth + 1, old);
     }
 
     // No child, node goes within us
