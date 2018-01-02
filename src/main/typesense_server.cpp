@@ -31,13 +31,13 @@ void master_server_routes() {
     server->get("/collections", get_collections);
     server->del("/collections/:collection", del_drop_collection);
     server->get("/collections/:collection", get_collection_summary);
-    server->get("/collections/:collection/export", get_collection_export, true);
 
     // document management
-    server->post("/collections/:collection", post_add_document);
-    server->get("/collections/:collection/search", get_search);
-    server->get("/collections/:collection/:id", get_fetch_document);
-    server->del("/collections/:collection/:id", del_remove_document);
+    server->post("/collections/:collection/documents", post_add_document);
+    server->get("/collections/:collection/documents/search", get_search);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
+    server->get("/collections/:collection/documents/export", get_collection_export, true);
+    server->del("/collections/:collection/documents/:id", del_remove_document);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
@@ -47,11 +47,11 @@ void replica_server_routes() {
     // collection management
     server->get("/collections", get_collections);
     server->get("/collections/:collection", get_collection_summary);
-    server->get("/collections/:collection/export", get_collection_export, true);
 
     // document management
-    server->get("/collections/:collection/search", get_search);
-    server->get("/collections/:collection/:id", get_fetch_document);
+    server->get("/collections/:collection/documents/search", get_search);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
+    server->get("/collections/:collection/export", get_collection_export, true);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);

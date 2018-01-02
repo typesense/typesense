@@ -92,7 +92,7 @@ public:
 
     std::string get_token_ranking_field();
 
-    Option<std::string> add(const std::string & json_str);
+    Option<nlohmann::json> add(const std::string & json_str);
 
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,

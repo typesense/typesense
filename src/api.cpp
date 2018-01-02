@@ -7,6 +7,28 @@
 #include "collection.h"
 #include "collection_manager.h"
 
+nlohmann::json collection_summary_json(Collection *collection) {
+    nlohmann::json json_response;
+
+    json_response["name"] = collection->get_name();
+    json_response["num_documents"] = collection->get_num_documents();
+
+    const std::vector<field> & coll_fields = collection->get_fields();
+    nlohmann::json fields_arr;
+
+    for(const field & coll_field: coll_fields) {
+        nlohmann::json field_json;
+        field_json[fields::name] = coll_field.name;
+        field_json[fields::type] = coll_field.type;
+        field_json[fields::facet] = coll_field.facet;
+        fields_arr.push_back(field_json);
+    }
+
+    json_response["fields"] = fields_arr;
+    json_response["token_ranking_field"] = collection->get_token_ranking_field();
+    return json_response;
+}
+
 bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     if(rpath.handler == get_search) {
@@ -19,14 +41,11 @@ bool handle_authentication(const route_path & rpath, const std::string & auth_ke
 void get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<Collection*> collections = collectionManager.get_collections();
-    nlohmann::json json_response;
-    json_response["data"] = nlohmann::json::array();
+    nlohmann::json json_response = nlohmann::json::array();
 
     for(Collection* collection: collections) {
-        nlohmann::json collection_map;
-        collection_map["name"] = collection->get_name();
-        collection_map["num_documents"] = collection->get_num_documents();
-        json_response["collections"].push_back(collection_map);
+        nlohmann::json collection_json = collection_summary_json(collection);
+        json_response.push_back(collection_json);
     }
 
     res.send_200(json_response.dump());
@@ -109,15 +128,16 @@ void del_drop_collection(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    nlohmann::json collection_json = collection_summary_json(collection);
+
     Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
 
     if(!drop_result.ok()) {
         return res.send(drop_result.code(), drop_result.error());
     }
 
-    nlohmann::json json_response;
-    json_response["collection"] = req.params["collection"];
-    res.send_200(json_response.dump());
+    res.send_200(collection_json.dump());
 }
 
 void get_search(http_req & req, http_res & res) {
@@ -257,25 +277,7 @@ void get_collection_summary(http_req & req, http_res & res) {
         return res.send_404();
     }
 
-    nlohmann::json json_response;
-
-    json_response["name"] = collection->get_name();
-    json_response["num_documents"] = collection->get_num_documents();
-
-    const std::vector<field> & coll_fields = collection->get_fields();
-    nlohmann::json fields_arr;
-
-    for(const field & coll_field: coll_fields) {
-        nlohmann::json field_json;
-        field_json[fields::name] = coll_field.name;
-        field_json[fields::type] = coll_field.type;
-        field_json[fields::facet] = coll_field.facet;
-        fields_arr.push_back(field_json);
-    }
-
-    json_response["fields"] = fields_arr;
-    json_response["token_ranking_field"] = collection->get_token_ranking_field();
-
+    nlohmann::json json_response = collection_summary_json(collection);
     res.send_200(json_response.dump());
 }
 
@@ -331,14 +333,12 @@ void post_add_document(http_req & req, http_res & res) {
         return res.send_404();
     }
 
-    Option<std::string> inserted_id_op = collection->add(req.body);
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
 
-    if(!inserted_id_op.ok()) {
-        res.send(inserted_id_op.code(), inserted_id_op.error());
+    if(!inserted_doc_op.ok()) {
+        res.send(inserted_doc_op.code(), inserted_doc_op.error());
     } else {
-        nlohmann::json json_response;
-        json_response["id"] = inserted_id_op.get();
-        res.send_201(json_response.dump());
+        res.send_201(inserted_doc_op.get().dump());
     }
 }
 
@@ -369,14 +369,19 @@ void del_remove_document(http_req & req, http_res & res) {
         return res.send_404();
     }
 
+    Option<nlohmann::json> doc_option = collection->get(doc_id);
+
+    if(!doc_option.ok()) {
+        return res.send(doc_option.code(), doc_option.error());
+    }
+
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if(!deleted_id_op.ok()) {
         res.send(deleted_id_op.code(), deleted_id_op.error());
     } else {
-        nlohmann::json json_response;
-        json_response["id"] = deleted_id_op.get();
-        res.send_200(json_response.dump());
+        nlohmann::json doc = doc_option.get();
+        res.send_200(doc.dump());
     }
 }
 

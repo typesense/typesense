@@ -64,12 +64,12 @@ void Collection::increment_next_seq_id_field() {
     next_seq_id++;
 }
 
-Option<std::string> Collection::add(const std::string & json_str) {
+Option<nlohmann::json> Collection::add(const std::string & json_str) {
     nlohmann::json document;
     try {
         document = nlohmann::json::parse(json_str);
     } catch(...) {
-        return Option<std::string>(400, "Bad JSON.");
+        return Option<nlohmann::json>(400, "Bad JSON.");
     }
 
     uint32_t seq_id = get_next_seq_id();
@@ -78,7 +78,7 @@ Option<std::string> Collection::add(const std::string & json_str) {
     if(document.count("id") == 0) {
         document["id"] = seq_id_str;
     } else if(!document["id"].is_string()) {
-        return Option<std::string>(400, "Document's `id` field should be a string.");
+        return Option<nlohmann::json>(400, "Document's `id` field should be a string.");
     }
 
     std::string doc_id = document["id"];
@@ -86,13 +86,13 @@ Option<std::string> Collection::add(const std::string & json_str) {
     const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);
 
     if(!index_memory_op.ok()) {
-        return Option<std::string>(index_memory_op.code(), index_memory_op.error());
+        return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
     }
 
     store->insert(get_doc_id_key(document["id"]), seq_id_str);
     store->insert(get_seq_id_key(seq_id), document.dump());
 
-    return Option<std::string>(doc_id);
+    return Option<nlohmann::json>(document);
 }
 
 Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
@@ -503,12 +503,16 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         std::string value;
         store->get(seq_id_key, value);
 
+        nlohmann::json wrapper_doc;
         nlohmann::json document;
+
         try {
             document = nlohmann::json::parse(value);
         } catch(...) {
             return Option<nlohmann::json>(500, "Error while parsing stored document.");
         }
+
+        wrapper_doc["document"] = document;
 
         // highlight query words in the result
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
@@ -576,11 +580,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 snippet_stream << tokens[snippet_index];
             }
 
-            document["_highlight"] = nlohmann::json::object();
-            document["_highlight"][field_name] = snippet_stream.str();
+            wrapper_doc["_highlight"] = nlohmann::json::object();
+            wrapper_doc["_highlight"][field_name] = snippet_stream.str();
         }
 
-        result["hits"].push_back(document);
+        result["hits"].push_back(wrapper_doc);
     }
 
     result["facet_counts"] = nlohmann::json::array();

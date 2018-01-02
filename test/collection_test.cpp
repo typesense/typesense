@@ -94,7 +94,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -110,7 +110,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 }
@@ -135,7 +135,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -150,7 +150,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -164,7 +164,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 }
@@ -180,7 +180,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -191,7 +191,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -203,7 +203,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
@@ -225,7 +225,7 @@ TEST_F(CollectionTest, PartialPhraseSearch) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -240,7 +240,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -253,7 +253,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -267,7 +267,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -278,7 +278,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -287,7 +287,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
     results = collection->search("loox", query_fields, "", facets, sort_fields, 1, 1, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["found"].get<int>());
     ASSERT_EQ(1, results["hits"].size());
-    std::string solo_id = results["hits"].at(0)["id"];
+    std::string solo_id = results["hits"].at(0)["document"]["id"];
     ASSERT_STREQ("22", solo_id.c_str());
 
     results = collection->search("loox", query_fields, "", facets, sort_fields, 1, 2, 1, FREQUENCY, false).get();
@@ -302,7 +302,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -313,7 +313,7 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -330,7 +330,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -344,7 +344,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -359,7 +359,7 @@ TEST_F(CollectionTest, Pagination) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -372,7 +372,7 @@ TEST_F(CollectionTest, Pagination) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -385,7 +385,7 @@ TEST_F(CollectionTest, Pagination) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -399,7 +399,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -410,7 +410,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -421,7 +421,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -433,7 +433,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -444,7 +444,7 @@ TEST_F(CollectionTest, PrefixSearching) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -463,7 +463,7 @@ TEST_F(CollectionTest, PrefixSearching) {
     // prefix with a typo
     results = collection->search("late propx", query_fields, "", facets, sort_fields, 2, 1, 1, FREQUENCY, true).get();
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("16", results["hits"].at(0)["id"]);
+    ASSERT_EQ("16", results["hits"].at(0)["document"]["id"]);
 }
 
 TEST_F(CollectionTest, MultipleFields) {
@@ -499,7 +499,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -514,7 +514,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -530,7 +530,7 @@ TEST_F(CollectionTest, MultipleFields) {
     ids = {"6", "1", "7"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -542,7 +542,7 @@ TEST_F(CollectionTest, MultipleFields) {
     ids = {"7", "6", "1"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -554,7 +554,7 @@ TEST_F(CollectionTest, MultipleFields) {
     ids = {"6"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -644,7 +644,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -657,7 +657,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -675,7 +675,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     ids = {"1", "0", "2"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -686,7 +686,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     ids = {"3"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -698,7 +698,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     ids = {"4"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -710,7 +710,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     ids = {"3", "0", "2"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -722,7 +722,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     ids = {"3", "1", "4", "0"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -735,7 +735,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -783,7 +783,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -796,7 +796,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str()); //?
     }
@@ -809,7 +809,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -821,7 +821,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     ids = {"1", "2"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -833,7 +833,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     ids = {"1"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -845,7 +845,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     ids = {"2", "0"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -857,7 +857,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     ids = {"2", "4", "0"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -878,7 +878,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -920,7 +920,7 @@ TEST_F(CollectionTest, SortOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         EXPECT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -933,7 +933,7 @@ TEST_F(CollectionTest, SortOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         EXPECT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -948,7 +948,7 @@ TEST_F(CollectionTest, SortOnFloatFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         EXPECT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -977,7 +977,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
-        Option<std::string> op = coll_bool->add(json_line);
+        coll_bool->add(json_line);
     }
 
     infile.close();
@@ -992,7 +992,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1005,7 +1005,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1017,7 +1017,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1035,7 +1035,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1078,7 +1078,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1090,7 +1090,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1103,7 +1103,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1297,7 +1297,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1311,7 +1311,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1326,7 +1326,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1341,7 +1341,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
-        std::string result_id = result["id"];
+        std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
@@ -1422,23 +1422,23 @@ TEST_F(CollectionTest, IndexingWithBadData) {
         sample_collection = collectionManager.create_collection("sample_collection", fields, "age").get();
     }
 
-    const Option<std::string> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
+    const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op1.ok());
     ASSERT_STREQ("Field `tags` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op1.error().c_str());
 
-    const Option<std::string> & search_fields_missing_op2 = sample_collection->add("{\"namez\": \"foo\", \"tags\": [], \"age\": 34, \"average\": 78}");
+    const Option<nlohmann::json> & search_fields_missing_op2 = sample_collection->add("{\"namez\": \"foo\", \"tags\": [], \"age\": 34, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op2.ok());
     ASSERT_STREQ("Field `name` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op2.error().c_str());
 
-    const Option<std::string> & facet_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 34, \"average\": 78}");
+    const Option<nlohmann::json> & facet_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 34, \"average\": 78}");
     ASSERT_FALSE(facet_fields_missing_op1.ok());
     ASSERT_STREQ("Field `tags` has been declared in the schema, but is not found in the document.",
                  facet_fields_missing_op1.error().c_str());
 
     const char *doc_str = "{\"name\": \"foo\", \"age\": 34, \"avg\": 78, \"tags\": [\"red\", \"blue\"]}";
-    const Option<std::string> & sort_fields_missing_op1 = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & sort_fields_missing_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(sort_fields_missing_op1.ok());
     ASSERT_STREQ("Field `average` has been declared in the schema, but is not found in the document.",
                  sort_fields_missing_op1.error().c_str());
@@ -1446,37 +1446,37 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     // Handle type errors
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22, \"average\": 78}";
-    const Option<std::string> & bad_facet_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_facet_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_facet_field_op.ok());
     ASSERT_STREQ("Field `tags` must be a string array.", bad_facet_field_op.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": 34}";
-    const Option<std::string> & empty_facet_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & empty_facet_field_op = sample_collection->add(doc_str);
     ASSERT_TRUE(empty_facet_field_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op1.ok());
     ASSERT_STREQ("Token ranking field `age` must be a number.", bad_token_ranking_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op2.ok());
     ASSERT_STREQ("Token ranking field `age` exceeds maximum value of int32.", bad_token_ranking_field_op2.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ranking_field_op3 = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_token_ranking_field_op3 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op3.ok());
     ASSERT_STREQ("Field `age` has been declared as a token ranking field, but is not found in the document.",
                  bad_token_ranking_field_op3.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
-    const Option<std::string> & bad_rank_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_rank_field_op.ok());
     ASSERT_STREQ("Field `average` must be an int32.", bad_rank_field_op.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": asdadasd, \"tags\": [], \"average\": 34 }";
-    const Option<std::string> & bad_token_ranking_field_op4 = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_token_ranking_field_op4 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_token_ranking_field_op4.ok());
     ASSERT_STREQ("Bad JSON.", bad_token_ranking_field_op4.error().c_str());
 
@@ -1526,7 +1526,7 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
     doc["tags"] = nlohmann::json::array();
     doc["tags"].push_back("tag1");
 
-    Option<std::string> inserted_id_op = coll1->add(doc.dump());
+    Option<nlohmann::json> inserted_id_op = coll1->add(doc.dump());
     ASSERT_FALSE(inserted_id_op.ok());
     ASSERT_STREQ("Document's `id` field should be a string.", inserted_id_op.error().c_str());
 
@@ -1551,7 +1551,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
     doc["name"] = "Jane";
     doc["average"] = 98;
 
-    Option<std::string> inserted_id_op = coll1->add(doc.dump());
+    Option<nlohmann::json> inserted_id_op = coll1->add(doc.dump());
     EXPECT_TRUE(inserted_id_op.ok());
     collectionManager.drop_collection("coll1");
 }
