@@ -19,7 +19,7 @@ echo "Creating development image..."
 docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
 
 echo "Building Typesense..."
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -H/typesense -B/typesense/build
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/build
 docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make -C/typesense/build
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then

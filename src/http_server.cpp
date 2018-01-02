@@ -290,8 +290,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, strlen(ACL_REQ_HEADERS), -1);
 
         if(acl_header_cursor != -1) {
-            h2o_iovec_t &slot = req->headers.entries[acl_header_cursor].value;
-            const char* acl_req_headers = std::string(slot.base, slot.len).c_str();
+            h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
 
             h2o_generator_t generator = {NULL, NULL};
             h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
@@ -306,7 +305,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                                   0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
             h2o_add_header_by_str(&req->pool, &req->res.headers,
                                   H2O_STRLIT("Access-Control-Allow-Headers"),
-                                  0, NULL, acl_req_headers, strlen(acl_req_headers));
+                                  0, NULL, acl_req_headers.base, acl_req_headers.len);
             h2o_add_header_by_str(&req->pool, &req->res.headers,
                                   H2O_STRLIT("Access-Control-Max-Age"),
                                   0, NULL, H2O_STRLIT("86400"));
