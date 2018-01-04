@@ -51,7 +51,7 @@ void replica_server_routes() {
     // document management
     server->get("/collections/:collection/documents/search", get_search);
     server->get("/collections/:collection/documents/:id", get_fetch_document);
-    server->get("/collections/:collection/export", get_collection_export, true);
+    server->get("/collections/:collection/documents/export", get_collection_export, true);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
