@@ -283,36 +283,39 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         auth_key_from_header = query_map[AUTH_HEADER];
     }
 
-    // Handle OPTIONS for CORS
-    if(self->http_server->cors_enabled && http_method == "OPTIONS") {
-        // locate request access control headers
-        const char* ACL_REQ_HEADERS = "access-control-request-headers";
-        ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, strlen(ACL_REQ_HEADERS), -1);
+    // Handle CORS
+    if(self->http_server->cors_enabled) {
+        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("Access-Control-Allow-Origin"),
+                              0, NULL, H2O_STRLIT("*"));
+        
+        if(http_method == "OPTIONS") {
+            // locate request access control headers
+            const char* ACL_REQ_HEADERS = "access-control-request-headers";
+            ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, 
+                                                               strlen(ACL_REQ_HEADERS), -1);
 
-        if(acl_header_cursor != -1) {
-            h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
+            if(acl_header_cursor != -1) {
+                h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
 
-            h2o_generator_t generator = {NULL, NULL};
-            h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
-            req->res.status = 200;
-            req->res.reason = get_status_reason(200);
+                h2o_generator_t generator = {NULL, NULL};
+                h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
+                req->res.status = 200;
+                req->res.reason = get_status_reason(200);
 
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Origin"),
-                                  0, NULL, H2O_STRLIT("*"));
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Methods"),
-                                  0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Headers"),
-                                  0, NULL, acl_req_headers.base, acl_req_headers.len);
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Max-Age"),
-                                  0, NULL, H2O_STRLIT("86400"));
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("Access-Control-Allow-Methods"),
+                                      0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("Access-Control-Allow-Headers"),
+                                      0, NULL, acl_req_headers.base, acl_req_headers.len);
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("Access-Control-Max-Age"),
+                                      0, NULL, H2O_STRLIT("86400"));
 
-            h2o_start_response(req, &generator);
-            h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
-            return 0;
+                h2o_start_response(req, &generator);
+                h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
+                return 0;
+            }
         }
     }
 
