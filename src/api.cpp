@@ -126,11 +126,14 @@ void post_create_collection(http_req & req, http_res & res) {
 
 void del_drop_collection(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
-
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
-    nlohmann::json collection_json = collection_summary_json(collection);
 
+    if(!collection) {
+        return res.send_404();
+    }
+
+    nlohmann::json collection_json = collection_summary_json(collection);
     Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
 
     if(!drop_result.ok()) {
@@ -146,7 +149,8 @@ void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *FILTER = "filter_by";
-    const char *SEARCH_BY = "query_by";
+    const char *QUERY = "q";
+    const char *QUERY_BY = "query_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
     const char *PER_PAGE = "per_page";
@@ -162,8 +166,12 @@ void get_search(http_req & req, http_res & res) {
         req.params[PREFIX] = "false";
     }
 
-    if(req.params.count(SEARCH_BY) == 0) {
-        return res.send_400(std::string("Parameter `") + SEARCH_BY + "` is required.");
+    if(req.params.count(QUERY) == 0) {
+        return res.send_400(std::string("Parameter `") + QUERY + "` is required.");
+    }
+
+    if(req.params.count(QUERY_BY) == 0) {
+        return res.send_400(std::string("Parameter `") + QUERY_BY + "` is required.");
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -189,7 +197,7 @@ void get_search(http_req & req, http_res & res) {
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
 
     std::vector<std::string> search_fields;
-    StringUtils::split(req.params[SEARCH_BY], search_fields, ",");
+    StringUtils::split(req.params[QUERY_BY], search_fields, ",");
 
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, ",");
@@ -236,7 +244,7 @@ void get_search(http_req & req, http_res & res) {
     StringUtils::toupper(req.params[RANK_TOKENS_BY]);
     token_ordering token_order = (req.params[RANK_TOKENS_BY] == "TOKEN_RANKING_FIELD") ? MAX_SCORE : FREQUENCY;
 
-    Option<nlohmann::json> result_op = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
                                                std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
                                                token_order, prefix);
@@ -284,6 +292,11 @@ void get_collection_summary(http_req & req, http_res & res) {
 void collection_export_handler(http_req* req, http_res* res, void* data) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(!collection) {
+        return res->send_404();
+    }
+
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
 
     rocksdb::Iterator* it = reinterpret_cast<rocksdb::Iterator*>(data);
