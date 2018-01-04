@@ -4,7 +4,7 @@
 
 ## Steps to reproduce
 
-[Include screenshots, shell commands, etc]
+[Include screenshots, curl commands (please use the -sv flags for curl), etc]
 
 ## Expected Behavior
 
