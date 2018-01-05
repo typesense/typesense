@@ -163,7 +163,7 @@ void get_search(http_req & req, http_res & res) {
     }
 
     if(req.params.count(PREFIX) == 0) {
-        req.params[PREFIX] = "false";
+        req.params[PREFIX] = "true";
     }
 
     if(req.params.count(QUERY) == 0) {
