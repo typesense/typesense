@@ -32,11 +32,11 @@ void master_server_routes() {
     server->del("/collections/:collection", del_drop_collection);
     server->get("/collections/:collection", get_collection_summary);
 
-    // document management
+    // document management - `/documents/:id` end-points must be placed last in the list
     server->post("/collections/:collection/documents", post_add_document);
     server->get("/collections/:collection/documents/search", get_search);
-    server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->get("/collections/:collection/documents/export", get_collection_export, true);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
     // replication
@@ -48,10 +48,10 @@ void replica_server_routes() {
     server->get("/collections", get_collections);
     server->get("/collections/:collection", get_collection_summary);
 
-    // document management
+    // document management - `/documents/:id` end-points must be placed last in the list
     server->get("/collections/:collection/documents/search", get_search);
-    server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->get("/collections/:collection/documents/export", get_collection_export, true);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
