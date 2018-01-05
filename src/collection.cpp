@@ -257,7 +257,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const std::string & field_name: search_fields) {
         if(search_schema.count(field_name) == 0) {
             std::string error = "Could not find a field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
 
         field search_field = search_schema.at(field_name);
@@ -287,7 +287,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
         const std::string & field_name = expression_parts[0];
         if(search_schema.count(field_name) == 0) {
-            return Option<nlohmann::json>(400, "Could not find a filter field named `" + field_name + "` in the schema.");
+            return Option<nlohmann::json>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
         }
 
         field _field = search_schema.at(field_name);
@@ -365,7 +365,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
         facets.push_back(facet(field_name));
     }
@@ -377,7 +377,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const sort_by & _sort_field: sort_fields) {
         if(sort_schema.count(_sort_field.name) == 0) {
             std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema for sorting.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
 
         std::string sort_order = _sort_field.order;
