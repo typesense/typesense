@@ -260,7 +260,7 @@ void get_search(http_req & req, http_res & res) {
     }
 
     nlohmann::json result = result_op.get();
-    result["took_ms"] = timeMillis;
+    result["search_time_ms"] = timeMillis;
     result["page"] = std::stoi(req.params[PAGE]);
     const std::string & results_json_str = result.dump();
 
