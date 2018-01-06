@@ -3,6 +3,7 @@
 #include <thread>
 #include <sys/resource.h>
 #include "api.h"
+#include "typesense_version.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
@@ -141,6 +142,12 @@ void del_drop_collection(http_req & req, http_res & res) {
     }
 
     res.send_200(collection_json.dump());
+}
+
+void get_debug(http_req & req, http_res & res) {
+    nlohmann::json result;
+    result["version"] = TYPESENSE_VERSION;
+    res.send_200(result.dump());
 }
 
 void get_search(http_req & req, http_res & res) {

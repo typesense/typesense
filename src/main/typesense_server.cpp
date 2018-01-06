@@ -39,6 +39,9 @@ void master_server_routes() {
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
+    // meta
+    server->get("/debug", get_debug);
+
     // replication
     server->get("/replication/updates", get_replication_updates, true);
 }
@@ -52,6 +55,9 @@ void replica_server_routes() {
     server->get("/collections/:collection/documents/search", get_search);
     server->get("/collections/:collection/documents/export", get_collection_export, true);
     server->get("/collections/:collection/documents/:id", get_fetch_document);
+
+    // meta
+    server->get("/debug", get_debug);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
