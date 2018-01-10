@@ -1,4 +1,4 @@
-FROM typesense/ubuntu-10-04-gcc:6.4.0
+FROM typesense/ubuntu-10.04-gcc:6.4.0
 
 ENV PATH /usr/local/gcc-6.4.0/bin/:$PATH
 ENV LD_LIBRARY_PATH /usr/local/gcc-6.4.0/lib64
