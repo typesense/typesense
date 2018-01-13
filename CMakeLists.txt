@@ -14,7 +14,7 @@ if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
     add_definitions(-D__GLIBCXX__)
 
-    # For Brew
+    # Prefer brew installated libraries
     set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
@@ -69,9 +69,10 @@ target_compile_definitions(benchmark PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 
 if (APPLE)
-    # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
-    set(STD_LIB -static-libstdc++)
-    set(CURL_LIBRARIES curl)
+    set(STD_LIB -static-libstdc++) # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
+
+    FIND_PACKAGE(ngHTTP2 REQUIRED)
+    set(CURL_LIBRARIES ldap ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # ldap and nghttp2 were not being statically built
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
 endif()
