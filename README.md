@@ -2,16 +2,17 @@
 
 Typesense is an open source search engine for building delightful search experiences.
 
-- **Typo tolerance:** Handles typographical errors out-of-the-box
-- **Tunable ranking:** Tailor your search results to perfection
-- **Blazing fast:** Meticulously designed and optimized for speed
-- **Simple and delightful:** Simple API, delightful out-of-the-box experience
+- **Typo tolerant:** Handles typographical errors out-of-the-box.
+- **Tunable ranking:** It's easy to tailor your search results to perfection.
+- **Simple and delightful:** Simple API and delightful out-of-the-box experience.
+- **Blazing fast:** Meticulously designed and optimized for speed.
 
 ## Installation
 
-We publish [binary packages](https://github.com/wreally/typesense/releases) for Linux and OS X.
+You can download the [binary packages](https://github.com/wreally/typesense/releases) that we publish for 
+Linux (x86-64) and Mac.
 
-If you use Docker, you can also run Typesense from our official Docker image:
+If you use Docker, you can run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
 
 ```
 docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
