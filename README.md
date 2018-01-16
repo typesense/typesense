@@ -15,7 +15,7 @@ Linux (x86-64) and Mac.
 If you use Docker, you can run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
 
 ```
-docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
+docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
 ```
 
 ## Getting started
