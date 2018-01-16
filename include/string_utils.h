@@ -3,6 +3,7 @@
 #include <string>
 #include <algorithm>
 #include <sstream>
+#include <ctype.h>
 
 struct StringUtils {
     // Adapted from: http://stackoverflow.com/a/236180/131050
@@ -121,6 +122,10 @@ struct StringUtils {
     }
 
     static void normalize(std::string& str) {
+        str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
+                    return !std::isalnum(c) && (int)(c) >= 0;
+                  }), str.end());
+
         std::transform(str.begin(), str.end(), str.begin(), ::tolower);
     }
 

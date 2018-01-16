@@ -1112,15 +1112,15 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags: BrONZe", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
-    // when comparators are used, should just treat them as part of search string
+    // when comparators are used, should just treat them as part of search string (special chars will be removed)
     results = coll_array_fields->search("Jeremy", query_fields, "tags:<bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(2, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(2, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(2, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -1381,7 +1381,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     Option<nlohmann::json> res_op = coll_array_fields->search("the", query_fields_not_found, "", facets, sort_fields, 0, 10);
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ(404, res_op.code());
     ASSERT_STREQ("Could not find a field named `titlez` in the schema.", res_op.error().c_str());
 
     // when a query field is an integer field
@@ -1391,16 +1391,16 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     // when a facet field is not defined in the schema
     res_op = coll_array_fields->search("the", {"name"}, "", {"timestamps"}, sort_fields, 0, 10);
-    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ(404, res_op.code());
     ASSERT_STREQ("Could not find a facet field named `timestamps` in the schema.", res_op.error().c_str());
 
     // when a rank field is not defined in the schema
     res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("timestamps", "ASC") }, 0, 10);
-    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ(404, res_op.code());
     ASSERT_STREQ("Could not find a field named `timestamps` in the schema for sorting.", res_op.error().c_str());
 
     res_op = coll_array_fields->search("the", {"name"}, "", {}, { sort_by("_rank", "ASC") }, 0, 10);
-    ASSERT_EQ(400, res_op.code());
+    ASSERT_EQ(404, res_op.code());
     ASSERT_STREQ("Could not find a field named `_rank` in the schema for sorting.", res_op.error().c_str());
 
     collectionManager.drop_collection("coll_array_fields");
