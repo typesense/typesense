@@ -11,8 +11,8 @@
 nlohmann::json collection_summary_json(Collection *collection) {
     nlohmann::json json_response;
 
+    json_response["name"] = collection->get_name();
     json_response["num_documents"] = collection->get_num_documents();
-    json_response["collection"]["name"] = collection->get_name();
 
     const std::vector<field> & coll_fields = collection->get_fields();
     nlohmann::json fields_arr;
@@ -25,8 +25,8 @@ nlohmann::json collection_summary_json(Collection *collection) {
         fields_arr.push_back(field_json);
     }
 
-    json_response["collection"]["fields"] = fields_arr;
-    json_response["collection"]["token_ranking_field"] = collection->get_token_ranking_field();
+    json_response["fields"] = fields_arr;
+    json_response["token_ranking_field"] = collection->get_token_ranking_field();
     return json_response;
 }
 
