@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <collection_manager.h>
 #include "collection.h"
-#include "person.h"
 #include "number.h"
 
 class CollectionTest : public ::testing::Test {

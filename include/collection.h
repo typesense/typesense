@@ -34,6 +34,8 @@ private:
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
 
+    Store* store;
+
     std::vector<field> fields;
 
     std::unordered_map<std::string, field> search_schema;
@@ -41,8 +43,6 @@ private:
     std::unordered_map<std::string, field> facet_schema;
 
     std::unordered_map<std::string, field> sort_schema;
-
-    Store* store;
 
     std::string token_ranking_field;
 

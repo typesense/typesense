@@ -438,7 +438,7 @@ static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_docum
 
 static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
     int max_cmp = min(l1->key_len, l2->key_len) - depth;
-    uint32_t idx;
+    int idx;
     for (idx=0; idx < max_cmp; idx++) {
         if (l1->key[depth+idx] != l2->key[depth+idx])
             return idx;
@@ -891,16 +891,16 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
     return NULL;
 }
 
-static uint32_t get_score(art_node* child) {
+/*static uint32_t get_score(art_node* child) {
     if (IS_LEAF(child)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(child);
         return l->values->ids.getLength();
     }
 
     return child->max_token_count;
-}
+}*/
 
-int art_topk_iter(const art_node *root, token_ordering token_order, const int max_results,
+int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                          std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
@@ -1452,7 +1452,7 @@ static void art_iter(const art_node *n, const unsigned char* int_str, int int_st
         return ;
     }
 
-    int idx, res;
+    int idx;
     switch (n->type) {
         case NODE4:
             for (int i=0; i < n->num_children; i++) {
@@ -1606,7 +1606,7 @@ void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str,
 void compare_and_match_leaf(const unsigned char *int_str, int int_str_len, const NUM_COMPARATOR &comparator,
                             std::vector<const art_leaf *> &results, const art_leaf *l) {
     if(comparator == LESS_THAN || comparator == GREATER_THAN) {
-        for(auto i = 0; i < l->key_len; i++) {
+        for(uint32_t i = 0; i < l->key_len; i++) {
             if(int_str[i] != l->key[i]) {
                 results.push_back(l);
                 return ;

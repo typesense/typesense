@@ -378,7 +378,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
-    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, this, type.c_str(), data};
+    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL, NULL}}, this, type.c_str(), data};
     h2o_multithread_send_message(message_receiver, &message->super);
 }
 

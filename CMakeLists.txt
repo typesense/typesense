@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(typesense)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++11 -O0")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -Wno-unused-parameter -O2")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -std=c++11 -O0")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
@@ -40,7 +40,6 @@ include(cmake/RocksDB.cmake)
 include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 
-FILE(GLOB HEADER_FILES include/*)
 FILE(GLOB SRC_FILES src/*.cpp)
 
 include_directories(include)

@@ -31,7 +31,6 @@ public:
     }
 
     void Put(const rocksdb::Slice& key, const rocksdb::Slice& value) {
-        CollectionManager & collection_manager = CollectionManager::get_instance();
         std::vector<std::string> parts;
         StringUtils::split(key.ToString(), parts, "_");
 

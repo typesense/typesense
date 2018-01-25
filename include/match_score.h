@@ -169,7 +169,7 @@ struct Match {
     std::fill_n(packed_offset_diffs, 16, 0);
 
     // identify the first token which is actually present and use that as the base for run-length encoding
-    int token_index = 0;
+    size_t token_index = 0;
     while(token_index < token_offsets.size()) {
       if(min_token_offset[token_index] != MAX_DISPLACEMENT) {
         token_start_offset = min_token_offset[token_index];

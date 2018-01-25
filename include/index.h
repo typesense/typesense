@@ -54,8 +54,6 @@ class Index {
 private:
     std::string name;
 
-    uint32_t collection_id;
-
     size_t num_documents;
 
     std::unordered_map<std::string, field> search_schema;

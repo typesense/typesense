@@ -77,7 +77,7 @@ struct StringUtils {
     static bool is_float(const std::string &s) {
         std::string::const_iterator it = s.begin();
         bool decimalPoint = false;
-        int minSize = 0;
+        size_t minSize = 0;
         if(s.size() > 0 && (s[0] == '-' || s[0] == '+')) {
             it++;
             minSize++;

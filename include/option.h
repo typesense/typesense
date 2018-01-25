@@ -17,7 +17,7 @@ public:
 
     }
 
-    Option(const uint32_t code, const std::string & error_msg): error_code(code), error_msg(error_msg), is_ok(false) {
+    Option(const uint32_t code, const std::string & error_msg): is_ok(false), error_msg(error_msg), error_code(code) {
 
     }
 

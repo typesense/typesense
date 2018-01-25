@@ -149,7 +149,7 @@ struct facet_value {
 
     void index_values(uint32_t doc_seq_id, const std::vector<std::string> & values) {
         std::vector<uint32_t> value_vec(values.size());
-        for(auto i = 0; i < values.size(); i++) {
+        for(size_t i = 0; i < values.size(); i++) {
             value_vec[i] = get_value_index(values[i]);
         }
         doc_values.emplace(doc_seq_id, value_vec);

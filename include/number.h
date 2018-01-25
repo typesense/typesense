@@ -9,24 +9,24 @@ struct number_t {
         int64_t intval;
     };
 
-    number_t(): intval(0), is_float(false) {
+    number_t(): is_float(false), intval(0) {
 
     }
 
-    number_t(bool is_float, float floatval): floatval(floatval), is_float(is_float) {
+    number_t(bool is_float, float floatval): is_float(is_float), floatval(floatval) {
 
     }
 
-    number_t(bool is_float, int64_t intval): intval(intval), is_float(is_float) {
+    number_t(bool is_float, int64_t intval): is_float(is_float), intval(intval) {
 
     }
 
 
-    number_t(float val): floatval(val), is_float(true) {
+    number_t(float val): is_float(true), floatval(val) {
 
     }
 
-    number_t(int64_t val): intval(val), is_float(false) {
+    number_t(int64_t val): is_float(false), intval(val) {
 
     }
 

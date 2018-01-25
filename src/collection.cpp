@@ -28,7 +28,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
     }
 
     num_indices = 4;
-    for(auto i = 0; i < num_indices; i++) {
+    for(size_t i = 0; i < num_indices; i++) {
         Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
         indices.push_back(index);
         std::thread* thread = new std::thread(&Index::run_search, index);
@@ -39,7 +39,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 }
 
 Collection::~Collection() {
-    for(auto i = 0; i < indices.size(); i++) {
+    for(size_t i = 0; i < indices.size(); i++) {
         std::thread *t = index_threads[i];
         Index* index = indices[i];
         index->ready = true;
@@ -402,7 +402,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(422, message);
     }
 
-    auto begin = std::chrono::high_resolution_clock::now();
+    //auto begin = std::chrono::high_resolution_clock::now();
 
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -450,7 +450,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         searched_queries.insert(searched_queries.end(), index->search_params.searched_queries.begin(),
                                 index->search_params.searched_queries.end());
 
-        for(auto fi = 0; fi < index->search_params.facets.size(); fi++) {
+        for(size_t fi = 0; fi < index->search_params.facets.size(); fi++) {
             auto & this_facet = index->search_params.facets[fi];
             auto & acc_facet = facets[fi];
 
@@ -496,7 +496,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
 
-    for(size_t field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
+    for(int field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
 
@@ -528,7 +528,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.second.query_index]) {
                 std::vector<uint16_t> positions;
-                int doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
+                uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
                 if(doc_index == token_leaf->values->ids.getLength()) {
                     continue;
                 }
@@ -550,7 +550,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             // unpack `match.offset_diffs` into `token_indices`
             std::vector<size_t> token_indices;
-            char num_tokens_found = match.offset_diffs[0];
+            size_t num_tokens_found = (size_t) match.offset_diffs[0];
             for(size_t i = 1; i <= num_tokens_found; i++) {
                 if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
                     size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
@@ -606,7 +606,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                       return a.second > b.second;
                   });
 
-        for(auto i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
+        for(size_t i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
             auto & kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;
@@ -617,7 +617,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         result["facet_counts"].push_back(facet_result);
     }
 
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
     //!store->print_memory_usage();
     return result;
