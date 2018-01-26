@@ -14,8 +14,9 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     StringUtils::normalize(alphanum_specialchars);
     ASSERT_STREQ("aa12zzwr", alphanum_specialchars.c_str());
 
-    // retain non-ascii unicode characters
+    // retain non-ascii unicode characters and should also lower case them
     std::string alphanum_unicodechars = "abcÅà123";
     StringUtils::normalize(alphanum_unicodechars);
-    ASSERT_STREQ("abc\xC3\x85\xC3\xA0""123", alphanum_unicodechars.c_str());
+    std::cout << alphanum_unicodechars << std::endl;
+    ASSERT_STREQ("abcåà123", alphanum_unicodechars.c_str());
 }

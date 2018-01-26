@@ -86,7 +86,7 @@
 - ~~handle hyphens (replace them)~~
 - ~~clean special chars before indexing~~
 - ~~Add docs/explanation around ranking calc~~
-- UTF-8 normalization
+- ~~UTF-8 normalization~~
 - NOT operator support
 - > INT32_MAX validation for float field
 - Proper logging

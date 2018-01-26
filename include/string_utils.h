@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <sstream>
 #include <ctype.h>
+#include "miniutf.hpp"
 
 struct StringUtils {
     // Adapted from: http://stackoverflow.com/a/236180/131050
@@ -126,7 +127,8 @@ struct StringUtils {
                     return !std::isalnum(c) && (int)(c) >= 0;
                   }), str.end());
 
-        std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+        //std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+        str = miniutf::lowercase(str);
     }
 
     /* https://stackoverflow.com/a/34571089/131050 */
