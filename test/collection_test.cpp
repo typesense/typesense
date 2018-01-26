@@ -1479,6 +1479,15 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_FALSE(bad_token_ranking_field_op4.ok());
     ASSERT_STREQ("Bad JSON.", bad_token_ranking_field_op4.error().c_str());
 
+    // should return an error when a document with pre-existing id is being added
+    std::string doc = "{\"id\": \"100\", \"name\": \"foo\", \"age\": 29, \"tags\": [], \"average\": 78}";
+    Option<nlohmann::json> add_op = sample_collection->add(doc);
+    ASSERT_TRUE(add_op.ok());
+    add_op = sample_collection->add(doc);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_STREQ("A document with id 100 already exists.", add_op.error().c_str());
+
     collectionManager.drop_collection("sample_collection");
 }
 
