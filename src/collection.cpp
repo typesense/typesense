@@ -86,7 +86,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
 
     // we need to check if document ID already exists before attempting to index
     if(doc_option.ok()) {
-        return Option<nlohmann::json>(400, std::string("A document with id ") + doc_id + " already exists.");
+        return Option<nlohmann::json>(409, std::string("A document with id ") + doc_id + " already exists.");
     }
 
     const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);

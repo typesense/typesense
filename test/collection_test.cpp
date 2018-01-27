@@ -1485,7 +1485,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_TRUE(add_op.ok());
     add_op = sample_collection->add(doc);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ(400, add_op.code());
+    ASSERT_EQ(409, add_op.code());
     ASSERT_STREQ("A document with id 100 already exists.", add_op.error().c_str());
 
     collectionManager.drop_collection("sample_collection");
