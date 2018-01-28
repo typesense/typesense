@@ -7,6 +7,7 @@
 #include <memory>
 #include <option.h>
 #include <rocksdb/db.h>
+#include <rocksdb/write_batch.h>
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
@@ -78,6 +79,11 @@ public:
 
     bool insert(const std::string& key, const std::string& value) {
         rocksdb::Status status = db->Put(rocksdb::WriteOptions(), key, value);
+        return status.ok();
+    }
+
+    bool batch_write(rocksdb::WriteBatch& batch) {
+        rocksdb::Status status = db->Write(rocksdb::WriteOptions(), &batch);
         return status.ok();
     }
 

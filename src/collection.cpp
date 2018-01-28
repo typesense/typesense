@@ -8,6 +8,7 @@
 #include <art.h>
 #include <thread>
 #include <chrono>
+#include <rocksdb/write_batch.h>
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & token_ranking_field):
@@ -95,8 +96,14 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
         return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
     }
 
-    store->insert(get_doc_id_key(document["id"]), seq_id_str);
-    store->insert(get_seq_id_key(seq_id), document.dump());
+    rocksdb::WriteBatch batch;
+    batch.Put(get_doc_id_key(document["id"]), seq_id_str);
+    batch.Put(get_seq_id_key(seq_id), document.dump());
+    bool write_ok = store->batch_write(batch);
+
+    if(!write_ok) {
+        return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
+    }
 
     return Option<nlohmann::json>(document);
 }

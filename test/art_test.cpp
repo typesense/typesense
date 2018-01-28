@@ -1005,14 +1005,16 @@ TEST(ArtTest, test_encode_int64) {
         ASSERT_EQ(chars_100K[i], chars[i]);
     }
 
-    unsigned char chars_large_num[8] = {255, 255, 255, 255, 128, 0, 0, 199};
-    encode_int64((int64_t)(std::numeric_limits<std::int32_t>::max())+200, chars);
+    unsigned char chars_large_num[8] = {0, 0, 0, 0, 128, 0, 0, 199};
+    int64_t large_num = (int64_t)(std::numeric_limits<std::int32_t>::max()) + 200;
+    std::cout << std::endl << large_num << std::endl;
+    encode_int64(large_num, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_large_num[i], chars[i]);
     }
 
-    unsigned char chars_large_neg_num[8] = {0, 0, 0, 0, 127, 255, 255, 57};
-    encode_int64(-1 * ((int64_t)(std::numeric_limits<std::int32_t>::max())+200), chars);
+    unsigned char chars_large_neg_num[8] = {255, 255, 255, 255, 127, 255, 255, 57};
+    encode_int64(-1 * large_num, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_large_neg_num[i], chars[i]);
     }

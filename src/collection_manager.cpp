@@ -143,13 +143,19 @@ Option<Collection*> CollectionManager::create_collection(std::string name, const
     Collection* new_collection = new Collection(name, next_collection_id, 0, store, fields, token_ranking_field);
     next_collection_id++;
 
-    store->insert(Collection::get_next_seq_id_key(name), std::to_string(0));
-    store->insert(Collection::get_meta_key(name), collection_meta.dump());
-    store->insert(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
+    rocksdb::WriteBatch batch;
+    batch.Put(Collection::get_next_seq_id_key(name), std::to_string(0));
+    batch.Put(Collection::get_meta_key(name), collection_meta.dump());
+    batch.Put(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
+    bool write_ok = store->batch_write(batch);
+
+    if(!write_ok) {
+        return Option<Collection*>(500, "Could not write to on-disk storage.");
+    }
 
     add_to_collections(new_collection);
 
-    return new_collection;
+    return Option<Collection*>(new_collection);
 }
 
 Collection* CollectionManager::get_collection(const std::string & collection_name) {

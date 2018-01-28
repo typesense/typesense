@@ -87,6 +87,7 @@
 - ~~clean special chars before indexing~~
 - ~~Add docs/explanation around ranking calc~~
 - ~~UTF-8 normalization~~
+- ~~Use rocksdb batch put for atomic insertion~~
 - NOT operator support
 - > INT32_MAX validation for float field
 - Proper logging
@@ -95,7 +96,6 @@
 - test for float int field deletion during doc deletion
 - Test for snippets
 - Test for replication
-- Use rocksdb batch put for atomic insertion
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
