@@ -20,9 +20,9 @@ docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8.0 --
 
 ## Getting started
 
-A detailed getting started guide is on [Typesense website](https://typesense.org/intro). 
+A detailed guide is available on [Typesense website](https://typesense.org/docs). 
 
-Here's a quick example showcasing how you would create a collection, index a document and search it on Typesense. 
+Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense. 
 
 Let's create a `companies` collection:
 
@@ -42,7 +42,7 @@ curl "${TYPESENSE_HOST}/collections" \
           }' 
 ```
 
-Now, index a company document:
+Now, let's index a document:
 
 ```
 curl "${TYPESENSE_HOST}/collections/companies/documents" \
@@ -62,9 +62,11 @@ Finally, let's search for the document we just indexed:
 ```
 curl -H "X-TYPESENSE-API-KEY: ${API_KEY}" \
      "${TYPESENSE_HOST}/collections/companies/documents/search\
-     ?q=stark&query_by=company_name&filter_by=num_employees:>100\
+     ?q=stork&query_by=company_name&filter_by=num_employees:>100\
      &sort_by=num_employees:desc"
 ```
+
+See how the search term has a typo? Typesense handles upto 2 typo errors out-of-the-box.
 
 ## Building from source
 
