@@ -317,9 +317,8 @@ void collection_export_handler(http_req* req, http_res* res, void* data) {
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             res->body += "\n";
         }
-
     } else {
-        res->body = true;
+        res->body = "";
         res->final = true;
         delete it;
     }

@@ -220,7 +220,6 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 201: return "Created";
         case 400: return "Bad Request";
         case 401: return "Unauthorized";
-        case 403: return "Forbidden";
         case 404: return "Not Found";
         case 409: return "Conflict";
         case 422: return "Unprocessable Entity";
