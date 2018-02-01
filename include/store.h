@@ -11,6 +11,7 @@
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
+#include "logger.h"
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
 public:
@@ -68,7 +69,7 @@ public:
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
         if(!s.ok()) {
-            std::cerr << s.ToString() << std::endl;
+            LOG(FATAL) << s.ToString();
         }
         assert(s.ok());
     }
@@ -195,10 +196,10 @@ public:
     void print_memory_usage() {
         std::string index_usage;
         db->GetProperty("rocksdb.estimate-table-readers-mem", &index_usage);
-        std::cout << "rocksdb.estimate-table-readers-mem: " << index_usage << std::endl;
+        LOG(INFO) << "rocksdb.estimate-table-readers-mem: " << index_usage;
 
         std::string memtable_usage;
         db->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_usage);
-        std::cout << "rocksdb.cur-size-all-mem-tables: " << memtable_usage << std::endl;
+        LOG(INFO) << "rocksdb.cur-size-all-mem-tables: " << memtable_usage;
     }
 };

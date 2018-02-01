@@ -13,6 +13,7 @@
 #include <queue>
 #include <stdint.h>
 #include "art.h"
+#include "logger.h"
 
 /**
  * Macros to manipulate pointer tags
@@ -931,7 +932,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         int idx;
         switch (n->type) {
             case NODE4:
-                //std::cout << "\nNODE4, SCORE: " << n->max_token_count << std::endl;
+                //LOG(INFO)  << "\nNODE4, SCORE: " << n->max_token_count;
                 for (int i=0; i < n->num_children; i++) {
                     art_node* child = ((art_node4*)n)->children[i];
                     q.push(child);
@@ -939,25 +940,25 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 break;
 
             case NODE16:
-                //std::cout << "\nNODE16, SCORE: " << n->max_token_count << std::endl;
+                //LOG(INFO) << "\nNODE16, SCORE: " << n->max_token_count;
                 for (int i=0; i < n->num_children; i++) {
                     q.push(((art_node16*)n)->children[i]);
                 }
                 break;
 
             case NODE48:
-                //std::cout << "\nNODE48, SCORE: " << n->max_token_count << std::endl;
+                //LOG(INFO) << "\nNODE48, SCORE: " << n->max_token_count;
                 for (int i=0; i < 256; i++) {
                     idx = ((art_node48*)n)->keys[i];
                     if (!idx) continue;
                     art_node *child = ((art_node48*)n)->children[idx - 1];
-                    //std::cout << "--PUSHING NODE48 CHILD WITH SCORE: " << get_score(child) << std::endl;
+                    //LOG(INFO) << "--PUSHING NODE48 CHILD WITH SCORE: " << get_score(child);
                     q.push(child);
                 }
                 break;
 
             case NODE256:
-                //std::cout << "\nNODE256, SCORE: " << n->max_token_count << std::endl;
+                //LOG(INFO) << "\nNODE256, SCORE: " << n->max_token_count;
                 for (int i=0; i < 256; i++) {
                     if (!((art_node256*)n)->children[i]) continue;
                     q.push(((art_node256*)n)->children[i]);
@@ -1362,7 +1363,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     }
 
     long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size() << std::endl;
+    //!LOG(INFO) << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size();
 
     begin = std::chrono::high_resolution_clock::now();
 
@@ -1377,7 +1378,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     }
 
     time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for art_topk_iter: " << time_micro << "us" << std::endl;
+    //!LOG(INFO) << "Time taken for art_topk_iter: " << time_micro << "us";
     return 0;
 }
 

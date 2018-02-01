@@ -7,6 +7,7 @@
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
+#include "logger.h"
 
 nlohmann::json collection_summary_json(Collection *collection) {
     nlohmann::json json_response;
@@ -273,7 +274,7 @@ void get_search(http_req & req, http_res & res) {
 
     //struct rusage r_usage;
     //getrusage(RUSAGE_SELF,&r_usage);
-    //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
+    //LOG(INFO) << "Memory usage: " << r_usage.ru_maxrss;
 
     if(req.params.count(CALLBACK) == 0) {
         res.send_200(results_json_str);
@@ -281,7 +282,7 @@ void get_search(http_req & req, http_res & res) {
         res.send_200(req.params[CALLBACK] + "(" + results_json_str + ");");
     }
 
-    std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
+    LOG(INFO) << "Time taken: " << timeMillis << "ms";
 }
 
 void get_collection_summary(http_req & req, http_res & res) {

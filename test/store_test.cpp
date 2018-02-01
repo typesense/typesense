@@ -5,7 +5,7 @@
 
 TEST(StoreTest, GetUpdatesSince) {
     std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
-    std::cout << "Truncating and creating: " << primary_store_path << std::endl;
+    LOG(INFO) << "Truncating and creating: " << primary_store_path;
     system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
 
     // add some records, get the updates and restore them in a new store
@@ -39,7 +39,7 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(3, updates_op.get()->size());
 
     std::string replica_store_path = "/tmp/typesense_test/replica_store_test";
-    std::cout << "Truncating and creating: " << replica_store_path << std::endl;
+    LOG(INFO) << "Truncating and creating: " << replica_store_path;
     system(("rm -rf "+replica_store_path+" && mkdir -p "+replica_store_path).c_str());
 
     Store replica_store(replica_store_path);

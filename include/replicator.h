@@ -8,7 +8,7 @@
 #include <thread>
 #include <string>
 #include <iostream>
-
+#include "logger.h"
 
 struct ReplicationEvent {
     std::string type;
@@ -93,7 +93,7 @@ public:
         while(true) {
             IterateBatchHandler handler(server);
             uint64_t latest_seq_num = store.get_latest_seq_number();
-            std::cout << "latest_seq_num: " << latest_seq_num << std::endl;
+            LOG(INFO) << "latest_seq_num: " << latest_seq_num;
 
             HttpClient client(
                 master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1), api_key
@@ -117,11 +117,10 @@ public:
                     store._get_db_unsafe()->Write(rocksdb::WriteOptions(), &write_batch);
                 }
             } else {
-                std::cerr << "Replication error while fetching records from master, status_code="
-                          << status_code << std::endl;
+                LOG(FATAL) << "Replication error while fetching records from master, status_code=" << status_code;
 
                 if(status_code != 0) {
-                    std::cerr << json_response << std::endl;
+                    LOG(FATAL) << json_response;
                 }
             }
 
@@ -142,8 +141,8 @@ public:
             try {
                 collection_meta = nlohmann::json::parse(replication_event->value);
             } catch(...) {
-                std::cerr << "Failed to parse collection meta JSON." << std::endl;
-                std::cerr << "Replication event value: " << replication_event->value << std::endl;
+                LOG(FATAL) << "Failed to parse collection meta JSON.";
+                LOG(FATAL) << "Replication event value: " << replication_event->value;
                 delete replication_event;
                 exit(1);
             }

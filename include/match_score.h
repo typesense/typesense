@@ -5,6 +5,7 @@
 #include <queue>
 #include <stdlib.h>
 #include <limits>
+#include "logger.h"
 
 #ifdef DEBUG
 #define D(x) x
@@ -46,9 +47,9 @@ struct Match {
   static void print_token_offsets(std::vector<std::vector<uint16_t>> &token_offsets) {
     for(auto offsets: token_offsets) {
       for(auto offset: offsets) {
-        std::cout << offset  << ", ";
+        LOG(INFO) << offset  << ", ";
       }
-      std::cout << std::endl;
+      LOG(INFO) << "";
     }
   }
 
@@ -114,7 +115,7 @@ struct Match {
         addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
       }
 
-      D(std::cout << "Loop till window fills... doc_id: " << doc_id << std::endl;)
+      D(LOG(INFO) << "Loop till window fills... doc_id: " << doc_id;)
 
       // Fill the queue with tokens within a given window frame size of the start offset
       // At the same time, we also record the *last* occurrence of each token within the window
@@ -124,7 +125,7 @@ struct Match {
         addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
       }
 
-      D(std::cout << std::endl << "----" << std::endl);
+      D(LOG(INFO) << "----");
 
       uint16_t prev_pos = MAX_DISPLACEMENT;
       uint16_t num_match = 0;
@@ -140,14 +141,14 @@ struct Match {
           } else {
             // Calculate the distance between the tokens within the window
             // Ideally, this should be (NUM_TOKENS - 1) when all the tokens are adjacent to each other
-            D(std::cout << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id] << std::endl);
+            D(LOG(INFO) << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id]);
             displacement += abs(token_offset[token_id]-prev_pos);
             prev_pos = token_offset[token_id];
           }
         }
       }
 
-      D(std::cout << std::endl << "!!!displacement: " << displacement << " | num_match: " << num_match << std::endl);
+      D(LOG(INFO) << std::endl << "!!!displacement: " << displacement << " | num_match: " << num_match);
 
       // Track the best `displacement` and `num_match` seen so far across all the windows
       // for a single token, displacement will be 0, while for 2 tokens minimum dispacement would be 1

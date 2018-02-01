@@ -11,11 +11,12 @@
 #include "string_utils.h"
 #include "replicator.h"
 #include "typesense_version.h"
+#include "logger.h"
 
 HttpServer* server;
 
 void catch_interrupt(int sig) {
-    std::cout << "Stopping Typesense server..." << std::endl;
+    LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
     server->stop();
 }
@@ -78,16 +79,35 @@ int main(int argc, char **argv) {
     options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
+    options.add<std::string>("log-dir", '\0', "Path to the log file.", false, "");
 
     options.parse_check(argc, argv);
 
+    auto log_worker = g3::LogWorker::createLogWorker();
+    std::string log_dir = options.get<std::string>("log-dir");
+
+    if(log_dir.empty()) {
+        log_worker->addSink(std2::make_unique<ConsoleLoggingSink>(),
+                                              &ConsoleLoggingSink::ReceiveLogMessage);
+    } else {
+        if(!directory_exists(log_dir)) {
+            std::cerr << "Typesense failed to start. " << "Log directory " << log_dir << " does not exist.";
+            return 1;
+        }
+
+        log_worker->addDefaultLogger("typesense", log_dir, "");
+        std::cout << "Typesense has started. Log directory is configured as: " << log_dir << std::endl;
+    }
+
+    g3::initializeLogging(log_worker.get());
+
     signal(SIGINT, catch_interrupt);
 
-    std::cout << "Typesense version " << TYPESENSE_VERSION << std::endl;
+    LOG(INFO) << "Typesense version: " << TYPESENSE_VERSION;
 
     if(!directory_exists(options.get<std::string>("data-dir"))) {
-        std::cerr << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
-                  << " does not exist." << std::endl;
+        LOG(FATAL) << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
+                  << " does not exist.";
         return 1;
     }
 
@@ -97,10 +117,9 @@ int main(int argc, char **argv) {
                                                   options.get<std::string>("search-only-api-key"));
 
     if(init_op.ok()) {
-        std::cout << "Finished loading collections from disk." << std::endl;
+        LOG(INFO) << "Finished loading collections from disk.";
     } else {
-        std::cerr << "Typesense failed to start. " << "Could not load collections from disk: "
-                  << init_op.error() << std::endl;
+        LOG(FATAL)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
     }
 
@@ -126,11 +145,11 @@ int main(int argc, char **argv) {
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
         if(parts.size() != 3) {
-            std::cerr << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>" << std::endl;
+            LOG(FATAL) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
             return 1;
         }
 
-        std::cout << "Typesense server started as a read-only replica... Spawning replication thread..." << std::endl;
+        LOG(INFO) << "Typesense is starting as a read-only replica... Spawning replication thread...";
         std::thread replication_thread([&master_host_port, &store, &options]() {
             Replicator::start(::server, master_host_port, options.get<std::string>("api-key"), store);
         });

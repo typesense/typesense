@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <h2o.h>
 #include <iostream>
+#include "logger.h"
 
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
@@ -69,7 +70,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     int nid = NID_X9_62_prime256v1;
     EC_KEY *key = EC_KEY_new_by_curve_name(nid);
     if (key == NULL) {
-        std::cout << "Failed to create DH/ECDH." << std::endl;
+        LOG(INFO) << "Failed to create DH/ECDH.";
         return -1;
     }
 
@@ -79,11 +80,11 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
 
     if (SSL_CTX_use_certificate_file(accept_ctx->ssl_ctx, cert_file, SSL_FILETYPE_PEM) != 1) {
-        std::cout << "An error occurred while trying to load server certificate file:" << cert_file << std::endl;
+        LOG(INFO) << "An error occurred while trying to load server certificate file:" << cert_file;
         return -1;
     }
     if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        std::cout << "An error occurred while trying to load private key file: " << key_file << std::endl;
+        LOG(INFO) << "An error occurred while trying to load private key file: " << key_file;
         return -1;
     }
 
@@ -132,11 +133,10 @@ int HttpServer::run() {
     h2o_multithread_register_receiver(message_queue, message_receiver, on_message);
 
     if (create_listener() != 0) {
-        std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << " - "
-                  << strerror(errno) << std::endl;
+        LOG(FATAL) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
         return 1;
     } else {
-        std::cout << "Server has started. Ready to accept requests on port " << listen_port << std::endl;
+        LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;
     }
 
     on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);

@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <rocksdb/write_batch.h>
+#include "logger.h"
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & token_ranking_field):
@@ -631,7 +632,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return result;
 }

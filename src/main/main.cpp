@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
         std::ifstream infile(argv[1]);
         std::string json_line;
 
-        cout << "BEGINNING Iteration: " << j << endl << flush;
+        std::cout << "BEGINNING Iteration: " << j << std::endl;
         auto begin = std::chrono::high_resolution_clock::now();
         int doc_id = 0;
 

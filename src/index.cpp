@@ -7,6 +7,7 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
+#include "logger.h"
 
 Index::Index(const std::string name, std::unordered_map<std::string, field> search_schema,
              std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
@@ -331,7 +332,7 @@ void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, st
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_candidates_vec, n);
 
         /*for(auto i=0; i < query_suggestion.size(); i++) {
-            std::cout << "i: " << i << " - " << query_suggestion[i]->key << std::endl;
+            LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key;
         }*/
 
         // initialize results with the starting element (for further intersection)
@@ -604,7 +605,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     delete [] all_result_ids;
 
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
 
     outcome = Option<uint32_t>(field_order_kvs.size());
 }
@@ -684,7 +685,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << std::endl;
+            //LOG(INFO) << "\nSearching for: " << token << " - cost: " << costs[token_index];
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
@@ -774,12 +775,13 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
-    printf("Token: %s, cost: %d, candidates: \n", token.c_str(), cost);
+    LOG(INFO) << "Token: " << token << ", cost: " << cost;
+
     for(size_t i=0; i < leaves.size(); i++) {
         printf("%.*s, ", leaves[i]->key_len, leaves[i]->key);
-        printf("frequency: %d, max_score: %d\n", leaves[i]->values->ids.getLength(), leaves[i]->max_score);
+        LOG(INFO) << "frequency: " << leaves[i]->values->ids.getLength() << ", max_score: " << leaves[i]->max_score;
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
-            printf("id: %d\n", leaves[i]->values->ids.at(j));
+            LOG(INFO) << "id: " << leaves[i]->values->ids.at(j);
         }*/
     }
 }
@@ -887,11 +889,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
                 << ", words_present: " << match.words_present << ", match_score: " << match
                 << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - match.distance)
                 << ", seq_id: " << seq_id << std::endl;
-        std::cout << os.str();*/
+        LOG(INFO) << os.str();*/
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //std::cout << "Time taken for results iteration: " << timeNanos << "ms" << std::endl;
+    //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
 
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
         delete [] it->second;
@@ -1078,9 +1080,9 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
 
                 /*len = leaf->values->offset_index.getLength();
                 for(auto i=0; i<len; i++) {
-                    std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+                    LOG(INFO) << "i: " << i << ", val: " << leaf->values->offset_index.at(i);
                 }
-                std::cout << "----" << std::endl;*/
+                LOG(INFO) << "----";*/
 
                 if(leaf->values->ids.getLength() == 0) {
                     art_values* values = (art_values*) art_delete(search_index.at(name_field.first), key, key_len);

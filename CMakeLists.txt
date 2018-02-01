@@ -40,6 +40,7 @@ include(cmake/H2O.cmake)
 include(cmake/RocksDB.cmake)
 include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
+include(cmake/G3log.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
 
@@ -51,17 +52,19 @@ include_directories(${DEP_ROOT_DIR}/${MINIUTF_NAME})
 include_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/include)
 include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
 
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${MINIUTF_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
+link_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
 
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
 add_executable(search ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${SRC_FILES} src/main/benchmark.cpp)
-add_executable(typesense_test ${SRC_FILES} test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
+add_executable(typesense_test ${SRC_FILES} test/main.cpp test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
                test/collection_test.cpp test/collection_manager_test.cpp
                test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp test/array_utils_test.cpp
                test/string_utils_test.cpp)
@@ -86,7 +89,7 @@ if(NOT APPLE)
     list(APPEND ROCKSDB_LIBS rt)
 endif()
 
-target_link_libraries(typesense-server h2o-evloop for miniutf pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(search for miniutf pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(benchmark for miniutf pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(typesense_test h2o-evloop ${OPENSSL_LIBRARIES} pthread for miniutf ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})
+target_link_libraries(typesense-server h2o-evloop for miniutf g3logger pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(search for miniutf g3logger pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(benchmark for miniutf g3logger pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(typesense_test h2o-evloop ${OPENSSL_LIBRARIES} pthread for miniutf g3logger ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})

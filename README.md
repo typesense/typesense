@@ -78,7 +78,7 @@ Typesense requires the following dependencies:
 * zlib
 * OpenSSL (>=1.0.2)
 * curl
-* Compiler with good C++11 support (e.g. GCC >= 4.9)
+* Compiler with good C++11 support (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
 
 ```
 $ ./build.sh [--clean] [--depclean]

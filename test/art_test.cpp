@@ -878,12 +878,6 @@ TEST(ArtTest, test_int32_million) {
     }
 
     encode_int32(5, chars);
-    /*std::cout << std::endl;
-    for(uint32_t i = 0; i < CHAR_LEN; i++) {
-        std::cout << (int)chars[i] << ", ";
-    }
-    std::cout << std::endl;*/
-
     std::vector<const art_leaf*> results;
 
     // ==
@@ -972,16 +966,6 @@ TEST(ArtTest, test_int_range_byte_boundary) {
     results.clear();
     art_int32_search(&t, 255, GREATER_THAN, results);
     ASSERT_EQ(44, results.size());
-
-    /*std::cout << std::endl;
-    for(auto i = 0; i < 1; i++) {
-        auto result = results[i];
-        for(auto j = 0; j < result->key_len; j++) {
-            std::cout << (int) result->key[j] << ", ";
-        }
-
-        std::cout << std::endl;
-    }*/
 }
 
 TEST(ArtTest, test_encode_int64) {
@@ -1007,7 +991,6 @@ TEST(ArtTest, test_encode_int64) {
 
     unsigned char chars_large_num[8] = {0, 0, 0, 0, 128, 0, 0, 199};
     int64_t large_num = (int64_t)(std::numeric_limits<std::int32_t>::max()) + 200;
-    std::cout << std::endl << large_num << std::endl;
     encode_int64(large_num, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_large_num[i], chars[i]);
