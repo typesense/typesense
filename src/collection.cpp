@@ -514,14 +514,19 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
 
-        std::string value;
-        store->get(seq_id_key, value);
+        std::string json_doc_str;
+        StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
+
+        if(json_doc_status != StoreStatus::FOUND) {
+            LOG(WARNING) << "Could not locate the JSON document for sequence ID: " << seq_id_key;
+            continue;
+        }
 
         nlohmann::json wrapper_doc;
         nlohmann::json document;
 
         try {
-            document = nlohmann::json::parse(value);
+            document = nlohmann::json::parse(json_doc_str);
         } catch(...) {
             return Option<nlohmann::json>(500, "Error while parsing stored document.");
         }
@@ -639,16 +644,29 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
 Option<nlohmann::json> Collection::get(const std::string & id) {
     std::string seq_id_str;
-    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+    StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
-    if(status == StoreStatus::NOT_FOUND) {
+    if(seq_id_status == StoreStatus::NOT_FOUND) {
         return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
+    }
+
+    if(seq_id_status == StoreStatus::ERROR) {
+        return Option<nlohmann::json>(500, "Error while fetching the document.");
     }
 
     uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
     std::string parsed_document;
-    store->get(get_seq_id_key(seq_id), parsed_document);
+    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
+
+    if(doc_status == StoreStatus::NOT_FOUND) {
+        LOG(WARNING) << "Sequence ID exists, but document is missing for id: " << id;
+        return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
+    }
+
+    if(doc_status == StoreStatus::ERROR) {
+        return Option<nlohmann::json>(500, "Error while fetching the document.");
+    }
 
     nlohmann::json document;
     try {
@@ -662,16 +680,29 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
     std::string seq_id_str;
-    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+    StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
-    if(status == StoreStatus::NOT_FOUND) {
+    if(seq_id_status == StoreStatus::NOT_FOUND) {
         return Option<std::string>(404, "Could not find a document with id: " + id);
+    }
+
+    if(seq_id_status == StoreStatus::ERROR) {
+        return Option<std::string>(500, "Error while fetching the document.");
     }
 
     uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
     std::string parsed_document;
-    store->get(get_seq_id_key(seq_id), parsed_document);
+    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
+
+    if(doc_status == StoreStatus::NOT_FOUND) {
+        LOG(WARNING) << "Sequence ID exists, but document is missing for id: " << id;
+        return Option<std::string>(404, "Could not find a document with id: " + id);
+    }
+
+    if(doc_status == StoreStatus::ERROR) {
+        return Option<std::string>(500, "Error while fetching the document.");
+    }
 
     nlohmann::json document;
     try {
@@ -731,11 +762,19 @@ uint32_t Collection::get_collection_id() {
     return collection_id;
 }
 
-uint32_t Collection::doc_id_to_seq_id(std::string doc_id) {
+Option<uint32_t> Collection::doc_id_to_seq_id(std::string doc_id) {
     std::string seq_id_str;
-    store->get(get_doc_id_key(doc_id), seq_id_str);
-    uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
-    return seq_id;
+    StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
+    if(status == StoreStatus::FOUND) {
+        uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+        return Option<uint32_t>(seq_id);
+    }
+
+    if(status == StoreStatus::NOT_FOUND) {
+        return Option<uint32_t>(404, "Not found.");
+    }
+
+    return Option<uint32_t>(500, "Error while fetching doc_id from store.");
 }
 
 std::vector<std::string> Collection::get_facet_fields() {

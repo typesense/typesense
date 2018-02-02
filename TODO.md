@@ -88,9 +88,12 @@
 - ~~Add docs/explanation around ranking calc~~
 - ~~UTF-8 normalization~~
 - ~~Use rocksdb batch put for atomic insertion~~
+- ~~Proper logging~~
+- ~~Handle store-get() not finding a key~~
+- Deprecate union type punning
+- Deprecate converting integer to string verbatim 
 - NOT operator support
 - > INT32_MAX validation for float field
-- Proper logging
 - highlight of string arrays?
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
@@ -99,7 +102,6 @@
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
-- Handle store-get() not finding a key
 - Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
 - Test for string utils
 - Prevent string copy during indexing

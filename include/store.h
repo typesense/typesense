@@ -32,7 +32,6 @@ public:
 
 enum StoreStatus {
     FOUND,
-    OK,
     NOT_FOUND,
     ERROR
 };
@@ -97,15 +96,16 @@ public:
     StoreStatus get(const std::string& key, std::string& value) const {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
 
+        if(status.ok()) {
+            return StoreStatus::FOUND;
+        }
+
         if(status.IsNotFound()) {
             return StoreStatus::NOT_FOUND;
         }
 
-        if(!status.ok()) {
-            return StoreStatus::ERROR;
-        }
-
-        return StoreStatus::FOUND;
+        LOG(WARNING) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
+        return StoreStatus::ERROR;
     }
 
     bool remove(const std::string& key) {

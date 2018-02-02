@@ -80,7 +80,7 @@ public:
 
     static uint32_t deserialize_seq_id_key(std::string serialized_seq_id);
 
-    uint32_t doc_id_to_seq_id(std::string doc_id);
+    Option<uint32_t> doc_id_to_seq_id(std::string doc_id);
 
     std::vector<std::string> get_facet_fields();
 

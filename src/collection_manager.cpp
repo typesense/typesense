@@ -43,8 +43,13 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
     this->search_only_auth_key = search_only_auth_key;
 
     std::string next_collection_id_str;
-    store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
-    if(!next_collection_id_str.empty()) {
+    StoreStatus next_coll_id_status = store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
+
+    if(next_coll_id_status == StoreStatus::ERROR) {
+        return Option<bool>(500, "Error while fetching the next collection id from the disk.");
+    }
+
+    if(next_coll_id_status == StoreStatus::FOUND) {
         next_collection_id = (uint32_t) stoi(next_collection_id_str);
     } else {
         next_collection_id = 0;
@@ -64,8 +69,20 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
 
         const std::string & this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
         std::string collection_next_seq_id_str;
-        store->get(Collection::get_next_seq_id_key(this_collection_name), collection_next_seq_id_str);
-        uint32_t collection_next_seq_id = collection_next_seq_id_str.size() == 0 ? 0 :
+        StoreStatus next_seq_id_status = store->get(Collection::get_next_seq_id_key(this_collection_name),
+                                                    collection_next_seq_id_str);
+
+        if(next_seq_id_status == StoreStatus::ERROR) {
+            return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for collection "
+                                     "`" + this_collection_name + "`");
+        }
+
+        if(next_seq_id_status == StoreStatus::NOT_FOUND && next_coll_id_status == StoreStatus::FOUND) {
+            return Option<bool>(500, "Next collection id was found, but collection's next sequence ID is missing for "
+                                     "`" + this_collection_name + "`");
+        }
+
+        uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
                                           (const uint32_t) std::stoi(collection_next_seq_id_str);
 
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
@@ -83,13 +100,19 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
                 document = nlohmann::json::parse(doc_json_str);
             } catch(...) {
                 delete iter;
-                return Option<bool>(500,
-                       std::string("Error while parsing stored document from collection " + collection->get_name() +
-                                   " with key: ") + iter->key().ToString());
+                return Option<bool>(500, std::string("Error while parsing stored document from collection " +
+                                                     collection->get_name() + " with key: ") + iter->key().ToString());
             }
 
-            uint32_t seq_id = collection->doc_id_to_seq_id(document["id"]);
-            collection->index_in_memory(document, seq_id);
+            Option<uint32_t> seq_id_op = collection->doc_id_to_seq_id(document["id"]);
+            if(!seq_id_op.ok()) {
+               delete iter;
+               return Option<bool>(500, std::string("Error while fetching sequence id of document id " +
+                                        document["id"].get<std::string>() + " in collection `" +
+                                        collection->get_name() + "`"));
+            }
+
+            collection->index_in_memory(document, seq_id_op.get());
             iter->Next();
         }
 
