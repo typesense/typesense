@@ -68,9 +68,11 @@ public:
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+
         if(!s.ok()) {
-            LOG(FATAL) << s.ToString();
+            LOG(FATAL) << "Error while initializing store: " << s.ToString();
         }
+
         assert(s.ok());
     }
 

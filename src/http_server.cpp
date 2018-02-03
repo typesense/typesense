@@ -133,7 +133,7 @@ int HttpServer::run() {
     h2o_multithread_register_receiver(message_queue, message_receiver, on_message);
 
     if (create_listener() != 0) {
-        LOG(FATAL) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
+        LOG(ERR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
         return 1;
     } else {
         LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;

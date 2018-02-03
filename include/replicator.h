@@ -117,10 +117,10 @@ public:
                     store._get_db_unsafe()->Write(rocksdb::WriteOptions(), &write_batch);
                 }
             } else {
-                LOG(FATAL) << "Replication error while fetching records from master, status_code=" << status_code;
+                LOG(ERR) << "Replication error while fetching records from master, status_code=" << status_code;
 
                 if(status_code != 0) {
-                    LOG(FATAL) << json_response;
+                    LOG(ERR) << json_response;
                 }
             }
 
@@ -141,8 +141,8 @@ public:
             try {
                 collection_meta = nlohmann::json::parse(replication_event->value);
             } catch(...) {
-                LOG(FATAL) << "Failed to parse collection meta JSON.";
-                LOG(FATAL) << "Replication event value: " << replication_event->value;
+                LOG(ERR) << "Failed to parse collection meta JSON.";
+                LOG(ERR) << "Replication event value: " << replication_event->value;
                 delete replication_event;
                 exit(1);
             }

@@ -589,12 +589,12 @@ namespace cmdline{
 
         void check(int argc, bool ok){
             if ((argc==1 && !ok) || exist("help")){
-                LOG(FATAL)<<usage();
+                std::cerr<<usage();
                 exit(0);
             }
 
             if (!ok){
-                LOG(FATAL)<<error()<<std::endl<<usage();
+                std::cerr<<error()<<std::endl<<usage();
                 exit(1);
             }
         }

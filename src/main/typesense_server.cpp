@@ -65,6 +65,8 @@ void replica_server_routes() {
 }
 
 int main(int argc, char **argv) {
+    signal(SIGINT, catch_interrupt);
+
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'k', "API key that allows all operations.", true);
@@ -87,6 +89,7 @@ int main(int argc, char **argv) {
     std::string log_dir = options.get<std::string>("log-dir");
 
     if(log_dir.empty()) {
+        // use console logger if log dir is not specified
         log_worker->addSink(std2::make_unique<ConsoleLoggingSink>(),
                                               &ConsoleLoggingSink::ReceiveLogMessage);
     } else {
@@ -96,17 +99,16 @@ int main(int argc, char **argv) {
         }
 
         log_worker->addDefaultLogger("typesense", log_dir, "");
-        std::cout << "Typesense has started. Log directory is configured as: " << log_dir << std::endl;
+        std::cout << "Starting Typesense " << TYPESENSE_VERSION << ". Log directory is configured as: "
+                  << log_dir << std::endl;
     }
 
     g3::initializeLogging(log_worker.get());
 
-    signal(SIGINT, catch_interrupt);
-
-    LOG(INFO) << "Typesense version: " << TYPESENSE_VERSION;
+    LOG(INFO) << "Starting Typesense " << TYPESENSE_VERSION;
 
     if(!directory_exists(options.get<std::string>("data-dir"))) {
-        LOG(FATAL) << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
+        LOG(ERR) << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
                   << " does not exist.";
         return 1;
     }
@@ -119,7 +121,7 @@ int main(int argc, char **argv) {
     if(init_op.ok()) {
         LOG(INFO) << "Finished loading collections from disk.";
     } else {
-        LOG(FATAL)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
+        LOG(ERR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
     }
 
@@ -145,7 +147,7 @@ int main(int argc, char **argv) {
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
         if(parts.size() != 3) {
-            LOG(FATAL) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
+            LOG(ERR) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
             return 1;
         }
 
