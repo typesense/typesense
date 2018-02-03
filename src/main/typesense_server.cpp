@@ -113,6 +113,8 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    LOG(INFO) << "Loading collections from disk...";
+
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-key"),

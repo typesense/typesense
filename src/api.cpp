@@ -412,7 +412,7 @@ void get_replication_updates(http_req & req, http_res & res) {
             return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
         }
 
-        const uint64_t MAX_UPDATES_TO_SEND = 2000;
+        const uint64_t MAX_UPDATES_TO_SEND = 10000;
         uint64_t seq_number = std::stoull(req.params["seq_number"]);
 
         CollectionManager & collectionManager = CollectionManager::get_instance();

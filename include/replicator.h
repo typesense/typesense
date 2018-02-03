@@ -90,10 +90,16 @@ public:
 class Replicator {
 public:
     static void start(HttpServer* server, const std::string master_host_port, const std::string api_key, Store& store) {
+        size_t total_runs = 0;
+
         while(true) {
             IterateBatchHandler handler(server);
             uint64_t latest_seq_num = store.get_latest_seq_number();
-            LOG(INFO) << "latest_seq_num: " << latest_seq_num;
+
+            if(total_runs++ % 20 == 0) {
+                // roughly every 60 seconds
+                LOG(INFO) << "Replica's latest sequence number: " << latest_seq_num;
+            }
 
             HttpClient client(
                 master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1), api_key
@@ -105,17 +111,26 @@ public:
             if(status_code == 200) {
                 nlohmann::json json_content = nlohmann::json::parse(json_response);
                 nlohmann::json updates = json_content["updates"];
+
+                // first write to memory
                 for (nlohmann::json::iterator update = updates.begin(); update != updates.end(); ++update) {
                     const std::string update_decoded = StringUtils::base64_decode(*update);
                     rocksdb::WriteBatch write_batch(update_decoded);
                     write_batch.Iterate(&handler);
                 }
 
+                // now write to store
                 for (nlohmann::json::iterator update = updates.begin(); update != updates.end(); ++update) {
                     const std::string update_decoded = StringUtils::base64_decode(*update);
                     rocksdb::WriteBatch write_batch(update_decoded);
                     store._get_db_unsafe()->Write(rocksdb::WriteOptions(), &write_batch);
                 }
+
+                if(updates.size() > 0) {
+                    LOG(INFO) << "Replica has consumed " << latest_seq_num+updates.size() << "/"
+                              << json_content["latest_seq_num"] << " updates from master.";
+                }
+
             } else {
                 LOG(ERR) << "Replication error while fetching records from master, status_code=" << status_code;
 

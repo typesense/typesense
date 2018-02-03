@@ -92,6 +92,9 @@
 - ~~Handle store-get() not finding a key~~
 - ~~Deprecate converting integer to string verbatim~~ 
 - ~~Deprecate union type punning~~
+- Replica server should fail when pointed to "old" master
+- Parameterize replica's MAX_UPDATES_TO_SEND
+- gzip compress responses
 - NOT operator support
 - > INT32_MAX validation for float field
 - highlight of string arrays?
