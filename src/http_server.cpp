@@ -211,6 +211,12 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
     h2o_custom_req_handler_t *handler = reinterpret_cast<h2o_custom_req_handler_t*>(h2o_create_handler(pathconf, sizeof(*handler)));
     handler->http_server = this;
     handler->super.on_req = on_req;
+
+    compress_args.min_size = 256;       // don't gzip less than this size
+    compress_args.brotli.quality = -1;  // disable, not widely supported
+    compress_args.gzip.quality = 1;     // fastest
+    h2o_compress_register(pathconf, &compress_args);
+
     return pathconf;
 }
 
