@@ -52,7 +52,9 @@ public:
 
     Store() = delete;
 
-    Store(const std::string & state_dir_path): state_dir_path(state_dir_path) {
+    Store(const std::string & state_dir_path,
+          const size_t wal_ttl_secs = 24*60*60,
+          const size_t wal_size_mb = 1024): state_dir_path(state_dir_path) {
         // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
@@ -63,8 +65,8 @@ public:
         options.merge_operator.reset(new UInt64AddOperator);
 
         // these need to be high for replication scenarios
-        options.WAL_ttl_seconds = 24*60*60;
-        options.WAL_size_limit_MB = 1024;
+        options.WAL_ttl_seconds = wal_ttl_secs;
+        options.WAL_size_limit_MB = wal_size_mb;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
@@ -168,7 +170,9 @@ public:
 
         if(!iter->Valid() && !(local_latest_seq_num == 0 && seq_number == 0)) {
             std::ostringstream error;
-            error << "Invalid iterator. " << "Master's latest sequence number is " << local_latest_seq_num;
+            error << "Invalid iterator. Master's latest sequence number is " << local_latest_seq_num << " but "
+                  << "updates are requested from sequence number " << seq_number << ". "
+                  << "The master's WAL entries might have expired (they are kept only for 24 hours).";
             return Option<std::vector<std::string>*>(400, error.str());
         }
 
@@ -189,6 +193,11 @@ public:
     void close() {
         delete db;
         db = nullptr;
+    }
+
+    void flush() {
+        rocksdb::FlushOptions options;
+        db->Flush(options);
     }
 
     // Only for internal tests

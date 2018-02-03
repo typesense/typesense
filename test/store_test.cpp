@@ -19,11 +19,19 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(0, primary_store.get_latest_seq_number());
     delete updates_op.get();
 
+    // get_updates_since(1) == get_updates_since(0)
+    updates_op = primary_store.get_updates_since(1, 10);
+    ASSERT_TRUE(updates_op.ok());
+    ASSERT_EQ(0, updates_op.get()->size());
+    ASSERT_EQ(0, primary_store.get_latest_seq_number());
+    delete updates_op.get();
+
     // querying for a seq_num > 0 on a fresh store
     updates_op = primary_store.get_updates_since(10, 10);
     ASSERT_FALSE(updates_op.ok());
     ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 0", updates_op.error());
 
+    // get_updates_since(1) == get_updates_since(0) even after inserting a record
     primary_store.insert("foo1", "bar1");
     ASSERT_EQ(1, primary_store.get_latest_seq_number());
     updates_op = primary_store.get_updates_since(1, 10);
@@ -31,12 +39,23 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(1, updates_op.get()->size());
     delete updates_op.get();
 
+    updates_op = primary_store.get_updates_since(0, 10);
+    ASSERT_TRUE(updates_op.ok());
+    ASSERT_EQ(1, updates_op.get()->size());
+    delete updates_op.get();
+
+    // add more records
     primary_store.insert("foo2", "bar2");
     primary_store.insert("foo3", "bar3");
     ASSERT_EQ(3, primary_store.get_latest_seq_number());
 
     updates_op = primary_store.get_updates_since(0, 10);
     ASSERT_EQ(3, updates_op.get()->size());
+    delete updates_op.get();
+
+    updates_op = primary_store.get_updates_since(3, 10);
+    ASSERT_EQ(1, updates_op.get()->size());
+    delete updates_op.get();
 
     std::string replica_store_path = "/tmp/typesense_test/replica_store_test";
     LOG(INFO) << "Truncating and creating: " << replica_store_path;
@@ -88,4 +107,25 @@ TEST(StoreTest, GetUpdatesSince) {
     updates_op = primary_store.get_updates_since(50, 100);
     ASSERT_FALSE(updates_op.ok());
     ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 3", updates_op.error());
+}
+
+TEST(StoreTest, GetUpdateSinceInvalidIterator) {
+    std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
+    LOG(INFO) << "Truncating and creating: " << primary_store_path;
+    system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
+
+    // add some records, get the updates and restore them in a new store
+
+    Store primary_store(primary_store_path, 0, 0);  // disable WAL
+    primary_store.insert("foo1", "bar1");
+    primary_store.insert("foo2", "bar2");
+    primary_store.insert("foo3", "bar3");
+    primary_store.insert("foo4", "bar4");
+
+    primary_store.flush();
+
+    Option<std::vector<std::string>*> updates_op = primary_store.get_updates_since(2, 10);
+    ASSERT_FALSE(updates_op.ok());
+    ASSERT_EQ("Invalid iterator. Master's latest sequence number is 4 but updates are requested from sequence number 2. "
+              "The master's WAL entries might have expired (they are kept only for 24 hours).", updates_op.error());
 }
