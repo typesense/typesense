@@ -1401,16 +1401,14 @@ void encode_int32(int32_t n, unsigned char *chars) {
 }
 
 void encode_int64(int64_t n, unsigned char *chars) {
-    union {
-        int64_t l;
-        unsigned char bytes[8];
-    } container;
-
-    container.l = n;
-
-    for(uint32_t i = 0; i < 8; i++) {
-        chars[7-i] = container.bytes[i];
-    }
+    chars[0] = (unsigned char) ((n >> 56) & 0xFF);
+    chars[1] = (unsigned char) ((n >> 48) & 0xFF);
+    chars[2] = (unsigned char) ((n >> 40) & 0xFF);
+    chars[3] = (unsigned char) ((n >> 32) & 0xFF);
+    chars[4] = (unsigned char) ((n >> 24) & 0xFF);
+    chars[5] = (unsigned char) ((n >> 16) & 0xFF);
+    chars[6] = (unsigned char) ((n >> 8) & 0xFF);
+    chars[7] = (unsigned char) (n & 0xFF);
 }
 
 // See: https://github.com/apache/hbase/blob/master/hbase-common/src/main/java/org/apache/hadoop/hbase/util/OrderedBytes.java#L1372

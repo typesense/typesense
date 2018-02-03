@@ -91,7 +91,7 @@
 - ~~Proper logging~~
 - ~~Handle store-get() not finding a key~~
 - ~~Deprecate converting integer to string verbatim~~ 
-- Deprecate union type punning
+- ~~Deprecate union type punning~~
 - NOT operator support
 - > INT32_MAX validation for float field
 - highlight of string arrays?
