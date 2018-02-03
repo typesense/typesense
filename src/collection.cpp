@@ -731,19 +731,8 @@ std::string Collection::get_next_seq_id_key(const std::string & collection_name)
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
     // We can't simply do std::to_string() because we want to preserve the byte order.
     // & 0xFF masks all but the lowest eight bits.
-    unsigned char bytes[4];
-    bytes[0] = (unsigned char) ((seq_id >> 24) & 0xFF);
-    bytes[1] = (unsigned char) ((seq_id >> 16) & 0xFF);
-    bytes[2] = (unsigned char) ((seq_id >> 8) & 0xFF);
-    bytes[3] = (unsigned char) ((seq_id & 0xFF));
-
-    return get_seq_id_collection_prefix() + "_" + std::string(bytes, bytes+4);
-}
-
-uint32_t Collection::deserialize_seq_id_key(std::string serialized_seq_id) {
-    uint32_t seq_id = ((serialized_seq_id[0] & 0xFF) << 24) | ((serialized_seq_id[1] & 0xFF) << 16) |
-                      ((serialized_seq_id[2] & 0xFF) << 8)  | (serialized_seq_id[3] & 0xFF);
-    return seq_id;
+    const std::string & serialized_id = StringUtils::serialize_uint32_t(seq_id);
+    return get_seq_id_collection_prefix() + "_" + serialized_id;
 }
 
 std::string Collection::get_doc_id_key(const std::string & doc_id) {

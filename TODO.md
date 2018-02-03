@@ -90,8 +90,8 @@
 - ~~Use rocksdb batch put for atomic insertion~~
 - ~~Proper logging~~
 - ~~Handle store-get() not finding a key~~
+- ~~Deprecate converting integer to string verbatim~~ 
 - Deprecate union type punning
-- Deprecate converting integer to string verbatim 
 - NOT operator support
 - > INT32_MAX validation for float field
 - highlight of string arrays?

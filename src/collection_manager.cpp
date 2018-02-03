@@ -83,7 +83,7 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
         }
 
         uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
-                                          (const uint32_t) std::stoi(collection_next_seq_id_str);
+                                          StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
 
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
@@ -167,7 +167,7 @@ Option<Collection*> CollectionManager::create_collection(std::string name, const
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
-    batch.Put(Collection::get_next_seq_id_key(name), std::to_string(0));
+    batch.Put(Collection::get_next_seq_id_key(name), StringUtils::serialize_uint32_t(0));
     batch.Put(Collection::get_meta_key(name), collection_meta.dump());
     batch.Put(NEXT_COLLECTION_ID_KEY, std::to_string(next_collection_id));
     bool write_ok = store->batch_write(batch);

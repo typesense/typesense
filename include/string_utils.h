@@ -177,4 +177,20 @@ struct StringUtils {
 
         return out;
     }
+
+    static std::string serialize_uint32_t(uint32_t num) {
+        unsigned char bytes[4];
+        bytes[0] = (unsigned char) ((num >> 24) & 0xFF);
+        bytes[1] = (unsigned char) ((num >> 16) & 0xFF);
+        bytes[2] = (unsigned char) ((num >> 8) & 0xFF);
+        bytes[3] = (unsigned char) ((num & 0xFF));
+
+        return std::string(bytes, bytes+4);
+    }
+
+    static uint32_t deserialize_uint32_t(std::string serialized_num) {
+        uint32_t seq_id = ((serialized_num[0] & 0xFF) << 24) | ((serialized_num[1] & 0xFF) << 16) |
+                          ((serialized_num[2] & 0xFF) << 8)  | (serialized_num[3] & 0xFF);
+        return seq_id;
+    }
 };

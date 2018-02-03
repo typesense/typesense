@@ -11,6 +11,7 @@
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
+#include "string_utils.h"
 #include "logger.h"
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
@@ -19,9 +20,9 @@ public:
                        std::string* new_value, rocksdb::Logger* logger) const override {
         uint64_t existing = 0;
         if (existing_value) {
-            existing = (uint64_t) std::stoi(existing_value->ToString());
+            existing = StringUtils::deserialize_uint32_t(existing_value->ToString());
         }
-        *new_value = std::to_string(existing + std::stoi(value.ToString()));
+        *new_value = StringUtils::serialize_uint32_t(existing + StringUtils::deserialize_uint32_t(value.ToString()));
         return true;
     }
 
@@ -134,7 +135,7 @@ public:
     }
 
     void increment(const std::string & key, uint32_t value) {
-        db->Merge(rocksdb::WriteOptions(), key, std::to_string(value));
+        db->Merge(rocksdb::WriteOptions(), key, StringUtils::serialize_uint32_t(value));
     }
 
     uint64_t get_latest_seq_number() const {

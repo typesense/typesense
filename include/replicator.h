@@ -161,7 +161,7 @@ public:
 
             // last 4 bytes of the key would be the serialized version of the sequence id
             std::string serialized_seq_id = replication_event->key.substr(replication_event->key.length() - 4);
-            uint32_t seq_id = Collection::deserialize_seq_id_key(serialized_seq_id);
+            uint32_t seq_id = StringUtils::deserialize_uint32_t(serialized_seq_id);
             collection->index_in_memory(document, seq_id);
         }
 

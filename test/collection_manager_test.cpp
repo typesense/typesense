@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
+#include "string_utils.h"
 #include "collection.h"
 
 class CollectionManagerTest : public ::testing::Test {
@@ -77,7 +78,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
     ASSERT_EQ(3, num_keys);
-    ASSERT_EQ("1", next_seq_id); // we already call `collection1->get_next_seq_id` above, which is side-effecting
+    // we already call `collection1->get_next_seq_id` above, which is side-effecting
+    ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
