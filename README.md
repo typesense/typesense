@@ -1,18 +1,24 @@
 # Typesense
 
-Typesense is an open source search engine for building delightful search experiences.
+- Website: https://typesense.org
 
-- **Typo tolerant:** Handles typographical errors out-of-the-box.
-- **Tunable ranking:** It's easy to tailor your search results to perfection.
-- **Simple and delightful:** Simple API and delightful out-of-the-box experience.
-- **Blazing fast:** Meticulously designed and optimized for speed.
+<img src="typesense_medium.png?raw=true" alt="Typesense" width="298" />
 
-## Installation
+Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
+
+## Features
+
+- **Typo tolerant:** Handles typographical errors elegantly.
+- **Simple and delightful:** Simple to set-up and manage - it just works.
+- **Tunable ranking:** Easy to tailor your search results to perfection.
+- **Fast:** Meticulously designed and optimized for speed.
+
+## Install
 
 You can download the [binary packages](https://github.com/wreally/typesense/releases) that we publish for 
 Linux (x86-64) and Mac.
 
-If you use Docker, you can run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
+You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
 
 ```
 docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
@@ -24,49 +30,56 @@ A detailed guide is available on [Typesense website](https://typesense.org/docs)
 
 Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense. 
 
-Let's create a `companies` collection:
+Let's initialize the client and create a `companies` collection:
+
+```python
+import typesense
+
+typesense.master_node = typesense.Node(
+    host='localhost', 
+    port=8108, 
+    protocol='http', 
+    api_key='abcd'
+)
+
+typesense.Collections.create({
+  "name": "companies",
+  "fields": [
+    {"name": "company_name", "type": "string" },
+    {"name": "num_employees", "type": "int32" },
+    {"name": "country", "type": "string", "facet": true }
+  ],
+  "token_ranking_field": "num_employees"
+})
+```
+
+Now, let's add a document to the collection we just created:
 
 ```
-curl "${TYPESENSE_HOST}/collections" \
-       -X POST \
-       -H "Content-Type: application/json" \
-       -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" \
-       -d '{
-             "name": "companies",
-             "fields": [
-               {"name": "company_name", "type": "string" },
-               {"name": "num_employees", "type": "int32" },
-               {"name": "country", "type": "string", "facet": true }
-             ],
-             "token_ranking_field": "num_employees"
-          }' 
-```
+document = {
+ "id": "124",
+ "company_name": "Stark Industries",
+ "num_employees": 5215,
+ "country": "USA"
+}
 
-Now, let's index a document:
-
-```
-curl "${TYPESENSE_HOST}/collections/companies/documents" \
-       -X POST \
-       -H "Content-Type: application/json" \
-       -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" \
-       -d '{
-            "id": "124",
-            "company_name": "Stark Industries",
-            "num_employees": 5215,
-            "country": "USA"
-          }'
+typesense.Documents.create('companies', document)
 ```
 
 Finally, let's search for the document we just indexed:
 
 ```
-curl -H "X-TYPESENSE-API-KEY: ${API_KEY}" \
-     "${TYPESENSE_HOST}/collections/companies/documents/search\
-     ?q=stork&query_by=company_name&filter_by=num_employees:>100\
-     &sort_by=num_employees:desc"
+search_parameters = {
+  'q'         : 'stork',
+  'query_by'  : 'company_name',
+  'filter_by' : 'num_employees:>100',
+  'sort_by'   : 'num_employees:desc'
+}
+
+typesense.Documents.search('companies', search_parameters)
 ```
 
-See how the search term has a typo? Typesense handles upto 2 typo errors out-of-the-box.
+Did you notice the typo in the query text? No big deal. Typesense handles typographic errors out-of-the-box!
 
 ## Building from source
 
@@ -84,9 +97,11 @@ Typesense requires the following dependencies:
 $ ./build.sh [--clean] [--depclean]
 ```
 
+Other dependencies are pulled and built as part of the build process.
+
 **Building a Docker image**
 
-The Docker build script takes care of the required dependencies, so you don't need to install them separately:
+The Docker build script takes care of pulling the required dependencies, so you don't need to install them separately:
 
 ```
 $ TYPESENSE_IMG_VERSION=nightly ./docker-build.sh --build-deploy-image [--clean] [--depclean]
