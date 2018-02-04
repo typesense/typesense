@@ -69,9 +69,8 @@ add_executable(typesense_test ${SRC_FILES} test/main.cpp test/array_test.cpp tes
                test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp test/array_utils_test.cpp
                test/string_utils_test.cpp)
 
-target_compile_definitions(typesense-server PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
-target_compile_definitions(search PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
-target_compile_definitions(benchmark PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
+set(TYPESENSE_VERSION "nightly" CACHE STRING "") # will be overridden from command line during a release build
+target_compile_definitions(typesense-server PRIVATE TYPESENSE_VERSION="${TYPESENSE_VERSION}")
 target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
 
 if (APPLE)

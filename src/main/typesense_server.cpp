@@ -10,7 +10,6 @@
 #include "api.h"
 #include "string_utils.h"
 #include "replicator.h"
-#include "typesense_version.h"
 #include "logger.h"
 
 HttpServer* server;
@@ -99,6 +98,7 @@ int main(int argc, char **argv) {
         }
 
         log_worker->addDefaultLogger("typesense", log_dir, "");
+
         std::cout << "Starting Typesense " << TYPESENSE_VERSION << ". Log directory is configured as: "
                   << log_dir << std::endl;
     }
@@ -161,10 +161,11 @@ int main(int argc, char **argv) {
         replication_thread.detach();
     }
 
-    server->run();
+    int return_code = server->run();
 
     // we are out of the event loop here
     delete server;
     CollectionManager::get_instance().dispose();
-    return 0;
+
+    return return_code;
 }

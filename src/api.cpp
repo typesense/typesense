@@ -3,7 +3,6 @@
 #include <thread>
 #include <sys/resource.h>
 #include "api.h"
-#include "typesense_version.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
