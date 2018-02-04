@@ -1,6 +1,8 @@
-<a href="https://typesense.org"><img src="typesense_medium.png?raw=true" alt="Typesense" width="298" /></a>
+<a href="https://typesense.org"><img src="assets/typesense_medium.png?raw=true" alt="Typesense" width="298" /></a>
 
 Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
+
+<img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 
 ## Features
 
