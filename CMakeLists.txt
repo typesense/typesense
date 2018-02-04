@@ -71,7 +71,9 @@ add_executable(typesense_test ${SRC_FILES} test/main.cpp test/array_test.cpp tes
 
 set(TYPESENSE_VERSION "nightly" CACHE STRING "") # will be overridden from command line during a release build
 target_compile_definitions(typesense-server PRIVATE TYPESENSE_VERSION="${TYPESENSE_VERSION}")
-target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/")
+target_compile_definitions(benchmark PRIVATE TYPESENSE_VERSION="${TYPESENSE_VERSION}")
+target_compile_definitions(search PRIVATE TYPESENSE_VERSION="${TYPESENSE_VERSION}")
+target_compile_definitions(typesense_test PRIVATE ROOT_DIR="${CMAKE_SOURCE_DIR}/" TYPESENSE_VERSION="${TYPESENSE_VERSION}")
 
 if (APPLE)
     set(STD_LIB -static-libstdc++) # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
