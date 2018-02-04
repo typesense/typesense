@@ -4,6 +4,15 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 
+## Menu
+
+- [Features](#features)
+- [Install](#install)
+- [Quick Start](#quick-start)
+- [Detailed Guide](#detailed-guide)
+- [Build from Source](#build-from-source)
+- [Help](#help)
+
 ## Features
 
 - **Typo tolerant:** Handles typographical errors elegantly.
@@ -19,7 +28,7 @@ Linux (x86-64) and Mac.
 You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
 
 ```
-docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 ## Quick Start
@@ -77,9 +86,19 @@ typesense.Documents.search('companies', search_parameters)
 
 **Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
 
+## Detailed Guide
+
 A detailed guide is available on [Typesense website](https://typesense.org/docs). 
 
-## Building from source
+## Build from source
+
+**Building with Docker**
+
+The docker build script takes care of all required dependencies, so it's the easiest way to build Typesense:
+
+```
+$ TYPESENSE_IMG_VERSION=nightly ./docker-build.sh --build-deploy-image [--clean] [--depclean]
+```
 
 **Building on your machine**
 
@@ -89,20 +108,16 @@ Typesense requires the following dependencies:
 * zlib
 * OpenSSL (>=1.0.2)
 * curl
-* Compiler with good C++11 support (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
+* Recent, C++11 compatible compiler (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
 
 ```
 $ ./build.sh [--clean] [--depclean]
 ```
 
-Other dependencies are pulled and built as part of the build process.
+The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
-**Building a Docker image**
+## Help
 
-The Docker build script takes care of pulling the required dependencies, so you don't need to install them separately:
-
-```
-$ TYPESENSE_IMG_VERSION=nightly ./docker-build.sh --build-deploy-image [--clean] [--depclean]
-```
+If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
 &copy; 2016-2018 Wreally Studios Inc.
