@@ -1,15 +1,11 @@
-# Typesense
-
-- Website: https://typesense.org
-
-<img src="typesense_medium.png?raw=true" alt="Typesense" width="298" />
+<a href="https://typesense.org"><img src="typesense_medium.png?raw=true" alt="Typesense" width="298" /></a>
 
 Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
 
 ## Features
 
 - **Typo tolerant:** Handles typographical errors elegantly.
-- **Simple and delightful:** Simple to set-up and manage - it just works.
+- **Simple and delightful:** Simple to set-up and manage.
 - **Tunable ranking:** Easy to tailor your search results to perfection.
 - **Fast:** Meticulously designed and optimized for speed.
 
@@ -24,9 +20,7 @@ You can also run Typesense from our [official Docker image](https://hub.docker.c
 docker run -p 8108:8108 -v/tmp/typesense-data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE --listen-port 8108
 ```
 
-## Getting started
-
-A detailed guide is available on [Typesense website](https://typesense.org/docs). 
+## Quick Start
 
 Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense. 
 
@@ -39,7 +33,7 @@ typesense.master_node = typesense.Node(
     host='localhost', 
     port=8108, 
     protocol='http', 
-    api_key='abcd'
+    api_key='<YOUR_API_KEY>'
 )
 
 typesense.Collections.create({
@@ -55,7 +49,7 @@ typesense.Collections.create({
 
 Now, let's add a document to the collection we just created:
 
-```
+```python
 document = {
  "id": "124",
  "company_name": "Stark Industries",
@@ -68,7 +62,7 @@ typesense.Documents.create('companies', document)
 
 Finally, let's search for the document we just indexed:
 
-```
+```python
 search_parameters = {
   'q'         : 'stork',
   'query_by'  : 'company_name',
@@ -79,7 +73,9 @@ search_parameters = {
 typesense.Documents.search('companies', search_parameters)
 ```
 
-Did you notice the typo in the query text? No big deal. Typesense handles typographic errors out-of-the-box!
+**Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
+
+A detailed guide is available on [Typesense website](https://typesense.org/docs). 
 
 ## Building from source
 
