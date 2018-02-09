@@ -64,6 +64,8 @@ TEST(StoreTest, GetUpdatesSince) {
     Store replica_store(replica_store_path);
     rocksdb::DB* replica_db = replica_store._get_db_unsafe();
 
+    updates_op = primary_store.get_updates_since(0, 10);
+
     for(const std::string & update: *updates_op.get()) {
         // Do Base64 encoding and decoding as we would in the API layer
         const std::string update_encoded = StringUtils::base64_encode(update);
@@ -72,13 +74,13 @@ TEST(StoreTest, GetUpdatesSince) {
         replica_db->Write(rocksdb::WriteOptions(), &write_batch);
     }
 
+    delete updates_op.get();
+
     std::string value;
     for(auto i=1; i<=3; i++) {
         replica_store.get(std::string("foo")+std::to_string(i), value);
         ASSERT_EQ(std::string("bar")+std::to_string(i), value);
     }
-
-    delete updates_op.get();
 
     // Ensure that updates are limited to max_updates argument
     updates_op = primary_store.get_updates_since(0, 10);
@@ -127,5 +129,5 @@ TEST(StoreTest, GetUpdateSinceInvalidIterator) {
     Option<std::vector<std::string>*> updates_op = primary_store.get_updates_since(2, 10);
     ASSERT_FALSE(updates_op.ok());
     ASSERT_EQ("Invalid iterator. Master's latest sequence number is 4 but updates are requested from sequence number 2. "
-              "The master's WAL entries might have expired (they are kept only for 24 hours).", updates_op.error());
+                      "The master's WAL entries might have expired (they are kept only for 24 hours).", updates_op.error());
 }
