@@ -14,7 +14,7 @@
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & token_ranking_field):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       fields(fields), token_ranking_field(token_ranking_field) {
+                       fields(fields), token_ranking_field(token_ranking_field), num_indices(num_indices) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -29,7 +29,6 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         }
     }
 
-    num_indices = 4;
     for(size_t i = 0; i < num_indices; i++) {
         Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
         indices.push_back(index);
@@ -510,6 +509,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
 
+    // construct results array
     for(int field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);

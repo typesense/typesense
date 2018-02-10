@@ -127,7 +127,6 @@ struct StringUtils {
                     return !std::isalnum(c) && (int)(c) >= 0;
                   }), str.end());
 
-        //std::transform(str.begin(), str.end(), str.begin(), ::tolower);
         str = miniutf::lowercase(str);
     }
 

@@ -56,7 +56,7 @@ public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & fields, const std::string & token_ranking_field);
+               const std::vector<field> & fields, const std::string & token_ranking_field, const size_t num_indices=4);
 
     ~Collection();
 

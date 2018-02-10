@@ -937,7 +937,8 @@ inline std::vector<art_leaf *> Index::next_suggestion(const std::vector<token_ca
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
     }
 
-    // sort ascending based on matched documents for each token for faster intersection
+    // Sort ascending based on matched documents for each token for faster intersection.
+    // However, this causes the token order to deviate from original query's order.
     sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
         return left->values->ids.getLength() < right->values->ids.getLength();
     });
