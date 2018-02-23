@@ -57,7 +57,8 @@ void post_create_collection(http_req & req, http_res & res) {
 
     try {
         req_json = nlohmann::json::parse(req.body);
-    } catch(...) {
+    } catch(const std::exception& e) {
+        LOG(WARNING) << "JSON error: " << e.what();
         return res.send_400("Bad JSON.");
     }
 

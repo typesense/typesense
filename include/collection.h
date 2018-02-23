@@ -25,8 +25,6 @@ private:
 
     size_t num_documents;
 
-    size_t num_indices;
-
     std::vector<Index*> indices;
 
     std::vector<std::thread*> index_threads;
@@ -45,6 +43,8 @@ private:
     std::unordered_map<std::string, field> sort_schema;
 
     std::string token_ranking_field;
+
+    size_t num_indices;
 
     std::string get_doc_id_key(const std::string & doc_id);
 

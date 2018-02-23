@@ -12,7 +12,8 @@
 #include "logger.h"
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-                       const std::vector<field> &fields, const std::string & token_ranking_field):
+                       const std::vector<field> &fields, const std::string & token_ranking_field,
+                       const size_t num_indices):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
                        fields(fields), token_ranking_field(token_ranking_field), num_indices(num_indices) {
 
@@ -69,7 +70,8 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     nlohmann::json document;
     try {
         document = nlohmann::json::parse(json_str);
-    } catch(...) {
+    } catch(const std::exception& e) {
+        LOG(WARNING) << "JSON error: " << e.what();
         return Option<nlohmann::json>(400, "Bad JSON.");
     }
 
@@ -599,8 +601,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 snippet_stream << tokens[snippet_index];
             }
 
-            wrapper_doc["_highlight"] = nlohmann::json::object();
-            wrapper_doc["_highlight"][field_name] = snippet_stream.str();
+            wrapper_doc["highlight"] = nlohmann::json::object();
+            wrapper_doc["highlight"][field_name] = snippet_stream.str();
         }
 
         result["hits"].push_back(wrapper_doc);
