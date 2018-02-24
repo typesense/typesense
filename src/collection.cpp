@@ -12,10 +12,10 @@
 #include "logger.h"
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-                       const std::vector<field> &fields, const std::string & token_ranking_field,
+                       const std::vector<field> &fields, const std::string & default_sorting_field,
                        const size_t num_indices):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       fields(fields), token_ranking_field(token_ranking_field), num_indices(num_indices) {
+                       fields(fields), default_sorting_field(default_sorting_field), num_indices(num_indices) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -111,24 +111,23 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
 }
 
 Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
-    if(!token_ranking_field.empty() && document.count(token_ranking_field) == 0) {
-        return Option<>(400, "Field `" + token_ranking_field  + "` has been declared as a token ranking field, "
+    if(document.count(default_sorting_field) == 0) {
+        return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
 
-    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer() &&
-       !document[token_ranking_field].is_number_float()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be a number.");
+    if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a number.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_integer() &&
-       document[token_ranking_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of int32.");
+    if(document[default_sorting_field].is_number_integer() &&
+       document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_float() &&
-       document[token_ranking_field].get<float>() > std::numeric_limits<float>::max()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of a float.");
+    if(document[default_sorting_field].is_number_float() &&
+       document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
@@ -242,15 +241,15 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
     int32_t points = 0;
 
-    if(!token_ranking_field.empty()) {
-        if(document[token_ranking_field].is_number_float()) {
+    if(!default_sorting_field.empty()) {
+        if(document[default_sorting_field].is_number_float()) {
             // serialize float to an integer and reverse the inverted range
-            float n = document[token_ranking_field];
+            float n = document[default_sorting_field];
             memcpy(&points, &n, sizeof(int32_t));
             points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
             points = -1 * (INT32_MAX - points);
         } else {
-            points = document[token_ranking_field];
+            points = document[default_sorting_field];
         }
     }
 
@@ -802,6 +801,6 @@ std::string Collection::get_seq_id_collection_prefix() {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
-std::string Collection::get_token_ranking_field() {
-    return token_ranking_field;
+std::string Collection::get_default_sorting_field() {
+    return default_sorting_field;
 }

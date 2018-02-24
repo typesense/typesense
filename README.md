@@ -54,7 +54,7 @@ typesense.Collections.create({
     {"name": "num_employees", "type": "int32" },
     {"name": "country", "type": "string", "facet": true }
   ],
-  "token_ranking_field": "num_employees"
+  "default_sorting_field": "num_employees"
 })
 ```
 

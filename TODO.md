@@ -53,7 +53,7 @@
 - ~~Test for collection creation validation~~
 - ~~Test for delete document~~
 - ~~art float search~~
-- ~~When prefix=true, use token_ranking_field for token ordering only for last word~~
+- ~~When prefix=true, use default_sorting_field for token ordering only for last word~~
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
@@ -71,7 +71,7 @@
 - ~~facet fields should be indexed verbatim~~
 - ~~change "search_by" to "query_by"~~
 - ~~during index_in_memory() validations should be front loaded~~
-- ~~Support token ranking field being a float~~
+- ~~Support default sorting field being a float~~
 - ~~https support~~
 - ~~Validate before string to int conversion in the http api layer~~
 - ~~art bool support~~
@@ -94,6 +94,7 @@
 - ~~Deprecate union type punning~~
 - ~~Replica server should fail when pointed to "old" master~~
 - ~~gzip compress responses~~
+- Have a LOG(ERROR) level
 - Parameterize replica's MAX_UPDATES_TO_SEND
 - NOT operator support
 - > INT32_MAX validation for float field

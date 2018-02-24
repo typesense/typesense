@@ -19,14 +19,14 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
         fields.push_back({it.value()[fields::name], it.value()[fields::type], it.value()[fields::facet]});
     }
 
-    std::string token_ranking_field = collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY].get<std::string>();
+    std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
 
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
                                             collection_next_seq_id,
                                             store,
                                             fields,
-                                            token_ranking_field);
+                                            default_sorting_field);
 
     return collection;
 }
@@ -141,8 +141,8 @@ bool CollectionManager::search_only_auth_key_matches(std::string auth_key_sent) 
     return (search_only_auth_key == auth_key_sent);
 }
 
-Option<Collection*> CollectionManager::create_collection(std::string name, const std::vector<field> & fields,
-                                                         const std::string & token_ranking_field) {
+Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,
+                                                         const std::string & default_sorting_field) {
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
@@ -161,9 +161,9 @@ Option<Collection*> CollectionManager::create_collection(std::string name, const
     collection_meta[COLLECTION_NAME_KEY] = name;
     collection_meta[COLLECTION_ID_KEY] = next_collection_id;
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
-    collection_meta[COLLECTION_TOKEN_ORDERING_FIELD_KEY] = token_ranking_field;
+    collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
 
-    Collection* new_collection = new Collection(name, next_collection_id, 0, store, fields, token_ranking_field);
+    Collection* new_collection = new Collection(name, next_collection_id, 0, store, fields, default_sorting_field);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;

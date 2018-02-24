@@ -478,7 +478,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields).get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
     }
 
     std::string json_line;
@@ -491,6 +491,9 @@ TEST_F(CollectionTest, MultipleFields) {
 
     query_fields = {"title", "starring"};
     std::vector<std::string> facets;
+
+    auto x = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+
     nlohmann::json results = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
@@ -574,7 +577,7 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields).get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
     }
 
     std::string json_line;
@@ -622,7 +625,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -761,7 +764,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -867,7 +870,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     results = results_op.get();
     ASSERT_EQ(0, results["hits"].size());
 
-    // rank tokens by token ranking field
+    // rank tokens by default sorting field
     results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, 0, 10, 1, MAX_SCORE, true).get();
     ASSERT_TRUE(results_op.ok());
     results = results_op.get();
@@ -899,7 +902,7 @@ TEST_F(CollectionTest, SortOnFloatFields) {
 
     coll_float_fields = collectionManager.get_collection("coll_float_fields");
     if(coll_float_fields == nullptr) {
-        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields).get();
+        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields, "score").get();
     }
 
     std::string json_line;
@@ -970,7 +973,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     coll_bool = collectionManager.get_collection("coll_bool");
     if(coll_bool == nullptr) {
-        coll_bool = collectionManager.create_collection("coll_bool", fields).get();
+        coll_bool = collectionManager.create_collection("coll_bool", fields, "rating").get();
     }
 
     std::string json_line;
@@ -1057,7 +1060,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -1138,7 +1141,7 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -1194,7 +1197,7 @@ TEST_F(CollectionTest, FacetCounts) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -1275,7 +1278,7 @@ TEST_F(CollectionTest, SortingOrder) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields).get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
     }
 
     std::string json_line;
@@ -1363,7 +1366,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields).get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
     }
 
     std::string json_line;
@@ -1454,20 +1457,20 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_TRUE(empty_facet_field_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
-    const Option<nlohmann::json> & bad_token_ranking_field_op1 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ranking_field_op1.ok());
-    ASSERT_STREQ("Token ranking field `age` must be a number.", bad_token_ranking_field_op1.error().c_str());
+    const Option<nlohmann::json> & bad_default_sorting_field_op1 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_default_sorting_field_op1.ok());
+    ASSERT_STREQ("Default sorting field `age` must be a number.", bad_default_sorting_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
-    const Option<nlohmann::json> & bad_token_ranking_field_op2 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ranking_field_op2.ok());
-    ASSERT_STREQ("Token ranking field `age` exceeds maximum value of int32.", bad_token_ranking_field_op2.error().c_str());
+    const Option<nlohmann::json> & bad_default_sorting_field_op2 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_default_sorting_field_op2.ok());
+    ASSERT_STREQ("Default sorting field `age` exceeds maximum value of an int32.", bad_default_sorting_field_op2.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
-    const Option<nlohmann::json> & bad_token_ranking_field_op3 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ranking_field_op3.ok());
-    ASSERT_STREQ("Field `age` has been declared as a token ranking field, but is not found in the document.",
-                 bad_token_ranking_field_op3.error().c_str());
+    const Option<nlohmann::json> & bad_default_sorting_field_op3 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_default_sorting_field_op3.ok());
+    ASSERT_STREQ("Field `age` has been declared as a default sorting field, but is not found in the document.",
+                 bad_default_sorting_field_op3.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
     const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str);
@@ -1475,9 +1478,9 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_STREQ("Field `average` must be an int32.", bad_rank_field_op.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": asdadasd, \"tags\": [], \"average\": 34 }";
-    const Option<nlohmann::json> & bad_token_ranking_field_op4 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_token_ranking_field_op4.ok());
-    ASSERT_STREQ("Bad JSON.", bad_token_ranking_field_op4.error().c_str());
+    const Option<nlohmann::json> & bad_default_sorting_field_op4 = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_default_sorting_field_op4.ok());
+    ASSERT_STREQ("Bad JSON.", bad_default_sorting_field_op4.error().c_str());
 
     // should return an error when a document with pre-existing id is being added
     std::string doc = "{\"id\": \"100\", \"name\": \"foo\", \"age\": 29, \"tags\": [], \"average\": 78}";
@@ -1551,7 +1554,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields).get();
+        coll1 = collectionManager.create_collection("coll1", fields, "average").get();
     }
 
     nlohmann::json doc;

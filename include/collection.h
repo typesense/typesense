@@ -42,7 +42,7 @@ private:
 
     std::unordered_map<std::string, field> sort_schema;
 
-    std::string token_ranking_field;
+    std::string default_sorting_field;
 
     size_t num_indices;
 
@@ -56,7 +56,7 @@ public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & fields, const std::string & token_ranking_field, const size_t num_indices=4);
+               const std::vector<field> & fields, const std::string & default_sorting_field, const size_t num_indices=4);
 
     ~Collection();
 
@@ -88,7 +88,7 @@ public:
 
     std::unordered_map<std::string, field> get_schema();
 
-    std::string get_token_ranking_field();
+    std::string get_default_sorting_field();
 
     Option<nlohmann::json> add(const std::string & json_str);
 
