@@ -405,6 +405,10 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         sort_fields_std.push_back({_sort_field.name, sort_order});
     }
 
+    if(sort_fields_std.empty()) {
+        sort_fields_std.push_back({default_sorting_field, sort_field_const::desc});
+    }
+
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";

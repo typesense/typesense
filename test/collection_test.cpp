@@ -1334,12 +1334,12 @@ TEST_F(CollectionTest, SortingOrder) {
     }
 
     // With empty list of sort_by fields:
-    // should be ordered desc on the seq_id, since the match score will be the same for all records.
+    // should be ordered desc on the default sorting field, since the match score will be the same for all records.
     sort_fields = { };
-    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false).get();
-    ASSERT_EQ(10, results["hits"].size());
+    results = coll_mul_fields->search("of", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, results["hits"].size());
 
-    ids = {"17", "16", "13", "11", "10", "8", "6", "4", "1", "0"};
+    ids = {"11", "12", "5", "4", "17"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
