@@ -242,11 +242,7 @@ void get_search(http_req & req, http_res & res) {
     bool prefix = (req.params[PREFIX] == "true");
 
     if(req.params.count(RANK_TOKENS_BY) == 0) {
-        if(prefix) {
-            req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
-        } else {
-            req.params[RANK_TOKENS_BY] = "TERM_FREQUENCY";
-        }
+        req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
     }
 
     StringUtils::toupper(req.params[RANK_TOKENS_BY]);
