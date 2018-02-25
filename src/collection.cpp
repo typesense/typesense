@@ -537,6 +537,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         }
 
         wrapper_doc["document"] = document;
+        //wrapper_doc["match_score"] = field_order_kv.second.match_score;
+        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.second.key;
 
         // highlight query words in the result
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];

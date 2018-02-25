@@ -147,7 +147,6 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
 
-    static const int MAX_SEARCH_TOKENS = 10;
     static const int SEARCH_LIMIT_NUM = 100;  // for limiting number of results on multiple candidates / query rewrites
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion

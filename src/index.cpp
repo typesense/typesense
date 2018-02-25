@@ -694,7 +694,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
                 const bool prefix_search = prefix && ((token_index == tokens.size()-1) ? true : false);
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
-                // If this is a prefix search, we should for more candidates and do a union of those document IDs
+                // If this is a prefix search, look for more candidates and do a union of those document IDs
                 const int max_candidates = prefix_search ? 10 : 3;
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], max_candidates, token_order, prefix_search, leaves);
@@ -846,7 +846,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
     Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
     const uint64_t single_token_match_score = ((int64_t)(single_token_match.words_present) << 24) |
                                               ((int64_t)(255 - total_cost) << 16) |
-                                              ((int64_t)(MAX_SEARCH_TOKENS - single_token_match.distance));
+                                              ((int64_t)abs(int(MAX_TOKENS_DISTANCE - (size_t)single_token_match.distance)));
 
     for(size_t i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
@@ -863,7 +863,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
             // Construct a single match score from individual components (for multi-field sort)
             match_score = ((int64_t)(match.words_present) << 24) |
                           ((int64_t)(255 - total_cost) << 16) |
-                          ((int64_t)(MAX_SEARCH_TOKENS - match.distance));
+                          ((int64_t)(MAX_TOKENS_DISTANCE - match.distance));
         }
 
         const int64_t default_score = 0;
@@ -884,12 +884,16 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
         topster.add(seq_id, query_index, match_score, primary_rank_value, secondary_rank_value);
 
-        /*std::ostringstream os;
+        /*
+        std::ostringstream os;
         os << name << ", total_cost: " << (255 - total_cost)
-                << ", words_present: " << match.words_present << ", match_score: " << match
-                << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - match.distance)
-                << ", seq_id: " << seq_id << std::endl;
-        LOG(INFO) << os.str();*/
+           << ", words_present: " << match.words_present << ", match_score: " << match_score
+           << ", match.distance: " << match.distance
+           << ", distance: "
+           << (MAX_TOKENS_DISTANCE - match.distance)
+           << ", seq_id: " << seq_id << std::endl;
+        LOG(INFO) << os.str();
+        */
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
