@@ -846,7 +846,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
     Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
     const uint64_t single_token_match_score = ((int64_t)(single_token_match.words_present) << 24) |
                                               ((int64_t)(255 - total_cost) << 16) |
-                                              ((int64_t)abs(int(MAX_TOKENS_DISTANCE - (size_t)single_token_match.distance)));
+                                              ((int64_t)(single_token_match.distance));
 
     for(size_t i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
@@ -863,7 +863,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
             // Construct a single match score from individual components (for multi-field sort)
             match_score = ((int64_t)(match.words_present) << 24) |
                           ((int64_t)(255 - total_cost) << 16) |
-                          ((int64_t)(MAX_TOKENS_DISTANCE - match.distance));
+                          ((int64_t)(match.distance));
         }
 
         const int64_t default_score = 0;
@@ -889,8 +889,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         os << name << ", total_cost: " << (255 - total_cost)
            << ", words_present: " << match.words_present << ", match_score: " << match_score
            << ", match.distance: " << match.distance
-           << ", distance: "
-           << (MAX_TOKENS_DISTANCE - match.distance)
            << ", seq_id: " << seq_id << std::endl;
         LOG(INFO) << os.str();
         */

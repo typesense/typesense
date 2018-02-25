@@ -17,7 +17,7 @@
 
 const size_t WINDOW_SIZE = 10;
 const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
-const size_t MAX_TOKENS_DISTANCE = 100;
+const uint16_t MAX_TOKENS_DISTANCE = 100;
 
 struct TokenOffset {
     uint8_t token_id;         // token identifier
@@ -179,7 +179,8 @@ struct Match {
       token_index++;
     }
 
+    const uint16_t distance = MAX_TOKENS_DISTANCE - min_displacement;
     pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
-    return Match(max_match, std::min(MAX_TOKENS_DISTANCE, (size_t)min_displacement), token_start_offset, packed_offset_diffs);
+    return Match(max_match, distance, token_start_offset, packed_offset_diffs);
   }
 };
