@@ -104,11 +104,11 @@ $ TYPESENSE_IMG_VERSION=nightly ./docker-build.sh --build-deploy-image [--clean]
 
 Typesense requires the following dependencies: 
 
+* C++11 compatible compiler (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
 * Snappy
 * zlib
 * OpenSSL (>=1.0.2)
 * curl
-* Recent, C++11 compatible compiler (GCC >= 4.9.0, Apple Clang >= 8.0, Clang >= 3.9.0)
 
 ```
 $ ./build.sh [--clean] [--depclean]
