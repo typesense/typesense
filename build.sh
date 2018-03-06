@@ -26,8 +26,7 @@ make -C $PROJECT_DIR/build
 if [[ "$@" == *"--create-binary"* ]]; then
     OS_FAMILY=$(echo `uname` | awk '{print tolower($0)}')
     RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-amd64
-    cp $PROJECT_DIR/build/typesense-server $PROJECT_DIR/build/$RELEASE_NAME
-    printf `md5sum $PROJECT_DIR/build/${RELEASE_NAME} | cut -b-32` > $PROJECT_DIR/build/$RELEASE_NAME.md5.txt
-    tar -cvzf $PROJECT_DIR/build/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/build $RELEASE_NAME $RELEASE_NAME.md5.txt
+    printf `md5sum $PROJECT_DIR/build/typesense-server | cut -b-32` > $PROJECT_DIR/build/typesense-server.md5.txt
+    tar -cvzf $PROJECT_DIR/build/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/build typesense-server typesense-server.md5.txt
     echo "Built binary successfully: $PROJECT_DIR/build/$RELEASE_NAME.tar.gz"
 fi
