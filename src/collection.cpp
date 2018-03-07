@@ -71,7 +71,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
-        LOG(WARNING) << "JSON error: " << e.what();
+        LOG(ERR) << "JSON error: " << e.what();
         return Option<nlohmann::json>(400, "Bad JSON.");
     }
 
@@ -523,7 +523,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
         if(json_doc_status != StoreStatus::FOUND) {
-            LOG(WARNING) << "Could not locate the JSON document for sequence ID: " << seq_id_key;
+            LOG(ERR) << "Could not locate the JSON document for sequence ID: " << seq_id_key;
             continue;
         }
 
@@ -667,7 +667,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
 
     if(doc_status == StoreStatus::NOT_FOUND) {
-        LOG(WARNING) << "Sequence ID exists, but document is missing for id: " << id;
+        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
         return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
     }
 
@@ -703,7 +703,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
 
     if(doc_status == StoreStatus::NOT_FOUND) {
-        LOG(WARNING) << "Sequence ID exists, but document is missing for id: " << id;
+        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
         return Option<std::string>(404, "Could not find a document with id: " + id);
     }
 

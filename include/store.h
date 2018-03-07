@@ -109,7 +109,7 @@ public:
             return StoreStatus::NOT_FOUND;
         }
 
-        LOG(WARNING) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
+        LOG(ERR) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
         return StoreStatus::ERROR;
     }
 
