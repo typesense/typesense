@@ -95,7 +95,7 @@
 - ~~Replica server should fail when pointed to "old" master~~
 - ~~gzip compress responses~~
 - ~~Have a LOG(ERROR) level~~
-- Handle SIGTERM which is sent when process is killed
+- ~~Handle SIGTERM which is sent when process is killed~~
 - Parameterize replica's MAX_UPDATES_TO_SEND
 - NOT operator support
 - > INT32_MAX validation for float field

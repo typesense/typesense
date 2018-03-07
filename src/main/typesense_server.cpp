@@ -64,7 +64,12 @@ void replica_server_routes() {
 }
 
 int main(int argc, char **argv) {
+    // remove SIGTERM since we handle it on our own
+    g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
+
+    // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
+    signal(SIGTERM, catch_interrupt);
 
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
