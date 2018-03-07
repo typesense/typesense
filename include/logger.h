@@ -18,9 +18,9 @@ struct ConsoleLoggingSink {
 
         if (level.value >= ERR.value) {
             std::cerr << "\033[" << RED << "m"
-                      << logEntry.get().toString() << "\033[m";
+                      << logEntry.get().toString() << "\033[m" << std::flush;
         } else {
-            std::cout << logEntry.get().toString();
+            std::cout << logEntry.get().toString() << std::flush;
         }
     }
 };
