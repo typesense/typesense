@@ -157,7 +157,7 @@ void HttpServer::on_stop_server(void *data) {
     // do nothing
 }
 
-void HttpServer::clear_timeouts(std::vector<h2o_timeout_t*> & timeouts) {
+void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts) {
     for(h2o_timeout_t* timeout: timeouts) {
         while (!h2o_linklist_is_empty(&timeout->_entries)) {
             h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
@@ -173,24 +173,10 @@ void HttpServer::stop() {
     h2o_socket_read_stop(listener_socket);
     h2o_socket_close(listener_socket);
 
-    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
-    std::vector<h2o_timeout_t*> timeouts = {
-        &ctx.zero_timeout,
-        &ctx.one_sec_timeout,
-        &ctx.hundred_ms_timeout,
-        &ctx.handshake_timeout,
-        &ctx.http1.req_timeout,
-        &ctx.http2.idle_timeout,
-        &ctx.http2.graceful_shutdown_timeout,
-        &ctx.proxy.io_timeout
-    };
-
-    clear_timeouts(timeouts);
-
     // this will break the event loop
     exit_loop = true;
 
-    // send a message to activate idle event loop, just in case
+    // send a message to activate the idle event loop to exit, just in case
     send_message(STOP_SERVER_MESSAGE, nullptr);
 }
 
@@ -509,6 +495,21 @@ HttpServer::~HttpServer() {
     h2o_multithread_destroy_queue(message_queue);
     free(message_queue);
     delete message_receiver;
+
+    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
+    std::vector<h2o_timeout_t*> timeouts = {
+        &ctx.zero_timeout,
+        &ctx.one_sec_timeout,
+        &ctx.hundred_ms_timeout,
+        &ctx.handshake_timeout,
+        &ctx.http1.req_timeout,
+        &ctx.http2.idle_timeout,
+        &ctx.http2.graceful_shutdown_timeout,
+        &ctx.proxy.io_timeout
+    };
+
+    clear_timeouts(timeouts);
+    clear_timeouts({&ctx.zero_timeout});  // needed to clear a deferred timeout that crops up
 
     h2o_context_dispose(&ctx);
     free(ctx.globalconf->server_name.base);
