@@ -628,7 +628,6 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     StringUtils::split(query, tokens, " ");
 
     const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-    const size_t max_results = Index::SEARCH_LIMIT_NUM;
 
     size_t total_results = topster.size;
 
@@ -736,9 +735,9 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(filter_ids, filter_ids_length, facets, sort_fields, token_candidates_vec,
                               token_order, searched_queries, topster, total_results, all_result_ids, all_result_ids_len,
-                              max_results, prefix);
+                              Index::SEARCH_LIMIT_NUM, prefix);
 
-            if (total_results >= max_results) {
+            if (total_results >= Index::SEARCH_LIMIT_NUM) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
                 break;
             }
@@ -748,7 +747,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     }
 
     // When there are not enough overall results and atleast one token has results
-    if(topster.size < max_results && token_to_count.size() > 1) {
+    if(topster.size < Index::SEARCH_LIMIT_NUM && token_to_count.size() > 1) {
         // Drop token with least hits and try searching again
         std::string truncated_query;
 
