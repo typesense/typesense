@@ -79,6 +79,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
 
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
     if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
         LOG(INFO) << "An error occurred while trying to load server certificate file:" << cert_file;
