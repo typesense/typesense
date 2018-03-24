@@ -78,8 +78,9 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     EC_KEY_free(key);
 
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
+    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv3);
 
-    if (SSL_CTX_use_certificate_file(accept_ctx->ssl_ctx, cert_file, SSL_FILETYPE_PEM) != 1) {
+    if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
         LOG(INFO) << "An error occurred while trying to load server certificate file:" << cert_file;
         return -1;
     }
@@ -97,7 +98,10 @@ int HttpServer::create_listener(void) {
     int fd, reuseaddr_flag = 1;
 
     if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
-        setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+        int ssl_setup_code = setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+        if(ssl_setup_code != 0) {
+            return -1;
+        }
     }
 
     ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
