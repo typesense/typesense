@@ -40,14 +40,17 @@ Let's initialize the client and create a `companies` collection:
 ```python
 import typesense
 
-typesense.master_node = typesense.Node(
-    host='localhost', 
-    port=8108, 
-    protocol='http', 
-    api_key='<YOUR_API_KEY>'
-)
+client = typesense.Client({
+  'master_node': {
+    'host': 'localhost',
+    'port': '8108',
+    'protocol': 'http',
+    'api_key': 'abcd'
+  },
+  'timeout_seconds': 2
+})
 
-typesense.Collections.create({
+create_response = client.collections.create({
   "name": "companies",
   "fields": [
     {"name": "company_name", "type": "string" },
@@ -68,7 +71,7 @@ document = {
  "country": "USA"
 }
 
-typesense.Documents.create('companies', document)
+client.collections['companies'].documents.create(document)
 ```
 
 Finally, let's search for the document we just indexed:
@@ -81,7 +84,7 @@ search_parameters = {
   'sort_by'   : 'num_employees:desc'
 }
 
-typesense.Documents.search('companies', search_parameters)
+client.collections['companies'].documents.search(search_parameters)
 ```
 
 **Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
