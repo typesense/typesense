@@ -32,11 +32,9 @@ nlohmann::json collection_summary_json(Collection *collection) {
 
 bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    if(rpath.handler == get_search) {
-        return collectionManager.auth_key_matches(auth_key) || collectionManager.search_only_auth_key_matches(auth_key);
-    }
 
-    return collectionManager.auth_key_matches(auth_key);
+    return collectionManager.auth_key_matches(auth_key) ||
+           (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key))
 }
 
 void get_collections(http_req & req, http_res & res) {

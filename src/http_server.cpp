@@ -440,7 +440,7 @@ void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, v
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
     std::string res_body = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
-                                       "` header or GET parameter must be sent.\"}";
+                                       "` header must be sent.\"}";
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
     req->res.status = 401;
     req->res.reason = get_status_reason(req->res.status);
