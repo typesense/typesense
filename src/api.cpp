@@ -34,7 +34,7 @@ bool handle_authentication(const route_path & rpath, const std::string & auth_ke
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     return collectionManager.auth_key_matches(auth_key) ||
-           (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key))
+           (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key));
 }
 
 void get_collections(http_req & req, http_res & res) {
