@@ -281,7 +281,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 
     // Handle CORS
     if(self->http_server->cors_enabled) {
-        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("Access-Control-Allow-Origin"),
+        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
                               0, NULL, H2O_STRLIT("*"));
         
         if(http_method == "OPTIONS") {
@@ -299,13 +299,13 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                 req->res.reason = get_status_reason(200);
 
                 h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("Access-Control-Allow-Methods"),
+                                      H2O_STRLIT("access-control-allow-methods"),
                                       0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
                 h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("Access-Control-Allow-Headers"),
+                                      H2O_STRLIT("access-control-allow-headers"),
                                       0, NULL, acl_req_headers.base, acl_req_headers.len);
                 h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("Access-Control-Max-Age"),
+                                      H2O_STRLIT("access-control-max-age"),
                                       0, NULL, H2O_STRLIT("86400"));
 
                 h2o_start_response(req, &generator);
