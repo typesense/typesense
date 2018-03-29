@@ -32,7 +32,7 @@ public:
         return is_ok;
     }
 
-    T get() {
+    T get() const {
         return value;
     }
 
