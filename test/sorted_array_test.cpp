@@ -110,7 +110,7 @@ TEST(SortedArrayTest, BulkIndexOf) {
     uint32_t *results = new uint32_t[search_ids.size()];
     ids.indexOf(&search_ids[0], search_ids.size(), results);
 
-    for(auto i = 0; i < search_ids.size(); i++) {
+    for(size_t i = 0; i < search_ids.size(); i++) {
         auto search_id = search_ids.at(i);
         ASSERT_EQ(ids.indexOf(search_id), results[i]);
     }
@@ -125,7 +125,7 @@ TEST(SortedArrayTest, BulkIndexOf) {
 
     ids.indexOf(&search_ids[0], search_ids.size(), results);
 
-    for(auto i = 0; i < search_ids.size(); i++) {
+    for(size_t i = 0; i < search_ids.size(); i++) {
         auto search_id = search_ids.at(i);
         ASSERT_EQ(ids.indexOf(search_id), results[i]);
     }

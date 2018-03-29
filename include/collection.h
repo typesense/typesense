@@ -25,14 +25,14 @@ private:
 
     size_t num_documents;
 
-    size_t num_indices;
-
     std::vector<Index*> indices;
 
     std::vector<std::thread*> index_threads;
 
     // Auto incrementing record ID used internally for indexing - not exposed to the client
     uint32_t next_seq_id;
+
+    Store* store;
 
     std::vector<field> fields;
 
@@ -42,9 +42,9 @@ private:
 
     std::unordered_map<std::string, field> sort_schema;
 
-    Store* store;
+    std::string default_sorting_field;
 
-    std::string token_ranking_field;
+    size_t num_indices;
 
     std::string get_doc_id_key(const std::string & doc_id);
 
@@ -56,7 +56,7 @@ public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & fields, const std::string & token_ranking_field);
+               const std::vector<field> & fields, const std::string & default_sorting_field, const size_t num_indices=4);
 
     ~Collection();
 
@@ -78,9 +78,7 @@ public:
 
     void increment_next_seq_id_field();
 
-    static uint32_t deserialize_seq_id_key(std::string serialized_seq_id);
-
-    uint32_t doc_id_to_seq_id(std::string doc_id);
+    Option<uint32_t> doc_id_to_seq_id(std::string doc_id);
 
     std::vector<std::string> get_facet_fields();
 
@@ -90,9 +88,9 @@ public:
 
     std::unordered_map<std::string, field> get_schema();
 
-    std::string get_token_ranking_field();
+    std::string get_default_sorting_field();
 
-    Option<std::string> add(const std::string & json_str);
+    Option<nlohmann::json> add(const std::string & json_str);
 
     Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,

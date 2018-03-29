@@ -617,7 +617,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     char buf[512];
     FILE *f = fopen(words_file_path, "r");
 
-    uintptr_t line = 1, nlines;
+    uintptr_t line = 1;
     while (fgets(buf, sizeof buf, f)) {
         len = strlen(buf);
         buf[len-1] = '\0';
@@ -625,8 +625,6 @@ TEST(ArtTest, test_art_fuzzy_search) {
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
         line++;
     }
-
-    nlines = line - 1;
 
     std::vector<art_leaf*> leaves;
 
@@ -676,7 +674,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     ASSERT_EQ(10, leaves.size());
 
     std::vector<const char*> words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
-    for(auto leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
+    for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
     }
 
@@ -764,7 +762,7 @@ TEST(ArtTest, test_int32_range_hundreds) {
                                                  {1981, 1985}, {1999, 2000, 2001, 2002}};
 
     for(uint32_t i = 0; i < values.size(); i++) {
-        for(auto j = 0; j < values[i].size(); j++) {
+        for(size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
             doc.id = i;
             art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1);
@@ -880,12 +878,6 @@ TEST(ArtTest, test_int32_million) {
     }
 
     encode_int32(5, chars);
-    /*std::cout << std::endl;
-    for(uint32_t i = 0; i < CHAR_LEN; i++) {
-        std::cout << (int)chars[i] << ", ";
-    }
-    std::cout << std::endl;*/
-
     std::vector<const art_leaf*> results;
 
     // ==
@@ -974,16 +966,6 @@ TEST(ArtTest, test_int_range_byte_boundary) {
     results.clear();
     art_int32_search(&t, 255, GREATER_THAN, results);
     ASSERT_EQ(44, results.size());
-
-    /*std::cout << std::endl;
-    for(auto i = 0; i < 1; i++) {
-        auto result = results[i];
-        for(auto j = 0; j < result->key_len; j++) {
-            std::cout << (int) result->key[j] << ", ";
-        }
-
-        std::cout << std::endl;
-    }*/
 }
 
 TEST(ArtTest, test_encode_int64) {
@@ -1007,14 +989,15 @@ TEST(ArtTest, test_encode_int64) {
         ASSERT_EQ(chars_100K[i], chars[i]);
     }
 
-    unsigned char chars_large_num[8] = {255, 255, 255, 255, 128, 0, 0, 199};
-    encode_int64(std::numeric_limits<std::int32_t>::max()+200, chars);
+    unsigned char chars_large_num[8] = {0, 0, 0, 0, 128, 0, 0, 199};
+    int64_t large_num = (int64_t)(std::numeric_limits<std::int32_t>::max()) + 200;
+    encode_int64(large_num, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_large_num[i], chars[i]);
     }
 
-    unsigned char chars_large_neg_num[8] = {0, 0, 0, 0, 127, 255, 255, 57};
-    encode_int64(-1 * (std::numeric_limits<std::int32_t>::max()+200), chars);
+    unsigned char chars_large_neg_num[8] = {255, 255, 255, 255, 127, 255, 255, 57};
+    encode_int64(-1 * large_num, chars);
     for(uint32_t i = 0; i < 8; i++) {
         ASSERT_EQ(chars_large_neg_num[i], chars[i]);
     }
@@ -1123,7 +1106,7 @@ TEST(ArtTest, test_int32_array) {
                                                  {1999, 2000, 2001, 2002}};
 
     for (uint32_t i = 0; i < values.size(); i++) {
-        for (auto j = 0; j < values[i].size(); j++) {
+        for (size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
             doc.id = i;
             art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc, 1);

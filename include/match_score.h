@@ -5,6 +5,7 @@
 #include <queue>
 #include <stdlib.h>
 #include <limits>
+#include "logger.h"
 
 #ifdef DEBUG
 #define D(x) x
@@ -16,7 +17,7 @@
 
 const size_t WINDOW_SIZE = 10;
 const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
-
+const uint16_t MAX_TOKENS_DISTANCE = 100;
 
 struct TokenOffset {
     uint8_t token_id;         // token identifier
@@ -46,9 +47,9 @@ struct Match {
   static void print_token_offsets(std::vector<std::vector<uint16_t>> &token_offsets) {
     for(auto offsets: token_offsets) {
       for(auto offset: offsets) {
-        std::cout << offset  << ", ";
+        LOG(INFO) << offset  << ", ";
       }
-      std::cout << std::endl;
+      LOG(INFO) << "";
     }
   }
 
@@ -114,7 +115,7 @@ struct Match {
         addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
       }
 
-      D(std::cout << "Loop till window fills... doc_id: " << doc_id << std::endl;)
+      D(LOG(INFO) << "Loop till window fills... doc_id: " << doc_id;)
 
       // Fill the queue with tokens within a given window frame size of the start offset
       // At the same time, we also record the *last* occurrence of each token within the window
@@ -124,7 +125,7 @@ struct Match {
         addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
       }
 
-      D(std::cout << std::endl << "----" << std::endl);
+      D(LOG(INFO) << "----");
 
       uint16_t prev_pos = MAX_DISPLACEMENT;
       uint16_t num_match = 0;
@@ -140,14 +141,14 @@ struct Match {
           } else {
             // Calculate the distance between the tokens within the window
             // Ideally, this should be (NUM_TOKENS - 1) when all the tokens are adjacent to each other
-            D(std::cout << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id] << std::endl);
+            D(LOG(INFO) << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id]);
             displacement += abs(token_offset[token_id]-prev_pos);
             prev_pos = token_offset[token_id];
           }
         }
       }
 
-      D(std::cout << std::endl << "!!!displacement: " << displacement << " | num_match: " << num_match << std::endl);
+      D(LOG(INFO) << std::endl << "!!!displacement: " << displacement << " | num_match: " << num_match);
 
       // Track the best `displacement` and `num_match` seen so far across all the windows
       // for a single token, displacement will be 0, while for 2 tokens minimum dispacement would be 1
@@ -169,7 +170,7 @@ struct Match {
     std::fill_n(packed_offset_diffs, 16, 0);
 
     // identify the first token which is actually present and use that as the base for run-length encoding
-    int token_index = 0;
+    size_t token_index = 0;
     while(token_index < token_offsets.size()) {
       if(min_token_offset[token_index] != MAX_DISPLACEMENT) {
         token_start_offset = min_token_offset[token_index];
@@ -178,7 +179,8 @@ struct Match {
       token_index++;
     }
 
+    const uint16_t distance = MAX_TOKENS_DISTANCE - min_displacement;
     pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
-    return Match(max_match, min_displacement, token_start_offset, packed_offset_diffs);
+    return Match(max_match, distance, token_start_offset, packed_offset_diffs);
   }
 };

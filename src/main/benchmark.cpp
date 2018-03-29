@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
         collection = collectionManager.create_collection("hnstories_direct", fields_to_index, "points").get();
     }
 
-    std::ifstream infile("/Users/kishore/Downloads/hnstories_tiny.jsonl");
+    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
 
     std::string json_line;
     auto begin = std::chrono::high_resolution_clock::now();
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     }
 
     infile.close();
-    cout << "FINISHED INDEXING!" << endl << flush;
+    std::cout << "FINISHED INDEXING!" << flush << std::endl;
 
     /*std::vector<std::string> search_fields = {"title"};
 
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     }*/
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    cout << "Time taken: " << timeMillis << "ms" << endl;
-    //cout << "Total: " << results_total << endl;
+    std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
+    //std::cout << "Total: " << results_total << std::endl;
     return 0;
 }

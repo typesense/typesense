@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <h2o.h>
 #include <iostream>
+#include "logger.h"
 
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
@@ -69,7 +70,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     int nid = NID_X9_62_prime256v1;
     EC_KEY *key = EC_KEY_new_by_curve_name(nid);
     if (key == NULL) {
-        std::cout << "Failed to create DH/ECDH." << std::endl;
+        LOG(INFO) << "Failed to create DH/ECDH.";
         return -1;
     }
 
@@ -77,13 +78,15 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     EC_KEY_free(key);
 
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
+    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
-    if (SSL_CTX_use_certificate_file(accept_ctx->ssl_ctx, cert_file, SSL_FILETYPE_PEM) != 1) {
-        std::cout << "An error occurred while trying to load server certificate file:" << cert_file << std::endl;
+    if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
+        LOG(INFO) << "An error occurred while trying to load server certificate file:" << cert_file;
         return -1;
     }
     if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        std::cout << "An error occurred while trying to load private key file: " << key_file << std::endl;
+        LOG(INFO) << "An error occurred while trying to load private key file: " << key_file;
         return -1;
     }
 
@@ -96,7 +99,10 @@ int HttpServer::create_listener(void) {
     int fd, reuseaddr_flag = 1;
 
     if(!ssl_cert_path.empty() && !ssl_cert_key_path.empty()) {
-        setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+        int ssl_setup_code = setup_ssl(ssl_cert_path.c_str(), ssl_cert_key_path.c_str());
+        if(ssl_setup_code != 0) {
+            return -1;
+        }
     }
 
     ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
@@ -132,11 +138,10 @@ int HttpServer::run() {
     h2o_multithread_register_receiver(message_queue, message_receiver, on_message);
 
     if (create_listener() != 0) {
-        std::cerr << "Failed to listen on " << listen_address << ":" << listen_port << " - "
-                  << strerror(errno) << std::endl;
+        LOG(ERR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
         return 1;
     } else {
-        std::cout << "Server has started. Ready to accept requests on port " << listen_port << std::endl;
+        LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;
     }
 
     on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
@@ -152,7 +157,7 @@ void HttpServer::on_stop_server(void *data) {
     // do nothing
 }
 
-void HttpServer::clear_timeouts(std::vector<h2o_timeout_t*> & timeouts) {
+void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts) {
     for(h2o_timeout_t* timeout: timeouts) {
         while (!h2o_linklist_is_empty(&timeout->_entries)) {
             h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
@@ -168,24 +173,10 @@ void HttpServer::stop() {
     h2o_socket_read_stop(listener_socket);
     h2o_socket_close(listener_socket);
 
-    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
-    std::vector<h2o_timeout_t*> timeouts = {
-        &ctx.zero_timeout,
-        &ctx.one_sec_timeout,
-        &ctx.hundred_ms_timeout,
-        &ctx.handshake_timeout,
-        &ctx.http1.req_timeout,
-        &ctx.http2.idle_timeout,
-        &ctx.http2.graceful_shutdown_timeout,
-        &ctx.proxy.io_timeout
-    };
-
-    clear_timeouts(timeouts);
-
     // this will break the event loop
     exit_loop = true;
 
-    // send a message to activate idle event loop, just in case
+    // send a message to activate the idle event loop to exit, just in case
     send_message(STOP_SERVER_MESSAGE, nullptr);
 }
 
@@ -211,6 +202,12 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
     h2o_custom_req_handler_t *handler = reinterpret_cast<h2o_custom_req_handler_t*>(h2o_create_handler(pathconf, sizeof(*handler)));
     handler->http_server = this;
     handler->super.on_req = on_req;
+
+    compress_args.min_size = 256;       // don't gzip less than this size
+    compress_args.brotli.quality = -1;  // disable, not widely supported
+    compress_args.gzip.quality = 1;     // fastest
+    h2o_compress_register(pathconf, &compress_args);
+
     return pathconf;
 }
 
@@ -220,7 +217,6 @@ const char* HttpServer::get_status_reason(uint32_t status_code) {
         case 201: return "Created";
         case 400: return "Bad Request";
         case 401: return "Unauthorized";
-        case 403: return "Forbidden";
         case 404: return "Not Found";
         case 409: return "Conflict";
         case 422: return "Unprocessable Entity";
@@ -283,37 +279,39 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         auth_key_from_header = query_map[AUTH_HEADER];
     }
 
-    // Handle OPTIONS for CORS
-    if(self->http_server->cors_enabled && http_method == "OPTIONS") {
-        // locate request access control headers
-        const char* ACL_REQ_HEADERS = "access-control-request-headers";
-        ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, strlen(ACL_REQ_HEADERS), -1);
+    // Handle CORS
+    if(self->http_server->cors_enabled) {
+        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
+                              0, NULL, H2O_STRLIT("*"));
+        
+        if(http_method == "OPTIONS") {
+            // locate request access control headers
+            const char* ACL_REQ_HEADERS = "access-control-request-headers";
+            ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, 
+                                                               strlen(ACL_REQ_HEADERS), -1);
 
-        if(acl_header_cursor != -1) {
-            h2o_iovec_t &slot = req->headers.entries[acl_header_cursor].value;
-            const char* acl_req_headers = std::string(slot.base, slot.len).c_str();
+            if(acl_header_cursor != -1) {
+                h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
 
-            h2o_generator_t generator = {NULL, NULL};
-            h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
-            req->res.status = 200;
-            req->res.reason = get_status_reason(200);
+                h2o_generator_t generator = {NULL, NULL};
+                h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
+                req->res.status = 200;
+                req->res.reason = get_status_reason(200);
 
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Origin"),
-                                  0, NULL, H2O_STRLIT("*"));
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Methods"),
-                                  0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Allow-Headers"),
-                                  0, NULL, acl_req_headers, strlen(acl_req_headers));
-            h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                  H2O_STRLIT("Access-Control-Max-Age"),
-                                  0, NULL, H2O_STRLIT("86400"));
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-allow-methods"),
+                                      0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-allow-headers"),
+                                      0, NULL, acl_req_headers.base, acl_req_headers.len);
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-max-age"),
+                                      0, NULL, H2O_STRLIT("86400"));
 
-            h2o_start_response(req, &generator);
-            h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
-            return 0;
+                h2o_start_response(req, &generator);
+                h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
+                return 0;
+            }
         }
     }
 
@@ -376,7 +374,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
-    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL}}, this, type.c_str(), data};
+    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL, NULL}}, this, type.c_str(), data};
     h2o_multithread_send_message(message_receiver, &message->super);
 }
 
@@ -390,7 +388,6 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
-    h2o_dispose_request(req);
 
     delete request;
     delete response;
@@ -443,7 +440,7 @@ void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, v
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
     std::string res_body = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
-                                       "` header or GET parameter must be sent.\"}";
+                                       "` header must be sent.\"}";
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
     req->res.status = 401;
     req->res.reason = get_status_reason(req->res.status);
@@ -497,6 +494,21 @@ HttpServer::~HttpServer() {
     h2o_multithread_destroy_queue(message_queue);
     free(message_queue);
     delete message_receiver;
+
+    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
+    std::vector<h2o_timeout_t*> timeouts = {
+        &ctx.zero_timeout,
+        &ctx.one_sec_timeout,
+        &ctx.hundred_ms_timeout,
+        &ctx.handshake_timeout,
+        &ctx.http1.req_timeout,
+        &ctx.http2.idle_timeout,
+        &ctx.http2.graceful_shutdown_timeout,
+        &ctx.proxy.io_timeout
+    };
+
+    clear_timeouts(timeouts);
+    clear_timeouts({&ctx.zero_timeout});  // needed to clear a deferred timeout that crops up
 
     h2o_context_dispose(&ctx);
     free(ctx.globalconf->server_name.base);

@@ -7,6 +7,7 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
+#include "logger.h"
 
 Index::Index(const std::string name, std::unordered_map<std::string, field> search_schema,
              std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
@@ -250,7 +251,7 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
 
         num_hits += 1;
 
-        for(auto i=0; i<kv.second.size(); i++) {
+        for(size_t i=0; i<kv.second.size(); i++) {
             art_doc.offsets[i] = kv.second[i];
         }
 
@@ -301,12 +302,12 @@ void Index::do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t 
         const field & facet_field = facet_schema.at(a_facet.field_name);
         const facet_value & fvalue = facet_index.at(facet_field.name);
 
-        for(auto i = 0; i < results_size; i++) {
+        for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
             if(fvalue.doc_values.count(doc_seq_id) != 0) {
                 // for every result document, get the values associated and increment counter
                 const std::vector<uint32_t> & value_indices = fvalue.doc_values.at(doc_seq_id);
-                for(auto j = 0; j < value_indices.size(); j++) {
+                for(size_t j = 0; j < value_indices.size(); j++) {
                     const std::string & facet_value = fvalue.index_value.at(value_indices.at(j));
                     a_facet.result_map[facet_value] += 1;
                 }
@@ -321,8 +322,7 @@ void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, st
                                    std::vector<std::vector<art_leaf*>> & searched_queries, Topster<512> & topster,
                                    size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
                                    const size_t & max_results, const bool prefix) {
-    const size_t combination_limit = 10;
-    const size_t prefix_candidates_limit = 5;
+    const long long combination_limit = 10;
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
@@ -332,7 +332,7 @@ void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, st
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_candidates_vec, n);
 
         /*for(auto i=0; i < query_suggestion.size(); i++) {
-            std::cout << "i: " << i << " - " << query_suggestion[i]->key << std::endl;
+            LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key;
         }*/
 
         // initialize results with the starting element (for further intersection)
@@ -349,7 +349,7 @@ void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, st
         }
 
         // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
-        for(auto i=1; i < query_suggestion.size(); i++) {
+        for(size_t i=1; i < query_suggestion.size(); i++) {
             uint32_t* out = nullptr;
             uint32_t* ids = query_suggestion[i]->values->ids.uncompress();
             result_size = ArrayUtils::and_scalar(ids, query_suggestion[i]->values->ids.getLength(), result_ids, result_size, &out);
@@ -425,7 +425,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
 
-    for(auto i = 0; i < filters.size(); i++) {
+    for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
         if(search_index.count(a_filter.field_name) != 0) {
@@ -481,7 +481,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                     uint32_t* filtered_ids = nullptr;
                     size_t filtered_size = 0;
 
-                    for(auto i = 0; i < str_tokens.size(); i++) {
+                    for(size_t i = 0; i < str_tokens.size(); i++) {
                         std::string & str_token = str_tokens[i];
                         StringUtils::normalize(str_token);
                         art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
@@ -582,10 +582,10 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     const uint32_t filter_ids_length = op_filter_ids_length.get();
 
     // Order of `fields` are used to sort results
-    auto begin = std::chrono::high_resolution_clock::now();
+    //auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
 
-    for(int i = 0; i < search_fields.size(); i++) {
+    for(size_t i = 0; i < search_fields.size(); i++) {
         Topster<512> topster;
         const std::string & field = search_fields[i];
         // proceed to query search only when no filters are provided or when filtering produces results
@@ -596,7 +596,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
         }
 
         // order of fields specified matter: matching docs from earlier fields are more important
-        for(auto t = 0; t < topster.size && t < num_results; t++) {
+        for(uint32_t t = 0; t < topster.size && t < num_results; t++) {
             field_order_kvs.push_back(std::make_pair(search_fields.size() - i, topster.getKV(t)));
         }
     }
@@ -604,8 +604,8 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     delete [] filter_ids;
     delete [] all_result_ids;
 
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
 
     outcome = Option<uint32_t>(field_order_kvs.size());
 }
@@ -627,8 +627,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     std::vector<std::string> tokens;
     StringUtils::split(query, tokens, " ");
 
-    const int max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-    const size_t max_results = Index::SEARCH_LIMIT_NUM;
+    const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
 
     size_t total_results = topster.size;
 
@@ -661,7 +660,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
     std::vector<token_candidates> token_candidates_vec;
 
-    const size_t combination_limit = 10;
+    const long long combination_limit = 10;
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
@@ -677,7 +676,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
         }
 
         token_candidates_vec.clear();
-        int token_index = 0;
+        size_t token_index = 0;
 
         while(token_index < tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
@@ -685,16 +684,16 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //std::cout << "\nSearching for: " << token << " - cost: " << costs[token_index] << std::endl;
+            //LOG(INFO) << "\nSearching for: " << token << " - cost: " << costs[token_index];
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 // prefix should apply only for last token
                 const bool prefix_search = prefix && ((token_index == tokens.size()-1) ? true : false);
-                const int token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
+                const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
-                // If this is a prefix search, we should for more candidates and do a union of those document IDs
+                // If this is a prefix search, look for more candidates and do a union of those document IDs
                 const int max_candidates = prefix_search ? 10 : 3;
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], max_candidates, token_order, prefix_search, leaves);
@@ -736,9 +735,9 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(filter_ids, filter_ids_length, facets, sort_fields, token_candidates_vec,
                               token_order, searched_queries, topster, total_results, all_result_ids, all_result_ids_len,
-                              max_results, prefix);
+                              Index::SEARCH_LIMIT_NUM, prefix);
 
-            if (total_results >= max_results) {
+            if (total_results >= Index::SEARCH_LIMIT_NUM) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
                 break;
             }
@@ -748,7 +747,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     }
 
     // When there are not enough overall results and atleast one token has results
-    if(topster.size < max_results && token_to_count.size() > 1) {
+    if(topster.size < Index::SEARCH_LIMIT_NUM && token_to_count.size() > 1) {
         // Drop token with least hits and try searching again
         std::string truncated_query;
 
@@ -775,12 +774,13 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
-    printf("Token: %s, cost: %d, candidates: \n", token.c_str(), cost);
-    for(auto i=0; i < leaves.size(); i++) {
+    LOG(INFO) << "Token: " << token << ", cost: " << cost;
+
+    for(size_t i=0; i < leaves.size(); i++) {
         printf("%.*s, ", leaves[i]->key_len, leaves[i]->key);
-        printf("frequency: %d, max_score: %d\n", leaves[i]->values->ids.getLength(), leaves[i]->max_score);
+        LOG(INFO) << "frequency: " << leaves[i]->values->ids.getLength() << ", max_score: " << leaves[i]->max_score;
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
-            printf("id: %d\n", leaves[i]->values->ids.at(j));
+            LOG(INFO) << "id: " << leaves[i]->values->ids.at(j);
         }*/
     }
 }
@@ -845,9 +845,9 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
     Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
     const uint64_t single_token_match_score = ((int64_t)(single_token_match.words_present) << 24) |
                                               ((int64_t)(255 - total_cost) << 16) |
-                                              ((int64_t)(MAX_SEARCH_TOKENS - single_token_match.distance));
+                                              ((int64_t)(single_token_match.distance));
 
-    for(auto i=0; i<result_size; i++) {
+    for(size_t i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
         uint64_t match_score = 0;
@@ -862,7 +862,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
             // Construct a single match score from individual components (for multi-field sort)
             match_score = ((int64_t)(match.words_present) << 24) |
                           ((int64_t)(255 - total_cost) << 16) |
-                          ((int64_t)(MAX_SEARCH_TOKENS - match.distance));
+                          ((int64_t)(match.distance));
         }
 
         const int64_t default_score = 0;
@@ -883,16 +883,18 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
         topster.add(seq_id, query_index, match_score, primary_rank_value, secondary_rank_value);
 
-        /*std::ostringstream os;
+        /*
+        std::ostringstream os;
         os << name << ", total_cost: " << (255 - total_cost)
-                << ", words_present: " << match.words_present << ", match_score: " << match
-                << ", primary_rank_score: " << primary_rank_score.intval << ", distance: " << (MAX_SEARCH_TOKENS - match.distance)
-                << ", seq_id: " << seq_id << std::endl;
-        std::cout << os.str();*/
+           << ", words_present: " << match.words_present << ", match_score: " << match_score
+           << ", match.distance: " << match.distance
+           << ", seq_id: " << seq_id << std::endl;
+        LOG(INFO) << os.str();
+        */
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //std::cout << "Time taken for results iteration: " << timeNanos << "ms" << std::endl;
+    //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
 
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
         delete [] it->second;
@@ -906,7 +908,7 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
     // for each token in the query, find the positions that it appears in this document
     for (const art_leaf *token_leaf : query_suggestion) {
             std::vector<uint16_t> positions;
-            int doc_index = leaf_to_indices.at(token_leaf)[result_index];
+            uint32_t doc_index = leaf_to_indices.at(token_leaf)[result_index];
             if(doc_index == token_leaf->values->ids.getLength()) {
                 continue;
             }
@@ -931,12 +933,13 @@ inline std::vector<art_leaf *> Index::next_suggestion(const std::vector<token_ca
 
     // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
-    for(long long i = 0 ; i < token_candidates_vec.size(); i++) {
+    for(long long i = 0 ; i < (long long) token_candidates_vec.size(); i++) {
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
     }
 
-    // sort ascending based on matched documents for each token for faster intersection
+    // Sort ascending based on matched documents for each token for faster intersection.
+    // However, this causes the token order to deviate from original query's order.
     sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
         return left->values->ids.getLength() < right->values->ids.getLength();
     });
@@ -1079,9 +1082,9 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
 
                 /*len = leaf->values->offset_index.getLength();
                 for(auto i=0; i<len; i++) {
-                    std::cout << "i: " << i << ", val: " << leaf->values->offset_index.at(i) << std::endl;
+                    LOG(INFO) << "i: " << i << ", val: " << leaf->values->offset_index.at(i);
                 }
-                std::cout << "----" << std::endl;*/
+                LOG(INFO) << "----";*/
 
                 if(leaf->values->ids.getLength() == 0) {
                     art_values* values = (art_values*) art_delete(search_index.at(name_field.first), key, key_len);

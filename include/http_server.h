@@ -22,6 +22,7 @@ struct request_response {
 class HttpServer {
 private:
     h2o_globalconf_t config;
+    h2o_compress_args_t compress_args;
     h2o_context_t ctx;
     h2o_accept_ctx_t* accept_ctx;
     h2o_hostconf_t *hostconf;
@@ -100,7 +101,7 @@ public:
 
     void stop();
 
-    void clear_timeouts(std::vector<h2o_timeout_t*> & timeouts);
+    void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts);
 
     static void on_stop_server(void *data);
 

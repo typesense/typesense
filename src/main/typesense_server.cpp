@@ -10,12 +10,12 @@
 #include "api.h"
 #include "string_utils.h"
 #include "replicator.h"
-#include "typesense_version.h"
+#include "logger.h"
 
 HttpServer* server;
 
 void catch_interrupt(int sig) {
-    std::cout << "Stopping Typesense server..." << std::endl;
+    LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
     server->stop();
 }
@@ -31,13 +31,16 @@ void master_server_routes() {
     server->get("/collections", get_collections);
     server->del("/collections/:collection", del_drop_collection);
     server->get("/collections/:collection", get_collection_summary);
-    server->get("/collections/:collection/export", get_collection_export, true);
 
-    // document management
-    server->post("/collections/:collection", post_add_document);
-    server->get("/collections/:collection/search", get_search);
-    server->get("/collections/:collection/:id", get_fetch_document);
-    server->del("/collections/:collection/:id", del_remove_document);
+    // document management - `/documents/:id` end-points must be placed last in the list
+    server->post("/collections/:collection/documents", post_add_document);
+    server->get("/collections/:collection/documents/search", get_search);
+    server->get("/collections/:collection/documents/export", get_collection_export, true);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
+    server->del("/collections/:collection/documents/:id", del_remove_document);
+
+    // meta
+    server->get("/debug", get_debug);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
@@ -47,17 +50,27 @@ void replica_server_routes() {
     // collection management
     server->get("/collections", get_collections);
     server->get("/collections/:collection", get_collection_summary);
-    server->get("/collections/:collection/export", get_collection_export, true);
 
-    // document management
-    server->get("/collections/:collection/search", get_search);
-    server->get("/collections/:collection/:id", get_fetch_document);
+    // document management - `/documents/:id` end-points must be placed last in the list
+    server->get("/collections/:collection/documents/search", get_search);
+    server->get("/collections/:collection/documents/export", get_collection_export, true);
+    server->get("/collections/:collection/documents/:id", get_fetch_document);
+
+    // meta
+    server->get("/debug", get_debug);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);
 }
 
 int main(int argc, char **argv) {
+    // remove SIGTERM since we handle it on our own
+    g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
+
+    // we can install new signal handlers only after overriding above
+    signal(SIGINT, catch_interrupt);
+    signal(SIGTERM, catch_interrupt);
+
     cmdline::parser options;
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'k', "API key that allows all operations.", true);
@@ -72,18 +85,40 @@ int main(int argc, char **argv) {
     options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
+    options.add<std::string>("log-dir", '\0', "Path to the log file.", false, "");
 
     options.parse_check(argc, argv);
 
-    signal(SIGINT, catch_interrupt);
+    auto log_worker = g3::LogWorker::createLogWorker();
+    std::string log_dir = options.get<std::string>("log-dir");
 
-    std::cout << "Typesense version " << TYPESENSE_VERSION << std::endl;
+    if(log_dir.empty()) {
+        // use console logger if log dir is not specified
+        log_worker->addSink(std2::make_unique<ConsoleLoggingSink>(),
+                                              &ConsoleLoggingSink::ReceiveLogMessage);
+    } else {
+        if(!directory_exists(log_dir)) {
+            std::cerr << "Typesense failed to start. " << "Log directory " << log_dir << " does not exist.";
+            return 1;
+        }
+
+        log_worker->addDefaultLogger("typesense", log_dir, "");
+
+        std::cout << "Starting Typesense " << TYPESENSE_VERSION << ". Log directory is configured as: "
+                  << log_dir << std::endl;
+    }
+
+    g3::initializeLogging(log_worker.get());
+
+    LOG(INFO) << "Starting Typesense " << TYPESENSE_VERSION;
 
     if(!directory_exists(options.get<std::string>("data-dir"))) {
-        std::cerr << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
-                  << " does not exist." << std::endl;
+        LOG(ERR) << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
+                  << " does not exist.";
         return 1;
     }
+
+    LOG(INFO) << "Loading collections from disk...";
 
     Store store(options.get<std::string>("data-dir"));
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -91,10 +126,9 @@ int main(int argc, char **argv) {
                                                   options.get<std::string>("search-only-api-key"));
 
     if(init_op.ok()) {
-        std::cout << "Finished loading collections from disk." << std::endl;
+        LOG(INFO) << "Finished loading collections from disk.";
     } else {
-        std::cerr << "Typesense failed to start. " << "Could not load collections from disk: "
-                  << init_op.error() << std::endl;
+        LOG(ERR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
         return 1;
     }
 
@@ -120,11 +154,11 @@ int main(int argc, char **argv) {
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
         if(parts.size() != 3) {
-            std::cerr << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>" << std::endl;
+            LOG(ERR) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
             return 1;
         }
 
-        std::cout << "Typesense server started as a read-only replica... Spawning replication thread..." << std::endl;
+        LOG(INFO) << "Typesense is starting as a read-only replica... Spawning replication thread...";
         std::thread replication_thread([&master_host_port, &store, &options]() {
             Replicator::start(::server, master_host_port, options.get<std::string>("api-key"), store);
         });
@@ -132,10 +166,11 @@ int main(int argc, char **argv) {
         replication_thread.detach();
     }
 
-    server->run();
+    int return_code = server->run();
 
     // we are out of the event loop here
     delete server;
     CollectionManager::get_instance().dispose();
-    return 0;
+
+    return return_code;
 }

@@ -7,9 +7,12 @@
 #include <memory>
 #include <option.h>
 #include <rocksdb/db.h>
+#include <rocksdb/write_batch.h>
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
+#include "string_utils.h"
+#include "logger.h"
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
 public:
@@ -17,9 +20,9 @@ public:
                        std::string* new_value, rocksdb::Logger* logger) const override {
         uint64_t existing = 0;
         if (existing_value) {
-            existing = (uint64_t) std::stoi(existing_value->ToString());
+            existing = StringUtils::deserialize_uint32_t(existing_value->ToString());
         }
-        *new_value = std::to_string(existing + std::stoi(value.ToString()));
+        *new_value = StringUtils::serialize_uint32_t(existing + StringUtils::deserialize_uint32_t(value.ToString()));
         return true;
     }
 
@@ -30,7 +33,6 @@ public:
 
 enum StoreStatus {
     FOUND,
-    OK,
     NOT_FOUND,
     ERROR
 };
@@ -50,7 +52,9 @@ public:
 
     Store() = delete;
 
-    Store(const std::string & state_dir_path): state_dir_path(state_dir_path) {
+    Store(const std::string & state_dir_path,
+          const size_t wal_ttl_secs = 24*60*60,
+          const size_t wal_size_mb = 1024): state_dir_path(state_dir_path) {
         // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
@@ -61,14 +65,16 @@ public:
         options.merge_operator.reset(new UInt64AddOperator);
 
         // these need to be high for replication scenarios
-        options.WAL_ttl_seconds = 24*60*60;
-        options.WAL_size_limit_MB = 1024;
+        options.WAL_ttl_seconds = wal_ttl_secs;
+        options.WAL_size_limit_MB = wal_size_mb;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+
         if(!s.ok()) {
-            std::cerr << s.ToString() << std::endl;
+            LOG(FATAL) << "Error while initializing store: " << s.ToString();
         }
+
         assert(s.ok());
     }
 
@@ -81,6 +87,11 @@ public:
         return status.ok();
     }
 
+    bool batch_write(rocksdb::WriteBatch& batch) {
+        rocksdb::Status status = db->Write(rocksdb::WriteOptions(), &batch);
+        return status.ok();
+    }
+
     bool contains(const std::string& key) const {
         std::string value;
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
@@ -90,15 +101,16 @@ public:
     StoreStatus get(const std::string& key, std::string& value) const {
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
 
+        if(status.ok()) {
+            return StoreStatus::FOUND;
+        }
+
         if(status.IsNotFound()) {
             return StoreStatus::NOT_FOUND;
         }
 
-        if(!status.ok()) {
-            return StoreStatus::ERROR;
-        }
-
-        return StoreStatus::FOUND;
+        LOG(ERR) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
+        return StoreStatus::ERROR;
     }
 
     bool remove(const std::string& key) {
@@ -127,7 +139,7 @@ public:
     }
 
     void increment(const std::string & key, uint32_t value) {
-        db->Merge(rocksdb::WriteOptions(), key, std::to_string(value));
+        db->Merge(rocksdb::WriteOptions(), key, StringUtils::serialize_uint32_t(value));
     }
 
     uint64_t get_latest_seq_number() const {
@@ -158,7 +170,9 @@ public:
 
         if(!iter->Valid() && !(local_latest_seq_num == 0 && seq_number == 0)) {
             std::ostringstream error;
-            error << "Invalid iterator. " << "Master's latest sequence number is " << local_latest_seq_num;
+            error << "Invalid iterator. Master's latest sequence number is " << local_latest_seq_num << " but "
+                  << "updates are requested from sequence number " << seq_number << ". "
+                  << "The master's WAL entries might have expired (they are kept only for 24 hours).";
             return Option<std::vector<std::string>*>(400, error.str());
         }
 
@@ -181,6 +195,11 @@ public:
         db = nullptr;
     }
 
+    void flush() {
+        rocksdb::FlushOptions options;
+        db->Flush(options);
+    }
+
     // Only for internal tests
     rocksdb::DB* _get_db_unsafe() const {
         return db;
@@ -189,10 +208,10 @@ public:
     void print_memory_usage() {
         std::string index_usage;
         db->GetProperty("rocksdb.estimate-table-readers-mem", &index_usage);
-        std::cout << "rocksdb.estimate-table-readers-mem: " << index_usage << std::endl;
+        LOG(INFO) << "rocksdb.estimate-table-readers-mem: " << index_usage;
 
         std::string memtable_usage;
         db->GetProperty("rocksdb.cur-size-all-mem-tables", &memtable_usage);
-        std::cout << "rocksdb.cur-size-all-mem-tables: " << memtable_usage << std::endl;
+        LOG(INFO) << "rocksdb.cur-size-all-mem-tables: " << memtable_usage;
     }
 };

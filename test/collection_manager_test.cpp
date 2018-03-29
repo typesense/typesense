@@ -3,6 +3,7 @@
 #include <vector>
 #include <fstream>
 #include <collection_manager.h>
+#include "string_utils.h"
 #include "collection.h"
 
 class CollectionManagerTest : public ::testing::Test {
@@ -15,7 +16,7 @@ protected:
 
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/coll_manager_test_db";
-        std::cout << "Truncating and creating: " << state_dir_path << std::endl;
+        LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
@@ -56,7 +57,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(1, collection1->get_sort_fields().size());
     ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
-    ASSERT_EQ("points", collection1->get_token_ranking_field());
+    ASSERT_EQ("points", collection1->get_default_sorting_field());
 
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
@@ -77,12 +78,13 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     store->get(CollectionManager::NEXT_COLLECTION_ID_KEY, next_collection_id);
 
     ASSERT_EQ(3, num_keys);
-    ASSERT_EQ("1", next_seq_id); // we already call `collection1->get_next_seq_id` above, which is side-effecting
-    ASSERT_EQ("{\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
+    // we already call `collection1->get_next_seq_id` above, which is side-effecting
+    ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
+    ASSERT_EQ("{\"default_sorting_field\":\"points\",\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
               "{\"facet\":false,\"name\":\"points\",\"type\":\"int32\"}"
-              "],\"id\":0,\"name\":\"collection1\",\"token_ranking_field\":\"points\"}", collection_meta_json);
+              "],\"id\":0,\"name\":\"collection1\"}", collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
 
@@ -136,7 +138,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(1, collection1->get_sort_fields().size());
     ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
-    ASSERT_EQ("points", collection1->get_token_ranking_field());
+    ASSERT_EQ("points", collection1->get_default_sorting_field());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());

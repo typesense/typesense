@@ -53,7 +53,7 @@
 - ~~Test for collection creation validation~~
 - ~~Test for delete document~~
 - ~~art float search~~
-- ~~When prefix=true, use token_ranking_field for token ordering only for last word~~
+- ~~When prefix=true, use default_sorting_field for token ordering only for last word~~
 - ~~only last token should be prefix searched~~
 - ~~Prefix-search strings should not be null terminated~~
 - ~~sort results by float field~~
@@ -71,7 +71,7 @@
 - ~~facet fields should be indexed verbatim~~
 - ~~change "search_by" to "query_by"~~
 - ~~during index_in_memory() validations should be front loaded~~
-- ~~Support token ranking field being a float~~
+- ~~Support default sorting field being a float~~
 - ~~https support~~
 - ~~Validate before string to int conversion in the http api layer~~
 - ~~art bool support~~
@@ -82,32 +82,40 @@
 - ~~When the first sequence ID is not zero, bail out~~
 - ~~Proper status code when sequence number to fetch is bad~~
 - ~~Replica should be read-only~~
-- handle hyphens (replace them)
-- clean special chars before indexing
+- ~~string_utils::tokenize should not have max length~~
+- ~~handle hyphens (replace them)~~
+- ~~clean special chars before indexing~~
+- ~~Add docs/explanation around ranking calc~~
+- ~~UTF-8 normalization~~
+- ~~Use rocksdb batch put for atomic insertion~~
+- ~~Proper logging~~
+- ~~Handle store-get() not finding a key~~
+- ~~Deprecate converting integer to string verbatim~~ 
+- ~~Deprecate union type punning~~
+- ~~Replica server should fail when pointed to "old" master~~
+- ~~gzip compress responses~~
+- ~~Have a LOG(ERROR) level~~
+- ~~Handle SIGTERM which is sent when process is killed~~
+- Log operations
+- Parameterize replica's MAX_UPDATES_TO_SEND
 - NOT operator support
 - > INT32_MAX validation for float field
-- Proper logging
 - highlight of string arrays?
 - test for token ranking on float field
 - test for float int field deletion during doc deletion
 - Test for snippets
 - Test for replication
-- Add docs/explanation around ranking calc
-- Use rocksdb batch put for atomic insertion
 - Query token ids should match query token ordering
 - ID should not have "/"
 - Group results by field
-- Handle store-get() not finding a key
 - Delete using range: https://github.com/facebook/rocksdb/wiki/Delete-A-Range-Of-Keys
 - Test for string utils
 - Prevent string copy during indexing
 - Minimum results should be a variable instead of blindly going with max_results
-- UTF-8 support for fuzzy search
 - Handle searching for non-existing fields gracefully
 - test for same match score but different primary, secondary attr
 - Support nested fields via "."
 - Support search operators like +, - etc.
-- string_utils::tokenize should not have max length
 - Space sensitivity
 - Use bitmap index instead of compressed array for doc list?
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined?

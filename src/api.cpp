@@ -6,27 +6,45 @@
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
+#include "logger.h"
+
+nlohmann::json collection_summary_json(Collection *collection) {
+    nlohmann::json json_response;
+
+    json_response["name"] = collection->get_name();
+    json_response["num_documents"] = collection->get_num_documents();
+
+    const std::vector<field> & coll_fields = collection->get_fields();
+    nlohmann::json fields_arr;
+
+    for(const field & coll_field: coll_fields) {
+        nlohmann::json field_json;
+        field_json[fields::name] = coll_field.name;
+        field_json[fields::type] = coll_field.type;
+        field_json[fields::facet] = coll_field.facet;
+        fields_arr.push_back(field_json);
+    }
+
+    json_response["fields"] = fields_arr;
+    json_response["default_sorting_field"] = collection->get_default_sorting_field();
+    return json_response;
+}
 
 bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    if(rpath.handler == get_search) {
-        return collectionManager.auth_key_matches(auth_key) || collectionManager.search_only_auth_key_matches(auth_key);
-    }
 
-    return collectionManager.auth_key_matches(auth_key);
+    return collectionManager.auth_key_matches(auth_key) ||
+           (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key));
 }
 
 void get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<Collection*> collections = collectionManager.get_collections();
-    nlohmann::json json_response;
-    json_response["data"] = nlohmann::json::array();
+    nlohmann::json json_response = nlohmann::json::array();
 
     for(Collection* collection: collections) {
-        nlohmann::json collection_map;
-        collection_map["name"] = collection->get_name();
-        collection_map["num_documents"] = collection->get_num_documents();
-        json_response["collections"].push_back(collection_map);
+        nlohmann::json collection_json = collection_summary_json(collection);
+        json_response.push_back(collection_json);
     }
 
     res.send_200(json_response.dump());
@@ -37,7 +55,8 @@ void post_create_collection(http_req & req, http_res & res) {
 
     try {
         req_json = nlohmann::json::parse(req.body);
-    } catch(...) {
+    } catch(const std::exception& e) {
+        LOG(ERR) << "JSON error: " << e.what();
         return res.send_400("Bad JSON.");
     }
 
@@ -51,6 +70,17 @@ void post_create_collection(http_req & req, http_res & res) {
 
     if(req_json.count("fields") == 0) {
         return res.send_400("Parameter `fields` is required.");
+    }
+
+    const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
+
+    if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
+        return res.send_400("Parameter `default_sorting_field` is required.");
+    }
+
+    if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
+        return res.send_400(std::string("`") + DEFAULT_SORTING_FIELD +
+                            "` should be a string. It should be the name of an unsigned integer field.");
     }
 
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
@@ -89,35 +119,34 @@ void post_create_collection(http_req & req, http_res & res) {
         );
     }
 
-    const char* TOKEN_RANKING_FIELD = "token_ranking_field";
-    std::string token_ranking_field = "";
-
-    if(req_json.count(TOKEN_RANKING_FIELD) != 0) {
-        if(!req_json[TOKEN_RANKING_FIELD].is_string()) {
-            return res.send_400(std::string("`") + TOKEN_RANKING_FIELD +
-                                "` should be a string. It should be the name of an unsigned integer field.");
-        }
-
-        token_ranking_field = req_json[TOKEN_RANKING_FIELD].get<std::string>();
-    }
-
-    collectionManager.create_collection(req_json["name"], fields, token_ranking_field);
+    const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
+    collectionManager.create_collection(req_json["name"], fields, default_sorting_field);
     res.send_201(req.body);
 }
 
 void del_drop_collection(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
-
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(!collection) {
+        return res.send_404();
+    }
+
+    nlohmann::json collection_json = collection_summary_json(collection);
     Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
 
     if(!drop_result.ok()) {
         return res.send(drop_result.code(), drop_result.error());
     }
 
-    nlohmann::json json_response;
-    json_response["collection"] = req.params["collection"];
-    res.send_200(json_response.dump());
+    res.send_200(collection_json.dump());
+}
+
+void get_debug(http_req & req, http_res & res) {
+    nlohmann::json result;
+    result["version"] = TYPESENSE_VERSION;
+    res.send_200(result.dump());
 }
 
 void get_search(http_req & req, http_res & res) {
@@ -126,7 +155,8 @@ void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *FILTER = "filter_by";
-    const char *SEARCH_BY = "query_by";
+    const char *QUERY = "q";
+    const char *QUERY_BY = "query_by";
     const char *SORT_BY = "sort_by";
     const char *FACET_BY = "facet_by";
     const char *PER_PAGE = "per_page";
@@ -139,11 +169,15 @@ void get_search(http_req & req, http_res & res) {
     }
 
     if(req.params.count(PREFIX) == 0) {
-        req.params[PREFIX] = "false";
+        req.params[PREFIX] = "true";
     }
 
-    if(req.params.count(SEARCH_BY) == 0) {
-        return res.send_400(std::string("Parameter `") + SEARCH_BY + "` is required.");
+    if(req.params.count(QUERY) == 0) {
+        return res.send_400(std::string("Parameter `") + QUERY + "` is required.");
+    }
+
+    if(req.params.count(QUERY_BY) == 0) {
+        return res.send_400(std::string("Parameter `") + QUERY_BY + "` is required.");
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -169,7 +203,7 @@ void get_search(http_req & req, http_res & res) {
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
 
     std::vector<std::string> search_fields;
-    StringUtils::split(req.params[SEARCH_BY], search_fields, ",");
+    StringUtils::split(req.params[QUERY_BY], search_fields, ",");
 
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, ",");
@@ -206,17 +240,13 @@ void get_search(http_req & req, http_res & res) {
     bool prefix = (req.params[PREFIX] == "true");
 
     if(req.params.count(RANK_TOKENS_BY) == 0) {
-        if(prefix && !collection->get_token_ranking_field().empty()) {
-            req.params[RANK_TOKENS_BY] = "TOKEN_RANKING_FIELD";
-        } else {
-            req.params[RANK_TOKENS_BY] = "TERM_FREQUENCY";
-        }
+        req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
     }
 
     StringUtils::toupper(req.params[RANK_TOKENS_BY]);
-    token_ordering token_order = (req.params[RANK_TOKENS_BY] == "TOKEN_RANKING_FIELD") ? MAX_SCORE : FREQUENCY;
+    token_ordering token_order = (req.params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") ? MAX_SCORE : FREQUENCY;
 
-    Option<nlohmann::json> result_op = collection->search(req.params["q"], search_fields, filter_str, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
                                                std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
                                                token_order, prefix);
@@ -232,13 +262,13 @@ void get_search(http_req & req, http_res & res) {
     }
 
     nlohmann::json result = result_op.get();
-    result["took_ms"] = timeMillis;
+    result["search_time_ms"] = timeMillis;
     result["page"] = std::stoi(req.params[PAGE]);
     const std::string & results_json_str = result.dump();
 
     //struct rusage r_usage;
     //getrusage(RUSAGE_SELF,&r_usage);
-    //std::cout << "Memory usage: " << r_usage.ru_maxrss << std::endl;
+    //LOG(INFO) << "Memory usage: " << r_usage.ru_maxrss;
 
     if(req.params.count(CALLBACK) == 0) {
         res.send_200(results_json_str);
@@ -246,7 +276,7 @@ void get_search(http_req & req, http_res & res) {
         res.send_200(req.params[CALLBACK] + "(" + results_json_str + ");");
     }
 
-    std::cout << "Time taken: " << timeMillis << "ms" << std::endl;
+    LOG(INFO) << "Time taken: " << timeMillis << "ms";
 }
 
 void get_collection_summary(http_req & req, http_res & res) {
@@ -257,31 +287,18 @@ void get_collection_summary(http_req & req, http_res & res) {
         return res.send_404();
     }
 
-    nlohmann::json json_response;
-
-    json_response["name"] = collection->get_name();
-    json_response["num_documents"] = collection->get_num_documents();
-
-    const std::vector<field> & coll_fields = collection->get_fields();
-    nlohmann::json fields_arr;
-
-    for(const field & coll_field: coll_fields) {
-        nlohmann::json field_json;
-        field_json[fields::name] = coll_field.name;
-        field_json[fields::type] = coll_field.type;
-        field_json[fields::facet] = coll_field.facet;
-        fields_arr.push_back(field_json);
-    }
-
-    json_response["fields"] = fields_arr;
-    json_response["token_ranking_field"] = collection->get_token_ranking_field();
-
+    nlohmann::json json_response = collection_summary_json(collection);
     res.send_200(json_response.dump());
 }
 
 void collection_export_handler(http_req* req, http_res* res, void* data) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(!collection) {
+        return res->send_404();
+    }
+
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
 
     rocksdb::Iterator* it = reinterpret_cast<rocksdb::Iterator*>(data);
@@ -295,9 +312,8 @@ void collection_export_handler(http_req* req, http_res* res, void* data) {
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             res->body += "\n";
         }
-
     } else {
-        res->body = true;
+        res->body = "";
         res->final = true;
         delete it;
     }
@@ -331,14 +347,12 @@ void post_add_document(http_req & req, http_res & res) {
         return res.send_404();
     }
 
-    Option<std::string> inserted_id_op = collection->add(req.body);
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
 
-    if(!inserted_id_op.ok()) {
-        res.send(inserted_id_op.code(), inserted_id_op.error());
+    if(!inserted_doc_op.ok()) {
+        res.send(inserted_doc_op.code(), inserted_doc_op.error());
     } else {
-        nlohmann::json json_response;
-        json_response["id"] = inserted_id_op.get();
-        res.send_201(json_response.dump());
+        res.send_201(inserted_doc_op.get().dump());
     }
 }
 
@@ -369,14 +383,19 @@ void del_remove_document(http_req & req, http_res & res) {
         return res.send_404();
     }
 
+    Option<nlohmann::json> doc_option = collection->get(doc_id);
+
+    if(!doc_option.ok()) {
+        return res.send(doc_option.code(), doc_option.error());
+    }
+
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if(!deleted_id_op.ok()) {
         res.send(deleted_id_op.code(), deleted_id_op.error());
     } else {
-        nlohmann::json json_response;
-        json_response["id"] = deleted_id_op.get();
-        res.send_200(json_response.dump());
+        nlohmann::json doc = doc_option.get();
+        res.send_200(doc.dump());
     }
 }
 
@@ -387,7 +406,7 @@ void get_replication_updates(http_req & req, http_res & res) {
             return res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
         }
 
-        const uint64_t MAX_UPDATES_TO_SEND = 2000;
+        const uint64_t MAX_UPDATES_TO_SEND = 10000;
         uint64_t seq_number = std::stoull(req.params["seq_number"]);
 
         CollectionManager & collectionManager = CollectionManager::get_instance();
