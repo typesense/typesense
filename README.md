@@ -27,15 +27,23 @@ Linux (x86-64) and Mac.
 
 You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense):
 
+## Quick Start
+
+Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense.
+ 
+Let's begin by starting the Typesense server via Docker:
+
 ```
 docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
-## Quick Start
+Install the Python client for Typesense:
+ 
+```
+pip install typesense
+```
 
-Here's a quick example showcasing how you can create a collection, index a document and search it on Typesense. 
-
-Let's initialize the client and create a `companies` collection:
+We can now initialize the client and create a `companies` collection:
 
 ```python
 import typesense
@@ -100,7 +108,7 @@ A detailed guide is available on [Typesense website](https://typesense.org/guide
 The docker build script takes care of all required dependencies, so it's the easiest way to build Typesense:
 
 ```
-$ TYPESENSE_IMG_VERSION=nightly ./docker-build.sh --build-deploy-image [--clean] [--depclean]
+TYPESENSE_VERSION=nightly ./docker-build.sh --build-deploy-image --create-binary [--clean] [--depclean]
 ```
 
 **Building on your machine**
@@ -114,7 +122,7 @@ Typesense requires the following dependencies:
 * curl
 
 ```
-$ ./build.sh [--clean] [--depclean]
+./build.sh --create-binary [--clean] [--depclean]
 ```
 
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.

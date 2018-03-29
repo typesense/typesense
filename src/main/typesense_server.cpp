@@ -72,8 +72,10 @@ int main(int argc, char **argv) {
     signal(SIGTERM, catch_interrupt);
 
     cmdline::parser options;
+    options.set_program_name("./typesense-server");
+
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
-    options.add<std::string>("api-key", 'k', "API key that allows all operations.", true);
+    options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "API key that allows only searches.", false);
 
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
@@ -82,7 +84,7 @@ int main(int argc, char **argv) {
                                             "format to start the server as a read-only replica.", false, "");
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
-    options.add<std::string>("ssl-certificate-key", 'e', "Path to the SSL certificate key file.", false, "");
+    options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
     options.add<std::string>("log-dir", '\0', "Path to the log file.", false, "");
