@@ -22,10 +22,10 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 ## Install
 
-You can download the [binary packages](https://github.com/wreally/typesense/releases) that we publish for 
+You can download the [binary packages](https://typesense.org/downloads) that we publish for 
 Linux (x86-64) and Mac.
 
-You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense/):
+You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense):
 
 ```
 docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
@@ -91,7 +91,7 @@ client.collections['companies'].documents.search(search_parameters)
 
 ## Detailed Guide
 
-A detailed guide is available on [Typesense website](https://typesense.org/docs). 
+A detailed guide is available on [Typesense website](https://typesense.org/guide). 
 
 ## Build from source
 
