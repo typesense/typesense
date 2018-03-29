@@ -120,8 +120,15 @@ void post_create_collection(http_req & req, http_res & res) {
     }
 
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
-    collectionManager.create_collection(req_json["name"], fields, default_sorting_field);
-    res.send_201(req.body);
+    const Option<Collection*> & collection_op =
+            collectionManager.create_collection(req_json["name"], fields, default_sorting_field);
+
+    if(collection_op.ok()) {
+        nlohmann::json json_response = collection_summary_json(collection_op.get());
+        return res.send_201(json_response.dump());
+    }
+
+    return res.send(collection_op.code(), collection_op.error());
 }
 
 void del_drop_collection(http_req & req, http_res & res) {
