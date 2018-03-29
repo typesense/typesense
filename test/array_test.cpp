@@ -10,13 +10,13 @@ TEST(ArrayTest, Append) {
 
     // First try inserting sorted ints
 
-    for(uint32_t i=0; i < SIZE; i++) {
+    for(int i=0; i < SIZE; i++) {
         arr.append(i);
     }
 
     EXPECT_EQ(arr.getLength(), SIZE);
 
-    for(uint32_t i=0; i < SIZE; i++) {
+    for(int i=0; i < SIZE; i++) {
         EXPECT_EQ(arr.at(i), i);
         EXPECT_EQ(arr.indexOf(i), i);
         EXPECT_EQ(arr.contains(i), true);
@@ -31,7 +31,7 @@ TEST(ArrayTest, Append) {
 
     std::vector<uint32_t> unsorted;
 
-    for(uint32_t i=0; i < SIZE; i++) {
+    for(int i=0; i < SIZE; i++) {
         uint32_t r = (uint32_t) rand();
         unsorted.push_back(r);
         arr2.append(r);
@@ -39,7 +39,7 @@ TEST(ArrayTest, Append) {
 
     EXPECT_EQ(arr2.getLength(), SIZE);
 
-    for(uint32_t i=0; i < SIZE; i++) {
+    for(int i=0; i < SIZE; i++) {
         uint32_t value = unsorted.at(i);
         EXPECT_EQ(arr2.at(i), value);
     }

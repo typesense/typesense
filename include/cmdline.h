@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <cxxabi.h>
 #include <cstdlib>
+#include "logger.h"
 
 namespace cmdline{
 
@@ -408,7 +409,7 @@ namespace cmdline{
                 args.push_back(buf);
 
             for (size_t i=0; i<args.size(); i++)
-                std::cout<<"\""<<args[i]<<"\""<<std::endl;
+                LOG(INFO)<<"\""<<args[i]<<"\"";
 
             return parse(args);
         }

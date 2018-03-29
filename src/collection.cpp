@@ -8,11 +8,14 @@
 #include <art.h>
 #include <thread>
 #include <chrono>
+#include <rocksdb/write_batch.h>
+#include "logger.h"
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-                       const std::vector<field> &fields, const std::string & token_ranking_field):
+                       const std::vector<field> &fields, const std::string & default_sorting_field,
+                       const size_t num_indices):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       fields(fields), token_ranking_field(token_ranking_field) {
+                       fields(fields), default_sorting_field(default_sorting_field), num_indices(num_indices) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -27,8 +30,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         }
     }
 
-    num_indices = 4;
-    for(auto i = 0; i < num_indices; i++) {
+    for(size_t i = 0; i < num_indices; i++) {
         Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
         indices.push_back(index);
         std::thread* thread = new std::thread(&Index::run_search, index);
@@ -39,7 +41,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
 }
 
 Collection::~Collection() {
-    for(auto i = 0; i < indices.size(); i++) {
+    for(size_t i = 0; i < indices.size(); i++) {
         std::thread *t = index_threads[i];
         Index* index = indices[i];
         index->ready = true;
@@ -64,12 +66,13 @@ void Collection::increment_next_seq_id_field() {
     next_seq_id++;
 }
 
-Option<std::string> Collection::add(const std::string & json_str) {
+Option<nlohmann::json> Collection::add(const std::string & json_str) {
     nlohmann::json document;
     try {
         document = nlohmann::json::parse(json_str);
-    } catch(...) {
-        return Option<std::string>(400, "Bad JSON.");
+    } catch(const std::exception& e) {
+        LOG(ERR) << "JSON error: " << e.what();
+        return Option<nlohmann::json>(400, "Bad JSON.");
     }
 
     uint32_t seq_id = get_next_seq_id();
@@ -78,42 +81,53 @@ Option<std::string> Collection::add(const std::string & json_str) {
     if(document.count("id") == 0) {
         document["id"] = seq_id_str;
     } else if(!document["id"].is_string()) {
-        return Option<std::string>(400, "Document's `id` field should be a string.");
+        return Option<nlohmann::json>(400, "Document's `id` field should be a string.");
     }
 
     std::string doc_id = document["id"];
+    Option<nlohmann::json> doc_option = get(doc_id);
+
+    // we need to check if document ID already exists before attempting to index
+    if(doc_option.ok()) {
+        return Option<nlohmann::json>(409, std::string("A document with id ") + doc_id + " already exists.");
+    }
 
     const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);
 
     if(!index_memory_op.ok()) {
-        return Option<std::string>(index_memory_op.code(), index_memory_op.error());
+        return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
     }
 
-    store->insert(get_doc_id_key(document["id"]), seq_id_str);
-    store->insert(get_seq_id_key(seq_id), document.dump());
+    rocksdb::WriteBatch batch;
+    batch.Put(get_doc_id_key(document["id"]), seq_id_str);
+    batch.Put(get_seq_id_key(seq_id), document.dump());
+    bool write_ok = store->batch_write(batch);
 
-    return Option<std::string>(doc_id);
+    if(!write_ok) {
+        return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
+    }
+
+    return Option<nlohmann::json>(document);
 }
 
 Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
-    if(!token_ranking_field.empty() && document.count(token_ranking_field) == 0) {
-        return Option<>(400, "Field `" + token_ranking_field  + "` has been declared as a token ranking field, "
+    if(document.count(default_sorting_field) == 0) {
+        return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
 
-    if(!token_ranking_field.empty() && !document[token_ranking_field].is_number_integer() &&
-       !document[token_ranking_field].is_number_float()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` must be a number.");
+    if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a number.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_integer() &&
-       document[token_ranking_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of int32.");
+    if(document[default_sorting_field].is_number_integer() &&
+       document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
     }
 
-    if(!token_ranking_field.empty() && document[token_ranking_field].is_number_float() &&
-       document[token_ranking_field].get<float>() > std::numeric_limits<float>::max()) {
-        return Option<>(400, "Token ranking field `" + token_ranking_field  + "` exceeds maximum value of a float.");
+    if(document[default_sorting_field].is_number_float() &&
+       document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
 
     for(const std::pair<std::string, field> & field_pair: search_schema) {
@@ -227,15 +241,15 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
     int32_t points = 0;
 
-    if(!token_ranking_field.empty()) {
-        if(document[token_ranking_field].is_number_float()) {
+    if(!default_sorting_field.empty()) {
+        if(document[default_sorting_field].is_number_float()) {
             // serialize float to an integer and reverse the inverted range
-            float n = document[token_ranking_field];
+            float n = document[default_sorting_field];
             memcpy(&points, &n, sizeof(int32_t));
             points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
             points = -1 * (INT32_MAX - points);
         } else {
-            points = document[token_ranking_field];
+            points = document[default_sorting_field];
         }
     }
 
@@ -257,7 +271,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const std::string & field_name: search_fields) {
         if(search_schema.count(field_name) == 0) {
             std::string error = "Could not find a field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
 
         field search_field = search_schema.at(field_name);
@@ -287,7 +301,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
         const std::string & field_name = expression_parts[0];
         if(search_schema.count(field_name) == 0) {
-            return Option<nlohmann::json>(400, "Could not find a filter field named `" + field_name + "` in the schema.");
+            return Option<nlohmann::json>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
         }
 
         field _field = search_schema.at(field_name);
@@ -365,7 +379,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
         facets.push_back(facet(field_name));
     }
@@ -377,7 +391,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(const sort_by & _sort_field: sort_fields) {
         if(sort_schema.count(_sort_field.name) == 0) {
             std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema for sorting.";
-            return Option<nlohmann::json>(400, error);
+            return Option<nlohmann::json>(404, error);
         }
 
         std::string sort_order = _sort_field.order;
@@ -391,6 +405,10 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         sort_fields_std.push_back({_sort_field.name, sort_order});
     }
 
+    if(sort_fields_std.empty()) {
+        sort_fields_std.push_back({default_sorting_field, sort_field_const::desc});
+    }
+
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
@@ -402,7 +420,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(422, message);
     }
 
-    auto begin = std::chrono::high_resolution_clock::now();
+    //auto begin = std::chrono::high_resolution_clock::now();
 
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -450,7 +468,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         searched_queries.insert(searched_queries.end(), index->search_params.searched_queries.begin(),
                                 index->search_params.searched_queries.end());
 
-        for(auto fi = 0; fi < index->search_params.facets.size(); fi++) {
+        for(size_t fi = 0; fi < index->search_params.facets.size(); fi++) {
             auto & this_facet = index->search_params.facets[fi];
             auto & acc_facet = facets[fi];
 
@@ -496,19 +514,31 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
 
-    for(size_t field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
+    // construct results array
+    for(int field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
 
-        std::string value;
-        store->get(seq_id_key, value);
+        std::string json_doc_str;
+        StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
+        if(json_doc_status != StoreStatus::FOUND) {
+            LOG(ERR) << "Could not locate the JSON document for sequence ID: " << seq_id_key;
+            continue;
+        }
+
+        nlohmann::json wrapper_doc;
         nlohmann::json document;
+
         try {
-            document = nlohmann::json::parse(value);
+            document = nlohmann::json::parse(json_doc_str);
         } catch(...) {
             return Option<nlohmann::json>(500, "Error while parsing stored document.");
         }
+
+        wrapper_doc["document"] = document;
+        //wrapper_doc["match_score"] = field_order_kv.second.match_score;
+        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.second.key;
 
         // highlight query words in the result
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
@@ -524,7 +554,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.second.query_index]) {
                 std::vector<uint16_t> positions;
-                int doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
+                uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
                 if(doc_index == token_leaf->values->ids.getLength()) {
                     continue;
                 }
@@ -546,7 +576,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             // unpack `match.offset_diffs` into `token_indices`
             std::vector<size_t> token_indices;
-            char num_tokens_found = match.offset_diffs[0];
+            size_t num_tokens_found = (size_t) match.offset_diffs[0];
             for(size_t i = 1; i <= num_tokens_found; i++) {
                 if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
                     size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
@@ -576,11 +606,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 snippet_stream << tokens[snippet_index];
             }
 
-            document["_highlight"] = nlohmann::json::object();
-            document["_highlight"][field_name] = snippet_stream.str();
+            wrapper_doc["highlight"] = nlohmann::json::object();
+            wrapper_doc["highlight"][field_name] = snippet_stream.str();
         }
 
-        result["hits"].push_back(document);
+        result["hits"].push_back(wrapper_doc);
     }
 
     result["facet_counts"] = nlohmann::json::array();
@@ -602,7 +632,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                       return a.second > b.second;
                   });
 
-        for(auto i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
+        for(size_t i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
             auto & kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;
@@ -613,24 +643,37 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         result["facet_counts"].push_back(facet_result);
     }
 
-    long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //!std::cout << "Time taken for result calc: " << timeMillis << "us" << std::endl;
+    //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return result;
 }
 
 Option<nlohmann::json> Collection::get(const std::string & id) {
     std::string seq_id_str;
-    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+    StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
-    if(status == StoreStatus::NOT_FOUND) {
+    if(seq_id_status == StoreStatus::NOT_FOUND) {
         return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
+    }
+
+    if(seq_id_status == StoreStatus::ERROR) {
+        return Option<nlohmann::json>(500, "Error while fetching the document.");
     }
 
     uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
     std::string parsed_document;
-    store->get(get_seq_id_key(seq_id), parsed_document);
+    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
+
+    if(doc_status == StoreStatus::NOT_FOUND) {
+        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
+        return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
+    }
+
+    if(doc_status == StoreStatus::ERROR) {
+        return Option<nlohmann::json>(500, "Error while fetching the document.");
+    }
 
     nlohmann::json document;
     try {
@@ -644,16 +687,29 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
 
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
     std::string seq_id_str;
-    StoreStatus status = store->get(get_doc_id_key(id), seq_id_str);
+    StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
-    if(status == StoreStatus::NOT_FOUND) {
+    if(seq_id_status == StoreStatus::NOT_FOUND) {
         return Option<std::string>(404, "Could not find a document with id: " + id);
+    }
+
+    if(seq_id_status == StoreStatus::ERROR) {
+        return Option<std::string>(500, "Error while fetching the document.");
     }
 
     uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
 
     std::string parsed_document;
-    store->get(get_seq_id_key(seq_id), parsed_document);
+    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
+
+    if(doc_status == StoreStatus::NOT_FOUND) {
+        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
+        return Option<std::string>(404, "Could not find a document with id: " + id);
+    }
+
+    if(doc_status == StoreStatus::ERROR) {
+        return Option<std::string>(500, "Error while fetching the document.");
+    }
 
     nlohmann::json document;
     try {
@@ -682,19 +738,8 @@ std::string Collection::get_next_seq_id_key(const std::string & collection_name)
 std::string Collection::get_seq_id_key(uint32_t seq_id) {
     // We can't simply do std::to_string() because we want to preserve the byte order.
     // & 0xFF masks all but the lowest eight bits.
-    unsigned char bytes[4];
-    bytes[0] = (unsigned char) ((seq_id >> 24) & 0xFF);
-    bytes[1] = (unsigned char) ((seq_id >> 16) & 0xFF);
-    bytes[2] = (unsigned char) ((seq_id >> 8) & 0xFF);
-    bytes[3] = (unsigned char) ((seq_id & 0xFF));
-
-    return get_seq_id_collection_prefix() + "_" + std::string(bytes, bytes+4);
-}
-
-uint32_t Collection::deserialize_seq_id_key(std::string serialized_seq_id) {
-    uint32_t seq_id = ((serialized_seq_id[0] & 0xFF) << 24) | ((serialized_seq_id[1] & 0xFF) << 16) |
-                      ((serialized_seq_id[2] & 0xFF) << 8)  | (serialized_seq_id[3] & 0xFF);
-    return seq_id;
+    const std::string & serialized_id = StringUtils::serialize_uint32_t(seq_id);
+    return get_seq_id_collection_prefix() + "_" + serialized_id;
 }
 
 std::string Collection::get_doc_id_key(const std::string & doc_id) {
@@ -713,11 +758,19 @@ uint32_t Collection::get_collection_id() {
     return collection_id;
 }
 
-uint32_t Collection::doc_id_to_seq_id(std::string doc_id) {
+Option<uint32_t> Collection::doc_id_to_seq_id(std::string doc_id) {
     std::string seq_id_str;
-    store->get(get_doc_id_key(doc_id), seq_id_str);
-    uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
-    return seq_id;
+    StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
+    if(status == StoreStatus::FOUND) {
+        uint32_t seq_id = (uint32_t) std::stoi(seq_id_str);
+        return Option<uint32_t>(seq_id);
+    }
+
+    if(status == StoreStatus::NOT_FOUND) {
+        return Option<uint32_t>(404, "Not found.");
+    }
+
+    return Option<uint32_t>(500, "Error while fetching doc_id from store.");
 }
 
 std::vector<std::string> Collection::get_facet_fields() {
@@ -754,6 +807,6 @@ std::string Collection::get_seq_id_collection_prefix() {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
-std::string Collection::get_token_ranking_field() {
-    return token_ranking_field;
+std::string Collection::get_default_sorting_field() {
+    return default_sorting_field;
 }

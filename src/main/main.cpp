@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 
     Collection *collection = collectionManager.get_collection("github_top1k");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("github_top1k", fields_to_index).get();
+        collection = collectionManager.create_collection("github_top1k", fields_to_index, "stars").get();
     }
 
     int j = 0;
@@ -44,7 +44,7 @@ int main(int argc, char* argv[]) {
         std::ifstream infile(argv[1]);
         std::string json_line;
 
-        cout << "BEGINNING Iteration: " << j << endl << flush;
+        std::cout << "BEGINNING Iteration: " << j << std::endl;
         auto begin = std::chrono::high_resolution_clock::now();
         int doc_id = 0;
 

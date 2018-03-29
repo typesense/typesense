@@ -37,7 +37,7 @@ TEST(TopsterTest, StoreMaxIntValuesWithoutRepetition) {
 
     std::vector<uint64_t> ids = {4, 1, 5, 8, 9};
 
-    for(int i = 0; i < topster.size; i++) {
+    for(uint32_t i = 0; i < topster.size; i++) {
         EXPECT_EQ(ids[i], topster.getKeyAt(i));
     }
 }
@@ -75,7 +75,7 @@ TEST(TopsterTest, StoreMaxFloatValuesWithoutRepetition) {
 
     std::vector<uint64_t> ids = {4, 1, 5, 8, 9};
 
-    for(int i = 0; i < topster.size; i++) {
+    for(uint32_t i = 0; i < topster.size; i++) {
         EXPECT_EQ(ids[i], topster.getKeyAt(i));
     }
 }

@@ -28,7 +28,6 @@ private:
 
 public:
 
-    // FIXME: this should be a constructor instead of a setter
     void load(const uint32_t *sorted_array, const uint32_t array_length);
 
     uint32_t at(uint32_t index);

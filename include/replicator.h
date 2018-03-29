@@ -8,7 +8,7 @@
 #include <thread>
 #include <string>
 #include <iostream>
-
+#include "logger.h"
 
 struct ReplicationEvent {
     std::string type;
@@ -31,7 +31,6 @@ public:
     }
 
     void Put(const rocksdb::Slice& key, const rocksdb::Slice& value) {
-        CollectionManager & collection_manager = CollectionManager::get_instance();
         std::vector<std::string> parts;
         StringUtils::split(key.ToString(), parts, "_");
 
@@ -91,10 +90,16 @@ public:
 class Replicator {
 public:
     static void start(HttpServer* server, const std::string master_host_port, const std::string api_key, Store& store) {
+        size_t total_runs = 0;
+
         while(true) {
             IterateBatchHandler handler(server);
             uint64_t latest_seq_num = store.get_latest_seq_number();
-            std::cout << "latest_seq_num: " << latest_seq_num << std::endl;
+
+            if(total_runs++ % 20 == 0) {
+                // roughly every 60 seconds
+                LOG(INFO) << "Replica's latest sequence number: " << latest_seq_num;
+            }
 
             HttpClient client(
                 master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1), api_key
@@ -106,23 +111,31 @@ public:
             if(status_code == 200) {
                 nlohmann::json json_content = nlohmann::json::parse(json_response);
                 nlohmann::json updates = json_content["updates"];
+
+                // first write to memory
                 for (nlohmann::json::iterator update = updates.begin(); update != updates.end(); ++update) {
                     const std::string update_decoded = StringUtils::base64_decode(*update);
                     rocksdb::WriteBatch write_batch(update_decoded);
                     write_batch.Iterate(&handler);
                 }
 
+                // now write to store
                 for (nlohmann::json::iterator update = updates.begin(); update != updates.end(); ++update) {
                     const std::string update_decoded = StringUtils::base64_decode(*update);
                     rocksdb::WriteBatch write_batch(update_decoded);
                     store._get_db_unsafe()->Write(rocksdb::WriteOptions(), &write_batch);
                 }
+
+                if(updates.size() > 0) {
+                    LOG(INFO) << "Replica has consumed " << latest_seq_num+updates.size() << "/"
+                              << json_content["latest_seq_num"] << " updates from master.";
+                }
+
             } else {
-                std::cerr << "Replication error while fetching records from master, status_code="
-                          << status_code << std::endl;
+                LOG(ERR) << "Replication error while fetching records from master, status_code=" << status_code;
 
                 if(status_code != 0) {
-                    std::cerr << json_response << std::endl;
+                    LOG(ERR) << json_response;
                 }
             }
 
@@ -143,8 +156,8 @@ public:
             try {
                 collection_meta = nlohmann::json::parse(replication_event->value);
             } catch(...) {
-                std::cerr << "Failed to parse collection meta JSON." << std::endl;
-                std::cerr << "Replication event value: " << replication_event->value << std::endl;
+                LOG(ERR) << "Failed to parse collection meta JSON.";
+                LOG(ERR) << "Replication event value: " << replication_event->value;
                 delete replication_event;
                 exit(1);
             }
@@ -163,7 +176,7 @@ public:
 
             // last 4 bytes of the key would be the serialized version of the sequence id
             std::string serialized_seq_id = replication_event->key.substr(replication_event->key.length() - 4);
-            uint32_t seq_id = Collection::deserialize_seq_id_key(serialized_seq_id);
+            uint32_t seq_id = StringUtils::deserialize_uint32_t(serialized_seq_id);
             collection->index_in_memory(document, seq_id);
         }
 
