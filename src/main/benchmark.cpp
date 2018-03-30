@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
         collection = collectionManager.create_collection("hnstories_direct", fields_to_index, "points").get();
     }
 
-    std::ifstream infile("/Users/kishore/Downloads/hnstories.jsonl");
+    std::ifstream infile(argv[1]);
 
     std::string json_line;
     auto begin = std::chrono::high_resolution_clock::now();

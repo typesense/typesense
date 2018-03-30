@@ -283,7 +283,7 @@ void get_search(http_req & req, http_res & res) {
         res.send_200(req.params[CALLBACK] + "(" + results_json_str + ");");
     }
 
-    LOG(INFO) << "Time taken: " << timeMillis << "ms";
+    //LOG(INFO) << "Time taken: " << timeMillis << "ms";
 }
 
 void get_collection_summary(http_req & req, http_res & res) {

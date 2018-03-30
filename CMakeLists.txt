@@ -40,7 +40,7 @@ include(cmake/H2O.cmake)
 include(cmake/RocksDB.cmake)
 include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
-include(cmake/G3log.cmake)
+include(cmake/g3log.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
 
