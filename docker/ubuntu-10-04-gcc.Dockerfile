@@ -4,7 +4,7 @@
 # $ docker run -it typesense/ubuntu-10.04-gcc:latest bash -c "exit"
 # $ docker ps -a | grep typesense
 # $ docker export <container_id> | docker import - typesense/ubuntu-10.04-gcc:latest
-# 
+# $ docker push typesense/ubuntu-10.04-gcc
 
 FROM ubuntu:10.04
 
