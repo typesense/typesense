@@ -70,7 +70,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     int nid = NID_X9_62_prime256v1;
     EC_KEY *key = EC_KEY_new_by_curve_name(nid);
     if (key == NULL) {
-        LOG(INFO) << "Failed to create DH/ECDH.";
+        LOG(ERR) << "Failed to create DH/ECDH.";
         return -1;
     }
 
@@ -82,11 +82,11 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
     if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
-        LOG(INFO) << "An error occurred while trying to load server certificate file:" << cert_file;
+        LOG(ERR) << "An error occurred while trying to load server certificate file:" << cert_file;
         return -1;
     }
     if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        LOG(INFO) << "An error occurred while trying to load private key file: " << key_file;
+        LOG(ERR) << "An error occurred while trying to load private key file: " << key_file;
         return -1;
     }
 
