@@ -24,6 +24,9 @@ jobs:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
             - $PROJECT_DIR/external-Linux
+      - store_artifacts:
+          path: $PROJECT_DIR/build
+          destination: build
       - run: 
           name: test
           command: $PROJECT_DIR/build/typesense_test
