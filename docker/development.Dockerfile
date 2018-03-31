@@ -1,21 +1,20 @@
 # docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
 # 
-# NOTE: Default build image is bloated. Before publishing, export from a container to squash the image:
-# $ docker run -it typesense/typesense-development:latest bash -c "exit"
-# $ docker ps -a | grep typesense
-# $ docker export <container_id> | docker import - typesense/typesense-development:latest
-# $ docker push typesense/typesense-development
+# $ docker push typesense/typesense-development:latest
 
 FROM typesense/ubuntu-10.04-gcc:6.5.0
 
 ENV PATH /usr/local/gcc-6.4.0/bin/:$PATH
 ENV LD_LIBRARY_PATH /usr/local/gcc-6.4.0/lib64
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get install -y python-software-properties \
+	&& add-apt-repository ppa:git-core/ppa \
+	&& apt-get update \
+	&& apt-get install -y \
 	zlib1g-dev \
 	liblist-compare-perl \
-	git-core \
-	libidn11
+	libidn11 \
+	git
 
 ADD https://cmake.org/files/v3.3/cmake-3.3.2-Linux-x86_64.tar.gz /opt/
 RUN tar -C /opt -xvzf /opt/cmake-3.3.2-Linux-x86_64.tar.gz
