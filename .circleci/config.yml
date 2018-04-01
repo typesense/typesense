@@ -23,7 +23,7 @@ jobs:
       - save_cache:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
-            - $PROJECT_DIR/external-Linux
+            - /typesense/external-Linux
       - store_artifacts:
           path: /typesense/build
           destination: build
