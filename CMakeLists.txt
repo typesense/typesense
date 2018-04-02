@@ -18,7 +18,7 @@ if (APPLE)
     set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
-    set(CMAKE_PREFIX_PATH /usr/local/opt/curl)  # findCurl does not have a way to set CURL_ROOT :(
+    set(CMAKE_PREFIX_PATH /usr/local/opt/curl /usr/local/opt/icu4c)
 endif (APPLE)
 
 # Ensure that we only use the static versions of libraries to link against
