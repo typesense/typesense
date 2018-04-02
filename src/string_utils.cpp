@@ -6,7 +6,7 @@ void StringUtils::unicode_normalize(std::string& str) const {
         return !std::isalnum(c) && (int)(c) >= 0;
     }), str.end());
 
-    UnicodeString u_str = UnicodeString::fromUTF8(str);
+    icu::UnicodeString u_str = icu::UnicodeString::fromUTF8(str);
     transliterator->transliterate(u_str);
     str.clear();
     u_str.toLower().toUTF8String(str);
