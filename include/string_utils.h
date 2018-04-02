@@ -1,9 +1,5 @@
 #pragma once
 
-#define U_USING_ICU_NAMESPACE 0
-#define U_STATIC_IMPLEMENTATION 1
-//#define U_DISABLE_RENAMING 1
-
 #include <string>
 #include <algorithm>
 #include <sstream>
