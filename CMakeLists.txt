@@ -109,11 +109,9 @@ if(NOT APPLE)
     list(APPEND ROCKSDB_LIBS rt)
 endif()
 
-# Specifically pick the static version since the build generates both static and dynamic libraries
-set(G3LOGGER "g3logger.a")
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
 
-target_link_libraries(typesense-server h2o-evloop for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER} pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(search for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER} pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(benchmark for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER} pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(typesense_test h2o-evloop ${ICU_ALL_LIBRARIES} ${OPENSSL_LIBRARIES} pthread for miniutf ${G3LOGGER} ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})
+target_link_libraries(typesense-server h2o-evloop for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(search for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(benchmark for miniutf ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+target_link_libraries(typesense_test h2o-evloop ${ICU_ALL_LIBRARIES} ${OPENSSL_LIBRARIES} pthread for miniutf ${G3LOGGER_LIBRARIES} ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})
