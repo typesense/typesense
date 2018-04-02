@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <sstream>
 #include <ctype.h>
-#include "miniutf.hpp"
 #include <unicode/translit.h>
 #include <vector>
 
@@ -133,14 +132,6 @@ struct StringUtils {
 
     static void toupper(std::string& str) {
         std::transform(str.begin(), str.end(), str.begin(), ::toupper);
-    }
-
-    static void normalize(std::string& str) {
-        str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
-                    return !std::isalnum(c) && (int)(c) >= 0;
-                  }), str.end());
-
-        str = miniutf::lowercase(str);
     }
 
     void unicode_normalize(std::string& str) const;
