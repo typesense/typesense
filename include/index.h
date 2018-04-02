@@ -13,6 +13,7 @@
 #include <json.hpp>
 #include <field.h>
 #include <option.h>
+#include "string_utils.h"
 
 struct token_candidates {
     std::string token;
@@ -67,6 +68,8 @@ private:
     spp::sparse_hash_map<std::string, facet_value> facet_index;
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
+
+    StringUtils string_utils;
 
     static inline std::vector<art_leaf *> next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                                           long long int n);

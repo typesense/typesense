@@ -1,0 +1,13 @@
+#include "string_utils.h"
+
+void StringUtils::unicode_normalize(std::string& str) const {
+    // remove special chars within ASCII range
+    str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
+        return !std::isalnum(c) && (int)(c) >= 0;
+    }), str.end());
+
+    UnicodeString u_str = UnicodeString::fromUTF8(str);
+    transliterator->transliterate(u_str);
+    str.clear();
+    u_str.toLower().toUTF8String(str);
+}
