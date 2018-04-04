@@ -7,7 +7,6 @@ void StringUtils::unicode_normalize(std::string& str) const {
     }), str.end());
 
     icu::UnicodeString u_str = icu::UnicodeString::fromUTF8(str);
-    transliterator->transliterate(u_str);
     str.clear();
     u_str.toLower().toUTF8String(str);
 }
