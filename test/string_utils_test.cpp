@@ -16,10 +16,9 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     string_utils.unicode_normalize(alphanum_specialchars);
     ASSERT_STREQ("aa12zzwr", alphanum_specialchars.c_str());
 
-    // transliterate unicode characters and should also lower case them
     std::string alphanum_unicodechars = "abcÅà123";
     string_utils.unicode_normalize(alphanum_unicodechars);
-    ASSERT_STREQ("abcaa123", alphanum_unicodechars.c_str());
+    ASSERT_STREQ("abcåà123", alphanum_unicodechars.c_str());
 
     std::string tamil_unicodechars = "தமிழ் நாடு";
     string_utils.unicode_normalize(tamil_unicodechars);
