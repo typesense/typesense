@@ -227,7 +227,7 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
         StringUtils::split(text, tokens, " ");
         for(uint32_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
-            transform(token.begin(), token.end(), token.begin(), tolower);
+            string_utils.unicode_normalize(token);
             token_to_offsets[token].push_back(i);
         }
     }
@@ -483,7 +483,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
 
                     for(size_t i = 0; i < str_tokens.size(); i++) {
                         std::string & str_token = str_tokens[i];
-                        StringUtils::normalize(str_token);
+                        string_utils.unicode_normalize(str_token);
                         art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                                  str_token.length()+1);
                         if(leaf == nullptr) {
@@ -654,7 +654,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
         }
 
         token_to_costs.push_back(all_costs);
-        StringUtils::normalize(tokens[token_index]);
+        string_utils.unicode_normalize(tokens[token_index]);
     }
 
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
@@ -1051,7 +1051,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
             int key_len;
 
             if(name_field.second.type == field_types::STRING_ARRAY || name_field.second.type == field_types::STRING) {
-                StringUtils::normalize(token);
+                string_utils.unicode_normalize(token);
                 key = (const unsigned char *) token.c_str();
                 key_len = (int) (token.length() + 1);
             } else {

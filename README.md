@@ -39,7 +39,7 @@ Let's begin by starting the Typesense server via Docker:
 docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.8.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
-Install the Python client for Typesense:
+Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
  
 ```
 pip install typesense

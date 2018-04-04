@@ -4,6 +4,9 @@ set(G3LOG_VERSION 1.3)
 set(G3LOG_NAME g3log-${G3LOG_VERSION})
 set(G3LOG_TAR_PATH ${DEP_ROOT_DIR}/${G3LOG_NAME}.tar.gz)
 
+# Specifically pick the static version since the build generates both static and dynamic libraries
+set(G3LOGGER_LIBRARIES "${DEP_ROOT_DIR}/${G3LOG_NAME}/build/libg3logger.a")
+
 if(NOT EXISTS ${G3LOG_TAR_PATH})
     message(STATUS "Downloading G3log...")
     file(DOWNLOAD https://github.com/KjellKod/g3log/archive/${G3LOG_VERSION}.tar.gz ${G3LOG_TAR_PATH})
