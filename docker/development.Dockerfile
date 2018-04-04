@@ -35,5 +35,13 @@ ADD https://github.com/curl/curl/releases/download/curl-7_55_1/curl-7.55.1.tar.b
 RUN tar -C /opt -xf /opt/curl-7.55.1.tar.bz2
 RUN cd /opt/curl-7.55.1 && ./configure && make && make install
 
+ADD https://ssl.icu-project.org/files/icu4c/61.1/icu4c-61_1-src.tgz /opt/
+RUN tar -C /opt -xf /opt/icu4c-61_1-src.tgz
+RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/uconfig.h && \
+    echo "#define U_STATIC_IMPLEMENTATION 1" >> common/unicode/uconfig.h && \
+    echo "#define U_USING_ICU_NAMESPACE 0" >> common/unicode/uconfig.h
+RUN cd /opt/icu/source && ./runConfigureICU Linux --disable-samples --disable-tests --enable-static \
+    --disable-shared --disable-renaming && make && make install
+
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++

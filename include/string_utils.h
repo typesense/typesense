@@ -4,9 +4,21 @@
 #include <algorithm>
 #include <sstream>
 #include <ctype.h>
-#include "miniutf.hpp"
+#include <unicode/translit.h>
+#include <vector>
 
 struct StringUtils {
+    UErrorCode status;
+    icu::Transliterator* transliterator;
+
+    StringUtils():status(U_ZERO_ERROR),
+                  transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status)) {
+    }
+
+    ~StringUtils() {
+        delete transliterator;
+    }
+
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static void split(const std::string& s, std::vector<std::string> & result, const std::string& delim, const bool keep_empty = false) {
         if (delim.empty()) {
@@ -122,13 +134,7 @@ struct StringUtils {
         std::transform(str.begin(), str.end(), str.begin(), ::toupper);
     }
 
-    static void normalize(std::string& str) {
-        str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
-                    return !std::isalnum(c) && (int)(c) >= 0;
-                  }), str.end());
-
-        str = miniutf::lowercase(str);
-    }
+    void unicode_normalize(std::string& str) const;
 
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {
