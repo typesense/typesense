@@ -41,6 +41,6 @@ Trie data structure. ART allows us to do fast fuzzy searches on a query.
     - page
     - limit
 - Typesense is exposed through a RESTful API, so that it can be consumed directly by web apps via AJAX requests.
-- High Availability is achieved using Master-Master replication. Every write to Typesense would be written and 
-  acknowledged by another node before the write is deemed as a success. Clients can round-robin both reads and 
-  writes across both the nodes.
+- High Availability is achieved using a single-master, multiple read-only replica set-up. The read-only replicas 
+  asynchronously pull data from master. The API clients automatically failover reads to the replicas if the master 
+  is unavailable.
