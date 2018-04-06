@@ -122,6 +122,7 @@ Typesense requires the following dependencies:
 * zlib
 * OpenSSL (>=1.0.2)
 * curl
+* ICU
 
 ```
 ./build.sh --create-binary [--clean] [--depclean]
