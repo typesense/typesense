@@ -13,6 +13,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Quick Start](#quick-start)
 - [Detailed Guide](#detailed-guide)
 - [Build from Source](#build-from-source)
+- [FAQ](#faq)
 - [Help](#help)
 
 ## Features
@@ -129,6 +130,27 @@ Typesense requires the following dependencies:
 ```
 
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
+
+## FAQ
+
+**How does this differ from using Elasticsearch?**
+
+Elasticsearch is better suited for larger teams who have the bandwidth to administer, scale and fine-tune it and 
+especially when have a need to store billions of documents and scale horizontally. 
+
+Typesense is built specifically for decreasing the "time to market" for a delightful search experience. This means 
+focussing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
+works without turning many knobs.
+
+**Speed is great, but what about the memory footprint?**
+
+A fresh Typesense server will take less than 5 MB of memory. As you start indexing documents, the memory use will 
+increase correspondingly. How much it increases depends on the number and type of fields you index. 
+
+We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million 
+Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data 
+on disk in JSON format is 88 MB. We hope to add better benchmarks on a variety of different data sets soon. 
+In the mean time, if you have any numbers from your own datasets, please send us a PR!
 
 ## Help
 
