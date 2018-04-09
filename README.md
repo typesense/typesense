@@ -18,7 +18,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 ## Features
 
-- **Typo tolerant:** Handles typographical errors elegantly.
+- **Typo tolerant:** Handles spelling errors elegantly.
 - **Simple and delightful:** Simple to set-up and manage.
 - **Tunable ranking:** Easy to tailor your search results to perfection.
 - **Fast:** Meticulously designed and optimized for speed.
@@ -98,7 +98,7 @@ search_parameters = {
 client.collections['companies'].documents.search(search_parameters)
 ```
 
-**Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
+**Did you notice the typo in the query text?** No big deal. Typesense handles spelling errors out-of-the-box!
 
 ## Detailed Guide
 
