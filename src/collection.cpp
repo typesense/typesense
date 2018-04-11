@@ -264,7 +264,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
-                                  const token_ordering token_order, const bool prefix) {
+                                  const token_ordering token_order, const bool prefix,
+                                  const size_t drop_tokens_threshold) {
     std::vector<facet> facets;
 
     // validate search fields
@@ -430,7 +431,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     // send data to individual index threads
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets, sort_fields_std,
-                                           num_typos, per_page, page, token_order, prefix);
+                                           num_typos, per_page, page, token_order, prefix, drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
