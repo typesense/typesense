@@ -96,9 +96,10 @@
 - ~~gzip compress responses~~
 - ~~Have a LOG(ERROR) level~~
 - ~~Handle SIGTERM which is sent when process is killed~~
+- Exact search 
+- NOT operator support
 - Log operations
 - Parameterize replica's MAX_UPDATES_TO_SEND
-- NOT operator support
 - > INT32_MAX validation for float field
 - highlight of string arrays?
 - test for token ranking on float field

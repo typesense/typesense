@@ -548,8 +548,8 @@ void Index::run_search() {
         search(search_params.outcome, search_params.query, search_params.search_fields,
                search_params.filters, search_params.facets,
                search_params.sort_fields_std, search_params.num_typos, search_params.per_page, search_params.page,
-               search_params.token_order, search_params.prefix, search_params.field_order_kvs,
-               search_params.all_result_ids_len, search_params.searched_queries);
+               search_params.token_order, search_params.prefix, search_params.drop_tokens_threshold,
+               search_params.field_order_kvs, search_params.all_result_ids_len, search_params.searched_queries);
 
         // hand control back to main thread
         processed = true;
@@ -565,7 +565,8 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
                              const std::vector<filter> & filters, std::vector<facet> & facets,
                              std::vector<sort_by> sort_fields_std, const int num_typos,
                              const size_t per_page, const size_t page, const token_ordering token_order,
-                             const bool prefix, std::vector<std::pair<int, Topster<512>::KV>> & field_order_kvs,
+                             const bool prefix, const size_t drop_tokens_threshold,
+                             std::vector<std::pair<int, Topster<512>::KV>> & field_order_kvs,
                              size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     const size_t num_results = (page * per_page);
@@ -591,7 +592,8 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
         // proceed to query search only when no filters are provided or when filtering produces results
         if(filters.size() == 0 || filter_ids_length > 0) {
             search_field(query, field, filter_ids, filter_ids_length, facets, sort_fields_std, num_typos, num_results,
-                         searched_queries, topster, &all_result_ids, all_result_ids_len, token_order, prefix);
+                         searched_queries, topster, &all_result_ids, all_result_ids_len, token_order, prefix,
+                         drop_tokens_threshold);
             topster.sort();
         }
 
@@ -623,7 +625,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
                               std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                               const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
                               Topster<512> &topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
-                              const token_ordering token_order, const bool prefix) {
+                              const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold) {
     std::vector<std::string> tokens;
     StringUtils::split(query, tokens, " ");
 
@@ -747,7 +749,7 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
     }
 
     // When there are not enough overall results and atleast one token has results
-    if(topster.size < Index::SEARCH_LIMIT_NUM && token_to_count.size() > 1) {
+    if(topster.size < drop_tokens_threshold && token_to_count.size() > 1) {
         // Drop token with least hits and try searching again
         std::string truncated_query;
 

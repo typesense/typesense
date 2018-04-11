@@ -161,6 +161,7 @@ void get_search(http_req & req, http_res & res) {
 
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
+    const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
     const char *FILTER = "filter_by";
     const char *QUERY = "q";
     const char *QUERY_BY = "query_by";
@@ -179,6 +180,10 @@ void get_search(http_req & req, http_res & res) {
         req.params[PREFIX] = "true";
     }
 
+    if(req.params.count(DROP_TOKENS_THRESHOLD) == 0) {
+        req.params[DROP_TOKENS_THRESHOLD] = std::to_string(Index::DROP_TOKENS_THRESHOLD);
+    }
+
     if(req.params.count(QUERY) == 0) {
         return res.send_400(std::string("Parameter `") + QUERY + "` is required.");
     }
@@ -193,6 +198,10 @@ void get_search(http_req & req, http_res & res) {
 
     if(req.params.count(PAGE) == 0) {
         req.params[PAGE] = "1";
+    }
+
+    if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
+        return res.send_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
     }
 
     if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
@@ -245,6 +254,7 @@ void get_search(http_req & req, http_res & res) {
     }
 
     bool prefix = (req.params[PREFIX] == "true");
+    const size_t drop_tokens_threshold = (size_t) std::stoi(req.params[DROP_TOKENS_THRESHOLD]);
 
     if(req.params.count(RANK_TOKENS_BY) == 0) {
         req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
@@ -256,7 +266,7 @@ void get_search(http_req & req, http_res & res) {
     Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
                                                std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
-                                               token_order, prefix);
+                                               token_order, prefix, drop_tokens_threshold);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();
