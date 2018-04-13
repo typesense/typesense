@@ -331,7 +331,7 @@ void Index::search_candidates(uint32_t* filter_ids, size_t filter_ids_length, st
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_candidates_vec, n);
 
-        /*for(auto i=0; i < query_suggestion.size(); i++) {
+        /*for(size_t i=0; i < query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key;
         }*/
 
@@ -715,7 +715,12 @@ void Index::search_field(std::string & query, const std::string & field, uint32_
                 if(it != token_to_costs[token_index].end()) {
                     token_to_costs[token_index].erase(it);
 
-                    // no more costs left for this token, clean up
+                    // when no more costs are left for this token and `drop_tokens_threshold` is breached
+                    if(token_to_costs[token_index].empty() && topster.size >= drop_tokens_threshold) {
+                        break;
+                    }
+
+                    // otherwise, we try to drop the token and search with remaining tokens
                     if(token_to_costs[token_index].empty()) {
                         token_to_costs.erase(token_to_costs.begin()+token_index);
                         tokens.erase(tokens.begin()+token_index);
