@@ -223,6 +223,10 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    results.clear();
+    results = collection->search("the a DoesNotExist", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // with no indexed word
     results.clear();
     results = collection->search("DoesNotExist1 DoesNotExist2", query_fields, "", facets, sort_fields, 0, 10).get();
