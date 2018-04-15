@@ -206,6 +206,28 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // should not try to drop tokens to expand query
+    results.clear();
+    results = collection->search("the a", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 10).get();
+    ASSERT_EQ(8, results["hits"].size());
+
+    results.clear();
+    results = collection->search("the a", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 0).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ids = {"8", "16", "10"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["document"]["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results.clear();
+    results = collection->search("the a DoesNotExist", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // with no indexed word
     results.clear();
     results = collection->search("DoesNotExist1 DoesNotExist2", query_fields, "", facets, sort_fields, 0, 10).get();
     ASSERT_EQ(0, results["hits"].size());
