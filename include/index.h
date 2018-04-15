@@ -32,6 +32,7 @@ struct search_args {
     size_t page;
     token_ordering token_order;
     bool prefix;
+    size_t drop_tokens_threshold;
     std::vector<std::pair<int, Topster<512>::KV>> field_order_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -43,10 +44,11 @@ struct search_args {
 
     search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::vector<sort_by> sort_fields_std, int num_typos,
-                size_t per_page, size_t page, token_ordering token_order, bool prefix):
+                size_t per_page, size_t page, token_ordering token_order, bool prefix, size_t drop_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets),
             sort_fields_std(sort_fields_std), num_typos(num_typos), per_page(per_page), page(page),
-            token_order(token_order), prefix(prefix), all_result_ids_len(0), outcome(0) {
+            token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
+            all_result_ids_len(0), outcome(0) {
 
     }
 };
@@ -91,7 +93,8 @@ private:
                       const int num_typos, const size_t num_results,
                       std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster<512> & topster, uint32_t** all_result_ids,
-                      size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                      size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
+                      const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
 
     void search_candidates(uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
@@ -138,7 +141,7 @@ public:
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           std::vector<sort_by> sort_fields_std, const int num_typos,
                           const size_t per_page, const size_t page,
-                          const token_ordering token_order, const bool prefix,
+                          const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold,
                           std::vector<std::pair<int, Topster<512>::KV>> & field_order_kv,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries);
 
@@ -150,7 +153,11 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
 
-    static const int SEARCH_LIMIT_NUM = 100;  // for limiting number of results on multiple candidates / query rewrites
+    static const int SEARCH_LIMIT_NUM = 100;      // for limiting number of results on multiple candidates / query rewrites
+
+    // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
+    // in the query that have the least individual hits one by one until enough results are found.
+    static const int DROP_TOKENS_THRESHOLD = 10;
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

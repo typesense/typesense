@@ -96,7 +96,8 @@ public:
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                           const std::vector<sort_by> & sort_fields, const int num_typos,
                           const size_t per_page = 10, const size_t page = 1,
-                          const token_ordering token_order = FREQUENCY, const bool prefix = false);
+                          const token_ordering token_order = FREQUENCY, const bool prefix = false,
+                          const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
 
     Option<nlohmann::json> get(const std::string & id);
 

@@ -905,15 +905,12 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                          std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
-    std::priority_queue<art_node *, std::vector<const art_node *>,
-            std::function<bool(const art_node*, const art_node*)>> q;
+    std::priority_queue<const art_node *, std::vector<const art_node *>,
+            decltype(&compare_art_node_score_pq)> q(compare_art_node_score_pq);
 
     if(token_order == FREQUENCY) {
-        q = std::priority_queue<art_node *, std::vector<const art_node *>,
-                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_frequency_pq);
-    } else {
-        q = std::priority_queue<art_node *, std::vector<const art_node *>,
-                std::function<bool(const art_node*, const art_node*)>>(compare_art_node_score_pq);
+        q = std::priority_queue<const art_node *, std::vector<const art_node *>,
+                decltype(&compare_art_node_frequency_pq)>(compare_art_node_frequency_pq);
     }
 
     q.push(root);
