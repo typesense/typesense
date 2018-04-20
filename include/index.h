@@ -84,10 +84,6 @@ private:
 
     void do_facets(std::vector<facet> & facets, uint32_t* result_ids, size_t results_size);
 
-    void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
-                                  spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
-                                  size_t result_index, std::vector<std::vector<uint16_t>> &token_positions) const;
-
     void search_field(std::string & query, const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, const size_t num_results,
@@ -101,6 +97,9 @@ private:
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster<512> & topster, size_t & total_results, uint32_t** all_result_ids,
                            size_t & all_result_ids_len, const size_t & max_results, const bool prefix);
+
+    void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
+                    const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
                             const bool verbatim) const;
@@ -147,6 +146,11 @@ public:
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
+    static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
+                                         spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
+                                         size_t result_index,
+                                         std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions);
+
     void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const uint32_t total_cost,
                        Topster<512> &topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
@@ -161,6 +165,8 @@ public:
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};
+
+    enum {ARRAY_SEPARATOR = UINT16_MAX};
 
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";

@@ -545,14 +545,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
         field search_field = search_schema.at(field_name);
 
-        // only string fields are supported for now
-        if(search_field.type == field_types::STRING) {
-            std::vector<std::string> tokens;
-            StringUtils::split(document[field_name], tokens, " ");
+        if(search_field.type == field_types::STRING || search_field.type == field_types::STRING_ARRAY) {
 
-            // positions in the document of each token in the query
-            std::vector<std::vector<uint16_t>> token_positions;
-
+            spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.second.query_index]) {
                 std::vector<uint16_t> positions;
                 uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
@@ -560,20 +555,42 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                     continue;
                 }
 
-                uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-                uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                                      token_leaf->values->offsets.getLength() :
-                                      token_leaf->values->offset_index.at(doc_index+1);
-
-                while(start_offset < end_offset) {
-                    positions.push_back((uint16_t) token_leaf->values->offsets.at(start_offset));
-                    start_offset++;
-                }
-
-                token_positions.push_back(positions);
+                uint32_t *indices = new uint32_t[1];
+                indices[0] = doc_index;
+                leaf_to_indices.emplace(token_leaf, indices);
             }
 
-            Match match = Match::match(field_order_kv.second.key, token_positions);
+            // positions in the field of each token in the query
+            std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
+            Index::populate_token_positions(searched_queries[field_order_kv.second.query_index],
+                                            leaf_to_indices, 0, array_token_positions);
+
+            Match match;
+            uint64_t match_score = 0;
+            size_t matched_array_index = 0;
+
+            for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
+                const std::vector<std::vector<uint16_t>> & token_positions = array_token_positions[array_index];
+
+                if(token_positions.empty()) {
+                    continue;
+                }
+
+                const Match & this_match = Match::match(field_order_kv.second.key, token_positions);
+                uint64_t this_match_score = this_match.get_match_score(1);
+                if(this_match_score > match_score) {
+                    match_score = this_match_score;
+                    match = this_match;
+                    matched_array_index = array_index;
+                }
+            }
+
+            std::vector<std::string> tokens;
+            if(search_field.type == field_types::STRING) {
+                StringUtils::split(document[field_name], tokens, " ");
+            } else {
+                StringUtils::split(document[field_name][matched_array_index], tokens, " ");
+            }
 
             // unpack `match.offset_diffs` into `token_indices`
             std::vector<size_t> token_indices;
@@ -609,6 +626,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             wrapper_doc["highlight"] = nlohmann::json::object();
             wrapper_doc["highlight"][field_name] = snippet_stream.str();
+
+            for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
+                delete [] it->second;
+                it->second = nullptr;
+            }
         }
 
         result["hits"].push_back(wrapper_doc);
