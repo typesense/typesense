@@ -100,6 +100,8 @@
 - NOT operator support
 - Log operations
 - Parameterize replica's MAX_UPDATES_TO_SEND
+- NOT operator support
+- 64K token limit
 - > INT32_MAX validation for float field
 - highlight of string arrays?
 - test for token ranking on float field

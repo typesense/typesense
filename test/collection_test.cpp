@@ -487,6 +487,82 @@ TEST_F(CollectionTest, PrefixSearching) {
     ASSERT_EQ("16", results["hits"].at(0)["document"]["id"]);
 }
 
+TEST_F(CollectionTest, ArrayStringFieldHighlight) {
+    Collection *coll_array_text;
+
+    std::ifstream infile(std::string(ROOT_DIR) + "test/array_text_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("tags", field_types::STRING_ARRAY, false),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_array_text = collectionManager.get_collection("coll_array_text");
+    if (coll_array_text == nullptr) {
+        coll_array_text = collectionManager.create_collection("coll_array_text", fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_array_text->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"tags"};
+    std::vector<std::string> facets;
+
+    nlohmann::json results = coll_array_text->search("truth about", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                                     false, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    std::vector<std::string> ids = {"0"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"].get<std::string>().c_str(), "<mark>truth</mark> <mark>about</mark>");
+
+    results = coll_array_text->search("forever truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                      false, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ids = {"0"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"].get<std::string>().c_str(), "the <mark>truth</mark>");
+
+    results = coll_array_text->search("truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                      false, 0).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"0", "1"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    results = coll_array_text->search("asdadasd", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                      false, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll_array_text");
+}
+
 TEST_F(CollectionTest, MultipleFields) {
     Collection *coll_mul_fields;
 
