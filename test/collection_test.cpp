@@ -479,7 +479,15 @@ TEST_F(CollectionTest, PrefixSearching) {
     ASSERT_EQ(0, results["hits"].size());
 
     results = collection->search("xq", query_fields, "", facets, sort_fields, 2, 2, 1, FREQUENCY, true).get();
-    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(1, results["hits"].size());
+    ids = {"6"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 
     // prefix with a typo
     results = collection->search("late propx", query_fields, "", facets, sort_fields, 2, 1, 1, FREQUENCY, true).get();
