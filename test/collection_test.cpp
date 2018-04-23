@@ -534,7 +534,9 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"].get<std::string>().c_str(), "<mark>truth</mark> <mark>about</mark>");
+    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"]["value"].get<std::string>().c_str(),
+                 "<mark>truth</mark> <mark>about</mark>");
+    ASSERT_EQ(results["hits"][0]["highlight"]["tags"]["index"].get<size_t>(), 2);
 
     results = coll_array_text->search("forever truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();
@@ -549,7 +551,9 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"].get<std::string>().c_str(), "the <mark>truth</mark>");
+    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"]["value"].get<std::string>().c_str(),
+                 "the <mark>truth</mark>");
+    ASSERT_EQ(results["hits"][0]["highlight"]["tags"]["index"].get<size_t>(), 0);
 
     results = coll_array_text->search("truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();
