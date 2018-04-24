@@ -671,6 +671,18 @@ TEST_F(CollectionTest, MultipleFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    // when a token exists in multiple fields of the same document, document should be returned only once
+    query_fields = {"starring", "title", "cast"};
+    results = coll_mul_fields->search("myers", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ids = {"17"};
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
     collectionManager.drop_collection("coll_mul_fields");
 }
 

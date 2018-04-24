@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <rocksdb/write_batch.h>
+#include "topster.h"
 #include "logger.h"
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
@@ -416,7 +417,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(422, message);
     }
 
-    if((page * per_page) > MAX_RESULTS) {
+    const size_t num_results = (page * per_page);
+
+    if(num_results > MAX_RESULTS) {
         std::string message = "Only the first " + std::to_string(MAX_RESULTS) + " results are available.";
         return Option<nlohmann::json>(422, message);
     }
@@ -425,7 +428,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
-    std::vector<std::pair<int, Topster<512>::KV>> field_order_kvs;
+    std::vector<Topster<512>::KV> field_order_kvs;
     size_t total_found = 0;
 
     // send data to individual index threads
@@ -460,9 +463,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             continue;
         }
 
-        // need to remap the search query index before appending
         for(auto & field_order_kv: index->search_params.field_order_kvs) {
-            field_order_kv.second.query_index += searched_queries.size();
+            field_order_kv.query_index += searched_queries.size();
             field_order_kvs.push_back(field_order_kv);
         }
 
@@ -495,11 +497,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     // All fields are sorted descending
-    std::sort(field_order_kvs.begin(), field_order_kvs.end(),
-      [](const std::pair<int, Topster<512>::KV> & a, const std::pair<int, Topster<512>::KV> & b) {
-          return std::tie(a.second.match_score, a.second.primary_attr, a.second.secondary_attr, a.first, a.second.key) >
-                 std::tie(b.second.match_score, b.second.primary_attr, b.second.secondary_attr, b.first, b.second.key);
-    });
+    std::sort(field_order_kvs.begin(), field_order_kvs.end(), Topster<>::is_greater_kv);
 
     nlohmann::json result = nlohmann::json::object();
 
@@ -513,12 +511,12 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(result);
     }
 
-    const int end_result_index = std::min(int(page * per_page), kvsize) - 1;
+    const int end_result_index = std::min(int(num_results), kvsize) - 1;
 
     // construct results array
     for(int field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
         const auto & field_order_kv = field_order_kvs[field_order_kv_index];
-        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.second.key);
+        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.key);
 
         std::string json_doc_str;
         StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
@@ -538,19 +536,19 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         }
 
         wrapper_doc["document"] = document;
-        //wrapper_doc["match_score"] = field_order_kv.second.match_score;
-        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.second.key;
+        //wrapper_doc["match_score"] = field_order_kv.match_score;
+        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
 
         // highlight query words in the result
-        const std::string & field_name = search_fields[search_fields.size() - field_order_kv.first];
+        const std::string & field_name = search_fields[Index::FIELD_LIMIT_NUM - field_order_kv.field_id];
         field search_field = search_schema.at(field_name);
 
         if(search_field.type == field_types::STRING || search_field.type == field_types::STRING_ARRAY) {
 
             spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
-            for (const art_leaf *token_leaf : searched_queries[field_order_kv.second.query_index]) {
+            for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
                 std::vector<uint16_t> positions;
-                uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.second.key);
+                uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.key);
                 if(doc_index == token_leaf->values->ids.getLength()) {
                     continue;
                 }
@@ -562,7 +560,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
             // positions in the field of each token in the query
             std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
-            Index::populate_token_positions(searched_queries[field_order_kv.second.query_index],
+            Index::populate_token_positions(searched_queries[field_order_kv.query_index],
                                             leaf_to_indices, 0, array_token_positions);
 
             Match match;
@@ -576,7 +574,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                     continue;
                 }
 
-                const Match & this_match = Match::match(field_order_kv.second.key, token_positions);
+                const Match & this_match = Match::match(field_order_kv.key, token_positions);
                 uint64_t this_match_score = this_match.get_match_score(1);
                 if(this_match_score > match_score) {
                     match_score = this_match_score;
