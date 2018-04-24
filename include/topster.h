@@ -14,7 +14,8 @@
 template <size_t MAX_SIZE=512>
 struct Topster {
     struct KV {
-        uint16_t query_index;
+        uint8_t query_index;
+        uint8_t field_id;
         uint64_t key;
         uint64_t match_score;
         number_t primary_attr;
@@ -35,8 +36,8 @@ struct Topster {
         b = c;
     }
 
-    void add(const uint64_t &key, const uint16_t &query_index, const uint64_t &match_score, const number_t &primary_attr,
-             const number_t &secondary_attr) {
+    void add(const uint64_t &key, const uint8_t &query_index, const uint8_t &field_id, const uint64_t &match_score,
+             const number_t &primary_attr, const number_t &secondary_attr) {
         if (size >= MAX_SIZE) {
             if(!is_greater(data[0], match_score, primary_attr, secondary_attr)) {
                 // when incoming value is less than the smallest in the heap, ignore
@@ -53,6 +54,7 @@ struct Topster {
 
             data[0].key = key;
             data[0].query_index = query_index;
+            data[0].field_id = field_id;
             data[0].match_score = match_score;
             data[0].primary_attr = primary_attr;
             data[0].secondary_attr = secondary_attr;
@@ -83,6 +85,7 @@ struct Topster {
 
             data[size].key = key;
             data[size].query_index = query_index;
+            data[size].field_id = field_id;
             data[size].match_score = match_score;
             data[size].primary_attr = primary_attr;
             data[size].secondary_attr = secondary_attr;
@@ -106,10 +109,11 @@ struct Topster {
     }
 
     static bool is_greater_kv(const struct KV &i, const struct KV &j) {
-        return std::tie(i.match_score, i.primary_attr, i.secondary_attr) >
-               std::tie(j.match_score, j.primary_attr, j.secondary_attr);
+        return std::tie(i.match_score, i.primary_attr, i.secondary_attr, i.field_id, i.key) >
+               std::tie(j.match_score, j.primary_attr, j.secondary_attr, j.field_id, j.key);
     }
 
+    // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
         std::stable_sort(std::begin(data), std::begin(data) + size, is_greater_kv);
     }
