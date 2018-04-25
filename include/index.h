@@ -96,7 +96,7 @@ private:
     void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster<512> & topster, size_t & total_results, uint32_t** all_result_ids,
+                           Topster<512> & topster, uint32_t** all_result_ids,
                            size_t & all_result_ids_len, const size_t & max_results, const bool prefix);
 
     void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
@@ -152,7 +152,7 @@ public:
                                          size_t result_index,
                                          std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions);
 
-    void score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const uint8_t & field_id,
+    void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster<512> &topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 

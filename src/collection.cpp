@@ -549,10 +549,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
                 std::vector<uint16_t> positions;
                 uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.key);
-                if(doc_index == token_leaf->values->ids.getLength()) {
-                    continue;
-                }
-
                 uint32_t *indices = new uint32_t[1];
                 indices[0] = doc_index;
                 leaf_to_indices.emplace(token_leaf, indices);
