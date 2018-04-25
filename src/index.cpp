@@ -350,7 +350,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
                               const std::vector<sort_by> & sort_fields,
                               std::vector<token_candidates> & token_candidates_vec, const token_ordering token_order,
                               std::vector<std::vector<art_leaf*>> & searched_queries, Topster<512> & topster,
-                              size_t & total_results, uint32_t** all_result_ids, size_t & all_result_ids_len,
+                              uint32_t** all_result_ids, size_t & all_result_ids_len,
                               const size_t & max_results, const bool prefix) {
     const long long combination_limit = 10;
 
@@ -388,6 +388,11 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             result_ids = out;
         }
 
+        if(result_size == 0) {
+            delete[] result_ids;
+            continue;
+        }
+
         if(filter_ids != nullptr) {
             // intersect once again with filter ids
             uint32_t* filtered_result_ids = nullptr;
@@ -403,7 +408,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             do_facets(facets, filtered_result_ids, filtered_results_size);
 
             // go through each matching document id and calculate match score
-            score_results(sort_fields, searched_queries.size(), field_id, total_cost, topster, query_suggestion,
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
                           filtered_result_ids, filtered_results_size);
 
             delete[] filtered_result_ids;
@@ -417,15 +422,14 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             delete [] *all_result_ids;
             *all_result_ids = new_all_result_ids;
 
-            score_results(sort_fields, searched_queries.size(), field_id, total_cost, topster, query_suggestion,
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
                           result_ids, result_size);
             delete[] result_ids;
         }
 
-        total_results += topster.size;
         searched_queries.push_back(query_suggestion);
 
-        if(total_results >= max_results) {
+        if(all_result_ids_len >= max_results) {
             break;
         }
     }
@@ -668,8 +672,6 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
 
     const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
 
-    size_t total_results = topster.size;
-
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
 
@@ -753,7 +755,8 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
                     token_to_costs[token_index].erase(it);
 
                     // when no more costs are left for this token and `drop_tokens_threshold` is breached
-                    if(token_to_costs[token_index].empty() && topster.size >= drop_tokens_threshold) {
+                    if(token_to_costs[token_index].empty() && all_result_ids_len >= drop_tokens_threshold) {
+                        n = combination_limit; // to break outer loop
                         break;
                     }
 
@@ -778,10 +781,10 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
         if(token_candidates_vec.size() != 0 && token_candidates_vec.size() == tokens.size()) {
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(field_id, filter_ids, filter_ids_length, facets, sort_fields, token_candidates_vec,
-                              token_order, searched_queries, topster, total_results, all_result_ids, all_result_ids_len,
+                              token_order, searched_queries, topster, all_result_ids, all_result_ids_len,
                               Index::SEARCH_LIMIT_NUM, prefix);
 
-            if (total_results >= Index::SEARCH_LIMIT_NUM) {
+            if (all_result_ids_len >= Index::SEARCH_LIMIT_NUM) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
                 break;
             }
@@ -791,7 +794,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
     }
 
     // When there are not enough overall results and atleast one token has results
-    if(topster.size < drop_tokens_threshold && token_to_count.size() > 1) {
+    if(all_result_ids_len < drop_tokens_threshold && token_to_count.size() > 1) {
         // Drop token with least hits and try searching again
         std::string truncated_query;
 
@@ -829,7 +832,7 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
     }
 }
 
-void Index::score_results(const std::vector<sort_by> & sort_fields, const int & query_index, const uint8_t & field_id,
+void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                           const uint32_t total_cost, Topster<512> & topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           const uint32_t *result_ids, const size_t result_size) const {
@@ -937,7 +940,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const int & 
 
         const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
         const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
-        topster.add(seq_id, query_index, field_id, match_score, primary_rank_value, secondary_rank_value);
+        topster.add(seq_id, field_id, query_index, match_score, primary_rank_value, secondary_rank_value);
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();

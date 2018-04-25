@@ -14,8 +14,8 @@
 template <size_t MAX_SIZE=512>
 struct Topster {
     struct KV {
-        uint8_t query_index;
         uint8_t field_id;
+        uint16_t query_index;
         uint64_t key;
         uint64_t match_score;
         number_t primary_attr;
@@ -36,7 +36,7 @@ struct Topster {
         b = c;
     }
 
-    void add(const uint64_t &key, const uint8_t &query_index, const uint8_t &field_id, const uint64_t &match_score,
+    void add(const uint64_t &key, const uint8_t &field_id, const uint16_t &query_index, const uint64_t &match_score,
              const number_t &primary_attr, const number_t &secondary_attr) {
         if (size >= MAX_SIZE) {
             if(!is_greater(data[0], match_score, primary_attr, secondary_attr)) {
@@ -53,8 +53,8 @@ struct Topster {
             dedup_keys.insert(key);
 
             data[0].key = key;
-            data[0].query_index = query_index;
             data[0].field_id = field_id;
+            data[0].query_index = query_index;
             data[0].match_score = match_score;
             data[0].primary_attr = primary_attr;
             data[0].secondary_attr = secondary_attr;
@@ -84,8 +84,8 @@ struct Topster {
             dedup_keys.insert(key);
 
             data[size].key = key;
-            data[size].query_index = query_index;
             data[size].field_id = field_id;
+            data[size].query_index = query_index;
             data[size].match_score = match_score;
             data[size].primary_attr = primary_attr;
             data[size].secondary_attr = secondary_attr;
