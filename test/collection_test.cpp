@@ -622,7 +622,7 @@ TEST_F(CollectionTest, MultipleFields) {
     results = coll_mul_fields->search("thomas", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
-    ids = {"15", "14", "12", "13"};
+    ids = {"15", "12", "13", "14"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);

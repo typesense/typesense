@@ -33,7 +33,7 @@ struct search_args {
     token_ordering token_order;
     bool prefix;
     size_t drop_tokens_threshold;
-    std::vector<Topster<512>::KV> field_order_kvs;
+    std::vector<Topster<512>::KV*> field_order_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Option<uint32_t> outcome;
@@ -142,7 +142,7 @@ public:
                           std::vector<sort_by> sort_fields_std, const int num_typos,
                           const size_t per_page, const size_t page,
                           const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold,
-                          std::vector<Topster<512>::KV> & field_order_kv,
+                          std::vector<Topster<512>::KV*> & field_order_kv,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries);
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
