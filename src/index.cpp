@@ -600,7 +600,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
                              std::vector<sort_by> sort_fields_std, const int num_typos,
                              const size_t per_page, const size_t page, const token_ordering token_order,
                              const bool prefix, const size_t drop_tokens_threshold,
-                             std::vector<Topster<512>::KV*> & field_order_kvs,
+                             std::vector<Topster<512>::KV> & field_order_kvs,
                              size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     const size_t num_results = (page * per_page);
@@ -640,7 +640,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     // order of fields specified matter: matching docs from earlier fields are more important
     for(uint32_t t = 0; t < topster.size && t < num_results; t++) {
         Topster<512>::KV* kv = topster.getKV(t);
-        field_order_kvs.push_back(kv);
+        field_order_kvs.push_back(*kv);
     }
 
     delete [] filter_ids;
