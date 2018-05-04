@@ -21,8 +21,9 @@ struct Topster {
         uint64_t match_score;
         number_t primary_attr;
         number_t secondary_attr;
-    } data[MAX_SIZE];
+    };
 
+    KV *data;
     uint32_t size;
 
     spp::sparse_hash_map<uint64_t, KV*> keys;
@@ -30,10 +31,21 @@ struct Topster {
     KV *kvs[MAX_SIZE];
 
     Topster(): size(0){
+        data = new KV[MAX_SIZE];
+
         for(size_t i=0; i<MAX_SIZE; i++) {
+            data[i].field_id = 0;
+            data[i].query_index = 0;
+            data[i].key = 0;
+            data[i].match_score = 0;
+            data[i].primary_attr = number_t();
+            data[i].secondary_attr = number_t();
             kvs[i] = &data[i];
-            kvs[i]->array_index = i;
         }
+    }
+
+    ~Topster() {
+        delete [] data;
     }
 
     static inline void swapMe(KV** a, KV** b) {
@@ -164,6 +176,11 @@ struct Topster {
     static bool is_greater_kv(const struct KV* i, const struct KV* j) {
         return std::tie(i->match_score, i->primary_attr, i->secondary_attr, i->key) >
                std::tie(j->match_score, j->primary_attr, j->secondary_attr, j->key);
+    }
+
+    static bool is_greater_kv_value(const struct KV & i, const struct KV & j) {
+        return std::tie(i.match_score, i.primary_attr, i.secondary_attr, i.key) >
+               std::tie(j.match_score, j.primary_attr, j.secondary_attr, j.key);
     }
 
     // topster must be sorted before iterated upon to remove dead array entries
