@@ -138,6 +138,11 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
+    ASSERT_EQ(results["hits"][0]["highlight"].size(), (unsigned long) 2);
+    ASSERT_STREQ(results["hits"][0]["highlight"]["field"].get<std::string>().c_str(), "title");
+    ASSERT_STREQ(results["hits"][0]["highlight"]["snippet"].get<std::string>().c_str(),
+                 "What is the power requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
+
     // Check ASC sort order
     std::vector<sort_by> sort_fields_asc = { sort_by("points", "ASC") };
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, 0, 10).get();
@@ -534,9 +539,11 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"]["value"].get<std::string>().c_str(),
+    ASSERT_EQ(results["hits"][0]["highlight"].size(), 3);
+    ASSERT_STREQ(results["hits"][0]["highlight"]["field"].get<std::string>().c_str(), "tags");
+    ASSERT_STREQ(results["hits"][0]["highlight"]["snippet"].get<std::string>().c_str(),
                  "<mark>truth</mark> <mark>about</mark>");
-    ASSERT_EQ(results["hits"][0]["highlight"]["tags"]["index"].get<size_t>(), 2);
+    ASSERT_EQ(results["hits"][0]["highlight"]["index"].get<size_t>(), 2);
 
     results = coll_array_text->search("forever truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();
@@ -551,9 +558,9 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_STREQ(results["hits"][0]["highlight"]["tags"]["value"].get<std::string>().c_str(),
-                 "the <mark>truth</mark>");
-    ASSERT_EQ(results["hits"][0]["highlight"]["tags"]["index"].get<size_t>(), 0);
+    ASSERT_STREQ(results["hits"][0]["highlight"]["field"].get<std::string>().c_str(), "tags");
+    ASSERT_STREQ(results["hits"][0]["highlight"]["snippet"].get<std::string>().c_str(), "the <mark>truth</mark>");
+    ASSERT_EQ(results["hits"][0]["highlight"]["index"].get<size_t>(), 0);
 
     results = coll_array_text->search("truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();

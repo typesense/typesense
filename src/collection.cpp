@@ -619,11 +619,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             }
 
             wrapper_doc["highlight"] = nlohmann::json::object();
-            wrapper_doc["highlight"][field_name] = nlohmann::json::object();
-            wrapper_doc["highlight"][field_name]["value"] = snippet_stream.str();
+            wrapper_doc["highlight"]["field"] = field_name;
+            wrapper_doc["highlight"]["snippet"] = snippet_stream.str();
 
             if(search_field.type == field_types::STRING_ARRAY) {
-                wrapper_doc["highlight"][field_name]["index"] = matched_array_index;
+                wrapper_doc["highlight"]["index"] = matched_array_index;
             }
 
             for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
