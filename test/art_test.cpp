@@ -608,6 +608,26 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    const char* key = "application";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc, 1));
+
+    art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key, strlen(key)+1);
+    EXPECT_EQ(1, l->values->ids.at(0));
+
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key), 0, 1, 10, FREQUENCY, true, leaves);
+    ASSERT_EQ(1, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_art_fuzzy_search) {
     art_tree t;
     int res = art_tree_init(&t);
@@ -697,7 +717,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, leaves);
-    ASSERT_EQ(6, leaves.size());
+    ASSERT_EQ(8, leaves.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);

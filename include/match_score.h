@@ -16,7 +16,7 @@
 #define TokenOffsetHeap std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset>
 
 const size_t WINDOW_SIZE = 10;
-const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
+const uint8_t MAX_DISPLACEMENT = std::numeric_limits<uint8_t>::max();
 const uint16_t MAX_TOKENS_DISTANCE = 100;
 
 struct TokenOffset {
@@ -30,18 +30,27 @@ struct TokenOffset {
 };
 
 struct Match {
-  uint16_t words_present;
-  uint16_t distance;
+  uint8_t words_present;
+  uint8_t distance;
   uint16_t start_offset;
   char offset_diffs[16];
 
-  Match() {
+  Match(): words_present(0), distance(0), start_offset(0) {
 
   }
 
-  Match(uint16_t words_present, uint16_t distance, uint16_t start_offset, char *offset_diffs_stacked):
+  Match(uint8_t words_present, uint8_t distance, uint16_t start_offset, char *offset_diffs_stacked):
           words_present(words_present), distance(distance), start_offset(start_offset) {
     memcpy(offset_diffs, offset_diffs_stacked, 16);
+  }
+
+  // Construct a single match score from individual components (for multi-field sort)
+  inline uint64_t get_match_score(const uint32_t total_cost, const uint8_t field_id) const {
+    uint64_t match_score =  ((int64_t)(words_present) << 24) |
+                            ((int64_t)(255 - total_cost) << 16) |
+                            ((int64_t)(distance) << 8) |
+                            ((int64_t)(field_id));
+    return match_score;
   }
 
   static void print_token_offsets(std::vector<std::vector<uint16_t>> &token_offsets) {
@@ -54,7 +63,8 @@ struct Match {
   }
 
   static inline void addTopOfHeapToWindow(TokenOffsetHeap &heap, std::queue<TokenOffset> &window,
-                                           std::vector<std::vector<uint16_t>> &token_offsets, uint16_t *token_offset) {
+                                          const std::vector<std::vector<uint16_t>> &token_offsets,
+                                          uint16_t *token_offset) {
     TokenOffset top = heap.top();
     heap.pop();
     window.push(top);
@@ -90,7 +100,7 @@ struct Match {
   *  We use a priority queue to read the offset vectors in a sorted manner, slide a window of a given size, and
   *  compute the max_match and min_displacement of target tokens across the windows.
   */
-  static Match match(uint32_t doc_id, std::vector<std::vector<uint16_t>> &token_offsets) {
+  static Match match(uint32_t doc_id, const std::vector<std::vector<uint16_t>> &token_offsets) {
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
     for(uint8_t token_id=0; token_id < token_offsets.size(); token_id++) {
@@ -100,7 +110,7 @@ struct Match {
     // heap now contains the first occurring offset of each token in the given document
 
     uint16_t max_match = 0;
-    uint16_t min_displacement = MAX_DISPLACEMENT;
+    uint8_t min_displacement = MAX_DISPLACEMENT;
 
     std::queue<TokenOffset> window;
     uint16_t token_offset[WINDOW_SIZE] = { };
@@ -179,7 +189,7 @@ struct Match {
       token_index++;
     }
 
-    const uint16_t distance = MAX_TOKENS_DISTANCE - min_displacement;
+    const uint8_t distance = MAX_TOKENS_DISTANCE - min_displacement;
     pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
     return Match(max_match, distance, token_start_offset, packed_offset_diffs);
   }
