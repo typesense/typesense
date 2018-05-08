@@ -9,14 +9,14 @@
 
 struct StringUtils {
     UErrorCode status;
-    icu::Transliterator* transliterator;
+    //icu::Transliterator* transliterator;
 
-    StringUtils():status(U_ZERO_ERROR),
-                  transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status)) {
+    StringUtils(): status(U_ZERO_ERROR) {
+        // transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status))
     }
 
     ~StringUtils() {
-        delete transliterator;
+        //delete transliterator;
     }
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
