@@ -171,6 +171,8 @@ void get_search(http_req & req, http_res & res) {
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
     const char *RANK_TOKENS_BY = "rank_tokens_by";
+    const char *INCLUDE_FIELDS = "include_fields";
+    const char *EXCLUDE_FIELDS = "exclude_fields";
 
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
@@ -200,6 +202,14 @@ void get_search(http_req & req, http_res & res) {
         req.params[PAGE] = "1";
     }
 
+    if(req.params.count(INCLUDE_FIELDS) == 0) {
+        req.params[INCLUDE_FIELDS] = "";
+    }
+
+    if(req.params.count(EXCLUDE_FIELDS) == 0) {
+        req.params[EXCLUDE_FIELDS] = "";
+    }
+
     if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
         return res.send_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
     }
@@ -223,6 +233,15 @@ void get_search(http_req & req, http_res & res) {
 
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, ",");
+
+    std::vector<std::string> include_fields_vec;
+    StringUtils::split(req.params[INCLUDE_FIELDS], include_fields_vec, ",");
+
+    std::vector<std::string> exclude_fields_vec;
+    StringUtils::split(req.params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
+
+    spp::sparse_hash_set<std::string> include_fields(include_fields_vec.begin(), include_fields_vec.end());
+    spp::sparse_hash_set<std::string> exclude_fields(exclude_fields_vec.begin(), exclude_fields_vec.end());
 
     std::vector<sort_by> sort_fields;
     if(req.params.count(SORT_BY) != 0) {
@@ -266,7 +285,8 @@ void get_search(http_req & req, http_res & res) {
     Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
                                                sort_fields, std::stoi(req.params[NUM_TYPOS]),
                                                std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
-                                               token_order, prefix, drop_tokens_threshold);
+                                               token_order, prefix, drop_tokens_threshold,
+                                               include_fields, exclude_fields);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();
