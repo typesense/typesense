@@ -96,7 +96,7 @@
 - ~~gzip compress responses~~
 - ~~Have a LOG(ERROR) level~~
 - ~~Handle SIGTERM which is sent when process is killed~~
-- Use snappy compression for storage
+- ~~Use snappy compression for storage~~
 - Exact search 
 - NOT operator support
 - Log operations
