@@ -1774,3 +1774,48 @@ TEST_F(CollectionTest, DeletionOfADocument) {
 
     collectionManager.drop_collection("collection_for_del");
 }
+
+nlohmann::json get_prune_doc() {
+    nlohmann::json document;
+    document["one"] = 1;
+    document["two"] = 2;
+    document["three"] = 3;
+    document["four"] = 4;
+
+    return document;
+}
+
+TEST_F(CollectionTest, PruneFieldsFromDocument) {
+    nlohmann::json document = get_prune_doc();
+    Collection::prune_document(document, {"one", "two"}, spp::sparse_hash_set<std::string>());
+    ASSERT_EQ(2, document.size());
+    ASSERT_EQ(1, document["one"]);
+    ASSERT_EQ(2, document["two"]);
+
+    // exclude takes precedence
+    document = get_prune_doc();
+    Collection::prune_document(document, {"one"}, {"one"});
+    ASSERT_EQ(0, document.size());
+
+    // when no inclusion is specified, should return all fields not mentioned by exclusion list
+    document = get_prune_doc();
+    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"three"});
+    ASSERT_EQ(3, document.size());
+    ASSERT_EQ(1, document["one"]);
+    ASSERT_EQ(2, document["two"]);
+    ASSERT_EQ(4, document["four"]);
+
+    document = get_prune_doc();
+    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>());
+    ASSERT_EQ(4, document.size());
+
+    // when included field does not exist
+    document = get_prune_doc();
+    Collection::prune_document(document, {"notfound"}, spp::sparse_hash_set<std::string>());
+    ASSERT_EQ(0, document.size());
+
+    // when excluded field does not exist
+    document = get_prune_doc();
+    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"notfound"});
+    ASSERT_EQ(4, document.size());
+}

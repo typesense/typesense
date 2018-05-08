@@ -97,13 +97,18 @@ public:
                           const std::vector<sort_by> & sort_fields, const int num_typos,
                           const size_t per_page = 10, const size_t page = 1,
                           const token_ordering token_order = FREQUENCY, const bool prefix = false,
-                          const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
+                          const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                          const spp::sparse_hash_set<std::string> include_fields = spp::sparse_hash_set<std::string>(),
+                          const spp::sparse_hash_set<std::string> exclude_fields = spp::sparse_hash_set<std::string>());
 
     Option<nlohmann::json> get(const std::string & id);
 
     Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
+
+    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
+                               const spp::sparse_hash_set<std::string> exclude_fields);
 
     static const int MAX_SEARCH_TOKENS = 10;
     static const int MAX_RESULTS = 500;
