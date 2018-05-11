@@ -622,15 +622,22 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
 
     Topster<512> topster;
 
-    const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
-    for(size_t i = 0; i < num_search_fields; i++) {
-        const std::string & field = search_fields[i];
-        // proceed to query search only when no filters are provided or when filtering produces results
-        if(filters.size() == 0 || filter_ids_length > 0) {
-            uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-            search_field(field_id, query, field, filter_ids, filter_ids_length, facets, sort_fields_std,
-                         num_typos, num_results, searched_queries, topster, &all_result_ids, all_result_ids_len,
-                         token_order, prefix, drop_tokens_threshold);
+    if(query == "*") {
+        uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
+        score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
+                      filter_ids, filter_ids_length);
+        all_result_ids_len = filter_ids_length;
+    } else {
+        const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
+        for(size_t i = 0; i < num_search_fields; i++) {
+            const std::string & field = search_fields[i];
+            // proceed to query search only when no filters are provided or when filtering produces results
+            if(filters.size() == 0 || filter_ids_length > 0) {
+                uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
+                search_field(field_id, query, field, filter_ids, filter_ids_length, facets, sort_fields_std,
+                             num_typos, num_results, searched_queries, topster, &all_result_ids, all_result_ids_len,
+                             token_order, prefix, drop_tokens_threshold);
+            }
         }
     }
 
@@ -897,7 +904,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
         uint64_t match_score = 0;
 
-        if(query_suggestion.size() == 1) {
+        if(query_suggestion.size() <= 1) {
             match_score = single_token_match_score;
         } else {
             std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;

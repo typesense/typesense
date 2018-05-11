@@ -118,7 +118,7 @@ Option<uint32_t> Collection::validate_index_in_memory(const nlohmann::json &docu
     }
 
     if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
-        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a number.");
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be of type int32 or float.");
     }
 
     if(document[default_sorting_field].is_number_integer() &&
@@ -391,6 +391,15 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         filters.push_back(f);
     }
 
+    // for a wildcard query, if filter is not specified, use default_sorting_field as a catch-all
+    if(query == "*" && filters.size() == 0) {
+        field f = search_schema.at(default_sorting_field);
+        std::string max_value = f.is_float() ? std::to_string(std::numeric_limits<float>::max()) :
+                                std::to_string(std::numeric_limits<int32_t>::max());
+        filter catch_all_filter = {f.name, {max_value}, LESS_THAN_EQUALS};
+        filters.push_back(catch_all_filter);
+    }
+
     // validate facet fields
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
@@ -553,7 +562,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         const std::string & field_name = search_fields[Index::FIELD_LIMIT_NUM - field_order_kv.field_id];
         field search_field = search_schema.at(field_name);
 
-        if(search_field.type == field_types::STRING || search_field.type == field_types::STRING_ARRAY) {
+        if(query != "*" && (search_field.type == field_types::STRING || search_field.type == field_types::STRING_ARRAY)) {
 
             spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
             for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
@@ -640,12 +649,12 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 delete [] it->second;
                 it->second = nullptr;
             }
-
-            prune_document(document, include_fields, exclude_fields);
-            wrapper_doc["document"] = document;
-            //wrapper_doc["match_score"] = field_order_kv.match_score;
-            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
         }
+
+        prune_document(document, include_fields, exclude_fields);
+        wrapper_doc["document"] = document;
+        //wrapper_doc["match_score"] = field_order_kv.match_score;
+        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
 
         result["hits"].push_back(wrapper_doc);
     }

@@ -80,7 +80,7 @@ void post_create_collection(http_req & req, http_res & res) {
 
     if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
         return res.send_400(std::string("`") + DEFAULT_SORTING_FIELD +
-                            "` should be a string. It should be the name of an unsigned integer field.");
+                            "` should be a string. It should be the name of an int32/float field.");
     }
 
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
