@@ -417,6 +417,21 @@ TEST_F(CollectionTest, Pagination) {
     }
 }
 
+TEST_F(CollectionTest, WildcardQuery) {
+    nlohmann::json results = collection->search("*", query_fields, "points:>0", {}, sort_fields, 0, 3, 1, FREQUENCY,
+                                                false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<uint32_t>());
+
+    // when no filter is specified, fall back on default sorting field based catch-all filter
+    Option<nlohmann::json> results_op = collection->search("*", query_fields, "", {}, sort_fields, 0, 3, 1, FREQUENCY,
+                                                           false);
+
+    ASSERT_TRUE(results_op.ok());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<uint32_t>());
+}
+
 TEST_F(CollectionTest, PrefixSearching) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ex", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, true).get();
@@ -1537,6 +1552,20 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionTest, DefaultSortingFieldMustBeInt32OrFloat) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("age", field_types::INT32, false),
+                                 field("average", field_types::INT32, false) };
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
+
+    Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", fields, "name");
+    EXPECT_FALSE(collection_op.ok());
+    EXPECT_EQ("Default sorting field `name` must be of type int32 or float.", collection_op.error());
+    collectionManager.drop_collection("sample_collection");
+}
+
 TEST_F(CollectionTest, IndexingWithBadData) {
     // should not crash when document to-be-indexed doesn't match schema
     Collection *sample_collection;
@@ -1588,7 +1617,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_default_sorting_field_op1.ok());
-    ASSERT_STREQ("Default sorting field `age` must be a number.", bad_default_sorting_field_op1.error().c_str());
+    ASSERT_STREQ("Default sorting field `age` must be of type int32 or float.", bad_default_sorting_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op2 = sample_collection->add(doc_str);

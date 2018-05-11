@@ -768,7 +768,7 @@ TEST(ArtTest, test_encode_int32) {
     }
 }
 
-TEST(ArtTest, test_int32_range_hundreds) {
+TEST(ArtTest, test_int32_overlap) {
     art_tree t;
     art_tree_init(&t);
 
@@ -776,7 +776,7 @@ TEST(ArtTest, test_int32_range_hundreds) {
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
-    std::vector<const art_leaf*> results;
+    std::vector<const art_leaf *> results;
 
     std::vector<std::vector<uint32_t>> values = {{2014, 2015, 2016}, {2015, 2016}, {2016},
                                                  {1981, 1985}, {1999, 2000, 2001, 2002}};
@@ -793,7 +793,19 @@ TEST(ArtTest, test_int32_range_hundreds) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(3, results.size());
 
-    return ;
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_int32_range_hundreds) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    std::vector<const art_leaf*> results;
 
     for(uint32_t i = 100; i < 110; i++) {
         encode_int32(i, chars);
@@ -802,8 +814,7 @@ TEST(ArtTest, test_int32_range_hundreds) {
 
     encode_int32(106, chars);
 
-
-    res = art_int32_search(&t, 106, EQUALS, results);
+    int res = art_int32_search(&t, 106, EQUALS, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(1, results.size());
     results.clear();
@@ -830,6 +841,35 @@ TEST(ArtTest, test_int32_range_hundreds) {
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_int32_duplicates) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    for(size_t i = 0; i < 10000; i++) {
+        doc.id = i;
+        int value = 1900 + (rand() % static_cast<int>(2018 - 1900 + 1));
+        encode_int32(value, chars);
+        art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1);
+    }
+
+    std::vector<const art_leaf*> results;
+
+    int res = art_int32_search(&t, 0, GREATER_THAN, results);
+    ASSERT_TRUE(res == 0);
+    size_t counter = 0;
+
+    for(auto res: results) {
+        counter += res->values->ids.getLength();
+    }
+
+    ASSERT_EQ(10000, counter);
+    results.clear();
 }
 
 TEST(ArtTest, test_int32_negative) {
