@@ -261,12 +261,26 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
     return Option<>(200);
 }
 
+void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
+                                const spp::sparse_hash_set<std::string> exclude_fields) {
+    auto it = document.begin();
+    for(; it != document.end(); ) {
+        if(exclude_fields.count(it.key()) != 0 || (include_fields.size() != 0 && include_fields.count(it.key()) == 0)) {
+            it = document.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix,
-                                  const size_t drop_tokens_threshold) {
+                                  const size_t drop_tokens_threshold,
+                                  const spp::sparse_hash_set<std::string> include_fields,
+                                  const spp::sparse_hash_set<std::string> exclude_fields) {
     std::vector<facet> facets;
 
     // validate search fields
@@ -535,10 +549,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             return Option<nlohmann::json>(500, "Error while parsing stored document.");
         }
 
-        wrapper_doc["document"] = document;
-        //wrapper_doc["match_score"] = field_order_kv.match_score;
-        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
-
         // highlight query words in the result
         const std::string & field_name = search_fields[Index::FIELD_LIMIT_NUM - field_order_kv.field_id];
         field search_field = search_schema.at(field_name);
@@ -630,6 +640,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                 delete [] it->second;
                 it->second = nullptr;
             }
+
+            prune_document(document, include_fields, exclude_fields);
+            wrapper_doc["document"] = document;
+            //wrapper_doc["match_score"] = field_order_kv.match_score;
+            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
         }
 
         result["hits"].push_back(wrapper_doc);
