@@ -156,6 +156,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
         field_val[fields::type] = field.type;
         field_val[fields::facet] = field.facet;
         fields_json.push_back(field_val);
+
+        if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
+                                                    field.type == field_types::FLOAT)) {
+            return Option<Collection*>(400, "Default sorting field `" + default_sorting_field + "` must be of type int32 "
+                                            "or float.");
+        }
     }
 
     collection_meta[COLLECTION_NAME_KEY] = name;
