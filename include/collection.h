@@ -19,6 +19,21 @@
 
 class Collection {
 private:
+    struct highlight_t {
+        std::string field;
+        std::string snippet;
+        uint64_t match_score;
+        int index;
+
+        highlight_t(): match_score(0), index(-1) {
+
+        }
+
+        bool operator<(const highlight_t& a) const {
+            return match_score > a.match_score;
+        }
+    };
+
     std::string name;
 
     uint32_t collection_id;
@@ -51,6 +66,10 @@ private:
     std::string get_seq_id_key(uint32_t seq_id);
 
     Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id);
+
+    void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
+                          const Topster<512>::KV &field_order_kv, const nlohmann::json &document,
+                          StringUtils & string_utils, highlight_t &highlight);
 
 public:
     Collection() = delete;
