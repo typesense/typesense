@@ -549,7 +549,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             continue;
         }
 
-        nlohmann::json wrapper_doc;
         nlohmann::json document;
 
         try {
@@ -558,97 +557,32 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             return Option<nlohmann::json>(500, "Error while parsing stored document.");
         }
 
-        // highlight query words in the result
-        const std::string & field_name = search_fields[Index::FIELD_LIMIT_NUM - field_order_kv.field_id];
-        field search_field = search_schema.at(field_name);
+        nlohmann::json wrapper_doc;
+        wrapper_doc["highlights"] = nlohmann::json::array();
+        std::vector<highlight_t> highlights;
+        StringUtils string_utils;
 
-        if(query != "*" && (search_field.type == field_types::STRING || search_field.type == field_types::STRING_ARRAY)) {
+        for(const std::string & field_name: search_fields) {
+            field search_field = search_schema.at(field_name);
+            if(query != "*" && (search_field.type == field_types::STRING ||
+                                search_field.type == field_types::STRING_ARRAY)) {
+                highlight_t highlight;
+                highlight_result(search_field, searched_queries, field_order_kv, document, string_utils, highlight);
+                highlights.push_back(highlight);
+            }
+        }
 
-            spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
-            for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
-                std::vector<uint16_t> positions;
-                uint32_t doc_index = token_leaf->values->ids.indexOf(field_order_kv.key);
-                uint32_t *indices = new uint32_t[1];
-                indices[0] = doc_index;
-                leaf_to_indices.emplace(token_leaf, indices);
+        std::sort(highlights.begin(), highlights.end());
+
+        for(const auto highlight: highlights) {
+            nlohmann::json h_json = nlohmann::json::object();
+            h_json["field"] = highlight.field;
+            h_json["snippet"] = highlight.snippet;
+            if(highlight.index != -1) {
+                h_json["index"] = highlight.index;
             }
 
-            // positions in the field of each token in the query
-            std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
-            Index::populate_token_positions(searched_queries[field_order_kv.query_index],
-                                            leaf_to_indices, 0, array_token_positions);
-
-            Match match;
-            uint64_t match_score = 0;
-            size_t matched_array_index = 0;
-
-            for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
-                const std::vector<std::vector<uint16_t>> & token_positions = array_token_positions[array_index];
-
-                if(token_positions.empty()) {
-                    continue;
-                }
-
-                const Match & this_match = Match::match(field_order_kv.key, token_positions);
-                uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
-                if(this_match_score > match_score) {
-                    match_score = this_match_score;
-                    match = this_match;
-                    matched_array_index = array_index;
-                }
-            }
-
-            std::vector<std::string> tokens;
-            if(search_field.type == field_types::STRING) {
-                StringUtils::split(document[field_name], tokens, " ");
-            } else {
-                StringUtils::split(document[field_name][matched_array_index], tokens, " ");
-            }
-
-            // unpack `match.offset_diffs` into `token_indices`
-            std::vector<size_t> token_indices;
-            size_t num_tokens_found = (size_t) match.offset_diffs[0];
-            for(size_t i = 1; i <= num_tokens_found; i++) {
-                if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
-                    size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
-                    token_indices.push_back(token_index);
-                }
-            }
-
-            auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
-
-            // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
-            const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
-                                       std::max(0, (int)(*(minmax.first)-5));
-
-            const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
-                                     std::min((int)tokens.size(), (int)(*(minmax.second)+5));
-
-            for(const size_t token_index: token_indices) {
-                tokens[token_index] = "<mark>" + tokens[token_index] + "</mark>";
-            }
-
-            std::stringstream snippet_stream;
-            for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
-                if(snippet_index != start_index) {
-                    snippet_stream << " ";
-                }
-
-                snippet_stream << tokens[snippet_index];
-            }
-
-            wrapper_doc["highlight"] = nlohmann::json::object();
-            wrapper_doc["highlight"]["field"] = field_name;
-            wrapper_doc["highlight"]["snippet"] = snippet_stream.str();
-
-            if(search_field.type == field_types::STRING_ARRAY) {
-                wrapper_doc["highlight"]["index"] = matched_array_index;
-            }
-
-            for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
-                delete [] it->second;
-                it->second = nullptr;
-            }
+            wrapper_doc["highlights"].push_back(h_json);
         }
 
         prune_document(document, include_fields, exclude_fields);
@@ -693,6 +627,119 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return result;
+}
+
+void Collection::highlight_result(const field &search_field,
+                                  const std::vector<std::vector<art_leaf *>> &searched_queries,
+                                  const Topster<512>::KV & field_order_kv, const nlohmann::json & document,
+                                  StringUtils & string_utils, highlight_t & highlight) {
+    
+    spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
+    std::vector<art_leaf *> query_suggestion;
+
+    for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
+        // Must search for the token string fresh on that field for the given document since `token_leaf`
+        // is from the best matched field and need not be present in other fields of a document.
+        Index* index = indices[field_order_kv.key % num_indices];
+        art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+        if(actual_leaf != NULL) {
+            query_suggestion.push_back(actual_leaf);
+            std::vector<uint16_t> positions;
+            uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv.key);
+            uint32_t *indices = new uint32_t[1];
+            indices[0] = doc_index;
+            leaf_to_indices.emplace(actual_leaf, indices);
+        }
+    }
+
+    // positions in the field of each token in the query
+    std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
+    Index::populate_token_positions(query_suggestion, leaf_to_indices, 0, array_token_positions);
+
+    if(array_token_positions.size() == 0) {
+        // none of the tokens from the query were found on this field
+        return ;
+    }
+
+    Match match;
+    uint64_t match_score = 0;
+    size_t matched_array_index = 0;
+
+    for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
+        const std::vector<std::vector<uint16_t>> & token_positions = array_token_positions[array_index];
+
+        if(token_positions.empty()) {
+            continue;
+        }
+
+        const Match & this_match = Match::match(field_order_kv.key, token_positions);
+        uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
+        if(this_match_score > match_score) {
+            match_score = this_match_score;
+            match = this_match;
+            matched_array_index = array_index;
+        }
+    }
+
+    std::vector<std::string> tokens;
+    if(search_field.type == field_types::STRING) {
+        StringUtils::split(document[search_field.name], tokens, " ");
+    } else {
+        StringUtils::split(document[search_field.name][matched_array_index], tokens, " ");
+    }
+
+    // unpack `match.offset_diffs` into `token_indices`
+    std::vector<size_t> token_indices;
+    spp::sparse_hash_set<std::string> token_hits;
+
+    size_t num_tokens_found = (size_t) match.offset_diffs[0];
+    for(size_t i = 1; i <= num_tokens_found; i++) {
+        if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
+            size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
+            token_indices.push_back(token_index);
+            std::string token = tokens[token_index];
+            string_utils.unicode_normalize(token);
+            token_hits.insert(token);
+        }
+    }
+
+    auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
+
+    // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
+    const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
+                               std::max(0, (int)(*(minmax.first) - 5));
+
+    const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
+                             std::min((int)tokens.size(), (int)(*(minmax.second) + 5));
+
+    std::stringstream snippet_stream;
+    for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
+        if(snippet_index != start_index) {
+            snippet_stream << " ";
+        }
+
+        std::string token = tokens[snippet_index];
+        string_utils.unicode_normalize(token);
+
+        if(token_hits.count(token) != 0) {
+            snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
+        } else {
+            snippet_stream << tokens[snippet_index];
+        }
+    }
+
+    highlight.field = search_field.name;
+    highlight.snippet = snippet_stream.str();
+    highlight.match_score = match_score;
+
+    if(search_field.type == field_types::STRING_ARRAY) {
+        highlight.index = matched_array_index;
+    }
+
+    for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
+        delete [] it->second;
+        it->second = nullptr;
+    }
 }
 
 Option<nlohmann::json> Collection::get(const std::string & id) {
