@@ -12,6 +12,24 @@
 #include "topster.h"
 #include "logger.h"
 
+struct match_index_t {
+    Match match;
+    uint64_t match_score = 0;
+    size_t index;
+
+    match_index_t(Match match, uint64_t match_score, size_t index): match(match), match_score(match_score),
+                                                                    index(index) {
+
+    }
+
+    bool operator<(const match_index_t& a) const {
+        if(match_score != a.match_score) {
+            return match_score > a.match_score;
+        }
+        return index < a.index;
+    }
+};
+
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
                        const std::vector<field> &fields, const std::string & default_sorting_field,
                        const size_t num_indices):
@@ -568,7 +586,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                 search_field.type == field_types::STRING_ARRAY)) {
                 highlight_t highlight;
                 highlight_result(search_field, searched_queries, field_order_kv, document, string_utils, highlight);
-                highlights.push_back(highlight);
+                if(!highlight.snippets.empty()) {
+                    highlights.push_back(highlight);
+                }
             }
         }
 
@@ -577,9 +597,11 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         for(const auto highlight: highlights) {
             nlohmann::json h_json = nlohmann::json::object();
             h_json["field"] = highlight.field;
-            h_json["snippet"] = highlight.snippet;
-            if(highlight.index != -1) {
-                h_json["index"] = highlight.index;
+            if(!highlight.indices.empty()) {
+                h_json["indices"] = highlight.indices;
+                h_json["snippets"] = highlight.snippets;
+            } else {
+                h_json["snippet"] = highlight.snippets[0];
             }
 
             wrapper_doc["highlights"].push_back(h_json);
@@ -661,9 +683,7 @@ void Collection::highlight_result(const field &search_field,
         return ;
     }
 
-    Match match;
-    uint64_t match_score = 0;
-    size_t matched_array_index = 0;
+    std::vector<match_index_t> match_indices;
 
     for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
         const std::vector<std::vector<uint16_t>> & token_positions = array_token_positions[array_index];
@@ -674,67 +694,72 @@ void Collection::highlight_result(const field &search_field,
 
         const Match & this_match = Match::match(field_order_kv.key, token_positions);
         uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
-        if(this_match_score > match_score) {
-            match_score = this_match_score;
-            match = this_match;
-            matched_array_index = array_index;
-        }
+        match_indices.push_back(match_index_t(this_match, this_match_score, array_index));
     }
 
-    std::vector<std::string> tokens;
-    if(search_field.type == field_types::STRING) {
-        StringUtils::split(document[search_field.name], tokens, " ");
-    } else {
-        StringUtils::split(document[search_field.name][matched_array_index], tokens, " ");
-    }
+    const size_t max_array_matches = std::min((size_t)MAX_ARRAY_MATCHES, match_indices.size());
+    std::partial_sort(match_indices.begin(), match_indices.begin()+max_array_matches, match_indices.end());
 
-    // unpack `match.offset_diffs` into `token_indices`
-    std::vector<size_t> token_indices;
-    spp::sparse_hash_set<std::string> token_hits;
+    for(size_t index = 0; index < max_array_matches; index++) {
+        const match_index_t & match_index = match_indices[index];
+        const Match & match = match_index.match;
 
-    size_t num_tokens_found = (size_t) match.offset_diffs[0];
-    for(size_t i = 1; i <= num_tokens_found; i++) {
-        if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
-            size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
-            token_indices.push_back(token_index);
-            std::string token = tokens[token_index];
-            string_utils.unicode_normalize(token);
-            token_hits.insert(token);
-        }
-    }
-
-    auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
-
-    // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
-    const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
-                               std::max(0, (int)(*(minmax.first) - 5));
-
-    const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
-                             std::min((int)tokens.size(), (int)(*(minmax.second) + 5));
-
-    std::stringstream snippet_stream;
-    for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
-        if(snippet_index != start_index) {
-            snippet_stream << " ";
-        }
-
-        std::string token = tokens[snippet_index];
-        string_utils.unicode_normalize(token);
-
-        if(token_hits.count(token) != 0) {
-            snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
+        std::vector<std::string> tokens;
+        if(search_field.type == field_types::STRING) {
+            StringUtils::split(document[search_field.name], tokens, " ");
         } else {
-            snippet_stream << tokens[snippet_index];
+            StringUtils::split(document[search_field.name][match_index.index], tokens, " ");
+        }
+
+        // unpack `match.offset_diffs` into `token_indices`
+        std::vector<size_t> token_indices;
+        spp::sparse_hash_set<std::string> token_hits;
+
+        size_t num_tokens_found = (size_t) match.offset_diffs[0];
+        for(size_t i = 1; i <= num_tokens_found; i++) {
+            if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
+                size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
+                token_indices.push_back(token_index);
+                std::string token = tokens[token_index];
+                string_utils.unicode_normalize(token);
+                token_hits.insert(token);
+            }
+        }
+
+        auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
+
+        // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
+        const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
+                                   std::max(0, (int)(*(minmax.first) - 5));
+
+        const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
+                                 std::min((int)tokens.size(), (int)(*(minmax.second) + 5));
+
+        std::stringstream snippet_stream;
+        for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
+            if(snippet_index != start_index) {
+                snippet_stream << " ";
+            }
+
+            std::string token = tokens[snippet_index];
+            string_utils.unicode_normalize(token);
+
+            if(token_hits.count(token) != 0) {
+                snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
+            } else {
+                snippet_stream << tokens[snippet_index];
+            }
+        }
+
+        highlight.snippets.push_back(snippet_stream.str());
+
+        if(search_field.type == field_types::STRING_ARRAY) {
+            highlight.indices.push_back(match_index.index);
         }
     }
 
     highlight.field = search_field.name;
-    highlight.snippet = snippet_stream.str();
-    highlight.match_score = match_score;
-
-    if(search_field.type == field_types::STRING_ARRAY) {
-        highlight.index = matched_array_index;
-    }
+    highlight.match_score = match_indices[0].match_score;
 
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
         delete [] it->second;

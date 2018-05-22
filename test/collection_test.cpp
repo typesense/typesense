@@ -556,9 +556,17 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
 
     ASSERT_EQ(results["hits"][0]["highlights"].size(), 1);
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_STREQ(results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str(),
-                 "<mark>truth</mark> <mark>about</mark>");
-    ASSERT_EQ(results["hits"][0]["highlights"][0]["index"].get<size_t>(), 2);
+
+    // an array's snippets must be sorted on match score, if match score is same, priority to be given to lower indices
+    ASSERT_EQ(3, results["hits"][0]["highlights"][0]["snippets"].size());
+    ASSERT_STREQ("<mark>truth</mark> <mark>about</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("the <mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][1].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>about</mark> forever", results["hits"][0]["highlights"][0]["snippets"][2].get<std::string>().c_str());
+
+    ASSERT_EQ(3, results["hits"][0]["highlights"][0]["indices"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"][0]);
+    ASSERT_EQ(0, results["hits"][0]["highlights"][0]["indices"][1]);
+    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["indices"][2]);
 
     results = coll_array_text->search("forever truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();
@@ -574,8 +582,14 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     }
 
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_STREQ(results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str(), "the <mark>truth</mark>");
-    ASSERT_EQ(results["hits"][0]["highlights"][0]["index"].get<size_t>(), 0);
+    ASSERT_EQ(3, results["hits"][0]["highlights"][0]["snippets"].size());
+    ASSERT_STREQ("the <mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("about <mark>forever</mark>", results["hits"][0]["highlights"][0]["snippets"][1].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>truth</mark> about", results["hits"][0]["highlights"][0]["snippets"][2].get<std::string>().c_str());
+    ASSERT_EQ(3, results["hits"][0]["highlights"][0]["indices"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"][0]["indices"][0]);
+    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["indices"][1]);
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"][2]);
 
     results = coll_array_text->search("truth", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                       false, 0).get();
@@ -615,8 +629,13 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
 
     ASSERT_EQ(3, results["hits"][0]["highlights"][1].size());
     ASSERT_STREQ(results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_STREQ(results["hits"][0]["highlights"][1]["snippet"].get<std::string>().c_str(), "the <mark>truth</mark>");
-    ASSERT_EQ(results["hits"][0]["highlights"][1]["index"].get<size_t>(), 0);
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["snippets"].size());
+    ASSERT_STREQ("the <mark>truth</mark>", results["hits"][0]["highlights"][1]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>truth</mark> about", results["hits"][0]["highlights"][1]["snippets"][1].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"][1]["indices"][0]);
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"][1]);
 
     ASSERT_EQ(2, results["hits"][1]["highlights"][0].size());
     ASSERT_STREQ(results["hits"][1]["highlights"][0]["field"].get<std::string>().c_str(), "title");
@@ -624,8 +643,14 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
 
     ASSERT_EQ(3, results["hits"][1]["highlights"][1].size());
     ASSERT_STREQ(results["hits"][1]["highlights"][1]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_STREQ(results["hits"][1]["highlights"][1]["snippet"].get<std::string>().c_str(), "<mark>truth</mark>");
-    ASSERT_EQ(results["hits"][1]["highlights"][1]["index"].get<size_t>(), 1);
+
+    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["snippets"].size());
+    ASSERT_STREQ("<mark>truth</mark>", results["hits"][1]["highlights"][1]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][1]["highlights"][1]["snippets"][1].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["indices"].size());
+    ASSERT_EQ(1, results["hits"][1]["highlights"][1]["indices"][0]);
+    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["indices"][1]);
 
     // highlight fields must be ordered based on match score
     results = coll_array_text->search("amazing movie", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
@@ -634,10 +659,10 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     ASSERT_EQ(2, results["hits"][0]["highlights"].size());
 
     ASSERT_EQ(3, results["hits"][0]["highlights"][0].size());
-    ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_STREQ(results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str(),
-                 "<mark>amazing</mark> <mark>movie</mark>");
-    ASSERT_EQ(results["hits"][0]["highlights"][0]["index"].get<size_t>(), 0);
+    ASSERT_STREQ("tags", results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>amazing</mark> <mark>movie</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["indices"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"][0]["indices"][0]);
 
     ASSERT_EQ(2, results["hits"][0]["highlights"][1].size());
     ASSERT_STREQ(results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str(), "title");
