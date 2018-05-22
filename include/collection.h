@@ -19,13 +19,14 @@
 
 class Collection {
 private:
+
     struct highlight_t {
         std::string field;
-        std::string snippet;
+        std::vector<std::string> snippets;
+        std::vector<size_t> indices;
         uint64_t match_score;
-        int index;
 
-        highlight_t(): match_score(0), index(-1) {
+        highlight_t() {
 
         }
 
@@ -134,6 +135,8 @@ public:
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};
+
+    enum {MAX_ARRAY_MATCHES = 5};
 
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
