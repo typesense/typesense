@@ -147,6 +147,8 @@ public:
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
+    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
+
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
                                          spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
                                          size_t result_index,
