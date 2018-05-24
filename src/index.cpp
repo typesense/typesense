@@ -1218,3 +1218,8 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
 
     return Option<uint32_t>(seq_id);
 }
+
+art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
+    const art_tree *t = search_index.at(field_name);
+    return (art_leaf*) art_search(t, token, (int) token_len);
+}
