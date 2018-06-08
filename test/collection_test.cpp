@@ -1889,6 +1889,42 @@ nlohmann::json get_prune_doc() {
     return document;
 }
 
+TEST_F(CollectionTest, SearchLargeTextField) {
+    Collection *coll_large_text;
+
+    std::vector<field> fields = {field("text", field_types::STRING, false),
+                                 field("age", field_types::INT32, false),
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_large_text = collectionManager.get_collection("coll_large_text");
+    if(coll_large_text == nullptr) {
+        coll_large_text = collectionManager.create_collection("coll_large_text", fields, "age").get();
+    }
+
+    std::string json_line;
+    std::ifstream infile(std::string(ROOT_DIR)+"test/large_text_field.jsonl");
+
+    while (std::getline(infile, json_line)) {
+        coll_large_text->add(json_line);
+    }
+
+    infile.close();
+
+    Option<nlohmann::json> res_op = coll_large_text->search("eguilazer", {"text"}, "", {}, sort_fields, 0, 10);
+    ASSERT_TRUE(res_op.ok());
+    nlohmann::json results = res_op.get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    res_op = coll_large_text->search("tristique", {"text"}, "", {}, sort_fields, 0, 10);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll_large_text");
+}
+
 TEST_F(CollectionTest, PruneFieldsFromDocument) {
     nlohmann::json document = get_prune_doc();
     Collection::prune_document(document, {"one", "two"}, spp::sparse_hash_set<std::string>());
