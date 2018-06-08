@@ -16,7 +16,7 @@
 #define TokenOffsetHeap std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset>
 
 const size_t WINDOW_SIZE = 10;
-const uint8_t MAX_DISPLACEMENT = std::numeric_limits<uint8_t>::max();
+const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
 const uint16_t MAX_TOKENS_DISTANCE = 100;
 
 struct TokenOffset {
@@ -110,7 +110,7 @@ struct Match {
     // heap now contains the first occurring offset of each token in the given document
 
     uint16_t max_match = 0;
-    uint8_t min_displacement = MAX_DISPLACEMENT;
+    uint16_t min_displacement = MAX_DISPLACEMENT;
 
     std::queue<TokenOffset> window;
     uint16_t token_offset[WINDOW_SIZE] = { };
