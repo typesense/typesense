@@ -30,12 +30,14 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
         message(FATAL_ERROR "G3log Configure failed!")
     endif()
 
-    message("Building G3log locally...")
-    execute_process(COMMAND ${CMAKE_COMMAND} --build
-            "${DEP_ROOT_DIR}/${G3LOG_NAME}/build"
-            RESULT_VARIABLE
-            G3LOG_BUILD)
-    if(NOT G3LOG_BUILD EQUAL 0)
-        message(FATAL_ERROR "G3log build failed!")
+    if(BUILD_DEPS STREQUAL "yes")
+        message("Building G3log locally...")
+        execute_process(COMMAND ${CMAKE_COMMAND} --build
+                "${DEP_ROOT_DIR}/${G3LOG_NAME}/build"
+                RESULT_VARIABLE
+                G3LOG_BUILD)
+        if(NOT G3LOG_BUILD EQUAL 0)
+            message(FATAL_ERROR "G3log build failed!")
+        endif()
     endif()
 endif()

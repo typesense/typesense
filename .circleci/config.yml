@@ -29,4 +29,4 @@ jobs:
           destination: build
       - run: 
           name: test
-          command: $PROJECT_DIR/build/typesense_test
+          command: $PROJECT_DIR/build/typesense-test

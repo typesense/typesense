@@ -7,7 +7,7 @@
 #include <sys/stat.h>
 #include <cmdline.h>
 #include "http_server.h"
-#include "api.h"
+#include "core_api.h"
 #include "string_utils.h"
 #include "replicator.h"
 #include "logger.h"

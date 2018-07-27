@@ -14,7 +14,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${ROCKSDB_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
 endif()
 
-if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a)
+if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a AND BUILD_DEPS STREQUAL "yes")
     message("Building ${ROCKSDB_NAME} locally...")
     set(ENV{PORTABLE} 1)
     set(ENV{DEBUG_LEVEL} 0)
@@ -34,7 +34,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a)
 
     execute_process(COMMAND make "clean" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
     execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
-                    RESULT_VARIABLE ROCKSDB_BUILD)
+            RESULT_VARIABLE ROCKSDB_BUILD)
     if(NOT ROCKSDB_BUILD EQUAL 0)
         message(FATAL_ERROR "${ROCKSDB_NAME} build failed!")
     endif()
