@@ -97,6 +97,7 @@
 - ~~Have a LOG(ERROR) level~~
 - ~~Handle SIGTERM which is sent when process is killed~~
 - ~~Use snappy compression for storage~~
+- Jemalloc
 - Exact search 
 - NOT operator support
 - Log operations

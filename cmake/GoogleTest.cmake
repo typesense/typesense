@@ -26,12 +26,14 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/bui
         message(FATAL_ERROR "Google Test Configure failed!")
     endif()
 
-    message("Building Google Test locally...")
-    execute_process(COMMAND ${CMAKE_COMMAND} --build
-            "${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build"
-            RESULT_VARIABLE
-            GOOGLETEST_BUILD)
-    if(NOT GOOGLETEST_BUILD EQUAL 0)
-        message(FATAL_ERROR "Google Test build failed!")
+    if(BUILD_DEPS STREQUAL "yes")
+        message("Building Google Test locally...")
+        execute_process(COMMAND ${CMAKE_COMMAND} --build
+                        "${DEP_ROOT_DIR}/googletest-release-${GTEST_VERSION}/googletest/build"
+                        RESULT_VARIABLE
+                        GOOGLETEST_BUILD)
+        if(NOT GOOGLETEST_BUILD EQUAL 0)
+            message(FATAL_ERROR "Google Test build failed!")
+        endif()
     endif()
 endif()

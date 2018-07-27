@@ -28,12 +28,14 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/h2o)
         message(FATAL_ERROR "${H2O_NAME} configure failed!")
     endif()
 
-    message("Building ${H2O_NAME} locally...")
-    execute_process(COMMAND ${CMAKE_COMMAND} --build
-            "${DEP_ROOT_DIR}/${H2O_NAME}/build"
-            RESULT_VARIABLE
-            H2O_BUILD)
-    if(NOT H2O_BUILD EQUAL 0)
-        message(FATAL_ERROR "${H2O_NAME} build failed!")
+    if(BUILD_DEPS STREQUAL "yes")
+        message("Building ${H2O_NAME} locally...")
+        execute_process(COMMAND ${CMAKE_COMMAND} --build
+                "${DEP_ROOT_DIR}/${H2O_NAME}/build"
+                RESULT_VARIABLE
+                H2O_BUILD)
+        if(NOT H2O_BUILD EQUAL 0)
+            message(FATAL_ERROR "${H2O_NAME} build failed!")
+        endif()
     endif()
 endif()

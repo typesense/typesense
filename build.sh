@@ -30,3 +30,16 @@ if [[ "$@" == *"--create-binary"* ]]; then
     tar -cvzf $PROJECT_DIR/build/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/build typesense-server typesense-server.md5.txt
     echo "Built binary successfully: $PROJECT_DIR/build/$RELEASE_NAME.tar.gz"
 fi
+
+if [[ "$@" == *"--package-libs"* ]]; then
+    OS_FAMILY=$(echo `uname` | awk '{print tolower($0)}')
+    RELEASE_NAME=typesense-server-libs-$TYPESENSE_VERSION-$OS_FAMILY-amd64
+    LIBS=`cat $PROJECT_DIR/external-$SYSTEM_NAME/libs.txt`
+    TAR_PATHS=""
+    for lib in $LIBS; do
+        TAR_PATHS="$TAR_PATHS -C $lib `ls $lib/*.a | xargs basename`"
+    done
+
+    TAR_PATHS="$TAR_PATHS -C $PROJECT_DIR/build `ls $PROJECT_DIR/build/*.a | xargs basename`"
+    tar -cvzf $PROJECT_DIR/build/$RELEASE_NAME.tar.gz $TAR_PATHS
+fi

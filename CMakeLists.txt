@@ -6,6 +6,10 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-pa
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
+# will be overridden from command line during build
+set(TYPESENSE_VERSION "nightly" CACHE STRING "")
+set(BUILD_DEPS "yes" CACHE STRING "")
+
 if(NOT EXISTS ${DEP_ROOT_DIR})
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR})
 endif()
@@ -54,24 +58,43 @@ include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
 
+# Write dependency include directories to a file
+file(WRITE ${DEP_ROOT_DIR}/includes.txt "")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/src")
+
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
 
+# Write dependency libraries to a file
+file(WRITE ${DEP_ROOT_DIR}/libs.txt "")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/build")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build")
+
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
 add_executable(search ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${SRC_FILES} src/main/benchmark.cpp)
-add_executable(typesense_test ${SRC_FILES} test/main.cpp test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
+add_executable(typesense-test ${SRC_FILES} test/main.cpp test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
                test/collection_test.cpp test/collection_manager_test.cpp
                test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp test/array_utils_test.cpp
                test/string_utils_test.cpp)
 
-set(TYPESENSE_VERSION "nightly" CACHE STRING "") # will be overridden from command line during a release build
+add_library(typesense-core STATIC ${SRC_FILES})
 
 target_compile_definitions(
     typesense-server PRIVATE
+    TYPESENSE_VERSION="${TYPESENSE_VERSION}"
+)
+
+target_compile_definitions(
+    typesense-core PRIVATE
     TYPESENSE_VERSION="${TYPESENSE_VERSION}"
 )
 
@@ -86,7 +109,7 @@ target_compile_definitions(
 )
 
 target_compile_definitions(
-    typesense_test PRIVATE
+    typesense-test PRIVATE
     ROOT_DIR="${CMAKE_SOURCE_DIR}/"
     TYPESENSE_VERSION="${TYPESENSE_VERSION}"
 )
@@ -107,8 +130,11 @@ if(NOT APPLE)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
+set(CORE_LIBS h2o-evloop ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread
+              ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
 
-target_link_libraries(typesense-server h2o-evloop for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(search for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread h2o-evloop ${CURL_LIBRARIES} ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(benchmark for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread ${CURL_LIBRARIES} h2o-evloop ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
-target_link_libraries(typesense_test h2o-evloop ${ICU_ALL_LIBRARIES} ${OPENSSL_LIBRARIES} pthread for ${G3LOGGER_LIBRARIES} ${ROCKSDB_LIBS} gtest gtest_main dl ${STD_LIB})
+target_link_libraries(typesense-core ${CORE_LIBS})
+target_link_libraries(typesense-server ${CORE_LIBS})
+target_link_libraries(search ${CORE_LIBS})
+target_link_libraries(benchmark ${CORE_LIBS})
+target_link_libraries(typesense-test ${CORE_LIBS} gtest gtest_main)

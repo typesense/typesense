@@ -14,7 +14,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${FOR_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR})
 endif()
 
-if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME}/libfor.a)
+if(NOT EXISTS ${DEP_ROOT_DIR}/${FOR_NAME}/libfor.a AND BUILD_DEPS STREQUAL "yes")
     message("Building libfor locally...")
     execute_process(COMMAND make WORKING_DIRECTORY ${DEP_ROOT_DIR}/${FOR_NAME}/
                     RESULT_VARIABLE FOR_BUILD)
