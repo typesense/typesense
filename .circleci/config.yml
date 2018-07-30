@@ -25,8 +25,8 @@ jobs:
           paths:
             - /typesense/external-Linux
       - store_artifacts:
-          path: /typesense/build
+          path: /typesense/build-Linux
           destination: build
       - run: 
           name: test
-          command: $PROJECT_DIR/build/typesense-test
+          command: $PROJECT_DIR/build-Linux/typesense-test
