@@ -31,4 +31,3 @@ void on_send_response(void *data);
 void collection_export_handler(http_req* req, http_res* res, void* data);
 
 static constexpr const char* SEND_RESPONSE_MSG = "send_response";
-static constexpr const char* REPLICATION_EVENT_MSG = "replication_event";

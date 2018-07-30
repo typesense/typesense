@@ -1,4 +1,3 @@
-
 #include <string>
 #include <vector>
 #include <json.hpp>
@@ -106,10 +105,10 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
 
             Option<uint32_t> seq_id_op = collection->doc_id_to_seq_id(document["id"]);
             if(!seq_id_op.ok()) {
-               delete iter;
-               return Option<bool>(500, std::string("Error while fetching sequence id of document id " +
-                                        document["id"].get<std::string>() + " in collection `" +
-                                        collection->get_name() + "`"));
+                delete iter;
+                return Option<bool>(500, std::string("Error while fetching sequence id of document id " +
+                                                     document["id"].get<std::string>() + " in collection `" +
+                                                     collection->get_name() + "`"));
             }
 
             collection->index_in_memory(document, seq_id_op.get());
@@ -119,6 +118,15 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
         delete iter;
 
         add_to_collections(collection);
+    }
+
+    std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
+    rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
+    while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
+        std::vector<std::string> parts;
+        StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
+        collection_symlinks[parts[0]] = iter->value().ToString();
+        iter->Next();
     }
 
     return Option<bool>(true);
@@ -159,8 +167,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
 
         if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
                                                     field.type == field_types::FLOAT)) {
-            return Option<Collection*>(400, "Default sorting field `" + default_sorting_field + "` must be of type int32 "
-                                            "or float.");
+            return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
+                                            "` must be of type int32 or float.");
         }
     }
 
@@ -190,6 +198,14 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
 Collection* CollectionManager::get_collection(const std::string & collection_name) {
     if(collections.count(collection_name) != 0) {
         return collections.at(collection_name);
+    }
+
+    // a symlink name takes lesser precedence over a real collection name
+    if(collection_symlinks.count(collection_name) != 0) {
+        const std::string & symlinked_name = collection_symlinks.at(collection_name);
+        if(collections.count(symlinked_name) != 0) {
+            return collections.at(symlinked_name);
+        }
     }
 
     return nullptr;
@@ -252,8 +268,42 @@ uint32_t CollectionManager::get_next_collection_id() {
     return next_collection_id;
 }
 
+std::string CollectionManager::get_symlink_key(const std::string & symlink_name) {
+    return std::string(SYMLINK_PREFIX) + "_" + symlink_name;
+}
+
 void CollectionManager::set_next_collection_id(uint32_t next_id) {
     next_collection_id = next_id;
+}
+
+spp::sparse_hash_map<std::string, std::string> CollectionManager::get_symlinks() {
+    return collection_symlinks;
+}
+
+Option<std::string> CollectionManager::resolve_symlink(const std::string & symlink_name) {
+    if(collection_symlinks.count(symlink_name) != 0) {
+        return Option<std::string>(collection_symlinks.at(symlink_name));
+    }
+
+    return Option<std::string>(404, "Not found.");
+}
+
+bool CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
+    bool inserted = store->insert(get_symlink_key(symlink_name), collection_name);
+    if(!inserted) {
+        return false;
+    }
+    collection_symlinks[symlink_name] =  collection_name;
+    return true;
+}
+
+bool CollectionManager::delete_symlink(const std::string & symlink_name) {
+    bool removed = store->remove(get_symlink_key(symlink_name));
+    if(!removed) {
+        return false;
+    }
+    collection_symlinks.erase(symlink_name);
+    return true;
 }
 
 Store* CollectionManager::get_store() {

@@ -66,8 +66,6 @@ private:
 
     static int send_401_unauthorized(h2o_req_t *req);
 
-    static constexpr const char* SEND_RESPONSE_MSG = "send_response";
-
 public:
     HttpServer(std::string listen_address, uint32_t listen_port,
                std::string ssl_cert_path, std::string ssl_cert_key_path, bool cors_enabled);

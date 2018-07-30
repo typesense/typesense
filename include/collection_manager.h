@@ -16,6 +16,8 @@ private:
 
     spp::sparse_hash_map<uint32_t, std::string> collection_id_names;
 
+    spp::sparse_hash_map<std::string, std::string> collection_symlinks;
+
     // Auto incrementing ID assigned to each collection
     // Using a ID instead of a collection's name makes renaming possible
     uint32_t next_collection_id;
@@ -67,9 +69,21 @@ public:
 
     uint32_t get_next_collection_id();
 
+    static std::string get_symlink_key(const std::string & symlink_name);
+
     void set_next_collection_id(uint32_t next_id);
 
     Store* get_store();
 
+    // symlinks
+    Option<std::string> resolve_symlink(const std::string & symlink_name);
+
+    spp::sparse_hash_map<std::string, std::string> get_symlinks();
+
+    bool upsert_symlink(const std::string & symlink_name, const std::string & collection_name);
+
+    bool delete_symlink(const std::string & symlink_name);
+
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
+    static constexpr const char* SYMLINK_PREFIX = "$SL";
 };
