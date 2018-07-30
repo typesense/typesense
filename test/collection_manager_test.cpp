@@ -81,10 +81,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"default_sorting_field\":\"points\",\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
-              "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
-              "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
-              "{\"facet\":false,\"name\":\"points\",\"type\":\"int32\"}"
-              "],\"id\":0,\"name\":\"collection1\"}", collection_meta_json);
+                      "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
+                      "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
+                      "{\"facet\":false,\"name\":\"points\",\"type\":\"int32\"}"
+                      "],\"id\":0,\"name\":\"collection1\"}", collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
 
@@ -175,4 +175,69 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
+}
+
+TEST_F(CollectionManagerTest, Symlinking) {
+    CollectionManager & cmanager = CollectionManager::get_instance();
+    std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+    Store *store = new Store(state_dir_path);
+    cmanager.init(store, "auth_key", "search_auth_key");
+
+    // try resolving on a blank slate
+    Option<std::string> collection_option = cmanager.resolve_symlink("collection");
+
+    ASSERT_FALSE(collection_option.ok());
+    ASSERT_EQ(404, collection_option.code());
+
+    ASSERT_EQ(0, cmanager.get_symlinks().size());
+
+    // insert a symlink
+    bool inserted = cmanager.upsert_symlink("collection", "collection_2018");
+    ASSERT_TRUE(inserted);
+
+    collection_option = cmanager.resolve_symlink("collection");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("collection_2018", collection_option.get());
+
+    // let's try inserting another symlink
+    cmanager.upsert_symlink("company", "company_2018");
+    collection_option = cmanager.resolve_symlink("company");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("company_2018", collection_option.get());
+
+    ASSERT_EQ(2, cmanager.get_symlinks().size());
+
+    // update existing symlink
+    inserted = cmanager.upsert_symlink("company", "company_2019");
+    ASSERT_TRUE(inserted);
+    collection_option = cmanager.resolve_symlink("company");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("company_2019", collection_option.get());
+
+    // remove link
+    cmanager.delete_symlink("collection");
+    collection_option = cmanager.resolve_symlink("collection");
+    ASSERT_FALSE(collection_option.ok());
+    ASSERT_EQ(404, collection_option.code());
+
+    // try adding a few more symlinks
+    cmanager.upsert_symlink("company_1", "company_2018");
+    cmanager.upsert_symlink("company_2", "company_2019");
+    cmanager.upsert_symlink("company_3", "company_2020");
+
+    // should be able to restore state on init
+    CollectionManager & cmanager2 = CollectionManager::get_instance();
+    cmanager2.init(store, "auth_key", "search_auth_key");
+    collection_option = cmanager2.resolve_symlink("company");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("company_2019", collection_option.get());
+
+    collection_option = cmanager2.resolve_symlink("company_1");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("company_2018", collection_option.get());
+
+    collection_option = cmanager2.resolve_symlink("company_3");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("company_2020", collection_option.get());
 }

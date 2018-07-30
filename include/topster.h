@@ -81,7 +81,7 @@ struct Topster {
             }
 
             keys.erase(kvs[start]->key);
-            keys.emplace(key, kvs[start]);
+            keys[key] = kvs[start];
 
             kvs[start]->key = key;
             kvs[start]->field_id = field_id;
@@ -130,7 +130,7 @@ struct Topster {
             kvs[start]->primary_attr = primary_attr;
             kvs[start]->secondary_attr = secondary_attr;
 
-            keys.emplace(key, kvs[start]);
+            keys[key] = kvs[start];
 
             if(key_found) {
                 // need to sift down if it's a replace
