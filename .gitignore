@@ -1,7 +1,7 @@
 .idea
 *.iml
 external*
-build
+build*
 cmake-build-debug
 cmake-build-release
 *.pem
