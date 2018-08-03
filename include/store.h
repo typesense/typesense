@@ -164,6 +164,7 @@ public:
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
 
         if(!status.ok()) {
+            LOG(ERR) << "Error while fetching updates for replication: " << status.ToString();
             std::ostringstream error;
             error << "Unable to fetch updates. " << "Master's latest sequence number is " << local_latest_seq_num;
             return Option<std::vector<std::string>*>(400, error.str());

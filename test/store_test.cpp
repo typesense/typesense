@@ -26,8 +26,8 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(0, primary_store.get_latest_seq_number());
     delete updates_op.get();
 
-    // querying for a seq_num > 0 on a fresh store
-    updates_op = primary_store.get_updates_since(10, 10);
+    // querying for a seq_num > 1 on a fresh store
+    updates_op = primary_store.get_updates_since(2, 10);
     ASSERT_FALSE(updates_op.ok());
     ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 0", updates_op.error());
 
@@ -50,6 +50,10 @@ TEST(StoreTest, GetUpdatesSince) {
     ASSERT_EQ(3, primary_store.get_latest_seq_number());
 
     updates_op = primary_store.get_updates_since(0, 10);
+    ASSERT_EQ(3, updates_op.get()->size());
+    delete updates_op.get();
+
+    updates_op = primary_store.get_updates_since(1, 10);
     ASSERT_EQ(3, updates_op.get()->size());
     delete updates_op.get();
 

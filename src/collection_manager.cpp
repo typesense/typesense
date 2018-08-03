@@ -276,7 +276,7 @@ void CollectionManager::set_next_collection_id(uint32_t next_id) {
     next_collection_id = next_id;
 }
 
-spp::sparse_hash_map<std::string, std::string> CollectionManager::get_symlinks() {
+spp::sparse_hash_map<std::string, std::string> & CollectionManager::get_symlinks() {
     return collection_symlinks;
 }
 
