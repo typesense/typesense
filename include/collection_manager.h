@@ -78,7 +78,7 @@ public:
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name);
 
-    spp::sparse_hash_map<std::string, std::string> get_symlinks();
+    spp::sparse_hash_map<std::string, std::string> & get_symlinks();
 
     bool upsert_symlink(const std::string & symlink_name, const std::string & collection_name);
 

@@ -1,16 +1,5 @@
-#pragma once
-
-#include <string>
-#include <iostream>
-#include <cmdline.h>
-#include "logger.h"
-#include "store.h"
-#include "collection_manager.h"
-#include "http_server.h"
-#include "replicator.h"
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include "core_api.h"
+#include "typesense_server_utils.h"
 
 HttpServer* server;
 
