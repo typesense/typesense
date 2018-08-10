@@ -30,7 +30,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
-    options.add<std::string>("log-dir", '\0', "Path to the log file.", false, "");
+    options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 }
 
 int init_logger(cmdline::parser & options, std::unique_ptr<g3::LogWorker> & log_worker) {
