@@ -41,6 +41,18 @@ struct StringUtils {
         }
     }
 
+    static std::string join(std::vector<std::string> vec, std::string delimiter, size_t start_index = 0) {
+        std::stringstream ss;
+        for(size_t i = start_index; i <= vec.size()-1; i++) {
+            if(i != start_index) {
+                ss << delimiter;
+            }
+            ss << vec[i];
+        }
+
+        return ss.str();
+    }
+
     // Adapted from: http://stackoverflow.com/a/36000453/131050
     static std::string & trim(std::string & str) {
         // right trim

@@ -24,3 +24,13 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     string_utils.unicode_normalize(tamil_unicodechars);
     ASSERT_STREQ("தமிழ்நாடு", tamil_unicodechars.c_str());
 }
+
+TEST(StringUtilsTest, ShouldJoinString) {
+    std::vector<std::string> parts = {"foo", "bar", "baz", "bazinga"};
+
+    const std::string & joined_str1 = StringUtils::join(parts, "/");
+    ASSERT_STREQ("foo/bar/baz/bazinga", joined_str1.c_str());
+
+    const std::string & joined_str2 = StringUtils::join(parts, "/", 2);
+    ASSERT_STREQ("baz/bazinga", joined_str2.c_str());
+}

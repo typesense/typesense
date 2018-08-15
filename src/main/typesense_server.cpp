@@ -17,6 +17,7 @@ void master_server_routes() {
 
     // meta
     server->get("/debug", get_debug);
+    server->get("/health", get_health);
 
     // replication
     server->get("/replication/updates", get_replication_updates, true);

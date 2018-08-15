@@ -32,8 +32,7 @@ nlohmann::json collection_summary_json(Collection *collection) {
 
 bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-
-    return collectionManager.auth_key_matches(auth_key) ||
+    return rpath.handler == get_health || collectionManager.auth_key_matches(auth_key) ||
            (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key));
 }
 
@@ -153,6 +152,12 @@ void del_drop_collection(http_req & req, http_res & res) {
 void get_debug(http_req & req, http_res & res) {
     nlohmann::json result;
     result["version"] = TYPESENSE_VERSION;
+    res.send_200(result.dump());
+}
+
+void get_health(http_req & req, http_res & res) {
+    nlohmann::json result;
+    result["ok"] = true;
     res.send_200(result.dump());
 }
 
