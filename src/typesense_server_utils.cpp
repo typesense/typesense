@@ -1,5 +1,6 @@
 #include "core_api.h"
 #include "typesense_server_utils.h"
+#include <curl/curl.h>
 
 HttpServer* server;
 
@@ -88,6 +89,8 @@ int run_server(cmdline::parser & options, void (*master_server_routes)(), void (
         return 1;
     }
 
+    curl_global_init(CURL_GLOBAL_SSL);
+
     server = new HttpServer(
             options.get<std::string>("listen-address"),
             options.get<uint32_t>("listen-port"),
@@ -123,6 +126,8 @@ int run_server(cmdline::parser & options, void (*master_server_routes)(), void (
     }
 
     int ret_code = server->run();
+
+    curl_global_cleanup();
 
     // we are out of the event loop here
     delete server;
