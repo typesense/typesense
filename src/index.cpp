@@ -732,7 +732,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //LOG(INFO) << "\nSearching for: " << token << " - cost: " << costs[token_index];
+            //LOG(INFO) << "\nSearching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
@@ -831,7 +831,7 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
     LOG(INFO) << "Token: " << token << ", cost: " << cost;
 
     for(size_t i=0; i < leaves.size(); i++) {
-        printf("%.*s, ", leaves[i]->key_len, leaves[i]->key);
+        printf("%.*s - %d, ", leaves[i]->key_len, leaves[i]->key, leaves[i]->values->ids.getLength());
         LOG(INFO) << "frequency: " << leaves[i]->values->ids.getLength() << ", max_score: " << leaves[i]->max_score;
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
             LOG(INFO) << "id: " << leaves[i]->values->ids.at(j);

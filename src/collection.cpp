@@ -610,7 +610,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         prune_document(document, include_fields, exclude_fields);
         wrapper_doc["document"] = document;
         //wrapper_doc["match_score"] = field_order_kv.match_score;
-        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
+        wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
 
         result["hits"].push_back(wrapper_doc);
     }

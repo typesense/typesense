@@ -5,14 +5,17 @@
 #include <sstream>
 #include <ctype.h>
 #include <unicode/translit.h>
+#include <iconv.h>
 #include <vector>
 
 struct StringUtils {
     UErrorCode status;
     //icu::Transliterator* transliterator;
+    iconv_t cd;
 
     StringUtils(): status(U_ZERO_ERROR) {
         // transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status))
+        cd = iconv_open("ascii//TRANSLIT", "UTF-8");
     }
 
     ~StringUtils() {

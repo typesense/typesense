@@ -45,6 +45,7 @@ include(cmake/RocksDB.cmake)
 include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/g3log.cmake)
+include(cmake/Iconv.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
 
@@ -57,6 +58,7 @@ include_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/include)
 include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
+include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
 
 # Write dependency include directories to a file
 file(WRITE ${DEP_ROOT_DIR}/includes.txt "")
@@ -70,6 +72,7 @@ link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
+link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
 
 # Write dependency libraries to a file
 file(WRITE ${DEP_ROOT_DIR}/libs.txt "")
@@ -130,7 +133,7 @@ if(NOT APPLE)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS h2o-evloop ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread
+set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread
               ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
