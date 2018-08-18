@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "string_utils.h"
+#include <iconv.h>
+#include <unicode/translit.h>
 
 TEST(StringUtilsTest, ShouldNormalizeString) {
     StringUtils string_utils;
@@ -16,13 +18,17 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     string_utils.unicode_normalize(alphanum_specialchars);
     ASSERT_STREQ("aa12zzwr", alphanum_specialchars.c_str());
 
-    std::string alphanum_unicodechars = "abcÅà123";
+    std::string alphanum_unicodechars = "abcÅà123ß";
     string_utils.unicode_normalize(alphanum_unicodechars);
-    ASSERT_STREQ("abcåà123", alphanum_unicodechars.c_str());
+    ASSERT_STREQ("abcaa123ss", alphanum_unicodechars.c_str());
 
     std::string tamil_unicodechars = "தமிழ் நாடு";
     string_utils.unicode_normalize(tamil_unicodechars);
     ASSERT_STREQ("தமிழ்நாடு", tamil_unicodechars.c_str());
+
+    std::string chinese_unicodechars = "你好吗";
+    string_utils.unicode_normalize(chinese_unicodechars);
+    ASSERT_STREQ("你好吗", chinese_unicodechars.c_str());
 }
 
 TEST(StringUtilsTest, ShouldJoinString) {
