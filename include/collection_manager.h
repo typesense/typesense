@@ -26,6 +26,7 @@ private:
     static constexpr const char* COLLECTION_ID_KEY = "id";
     static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "fields";
     static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
+    static constexpr const char* COLLECTION_CREATED = "created_at";
 
     std::string auth_key;
     std::string search_only_auth_key;
@@ -57,7 +58,8 @@ public:
     bool search_only_auth_key_matches(std::string auth_key_sent);
 
     Option<Collection*> create_collection(const std::string name, const std::vector<field> & fields,
-                                          const std::string & default_sorting_field);
+                                          const std::string & default_sorting_field,
+                                          const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)));
 
     Collection* get_collection(const std::string & collection_name);
 
