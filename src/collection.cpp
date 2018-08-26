@@ -30,9 +30,9 @@ struct match_index_t {
     }
 };
 
-Collection::Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-                       const std::vector<field> &fields, const std::string & default_sorting_field,
-                       const size_t num_indices):
+Collection::Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
+                       const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
+                       const std::string & default_sorting_field, const size_t num_indices):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
                        fields(fields), default_sorting_field(default_sorting_field), num_indices(num_indices) {
 
@@ -56,7 +56,8 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         index_threads.push_back(thread);
     }
 
-    num_documents = 0;
+    this->created_at = created_at;
+    this->num_documents = 0;
 }
 
 Collection::~Collection() {
@@ -866,6 +867,10 @@ std::string Collection::get_doc_id_key(const std::string & doc_id) {
 
 std::string Collection::get_name() {
     return name;
+}
+
+uint64_t Collection::get_created_at() {
+    return created_at;
 }
 
 size_t Collection::get_num_documents() {

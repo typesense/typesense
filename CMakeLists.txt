@@ -80,6 +80,7 @@ file(APPEND ${DEP_ROOT_DIR}/libs.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/build")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
 
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
 add_executable(search ${SRC_FILES} src/main/main.cpp)

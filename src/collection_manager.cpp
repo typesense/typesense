@@ -19,9 +19,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     }
 
     std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
+    uint64_t created_at = collection_meta.find((const char*)COLLECTION_CREATED) != collection_meta.end() ?
+                       collection_meta[COLLECTION_CREATED].get<uint64_t>() : 0;
 
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
+                                            created_at,
                                             collection_next_seq_id,
                                             store,
                                             fields,
@@ -150,7 +153,8 @@ bool CollectionManager::search_only_auth_key_matches(std::string auth_key_sent) 
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,
-                                                         const std::string & default_sorting_field) {
+                                                         const std::string & default_sorting_field,
+                                                         const uint64_t created_at) {
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
@@ -176,8 +180,10 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
     collection_meta[COLLECTION_ID_KEY] = next_collection_id;
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
+    collection_meta[COLLECTION_CREATED] = created_at;
 
-    Collection* new_collection = new Collection(name, next_collection_id, 0, store, fields, default_sorting_field);
+    Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
+                                                default_sorting_field);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;

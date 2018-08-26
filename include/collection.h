@@ -39,6 +39,8 @@ private:
 
     uint32_t collection_id;
 
+    uint64_t created_at;
+
     size_t num_documents;
 
     std::vector<Index*> indices;
@@ -75,8 +77,9 @@ private:
 public:
     Collection() = delete;
 
-    Collection(const std::string name, const uint32_t collection_id, const uint32_t next_seq_id, Store *store,
-               const std::vector<field> & fields, const std::string & default_sorting_field, const size_t num_indices=4);
+    Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
+               const uint32_t next_seq_id, Store *store, const std::vector<field> & fields,
+               const std::string & default_sorting_field, const size_t num_indices=4);
 
     ~Collection();
 
@@ -87,6 +90,8 @@ public:
     std::string get_seq_id_collection_prefix();
 
     std::string get_name();
+
+    uint64_t get_created_at();
 
     size_t get_num_documents();
 
