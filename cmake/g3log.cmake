@@ -1,6 +1,6 @@
 # Download and build g3log
 
-set(G3LOG_VERSION 1.3)
+set(G3LOG_VERSION 1.3.2)
 set(G3LOG_NAME g3log-${G3LOG_VERSION})
 set(G3LOG_TAR_PATH ${DEP_ROOT_DIR}/${G3LOG_NAME}.tar.gz)
 
@@ -22,6 +22,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
             "-DCMAKE_BUILD_TYPE=Release"
+            "-DG3_SHARED_LIB=OFF"
             "-H${DEP_ROOT_DIR}/${G3LOG_NAME}"
             "-B${DEP_ROOT_DIR}/${G3LOG_NAME}/build"
             RESULT_VARIABLE
