@@ -58,6 +58,7 @@ include_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/include)
 include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
+include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include)
 include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
 
 # Write dependency include directories to a file
@@ -66,6 +67,7 @@ file(APPEND ${DEP_ROOT_DIR}/includes.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/src")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include")
 
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
