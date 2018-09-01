@@ -13,6 +13,7 @@ nlohmann::json collection_summary_json(Collection *collection) {
 
     json_response["name"] = collection->get_name();
     json_response["num_documents"] = collection->get_num_documents();
+    json_response["created_at"] = collection->get_created_at();
 
     const std::vector<field> & coll_fields = collection->get_fields();
     nlohmann::json fields_arr;
