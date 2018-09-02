@@ -132,6 +132,8 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
         iter->Next();
     }
 
+    delete iter;
+
     return Option<bool>(true);
 }
 

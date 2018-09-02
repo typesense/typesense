@@ -27,12 +27,12 @@ protected:
 public:
     array_base(const uint32_t n=2) {
         size_bytes = METADATA_OVERHEAD + (n * FOR_ELE_SIZE);
-        in = new uint8_t[size_bytes];
+        in = (uint8_t *) malloc(size_bytes * sizeof *in);
         memset(in, 0, size_bytes);
     }
 
     ~array_base() {
-        delete[] in;
+        free(in);
         in = nullptr;
     }
 
