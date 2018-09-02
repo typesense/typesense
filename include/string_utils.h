@@ -20,6 +20,7 @@ struct StringUtils {
 
     ~StringUtils() {
         //delete transliterator;
+        iconv_close(cd);
     }
 
     // Adapted from: http://stackoverflow.com/a/236180/131050

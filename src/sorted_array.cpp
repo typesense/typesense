@@ -9,7 +9,7 @@ void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_lengt
     uint8_t *out = new uint8_t[size_required];
     uint32_t actual_size = for_compress_sorted(sorted_array, out, array_length);
 
-    delete[] in;
+    free(in);
     in = nullptr;
 
     in = out;
