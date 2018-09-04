@@ -16,7 +16,7 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${ICONV_NAME}/Makefile AND BUILD_DEPS STREQUAL "yes")
     message("Configuring libconv locally...")
-    execute_process(COMMAND ./configure "--enable-static" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ICONV_NAME}/ RESULT_VARIABLE ICONV_CONFIGURE)
+    execute_process(COMMAND ./configure "--enable-static=yes" "--enable-shared=no" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ICONV_NAME}/ RESULT_VARIABLE ICONV_CONFIGURE)
     if(NOT ICONV_CONFIGURE EQUAL 0)
         message(FATAL_ERROR "${ICONV_NAME} configure failed!")
     endif()
