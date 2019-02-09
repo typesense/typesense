@@ -68,8 +68,6 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id);
 
-    Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id);
-
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const Topster<512>::KV &field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils, highlight_t &highlight);
@@ -130,7 +128,13 @@ public:
 
     Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
 
+    size_t get_num_indices();
+
+    static uint32_t get_seq_id_key(const std::string & key);
+
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
+
+    Option<uint32_t> par_index_in_memory(const std::vector<std::vector<std::pair<uint32_t, std::string>>> & iter_batch);
 
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
                                const spp::sparse_hash_set<std::string> exclude_fields);
