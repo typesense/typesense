@@ -163,9 +163,7 @@ void Replicator::on_replication_event(void *data) {
         Collection* collection = collection_manager.get_collection_with_id(std::stoi(parts[0]));
         nlohmann::json document = nlohmann::json::parse(replication_event->value);
 
-        // last 4 bytes of the key would be the serialized version of the sequence id
-        std::string serialized_seq_id = replication_event->key.substr(replication_event->key.length() - 4);
-        uint32_t seq_id = StringUtils::deserialize_uint32_t(serialized_seq_id);
+        uint32_t seq_id = Collection::get_seq_id_key(replication_event->key);
         collection->index_in_memory(document, seq_id);
     }
 

@@ -158,7 +158,21 @@ public:
                        const uint32_t total_cost, Topster<512> &topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, int32_t points);
+    static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
+
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
+                                     const std::string & default_sorting_field);
+
+    static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+                                                     const std::string & default_sorting_field,
+                                                     const std::unordered_map<std::string, field> & search_schema,
+                                                     const std::unordered_map<std::string, field> & facet_schema);
+
+    static Option<uint32_t> batch_index(Index *index,
+                                        const std::vector<std::pair<uint32_t, std::string>> & iter_batch,
+                                        const std::string & default_sorting_field,
+                                        const std::unordered_map<std::string, field> & search_schema,
+                                        const std::unordered_map<std::string, field> & facet_schema);
 
     // for limiting number of results on multiple candidates / query rewrites
     enum {SEARCH_LIMIT_NUM = 100};

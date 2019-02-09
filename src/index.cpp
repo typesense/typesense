@@ -53,7 +53,28 @@ Index::~Index() {
     sort_index.clear();
 }
 
-Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id, int32_t points) {
+int32_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
+    int32_t points = 0;
+
+    if(!default_sorting_field.empty()) {
+        if(document[default_sorting_field].is_number_float()) {
+            // serialize float to an integer and reverse the inverted range
+            float n = document[default_sorting_field];
+            memcpy(&points, &n, sizeof(int32_t));
+            points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
+            points = -1 * (INT32_MAX - points);
+        } else {
+            points = document[default_sorting_field];
+        }
+    }
+
+    return points;
+}
+
+Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+                                        const std::string & default_sorting_field) {
+    int32_t points = get_points_from_doc(document, default_sorting_field);
+
     // assumes that validation has already been done
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
@@ -119,7 +140,165 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     }
 
     num_documents += 1;
+    return Option<>(201);
+}
+
+Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+                                                 const std::string & default_sorting_field,
+                                                 const std::unordered_map<std::string, field> & search_schema,
+                                                 const std::unordered_map<std::string, field> & facet_schema) {
+    if(document.count(default_sorting_field) == 0) {
+        return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
+                "but is not found in the document.");
+    }
+
+    if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be of type int32 or float.");
+    }
+
+    if(document[default_sorting_field].is_number_integer() &&
+       document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
+    }
+
+    if(document[default_sorting_field].is_number_float() &&
+       document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
+    }
+
+    for(const std::pair<std::string, field> & field_pair: search_schema) {
+        const std::string & field_name = field_pair.first;
+
+        if(document.count(field_name) == 0) {
+            return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
+                    "but is not found in the document.");
+        }
+
+        if(field_pair.second.type == field_types::STRING) {
+            if(!document[field_name].is_string()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a string.");
+            }
+        } else if(field_pair.second.type == field_types::INT32) {
+            if(!document[field_name].is_number_integer()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int32.");
+            }
+
+            if(document[field_name].get<int64_t>() > INT32_MAX) {
+                return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+            }
+        } else if(field_pair.second.type == field_types::INT64) {
+            if(!document[field_name].is_number_integer()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int64.");
+            }
+        } else if(field_pair.second.type == field_types::FLOAT) {
+            if(!document[field_name].is_number()) { // allows integer to be passed to a float field
+                return Option<>(400, "Field `" + field_name  + "` must be a float.");
+            }
+        } else if(field_pair.second.type == field_types::BOOL) {
+            if(!document[field_name].is_boolean()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool.");
+            }
+        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a string array.");
+            }
+            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a string array.");
+            }
+        } else if(field_pair.second.type == field_types::INT32_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
+            }
+        } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
+                return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
+            }
+        } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a float array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a float array.");
+            }
+        } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_boolean()) {
+                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
+            }
+        }
+    }
+
+    for(const std::pair<std::string, field> & field_pair: facet_schema) {
+        const std::string & field_name = field_pair.first;
+
+        if(document.count(field_name) == 0) {
+            return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
+                    "but is not found in the document.");
+        }
+
+        if(field_pair.second.type == field_types::STRING) {
+            if(!document[field_name].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string.");
+            }
+        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
+            }
+
+            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
+                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
+            }
+        } else {
+            return Option<>(400, "Facet field `" + field_name  + "` must be a string or a string[].");
+        }
+    }
+
     return Option<>(200);
+}
+
+Option<uint32_t> Index::batch_index(Index *index, const std::vector<std::pair<uint32_t, std::string>> & iter_batch,
+                                    const std::string & default_sorting_field,
+                                    const std::unordered_map<std::string, field> & search_schema,
+                                    const std::unordered_map<std::string, field> & facet_schema) {
+    for(auto & kv: iter_batch) {
+        uint32_t seq_id = kv.first;
+
+        nlohmann::json document;
+        try {
+            document = nlohmann::json::parse(kv.second);
+        } catch(...) {
+            return Option<uint32_t>(500, std::string("Error while parsing stored document with sequence ID: " +
+                                                      std::to_string(seq_id)));
+        }
+
+        Option<uint32_t> validation_op = validate_index_in_memory(document, seq_id, default_sorting_field,
+                                                                  search_schema, facet_schema);
+
+        if(!validation_op.ok()) {
+            std::string error_msg = std::string("Error validating document with ID: ") +
+                                    document["id"].get<std::string>() + " - " + validation_op.error();
+            return Option<>(validation_op.code(), error_msg);
+        }
+
+        Option<uint32_t> res = index->index_in_memory(document, seq_id, default_sorting_field);
+        if(!res.ok()) {
+            return res;
+        }
+    }
+
+    return Option<>(201);
 }
 
 void Index::index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
