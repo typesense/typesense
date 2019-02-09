@@ -2,6 +2,7 @@
 #include <vector>
 #include <json.hpp>
 #include "collection_manager.h"
+#include "logger.h"
 
 CollectionManager::CollectionManager() {
 
@@ -89,36 +90,46 @@ Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
 
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
+        LOG(INFO) << "Loading collection " << collection->get_name() << std::endl;
+
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
         const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+
         rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+        std::vector<std::vector<std::pair<uint32_t, std::string>>> iter_batch;
+
+        for(size_t i = 0; i < collection->get_num_indices(); i++) {
+            iter_batch.push_back(std::vector<std::pair<uint32_t, std::string>>());
+        }
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-            const std::string doc_json_str = iter->value().ToString();
+            const uint32_t seq_id = Collection::get_seq_id_key(iter->key().ToString());
+            iter_batch[seq_id % collection->get_num_indices()].push_back(
+                std::make_pair(Collection::get_seq_id_key(iter->key().ToString()), iter->value().ToString())
+            );
 
-            nlohmann::json document;
-            try {
-                document = nlohmann::json::parse(doc_json_str);
-            } catch(...) {
-                delete iter;
-                return Option<bool>(500, std::string("Error while parsing stored document from collection " +
-                                                     collection->get_name() + " with key: ") + iter->key().ToString());
+            if(iter_batch.size() == 1000) {
+                Option<uint32_t> res = collection->par_index_in_memory(iter_batch);
+                for(size_t i = 0; i < collection->get_num_indices(); i++) {
+                    iter_batch[i].clear();
+                }
+
+                if(!res.ok()) {
+                    delete iter;
+                    return Option<bool>(false, res.error());
+                }
             }
 
-            Option<uint32_t> seq_id_op = collection->doc_id_to_seq_id(document["id"]);
-            if(!seq_id_op.ok()) {
-                delete iter;
-                return Option<bool>(500, std::string("Error while fetching sequence id of document id " +
-                                                     document["id"].get<std::string>() + " in collection `" +
-                                                     collection->get_name() + "`"));
-            }
-
-            collection->index_in_memory(document, seq_id_op.get());
             iter->Next();
         }
 
         delete iter;
+
+        Option<uint32_t> res = collection->par_index_in_memory(iter_batch);
+        if(!res.ok()) {
+            return Option<bool>(false, res.error());
+        }
 
         add_to_collections(collection);
     }
