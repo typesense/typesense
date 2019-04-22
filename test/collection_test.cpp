@@ -1293,9 +1293,9 @@ TEST_F(CollectionTest, FilterOnTextFields) {
     query_fields = {"name"};
     std::vector<std::string> facets;
     nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tags: gold", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(3, results["hits"].size());
 
-    std::vector<std::string> ids = {"1", "4", "0", "2"};
+    std::vector<std::string> ids = {"4", "0", "2"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -1303,6 +1303,9 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
@@ -1329,19 +1332,19 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // need not be exact matches (normalization can happen)
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: BrONZe", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    // need to be exact matches
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
-    // when comparators are used, should just treat them as part of search string (special chars will be removed)
+    // when comparators are used, should just treat them as part of search string
     results = coll_array_fields->search("Jeremy", query_fields, "tags:<bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(0, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(0, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -1442,7 +1445,7 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
 
     ASSERT_EQ("gold", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ(4, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
 
     ASSERT_EQ("silver", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
@@ -1476,12 +1479,14 @@ TEST_F(CollectionTest, FacetCounts) {
 
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][3]["count"]);
 
-    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][0]["value"]);
-    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("FINE PLATINUM", results["facet_counts"][0]["counts"][1]["value"]);
     ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][3]["value"]);
 
     collectionManager.drop_collection("coll_array_fields");
 }
