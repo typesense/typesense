@@ -66,7 +66,7 @@ create_response = client.collections.create({
   "fields": [
     {"name": "company_name", "type": "string" },
     {"name": "num_employees", "type": "int32" },
-    {"name": "country", "type": "string", "facet": true }
+    {"name": "country", "type": "string", "facet": True }
   ],
   "default_sorting_field": "num_employees"
 })
