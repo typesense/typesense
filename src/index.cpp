@@ -301,6 +301,37 @@ Option<uint32_t> Index::batch_index(Index *index, const std::vector<std::pair<ui
     return Option<>(201);
 }
 
+void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
+                       const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const {
+    for(auto & kv: token_to_offsets) {
+        art_document art_doc;
+        art_doc.id = seq_id;
+        art_doc.score = score;
+        art_doc.offsets_len = (uint32_t) kv.second.size();
+        art_doc.offsets = new uint32_t[kv.second.size()];
+
+        uint32_t num_hits = 0;
+
+        const unsigned char *key = (const unsigned char *) kv.first.c_str();
+        int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
+
+        art_leaf* leaf = (art_leaf *) art_search(t, key, key_len);
+        if(leaf != NULL) {
+            num_hits = leaf->values->ids.getLength();
+        }
+
+        num_hits += 1;
+
+        for(size_t i=0; i<kv.second.size(); i++) {
+            art_doc.offsets[i] = kv.second[i];
+        }
+
+        art_insert(t, key, key_len, &art_doc, num_hits);
+        delete [] art_doc.offsets;
+        art_doc.offsets = nullptr;
+    }
+}
+
 void Index::index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 8;
     unsigned char key[KEY_LEN];
@@ -415,50 +446,22 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
     insert_doc(score, t, seq_id, token_to_offsets);
 }
 
-void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
-                       const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const {
-    for(auto & kv: token_to_offsets) {
-        art_document art_doc;
-        art_doc.id = seq_id;
-        art_doc.score = score;
-        art_doc.offsets_len = (uint32_t) kv.second.size();
-        art_doc.offsets = new uint32_t[kv.second.size()];
-
-        uint32_t num_hits = 0;
-
-        const unsigned char *key = (const unsigned char *) kv.first.c_str();
-        int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
-
-        art_leaf* leaf = (art_leaf *) art_search(t, key, key_len);
-        if(leaf != NULL) {
-            num_hits = leaf->values->ids.getLength();
-        }
-
-        num_hits += 1;
-
-        for(size_t i=0; i<kv.second.size(); i++) {
-            art_doc.offsets[i] = kv.second[i];
-        }
-
-        art_insert(t, key, key_len, &art_doc, num_hits);
-        delete [] art_doc.offsets;
-        art_doc.offsets = nullptr;
-    }
-}
-
 void Index::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
                                           uint32_t seq_id, const bool verbatim) const {
     std::unordered_map<std::string, std::unordered_map<size_t, std::vector<uint32_t>>> token_array_positions;
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string & str = strings[array_index];
-
         std::vector<std::string> tokens;
-        StringUtils::split(str, tokens, " ");
+        std::string delim = verbatim ? "" : " ";
+
+        StringUtils::split(str, tokens, delim);
 
         for(uint32_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
-            string_utils.unicode_normalize(token);
+            if(!verbatim) {
+                string_utils.unicode_normalize(token);
+            }
             token_array_positions[token][array_index].push_back(i);
         }
     }
@@ -687,16 +690,23 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                 }
             } else if(f.is_string()) {
                 for(const std::string & filter_value: a_filter.values) {
-                    // we have to tokenize the string, standardize it and then do an exact match
                     std::vector<std::string> str_tokens;
-                    StringUtils::split(filter_value, str_tokens, " ");
+
+                    bool is_facet_field = (facet_index.count(a_filter.field_name) != 0);
+                    std::string delim = is_facet_field ? "" : " ";
+                    StringUtils::split(filter_value, str_tokens, delim);
 
                     uint32_t* filtered_ids = nullptr;
                     size_t filtered_size = 0;
 
                     for(size_t i = 0; i < str_tokens.size(); i++) {
                         std::string & str_token = str_tokens[i];
-                        string_utils.unicode_normalize(str_token);
+
+                        if(!is_facet_field) {
+                            // We should not normalize when the filter field is also a facet field
+                            string_utils.unicode_normalize(str_token);
+                        }
+
                         art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                                  str_token.length()+1);
                         if(leaf == nullptr) {
