@@ -1,4 +1,5 @@
 #include "core_api.h"
+#include "config.h"
 #include "typesense_server_utils.h"
 
 void master_server_routes() {
@@ -41,15 +42,29 @@ void replica_server_routes() {
 }
 
 int main(int argc, char **argv) {
+    Config config;
+
     cmdline::parser options;
     init_cmdline_options(options, argc, argv);
-    options.parse_check(argc, argv);
+    options.parse(argc, argv);
+
+    // Command line args override env vars
+    config.load_config_env();
+    config.load_config_cmd_args(options);
+
+    Option<bool> config_validitation = config.is_valid();
+
+    if(!config_validitation.ok()) {
+        std::cerr << "Invalid configuration: " << config_validitation.error() << std::endl;
+        std::cerr << "Command line " << options.usage() << std::endl;
+        exit(1);
+    }
 
     std::unique_ptr<g3::LogWorker> log_worker = g3::LogWorker::createLogWorker();
-    int ret_code = init_logger(options, log_worker);
+    int ret_code = init_logger(config, log_worker);
     if(ret_code != 0) {
         return ret_code;
     }
 
-    return run_server(options, &master_server_routes, &replica_server_routes);
+    return run_server(config, &master_server_routes, &replica_server_routes);
 }
