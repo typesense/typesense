@@ -32,23 +32,23 @@ public:
 
     // setters
 
-    void set_data_dir(std::string & data_dir) {
+    void set_data_dir(const std::string & data_dir) {
         this->data_dir = data_dir;
     }
 
-    void set_log_dir(std::string & log_dir) {
+    void set_log_dir(const std::string & log_dir) {
         this->log_dir = log_dir;
     }
 
-    void set_api_key(std::string & api_key) {
+    void set_api_key(const std::string & api_key) {
         this->api_key = api_key;
     }
 
-    void set_search_only_api_key(std::string & search_only_api_key) {
+    void set_search_only_api_key(const std::string & search_only_api_key) {
         this->search_only_api_key = search_only_api_key;
     }
 
-    void set_listen_address(std::string & listen_address) {
+    void set_listen_address(const std::string & listen_address) {
         this->listen_address = listen_address;
     }
 
@@ -56,15 +56,15 @@ public:
         this->listen_port = listen_port;
     }
 
-    void set_master(std::string & master) {
+    void set_master(const std::string & master) {
         this->master = master;
     }
 
-    void set_ssl_cert(std::string & ssl_cert) {
+    void set_ssl_cert(const std::string & ssl_cert) {
         this->ssl_certificate = ssl_cert;
     }
 
-    void set_ssl_cert_key(std::string & ssl_cert_key) {
+    void set_ssl_cert_key(const std::string & ssl_cert_key) {
         this->ssl_certificate_key = ssl_cert_key;
     }
 
@@ -149,11 +149,12 @@ public:
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
-        this->data_dir = options.get<std::string>("data-dir");
-        this->log_dir = options.get<std::string>("log-dir");
-        this->api_key = options.get<std::string>("api-key");
+        this->data_dir = options.exist("data-dir") ? options.get<std::string>("data-dir") : "";
+        this->log_dir = options.exist("log-dir") ? options.get<std::string>("log-dir") : "";
+        this->api_key = options.exist("api-key") ? options.get<std::string>("api-key") : "";
 
-        this->search_only_api_key = options.get<std::string>("search-only-api-key");
+        this->search_only_api_key = options.exist("search-only-api-key") ?
+                                    options.get<std::string>("search-only-api-key") : "";
 
         if(options.exist("listen-address")) {
             this->listen_address = options.get<std::string>("listen-address");
@@ -163,9 +164,11 @@ public:
             this->listen_port = options.get<uint32_t>("listen-port");
         }
 
-        this->master = options.get<std::string>("master");
-        this->ssl_certificate = options.get<std::string>("ssl-certificate");
-        this->ssl_certificate_key = options.get<std::string>("ssl-certificate-key");
+        this->master = options.exist("master") ? options.get<std::string>("master") : "";
+        this->ssl_certificate = options.exist("ssl-certificate") ?
+                                options.get<std::string>("ssl-certificate") : "";
+        this->ssl_certificate_key = options.exist("ssl-certificate-key") ?
+                                    options.get<std::string>("ssl-certificate-key") : "";
 
         this->enable_cors = options.exist("enable-cors");
     }
@@ -183,5 +186,4 @@ public:
 
         return Option<bool>(true);
     }
-
 };
