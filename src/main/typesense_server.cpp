@@ -50,6 +50,7 @@ int main(int argc, char **argv) {
 
     // Command line args override env vars
     config.load_config_env();
+    config.load_config_file(options);
     config.load_config_cmd_args(options);
 
     Option<bool> config_validitation = config.is_valid();
