@@ -3,6 +3,7 @@
 #include <cmdline.h>
 #include "option.h"
 #include "string_utils.h"
+#include "INIReader.h"
 
 class Config {
 private:
@@ -21,6 +22,9 @@ private:
     std::string ssl_certificate_key;
 
     bool enable_cors;
+
+    std::string config_file;
+    int config_file_validity;
 
 public:
 
@@ -148,40 +152,121 @@ public:
         this->enable_cors = ("TRUE" == enable_cors_str) ? true : false;
     }
 
-    void load_config_cmd_args(cmdline::parser & options) {
-        this->data_dir = options.exist("data-dir") ? options.get<std::string>("data-dir") : "";
-        this->log_dir = options.exist("log-dir") ? options.get<std::string>("log-dir") : "";
-        this->api_key = options.exist("api-key") ? options.get<std::string>("api-key") : "";
+    void load_config_file(cmdline::parser & options) {
+        this->config_file = options.exist("config") ? options.get<std::string>("config") : "";
 
-        this->search_only_api_key = options.exist("search-only-api-key") ?
-                                    options.get<std::string>("search-only-api-key") : "";
+        if(!options.exist("config")) {
+            config_file_validity = 0;
+            return;
+        }
+
+        this->config_file = options.get<std::string>("config");
+
+        INIReader reader(this->config_file);
+
+        if (reader.ParseError() != 0) {
+            config_file_validity = -1;
+            return ;
+        }
+
+        config_file_validity = 1;
+        
+        if(reader.Exists("server", "data-dir")) {
+            this->data_dir = reader.Get("server", "data-dir", "");
+        }
+
+        if(reader.Exists("server", "log-dir")) {
+            this->log_dir = reader.Get("server", "log-dir", "");
+        }
+
+        if(reader.Exists("server", "api-key")) {
+            this->api_key = reader.Get("server", "api-key", "");
+        }
+
+        if(reader.Exists("server", "search-only-api-key")) {
+            this->search_only_api_key = reader.Get("server", "search-only-api-key", "");
+        }
+
+        if(reader.Exists("server", "listen-address")) {
+            this->listen_address = reader.Get("server", "listen-address", "");
+        }
+
+        if(reader.Exists("server", "master")) {
+            this->master = reader.Get("server", "master", "");
+        }
+
+        if(reader.Exists("server", "ssl-certificate")) {
+            this->ssl_certificate = reader.Get("server", "ssl-certificate", "");
+        }
+
+        if(reader.Exists("server", "ssl-certificate-key")) {
+            this->ssl_certificate_key = reader.Get("server", "ssl-certificate-key", "");
+        }
+
+        if(reader.Exists("server", "listen-port")) {
+            this->listen_port = reader.GetInteger("server", "listen-port", 8108);
+        }
+
+        if(reader.Exists("server", "enable-cors")) {
+            this->enable_cors = reader.GetBoolean("server", "enable-cors", false);
+        }
+    }
+
+    void load_config_cmd_args(cmdline::parser & options) {
+        if(options.exist("data-dir")) {
+            this->data_dir = options.get<std::string>("data-dir");
+        }
+
+        if(options.exist("log-dir")) {
+            this->log_dir = options.get<std::string>("log-dir");
+        }
+
+        if(options.exist("api-key")) {
+            this->api_key = options.get<std::string>("api-key");
+        }
+
+        if(options.exist("search-only-api-key")) {
+            this->search_only_api_key = options.get<std::string>("search-only-api-key");
+        }
 
         if(options.exist("listen-address")) {
             this->listen_address = options.get<std::string>("listen-address");
+        }
+
+        if(options.exist("master")) {
+            this->master = options.get<std::string>("master");
+        }
+
+        if(options.exist("ssl-certificate")) {
+            this->ssl_certificate = options.get<std::string>("ssl-certificate");
+        }
+
+        if(options.exist("ssl-certificate-key")) {
+            this->ssl_certificate_key = options.get<std::string>("ssl-certificate-key");
         }
 
         if(options.exist("listen-port")) {
             this->listen_port = options.get<uint32_t>("listen-port");
         }
 
-        this->master = options.exist("master") ? options.get<std::string>("master") : "";
-        this->ssl_certificate = options.exist("ssl-certificate") ?
-                                options.get<std::string>("ssl-certificate") : "";
-        this->ssl_certificate_key = options.exist("ssl-certificate-key") ?
-                                    options.get<std::string>("ssl-certificate-key") : "";
-
-        this->enable_cors = options.exist("enable-cors");
+        if(options.exist("enable-cors")) {
+            this->enable_cors = options.exist("enable-cors");
+        }
     }
 
     // validation
 
     Option<bool> is_valid() {
+        if(this->config_file_validity == -1) {
+            return Option<bool>(500, "Error parsing the configuration file.");
+        }
+
         if(data_dir.empty()) {
-            return Option<bool>(404, "Data directory is not specified.");
+            return Option<bool>(500, "Data directory is not specified.");
         }
 
         if(api_key.empty()) {
-            return Option<bool>(404, "API key is not specified.");
+            return Option<bool>(500, "API key is not specified.");
         }
 
         return Option<bool>(true);
