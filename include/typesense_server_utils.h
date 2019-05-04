@@ -3,6 +3,7 @@
 #include <string>
 #include <iostream>
 #include <cmdline.h>
+#include "config.h"
 #include "logger.h"
 #include "store.h"
 #include "collection_manager.h"
@@ -20,6 +21,6 @@ bool directory_exists(const std::string & dir_path);
 
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv);
 
-int init_logger(cmdline::parser & options, std::unique_ptr<g3::LogWorker> & log_worker);
+int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker);
 
-int run_server(cmdline::parser & options, void (*master_server_routes)(), void (*replica_server_routes)());
+int run_server(Config & config, void (*master_server_routes)(), void (*replica_server_routes)());

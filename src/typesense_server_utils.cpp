@@ -18,23 +18,27 @@ bool directory_exists(const std::string & dir_path) {
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
-    options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
-    options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
+    options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", false);
+    options.add<std::string>("api-key", 'a', "API key that allows all operations.", false);
     options.add<std::string>("search-only-api-key", 's', "API key that allows only searches.", false);
 
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
-    options.add<std::string>("master", 'm', "Provide the master's address in http(s)://<master_address>:<master_port> "
-            "format to start the server as a read-only replica.", false, "");
+    options.add<std::string>("master", 'm', "To start the server as read-only replica, "
+                             "provide the master's address in http(s)://<master_address>:<master_port> format.",
+                             false, "");
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
+
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
+
+    options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 }
 
-int init_logger(cmdline::parser & options, std::unique_ptr<g3::LogWorker> & log_worker) {
+int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
     // remove SIGTERM since we handle it on our own
     g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
 
@@ -42,7 +46,7 @@ int init_logger(cmdline::parser & options, std::unique_ptr<g3::LogWorker> & log_
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
 
-    std::string log_dir = options.get<std::string>("log-dir");
+    std::string log_dir = config.get_log_dir();
 
     if(log_dir.empty()) {
         // use console logger if log dir is not specified
@@ -65,22 +69,22 @@ int init_logger(cmdline::parser & options, std::unique_ptr<g3::LogWorker> & log_
     return 0;
 }
 
-int run_server(cmdline::parser & options, void (*master_server_routes)(), void (*replica_server_routes)()) {
+int run_server(Config & config, void (*master_server_routes)(), void (*replica_server_routes)()) {
     LOG(INFO) << "Starting Typesense " << TYPESENSE_VERSION << std::flush;
 
-    if(!directory_exists(options.get<std::string>("data-dir"))) {
-        LOG(ERR) << "Typesense failed to start. " << "Data directory " << options.get<std::string>("data-dir")
+    if(!directory_exists(config.get_data_dir())) {
+        LOG(ERR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
                  << " does not exist.";
         return 1;
     }
 
-    Store store(options.get<std::string>("data-dir"));
+    Store store(config.get_data_dir());
 
     LOG(INFO) << "Loading collections from disk...";
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<bool> init_op = collectionManager.init(&store, options.get<std::string>("api-key"),
-                                                  options.get<std::string>("search-only-api-key"));
+    Option<bool> init_op = collectionManager.init(&store, config.get_api_key(),
+                                                  config.get_search_only_api_key());
 
     if(init_op.ok()) {
         LOG(INFO) << "Finished loading collections from disk.";
@@ -92,11 +96,11 @@ int run_server(cmdline::parser & options, void (*master_server_routes)(), void (
     curl_global_init(CURL_GLOBAL_SSL);
 
     server = new HttpServer(
-            options.get<std::string>("listen-address"),
-            options.get<uint32_t>("listen-port"),
-            options.get<std::string>("ssl-certificate"),
-            options.get<std::string>("ssl-certificate-key"),
-            options.exist("enable-cors")
+            config.get_listen_address(),
+            config.get_listen_port(),
+            config.get_ssl_cert(),
+            config.get_ssl_cert_key(),
+            config.get_enable_cors()
     );
 
     server->set_auth_handler(handle_authentication);
@@ -104,12 +108,12 @@ int run_server(cmdline::parser & options, void (*master_server_routes)(), void (
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
 
-    if(options.get<std::string>("master").empty()) {
+    if(config.get_master().empty()) {
         master_server_routes();
     } else {
         replica_server_routes();
 
-        const std::string & master_host_port = options.get<std::string>("master");
+        const std::string & master_host_port = config.get_master();
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
         if(parts.size() != 3) {
@@ -118,8 +122,8 @@ int run_server(cmdline::parser & options, void (*master_server_routes)(), void (
         }
 
         LOG(INFO) << "Typesense is starting as a read-only replica... Spawning replication thread...";
-        std::thread replication_thread([&master_host_port, &store, &options]() {
-            Replicator::start(::server, master_host_port, options.get<std::string>("api-key"), store);
+        std::thread replication_thread([&master_host_port, &store, &config]() {
+            Replicator::start(::server, master_host_port, config.get_api_key(), store);
         });
 
         replication_thread.detach();
