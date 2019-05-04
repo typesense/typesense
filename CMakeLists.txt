@@ -90,7 +90,7 @@ add_executable(benchmark ${SRC_FILES} src/main/benchmark.cpp)
 add_executable(typesense-test ${SRC_FILES} test/main.cpp test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
                test/collection_test.cpp test/collection_manager_test.cpp
                test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp test/array_utils_test.cpp
-               test/string_utils_test.cpp)
+               test/string_utils_test.cpp test/config_test.cpp)
 
 add_library(typesense-core STATIC ${SRC_FILES})
 
