@@ -131,6 +131,49 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     return Option<nlohmann::json>(document);
 }
 
+Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) {
+    std::vector<std::string> json_lines;
+    StringUtils::split(json_lines_str, json_lines, "\n");
+
+    if(json_lines.size() == 0) {
+        return Option<nlohmann::json>(400, "The request body was empty. So, no records were imported.");
+    }
+
+    std::vector<Option<bool>> errors;
+    size_t record_num = 1;
+    size_t record_imported = 0;
+
+    for(const std::string & json_line: json_lines) {
+        Option<nlohmann::json> op = add(json_line);
+
+        if(!op.ok()) {
+            std::string err_msg = std::string("Error importing record in line number ") +
+                                  std::to_string(record_num) + ": " + op.error() + " On record number: ";
+            Option<bool> err = Option<bool>(op.code(), err_msg);
+            errors.push_back(err);
+        } else {
+            record_imported++;
+        }
+
+        record_num++;
+    }
+
+    nlohmann::json resp;
+    resp["ok"] = (errors.size() == 0);
+    resp["num_imported"] = record_imported;
+
+    if(errors.size() != 0) {
+        resp["errors"] = nlohmann::json::array();
+        for(const Option<bool> & err: errors) {
+            nlohmann::json err_obj;
+            err_obj["message"] = err.error();
+            resp["errors"].push_back(err_obj);
+        }
+    }
+
+    return Option<nlohmann::json>(resp);
+}
+
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                                      search_schema, facet_schema);
