@@ -148,7 +148,7 @@ Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) 
 
         if(!op.ok()) {
             std::string err_msg = std::string("Error importing record in line number ") +
-                                  std::to_string(record_num) + ": " + op.error() + " On record number: ";
+                                  std::to_string(record_num) + ": " + op.error();
             Option<bool> err = Option<bool>(op.code(), err_msg);
             errors.push_back(err);
         } else {
