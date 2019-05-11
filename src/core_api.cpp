@@ -362,7 +362,7 @@ void collection_export_handler(http_req* req, http_res* res, void* data) {
     }
 }
 
-void get_collection_export(http_req & req, http_res & res) {
+void get_export_documents(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
@@ -397,6 +397,24 @@ void post_add_document(http_req & req, http_res & res) {
     } else {
         res.send_201(inserted_doc_op.get().dump());
     }
+}
+
+void post_import_documents(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        return res.send_404();
+    }
+
+    Option<nlohmann::json> result = collection->add_many(req.body);
+
+    if(!result.ok()) {
+        res.send(result.code(), result.error());
+        return ;
+    }
+
+    res.send_200(result.get().dump());
 }
 
 void get_fetch_document(http_req & req, http_res & res) {
