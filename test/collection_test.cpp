@@ -1107,6 +1107,88 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionTest, ImportDocuments) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::stringstream strstream;
+    strstream << infile.rdbuf();
+    std::string import_records = strstream.str();
+    infile.close();
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("starring", field_types::STRING, false),
+        field("cast", field_types::STRING_ARRAY, false),
+        field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+    }
+
+    // try importing records
+
+    Option<nlohmann::json> import_res = coll_mul_fields->add_many(import_records);
+    ASSERT_TRUE(import_res.ok());
+    nlohmann::json import_response = import_res.get();
+    ASSERT_TRUE(import_response["ok"].get<bool>());
+    ASSERT_EQ(18, import_response["num_imported"].get<int>());
+    ASSERT_EQ(0, import_response.count("errors"));
+
+    // now try searching for records
+
+    query_fields = {"title", "starring"};
+    std::vector<std::string> facets;
+
+    auto x = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+
+    nlohmann::json results = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
+
+    std::vector<std::string> ids = {"3", "2", "1", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // verify that empty import is caught gracefully
+    import_res = coll_mul_fields->add_many("");
+    ASSERT_FALSE(import_res.ok());
+    ASSERT_STREQ("The request body was empty. So, no records were imported.", import_res.error().c_str());
+
+    // verify that only bad records are rejected, rest must be imported (records 2 and 4 are bad)
+    std::string more_records = std::string("{\"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                                   "\"cast\": [\"Tom Skerritt\"] }\n") +
+                               "{\"title\": 123, \"starring\": \"Jazz Gosh\", \"points\": 23, "
+                                   "\"cast\": [\"Tom Skerritt\"] }\n" +
+                               "{\"title\": \"Test3\", \"starring\": \"Brad Fin\", \"points\": 11, "
+                                   "\"cast\": [\"Tom Skerritt\"] }\n" +
+                               "{\"title\": \"Test4\", \"points\": 55, "
+                                   "\"cast\": [\"Tom Skerritt\"] }\n";
+
+    import_res = coll_mul_fields->add_many(more_records);
+    ASSERT_TRUE(import_res.ok());
+
+    import_response = import_res.get();
+    ASSERT_FALSE(import_response["ok"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+    ASSERT_EQ(1, import_response.count("errors"));
+    ASSERT_EQ(2, import_response["errors"].size());
+
+    ASSERT_STREQ("Error importing record in line number 2: Field `title` must be a string.",
+                 import_response["errors"][0]["message"].get<std::string>().c_str());
+
+    ASSERT_STREQ("Error importing record in line number 4: Field `starring` has been declared in the schema, but is not "
+                 "found in the document.", import_response["errors"][1]["message"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll_mul_fields");
+}
+
 TEST_F(CollectionTest, SortOnFloatFields) {
     Collection *coll_float_fields;
 
