@@ -20,7 +20,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, "auth_key", "search_auth_key");
+        collectionManager.init(store, 4, "auth_key", "search_auth_key");
 
         search_fields = {
                 field("title", field_types::STRING, false),
@@ -153,7 +153,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, "auth_key", "search_auth_key");
+    collectionManager2.init(store, 4, "auth_key", "search_auth_key");
 
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);
@@ -210,7 +210,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *store = new Store(state_dir_path);
-    cmanager.init(store, "auth_key", "search_auth_key");
+    cmanager.init(store, 4, "auth_key", "search_auth_key");
 
     // try resolving on a blank slate
     Option<std::string> collection_option = cmanager.resolve_symlink("collection");
@@ -256,7 +256,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
-    cmanager2.init(store, "auth_key", "search_auth_key");
+    cmanager2.init(store, 4, "auth_key", "search_auth_key");
     collection_option = cmanager2.resolve_symlink("company");
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2019", collection_option.get());

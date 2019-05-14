@@ -31,6 +31,8 @@ private:
     std::string auth_key;
     std::string search_only_auth_key;
 
+    size_t default_num_indices;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -44,7 +46,10 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    Option<bool> init(Store *store, const std::string & auth_key, const std::string & search_only_auth_key);
+    Option<bool> init(Store *store,
+                      const size_t default_num_indices,
+                      const std::string & auth_key,
+                      const std::string & search_only_auth_key);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();

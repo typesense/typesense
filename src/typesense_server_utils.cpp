@@ -83,7 +83,9 @@ int run_server(Config & config, void (*master_server_routes)(), void (*replica_s
     LOG(INFO) << "Loading collections from disk...";
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<bool> init_op = collectionManager.init(&store, config.get_api_key(),
+    Option<bool> init_op = collectionManager.init(&store,
+                                                  config.get_indices_per_collection(),
+                                                  config.get_api_key(),
                                                   config.get_search_only_api_key());
 
     if(init_op.ok()) {

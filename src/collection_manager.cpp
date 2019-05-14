@@ -29,7 +29,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             collection_next_seq_id,
                                             store,
                                             fields,
-                                            default_sorting_field);
+                                            default_sorting_field,
+                                            default_num_indices);
 
     return collection;
 }
@@ -39,11 +40,14 @@ void CollectionManager::add_to_collections(Collection* collection) {
     collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
 }
 
-Option<bool> CollectionManager::init(Store *store, const std::string & auth_key,
+Option<bool> CollectionManager::init(Store *store,
+                                     const size_t default_num_indices,
+                                     const std::string & auth_key,
                                      const std::string & search_only_auth_key) {
     this->store = store;
     this->auth_key = auth_key;
     this->search_only_auth_key = search_only_auth_key;
+    this->default_num_indices = default_num_indices;
 
     std::string next_collection_id_str;
     StoreStatus next_coll_id_status = store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
@@ -196,7 +200,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
     collection_meta[COLLECTION_CREATED] = created_at;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field);
+                                                default_sorting_field, this->default_num_indices);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;

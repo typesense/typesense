@@ -23,6 +23,8 @@ private:
 
     bool enable_cors;
 
+    size_t indices_per_collection;
+
     std::string config_file;
     int config_file_validity;
 
@@ -32,6 +34,7 @@ public:
         this->listen_address = "0.0.0.0";
         this->listen_port = 8108;
         this->enable_cors = false;
+        this->indices_per_collection = 4;
     }
 
     // setters
@@ -75,6 +78,10 @@ public:
     void set_enable_cors(bool enable_cors) {
         this->enable_cors = enable_cors;
     }
+
+    void set_indices_per_collection(size_t indices_per_collection) {
+        this->indices_per_collection  = indices_per_collection;
+    }
     
     // getters
 
@@ -116,6 +123,10 @@ public:
 
     bool get_enable_cors() {
         return this->enable_cors;
+    }
+
+    size_t get_indices_per_collection() {
+        return indices_per_collection;
     }
 
     // loaders
