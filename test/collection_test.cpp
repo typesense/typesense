@@ -21,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, "auth_key", "search_auth_key");
+        collectionManager.init(store, 4, "auth_key", "search_auth_key");
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         std::vector<field> search_fields = {
