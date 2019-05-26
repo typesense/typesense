@@ -81,8 +81,6 @@ public:
 
     ~Collection();
 
-    long long int micros = 0;
-
     static std::string get_next_seq_id_key(const std::string & collection_name);
 
     static std::string get_meta_key(const std::string & collection_name);

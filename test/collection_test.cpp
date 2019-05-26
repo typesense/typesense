@@ -1203,12 +1203,23 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
-    std::cout << import_response << std::endl;
-
     ASSERT_FALSE(import_response["items"][0]["success"].get<bool>());
     ASSERT_TRUE(import_response["items"][1]["success"].get<bool>());
 
     ASSERT_STREQ("A document with id id1 already exists.", import_response["items"][0]["error"].get<std::string>().c_str());
+
+    // handle bad import json
+
+    more_records = std::string("[]");
+    import_res = coll_mul_fields->add_many(more_records);
+    ASSERT_TRUE(import_res.ok());
+
+    import_response = import_res.get();
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+    ASSERT_EQ(1, import_response["items"].size());
+    ASSERT_STREQ("Bad JSON.", import_response["items"][0]["error"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
