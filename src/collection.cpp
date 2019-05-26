@@ -95,6 +95,10 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
         return Option<uint32_t>(400, "Bad JSON.");
     }
 
+    if(!document.is_object()) {
+        return Option<uint32_t>(400, "Bad JSON.");
+    }
+
     uint32_t seq_id = get_next_seq_id();
     std::string seq_id_str = std::to_string(seq_id);
 
@@ -202,7 +206,6 @@ Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) 
     resp["num_imported"] = result.num_indexed;
 
     resp["items"] = nlohmann::json::array();
-
     for(const index_result & item: result.items) {
         nlohmann::json item_obj;
 
