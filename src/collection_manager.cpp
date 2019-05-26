@@ -112,10 +112,12 @@ Option<bool> CollectionManager::init(Store *store,
             const uint32_t seq_id = Collection::get_seq_id_key(iter->key().ToString());
 
             nlohmann::json document;
-            Option<uint32_t> seq_id_doc_op = collection->to_doc(iter->value().ToString(), document);
 
-            if(!seq_id_doc_op.ok()) {
-                return Option<bool>(500, "Error while parsing document."); // FIXME: populate error
+            try {
+                document = nlohmann::json::parse(iter->value().ToString());
+            } catch(const std::exception& e) {
+                LOG(ERR) << "JSON error: " << e.what();
+                return Option<bool>(false, "Bad JSON.");
             }
 
             iter_batch[seq_id % collection->get_num_indices()].push_back(
@@ -129,9 +131,12 @@ Option<bool> CollectionManager::init(Store *store,
                     iter_batch[i].clear();
                 }
 
-                if(res.num_indexed != iter_batch.size()) {
+                if(res.num_indexed != res.items.size()) {
                     delete iter;
-                    return Option<bool>(false, "Error while loading records.");  // FIXME: populate actual record error
+                    const Option<std::string> & index_error_op = get_first_index_error(res.items);
+                    if(index_error_op.ok()) {
+                        return Option<bool>(false, index_error_op.get());
+                    }
                 }
             }
 
@@ -143,8 +148,11 @@ Option<bool> CollectionManager::init(Store *store,
         batch_index_result res;
         collection->par_index_in_memory(iter_batch, res);
 
-        if(res.num_indexed != iter_batch.size()) {
-            return Option<bool>(false, "Error while loading records.");  // FIXME: populate actual record error
+        if(res.num_indexed != res.items.size()) {
+            const Option<std::string> & index_error_op = get_first_index_error(res.items);
+            if(index_error_op.ok()) {
+                return Option<bool>(false, index_error_op.get());
+            }
         }
 
         add_to_collections(collection);
