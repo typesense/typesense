@@ -37,6 +37,16 @@ private:
 
     ~CollectionManager() = default;
 
+    Option<std::string> get_first_index_error(const std::vector<index_result> & items) {
+        for(const auto & item: items) {
+            if(!item.index_op.ok()) {
+                return Option<std::string>(item.index_op.error());
+            }
+        }
+
+        return Option<std::string>(404, "Not found");
+    }
+
 public:
     static CollectionManager & get_instance() {
         static CollectionManager instance;
