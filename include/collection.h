@@ -113,6 +113,8 @@ public:
 
     std::string get_default_sorting_field();
 
+    Option<uint32_t> to_doc(const std::string & json_str, nlohmann::json & document);
+
     Option<nlohmann::json> add(const std::string & json_str);
 
     Option<nlohmann::json> add_many(const std::string & json_str);
@@ -136,7 +138,8 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
-    Option<uint32_t> par_index_in_memory(const std::vector<std::vector<std::pair<uint32_t, std::string>>> & iter_batch);
+    void par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
+                             batch_index_result & result);
 
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
                                const spp::sparse_hash_set<std::string> exclude_fields);

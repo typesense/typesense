@@ -1133,7 +1133,7 @@ TEST_F(CollectionTest, ImportDocuments) {
     Option<nlohmann::json> import_res = coll_mul_fields->add_many(import_records);
     ASSERT_TRUE(import_res.ok());
     nlohmann::json import_response = import_res.get();
-    ASSERT_TRUE(import_response["ok"].get<bool>());
+    ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
     ASSERT_EQ(0, import_response.count("errors"));
 
@@ -1162,7 +1162,7 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_STREQ("The request body was empty. So, no records were imported.", import_res.error().c_str());
 
     // verify that only bad records are rejected, rest must be imported (records 2 and 4 are bad)
-    std::string more_records = std::string("{\"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+    std::string more_records = std::string("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                                    "\"cast\": [\"Tom Skerritt\"] }\n") +
                                "{\"title\": 123, \"starring\": \"Jazz Gosh\", \"points\": 23, "
                                    "\"cast\": [\"Tom Skerritt\"] }\n" +
@@ -1175,16 +1175,51 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_TRUE(import_res.ok());
 
     import_response = import_res.get();
-    ASSERT_FALSE(import_response["ok"].get<bool>());
+    ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
-    ASSERT_EQ(1, import_response.count("errors"));
-    ASSERT_EQ(2, import_response["errors"].size());
+    ASSERT_EQ(4, import_response["items"].size());
 
-    ASSERT_STREQ("Error importing record in line number 2: Field `title` must be a string.",
-                 import_response["errors"][0]["message"].get<std::string>().c_str());
+    ASSERT_TRUE(import_response["items"][0]["success"].get<bool>());
+    ASSERT_FALSE(import_response["items"][1]["success"].get<bool>());
+    ASSERT_TRUE(import_response["items"][2]["success"].get<bool>());
+    ASSERT_FALSE(import_response["items"][3]["success"].get<bool>());
 
-    ASSERT_STREQ("Error importing record in line number 4: Field `starring` has been declared in the schema, but is not "
-                 "found in the document.", import_response["errors"][1]["message"].get<std::string>().c_str());
+    ASSERT_STREQ("Field `title` must be a string.", import_response["items"][1]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("Field `starring` has been declared in the schema, but is not found in the document.",
+                 import_response["items"][3]["error"].get<std::string>().c_str());
+
+    // record with duplicate IDs
+
+    more_records = std::string("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                                "\"cast\": [\"Tom Skerritt\"] }\n") +
+                                "{\"id\": \"id2\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                                "\"cast\": [\"Tom Skerritt\"] }";
+
+    import_res = coll_mul_fields->add_many(more_records);
+    ASSERT_TRUE(import_res.ok());
+
+    import_response = import_res.get();
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    ASSERT_FALSE(import_response["items"][0]["success"].get<bool>());
+    ASSERT_TRUE(import_response["items"][1]["success"].get<bool>());
+
+    ASSERT_STREQ("A document with id id1 already exists.", import_response["items"][0]["error"].get<std::string>().c_str());
+
+    // handle bad import json
+
+    more_records = std::string("[]");
+    import_res = coll_mul_fields->add_many(more_records);
+    ASSERT_TRUE(import_res.ok());
+
+    import_response = import_res.get();
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+    ASSERT_EQ(1, import_response["items"].size());
+    ASSERT_STREQ("Bad JSON.", import_response["items"][0]["error"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_mul_fields");
 }

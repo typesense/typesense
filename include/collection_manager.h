@@ -37,6 +37,16 @@ private:
 
     ~CollectionManager() = default;
 
+    Option<std::string> get_first_index_error(const std::vector<index_result> & items) {
+        for(const auto & item: items) {
+            if(!item.index_op.ok()) {
+                return Option<std::string>(item.index_op.error());
+            }
+        }
+
+        return Option<std::string>(404, "Not found");
+    }
+
 public:
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -49,7 +59,8 @@ public:
     Option<bool> init(Store *store,
                       const size_t default_num_indices,
                       const std::string & auth_key,
-                      const std::string & search_only_auth_key);
+                      const std::string & search_only_auth_key,
+                      const size_t init_batch_size=1000);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();

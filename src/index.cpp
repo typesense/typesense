@@ -268,37 +268,38 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     return Option<>(200);
 }
 
-Option<uint32_t> Index::batch_index(Index *index, const std::vector<std::pair<uint32_t, std::string>> & iter_batch,
+batch_index_result Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                     const std::string & default_sorting_field,
                                     const std::unordered_map<std::string, field> & search_schema,
                                     const std::unordered_map<std::string, field> & facet_schema) {
-    for(auto & kv: iter_batch) {
-        uint32_t seq_id = kv.first;
 
-        nlohmann::json document;
-        try {
-            document = nlohmann::json::parse(kv.second);
-        } catch(...) {
-            return Option<uint32_t>(500, std::string("Error while parsing stored document with sequence ID: " +
-                                                      std::to_string(seq_id)));
+    batch_index_result result;
+
+    for(auto & index_rec: iter_batch) {
+        if(index_rec.json_str.empty()) {
+            // indicates bad record (upstream validation failure)
+            continue;
         }
 
-        Option<uint32_t> validation_op = validate_index_in_memory(document, seq_id, default_sorting_field,
+        Option<uint32_t> validation_op = validate_index_in_memory(index_rec.document, index_rec.seq_id,
+                                                                  default_sorting_field,
                                                                   search_schema, facet_schema);
 
         if(!validation_op.ok()) {
-            std::string error_msg = std::string("Error validating document with ID: ") +
-                                    document["id"].get<std::string>() + " - " + validation_op.error();
-            return Option<>(validation_op.code(), error_msg);
+            result.failure(index_rec, validation_op.code(), validation_op.error());
+            continue;
         }
 
-        Option<uint32_t> res = index->index_in_memory(document, seq_id, default_sorting_field);
-        if(!res.ok()) {
-            return res;
+        Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.document, index_rec.seq_id, default_sorting_field);
+        if(!index_mem_op.ok()) {
+            result.failure(index_rec, index_mem_op.code(), index_mem_op.error());
+            continue;
         }
+
+        result.success(index_rec);
     }
 
-    return Option<>(201);
+    return result;
 }
 
 void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
