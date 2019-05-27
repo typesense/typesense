@@ -43,7 +43,8 @@ void CollectionManager::add_to_collections(Collection* collection) {
 Option<bool> CollectionManager::init(Store *store,
                                      const size_t default_num_indices,
                                      const std::string & auth_key,
-                                     const std::string & search_only_auth_key) {
+                                     const std::string & search_only_auth_key,
+                                     const size_t init_batch_size) {
     this->store = store;
     this->auth_key = auth_key;
     this->search_only_auth_key = search_only_auth_key;
@@ -101,27 +102,41 @@ Option<bool> CollectionManager::init(Store *store,
         const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
 
         rocksdb::Iterator* iter = store->scan(seq_id_prefix);
-        std::vector<std::vector<std::pair<uint32_t, std::string>>> iter_batch;
+        std::vector<std::vector<index_record>> iter_batch;
 
         for(size_t i = 0; i < collection->get_num_indices(); i++) {
-            iter_batch.push_back(std::vector<std::pair<uint32_t, std::string>>());
+            iter_batch.push_back(std::vector<index_record>());
         }
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             const uint32_t seq_id = Collection::get_seq_id_key(iter->key().ToString());
+
+            nlohmann::json document;
+
+            try {
+                document = nlohmann::json::parse(iter->value().ToString());
+            } catch(const std::exception& e) {
+                LOG(ERR) << "JSON error: " << e.what();
+                return Option<bool>(false, "Bad JSON.");
+            }
+
             iter_batch[seq_id % collection->get_num_indices()].push_back(
-                std::make_pair(Collection::get_seq_id_key(iter->key().ToString()), iter->value().ToString())
+                index_record(0, seq_id, iter->value().ToString(), document)
             );
 
-            if(iter_batch.size() == 1000) {
-                Option<uint32_t> res = collection->par_index_in_memory(iter_batch);
+            if(iter_batch.size() == init_batch_size) {
+                batch_index_result res;
+                collection->par_index_in_memory(iter_batch, res);
                 for(size_t i = 0; i < collection->get_num_indices(); i++) {
                     iter_batch[i].clear();
                 }
 
-                if(!res.ok()) {
+                if(res.num_indexed != res.items.size()) {
                     delete iter;
-                    return Option<bool>(false, res.error());
+                    const Option<std::string> & index_error_op = get_first_index_error(res.items);
+                    if(index_error_op.ok()) {
+                        return Option<bool>(false, index_error_op.get());
+                    }
                 }
             }
 
@@ -130,9 +145,14 @@ Option<bool> CollectionManager::init(Store *store,
 
         delete iter;
 
-        Option<uint32_t> res = collection->par_index_in_memory(iter_batch);
-        if(!res.ok()) {
-            return Option<bool>(false, res.error());
+        batch_index_result res;
+        collection->par_index_in_memory(iter_batch, res);
+
+        if(res.num_indexed != res.items.size()) {
+            const Option<std::string> & index_error_op = get_first_index_error(res.items);
+            if(index_error_op.ok()) {
+                return Option<bool>(false, index_error_op.get());
+            }
         }
 
         add_to_collections(collection);
