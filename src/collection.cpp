@@ -142,6 +142,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     bool write_ok = store->batch_write(batch);
 
     if(!write_ok) {
+        remove_document(document, seq_id, false);  // remove from in-memory store too
         return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
     }
 
@@ -197,6 +198,9 @@ Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) 
             if(!write_ok) {
                 Option<bool> index_op_failure(500, "Could not write to on-disk storage.");
                 item.index_op = index_op_failure;
+
+                // remove from in-memory store to keep the state synced
+                remove_document(item.record.document, item.record.seq_id, false);
             }
         }
     }
@@ -781,6 +785,19 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     return Option<nlohmann::json>(document);
 }
 
+void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+    std::string id = document["id"];
+
+    Index* index = indices[seq_id % num_indices];
+    index->remove(seq_id, document);
+    num_documents -= 1;
+
+    if(remove_from_store) {
+        store->remove(get_doc_id_key(id));
+        store->remove(get_seq_id_key(seq_id));
+    }
+}
+
 Option<std::string> Collection::remove(const std::string & id, const bool remove_from_store) {
     std::string seq_id_str;
     StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
@@ -814,16 +831,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
         return Option<std::string>(500, "Error while parsing stored document.");
     }
 
-    Index* index = indices[seq_id % num_indices];
-    index->remove(seq_id, document);
-
-    if(remove_from_store) {
-        store->remove(get_doc_id_key(id));
-        store->remove(get_seq_id_key(seq_id));
-    }
-
-    num_documents -= 1;
-
+    remove_document(document, seq_id, remove_from_store);
     return Option<std::string>(id);
 }
 
