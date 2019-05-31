@@ -72,6 +72,8 @@ private:
                           const Topster<512>::KV &field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils, highlight_t &highlight);
 
+    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+
 public:
     Collection() = delete;
 
