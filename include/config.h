@@ -121,6 +121,10 @@ public:
         return this->ssl_certificate_key;
     }
 
+    std::string get_config_file() {
+        return config_file;
+    }
+
     bool get_enable_cors() {
         return this->enable_cors;
     }
