@@ -616,7 +616,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                       return a.second > b.second;
                   });
 
-        for(size_t i = 0; i < std::min((size_t)10, value_to_count.size()); i++) {
+        for(size_t i = 0; i < std::min((size_t)100, value_to_count.size()); i++) {
             auto & kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;
