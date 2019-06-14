@@ -1605,6 +1605,26 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][2]["value"]);
     ASSERT_EQ("gold", results["facet_counts"][0]["counts"][3]["value"]);
 
+    // facet with wildcard query
+    facets.clear();
+    facets.push_back("tags");
+    results = coll_array_fields->search("*", query_fields, "age: >24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+
+    ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][3]["count"]);
+
+    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_EQ("FINE PLATINUM", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_EQ("bronze", results["facet_counts"][0]["counts"][2]["value"]);
+    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][3]["value"]);
+
+
     collectionManager.drop_collection("coll_array_fields");
 }
 

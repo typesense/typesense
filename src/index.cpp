@@ -816,6 +816,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
         uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
                       filter_ids, filter_ids_length);
+        do_facets(facets, filter_ids, filter_ids_length);
         all_result_ids_len = filter_ids_length;
     } else {
         const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
