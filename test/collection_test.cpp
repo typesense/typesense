@@ -2064,6 +2064,18 @@ TEST_F(CollectionTest, SearchLargeTextField) {
     results = res_op.get();
     ASSERT_EQ(2, results["hits"].size());
 
+    // query whose length exceeds maximum highlight window (match score's WINDOW_SIZE)
+    res_op = coll_large_text->search(
+            "Phasellus non tristique elit Praesent non arcu id lectus accumsan venenatis at",
+            {"text"}, "", {}, sort_fields, 0, 10
+    );
+
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll_large_text");
 }
 

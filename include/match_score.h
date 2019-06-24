@@ -103,7 +103,9 @@ struct Match {
   static Match match(uint32_t doc_id, const std::vector<std::vector<uint16_t>> &token_offsets) {
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
-    for(uint8_t token_id=0; token_id < token_offsets.size(); token_id++) {
+    const size_t tokens_size = std::min(token_offsets.size(), WINDOW_SIZE);
+
+    for(uint8_t token_id=0; token_id < tokens_size; token_id++) {
       heap.push(TokenOffset{token_id, token_offsets[token_id].front(), 0});
     }
 
@@ -141,7 +143,7 @@ struct Match {
       uint16_t num_match = 0;
       uint16_t displacement = 0;
 
-      for(size_t token_id=0; token_id<token_offsets.size(); token_id++) {
+      for(size_t token_id=0; token_id<tokens_size; token_id++) {
         // If a token appeared within the window, we would have recorded its offset
         if(token_offset[token_id] != MAX_DISPLACEMENT) {
           num_match++;
@@ -165,7 +167,7 @@ struct Match {
       if(num_match > max_match || (num_match == max_match && displacement < min_displacement)) {
         min_displacement = displacement;
         // record the token positions (for highlighting)
-        memcpy(min_token_offset, token_offset, token_offsets.size()*sizeof(uint16_t));
+        memcpy(min_token_offset, token_offset, tokens_size*sizeof(uint16_t));
         max_match = num_match;
       }
 
@@ -181,7 +183,7 @@ struct Match {
 
     // identify the first token which is actually present and use that as the base for run-length encoding
     size_t token_index = 0;
-    while(token_index < token_offsets.size()) {
+    while(token_index < tokens_size) {
       if(min_token_offset[token_index] != MAX_DISPLACEMENT) {
         token_start_offset = min_token_offset[token_index];
         break;
@@ -190,7 +192,7 @@ struct Match {
     }
 
     const uint8_t distance = MAX_TOKENS_DISTANCE - min_displacement;
-    pack_token_offsets(min_token_offset, token_offsets.size(), token_start_offset, packed_offset_diffs);
+    pack_token_offsets(min_token_offset, tokens_size, token_start_offset, packed_offset_diffs);
     return Match(max_match, distance, token_start_offset, packed_offset_diffs);
   }
 };

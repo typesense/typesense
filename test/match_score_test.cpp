@@ -43,3 +43,15 @@ TEST(MatchTest, ShouldPackTokenOffsets) {
     ASSERT_EQ(0, offset_diffs[2]);
     ASSERT_EQ(2, offset_diffs[3]);
 }
+
+TEST(MatchTest, TokenOffsetsExceedWindowSize) {
+    std::vector<std::vector<uint16_t>> token_positions = {
+        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}),
+        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}),
+        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1})
+    };
+
+    const Match & this_match = Match::match(100, token_positions);
+
+    ASSERT_EQ(WINDOW_SIZE, this_match.words_present);
+}
