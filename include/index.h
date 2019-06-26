@@ -28,6 +28,7 @@ struct search_args {
     std::vector<facet> facets;
     std::vector<sort_by> sort_fields_std;
     int num_typos;
+    size_t max_facet_values;
     size_t per_page;
     size_t page;
     token_ordering token_order;
@@ -43,11 +44,11 @@ struct search_args {
     }
 
     search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
-                std::vector<facet> facets, std::vector<sort_by> sort_fields_std, int num_typos,
+                std::vector<facet> facets, std::vector<sort_by> sort_fields_std, int num_typos, size_t max_facet_values,
                 size_t per_page, size_t page, token_ordering token_order, bool prefix, size_t drop_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets),
-            sort_fields_std(sort_fields_std), num_typos(num_typos), per_page(per_page), page(page),
-            token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
+            sort_fields_std(sort_fields_std), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
+            page(page), token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
 
     }

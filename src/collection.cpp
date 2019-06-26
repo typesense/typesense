@@ -280,7 +280,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                   const token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> include_fields,
-                                  const spp::sparse_hash_set<std::string> exclude_fields) {
+                                  const spp::sparse_hash_set<std::string> exclude_fields,
+                                  const size_t max_facet_values) {
     std::vector<facet> facets;
 
     // validate search fields
@@ -447,8 +448,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(422, message);
     }
 
-    //auto begin = std::chrono::high_resolution_clock::now();
-
     // all search queries that were used for generating the results
     std::vector<std::vector<art_leaf*>> searched_queries;
     std::vector<Topster<512>::KV> field_order_kvs;
@@ -457,14 +456,14 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     // send data to individual index threads
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets, sort_fields_std,
-                                           num_typos, per_page, page, token_order, prefix, drop_tokens_threshold);
+                                           num_typos, max_facet_values, per_page, page, token_order, prefix,
+                                           drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
             index->processed = false;
         }
         index->cv.notify_one();
-        //std::this_thread::sleep_for(std::chrono::milliseconds(400));
     }
 
     Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
@@ -616,7 +615,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                       return a.second > b.second;
                   });
 
-        for(size_t i = 0; i < std::min((size_t)100, value_to_count.size()); i++) {
+        for(size_t i = 0; i < std::min(max_facet_values, value_to_count.size()); i++) {
             auto & kv = value_to_count[i];
             nlohmann::json facet_value_count = nlohmann::json::object();
             facet_value_count["value"] = kv.first;

@@ -128,7 +128,8 @@ public:
                           const token_ordering token_order = FREQUENCY, const bool prefix = false,
                           const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                           const spp::sparse_hash_set<std::string> include_fields = spp::sparse_hash_set<std::string>(),
-                          const spp::sparse_hash_set<std::string> exclude_fields = spp::sparse_hash_set<std::string>());
+                          const spp::sparse_hash_set<std::string> exclude_fields = spp::sparse_hash_set<std::string>(),
+                          const size_t max_facet_values=10);
 
     Option<nlohmann::json> get(const std::string & id);
 

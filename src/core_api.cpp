@@ -172,7 +172,10 @@ void get_search(http_req & req, http_res & res) {
     const char *QUERY = "q";
     const char *QUERY_BY = "query_by";
     const char *SORT_BY = "sort_by";
+
     const char *FACET_BY = "facet_by";
+    const char *MAX_FACET_VALUES = "max_facet_values";
+
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
@@ -198,6 +201,10 @@ void get_search(http_req & req, http_res & res) {
 
     if(req.params.count(QUERY_BY) == 0) {
         return res.send_400(std::string("Parameter `") + QUERY_BY + "` is required.");
+    }
+
+    if(req.params.count(MAX_FACET_VALUES) == 0) {
+        req.params[MAX_FACET_VALUES] = "10";
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -289,10 +296,12 @@ void get_search(http_req & req, http_res & res) {
     token_ordering token_order = (req.params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") ? MAX_SCORE : FREQUENCY;
 
     Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
-                                               sort_fields, std::stoi(req.params[NUM_TYPOS]),
-                                               std::stoi(req.params[PER_PAGE]), std::stoi(req.params[PAGE]),
-                                               token_order, prefix, drop_tokens_threshold,
-                                               include_fields, exclude_fields);
+                                                          sort_fields, std::stoi(req.params[NUM_TYPOS]),
+                                                          static_cast<size_t>(std::stoi(req.params[PER_PAGE])),
+                                                          static_cast<size_t>(std::stoi(req.params[PAGE])),
+                                                          token_order, prefix, drop_tokens_threshold,
+                                                          include_fields, exclude_fields,
+                                                          static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])));
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();
