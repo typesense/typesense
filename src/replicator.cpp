@@ -163,7 +163,7 @@ void Replicator::on_replication_event(void *data) {
         Collection* collection = collection_manager.get_collection_with_id(std::stoi(parts[0]));
         nlohmann::json document = nlohmann::json::parse(replication_event->value);
 
-        uint32_t seq_id = Collection::get_seq_id_key(replication_event->key);
+        uint32_t seq_id = Collection::get_seq_id_from_key(replication_event->key);
         collection->index_in_memory(document, seq_id);
     }
 

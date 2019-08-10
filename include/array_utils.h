@@ -13,4 +13,7 @@ public:
   static size_t and_scalar(const uint32_t *A, const size_t lenA, const uint32_t *B, const size_t lenB, uint32_t **out);
 
   static size_t or_scalar(const uint32_t *A, const size_t lenA, const uint32_t *B, const size_t lenB, uint32_t **out);
+
+  static size_t exclude_scalar(const uint32_t *src, const size_t lenSrc, const uint32_t *filter, const size_t lenFilter,
+                              uint32_t **out);
 };

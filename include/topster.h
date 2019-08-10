@@ -8,21 +8,21 @@
 #include <match_score.h>
 #include <number.h>
 
+struct KV {
+    uint8_t field_id;
+    uint16_t query_index;
+    uint16_t array_index;
+    uint64_t key;
+    uint64_t match_score;
+    number_t primary_attr;
+    number_t secondary_attr;
+};
+
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
 template <size_t MAX_SIZE=512>
 struct Topster {
-    struct KV {
-        uint8_t field_id;
-        uint16_t query_index;
-        uint16_t array_index;
-        uint64_t key;
-        uint64_t match_score;
-        number_t primary_attr;
-        number_t secondary_attr;
-    };
-
     KV *data;
     uint32_t size;
 
