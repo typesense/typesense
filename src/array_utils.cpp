@@ -41,6 +41,10 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
                              const uint32_t *B, const size_t lenB, uint32_t **out) {
     size_t indexA = 0, indexB = 0, res_index = 0;
 
+    if(A == nullptr && B == nullptr) {
+      return 0;
+    }
+
     if(A == nullptr) {
         *out = new uint32_t[lenB];
         memcpy(*out, B, lenB * sizeof(uint32_t));
@@ -88,6 +92,58 @@ size_t ArrayUtils::or_scalar(const uint32_t *A, const size_t lenA,
     }
 
     indexB++;
+  }
+
+  // shrink fit
+  *out = new uint32_t[res_index];
+  memcpy(*out, results, res_index * sizeof(uint32_t));
+  delete[] results;
+
+  return res_index;
+}
+
+size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
+                                 const uint32_t *B, const size_t lenB, uint32_t **out) {
+  size_t indexA = 0, indexB = 0, res_index = 0;
+
+  if(A == nullptr && B == nullptr) {
+    return 0;
+  }
+
+  if(A == nullptr) {
+    return 0;
+  }
+
+  if(B == nullptr) {
+    *out = new uint32_t[lenA];
+    memcpy(*out, A, lenA * sizeof(uint32_t));
+    return lenA;
+  }
+
+  uint32_t* results = new uint32_t[lenA];
+
+  while (indexA < lenA && indexB < lenB) {
+    if (A[indexA] < B[indexB]) {
+      results[res_index] = A[indexA];
+      res_index++;
+      indexA++;
+    } else {
+      if (A[indexA] == B[indexB]) {
+        indexA++;
+        indexB++;
+      } else {
+        results[res_index] = A[indexA];
+        res_index++;
+        indexA++;
+        indexB++;
+      }
+    }
+  }
+
+  while (indexA < lenA) {
+    results[res_index] = A[indexA];
+    res_index++;
+    indexA++;
   }
 
   // shrink fit

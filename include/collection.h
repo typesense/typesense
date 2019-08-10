@@ -17,6 +17,56 @@
 #include <field.h>
 #include <option.h>
 
+
+struct override_t {
+    static const std::string MATCH_EXACT;
+    static const std::string MATCH_CONTAINS;
+
+    struct rule_t {
+        std::string query;
+        std::string match;
+    };
+
+    struct add_hit_t {
+        std::string doc_id;
+        uint32_t position;
+    };
+
+    struct drop_hit_t {
+        std::string doc_id;
+    };
+
+    std::string id;
+    rule_t rule;
+    std::vector<add_hit_t> add_hits;
+    std::vector<drop_hit_t> drop_hits;
+
+    override_t() {}
+
+    override_t(const nlohmann::json & override) {
+        id = override["id"].get<std::string>();
+        rule.query = override["rule"]["query"].get<std::string>();
+        rule.match = override["rule"]["match"].get<std::string>();
+
+        if (override.count("includes") != 0) {
+            for(const auto & include: override["includes"]) {
+                add_hit_t add_hit;
+                add_hit.doc_id = include["id"].get<std::string>();
+                add_hit.position = include["position"].get<uint32_t>();
+                add_hits.push_back(add_hit);
+            }
+        }
+
+        if (override.count("excludes") != 0) {
+            for(const auto & exclude: override["excludes"]) {
+                drop_hit_t drop_hit;
+                drop_hit.doc_id = exclude["id"].get<std::string>();
+                drop_hits.push_back(drop_hit);
+            }
+        }
+    }
+};
+
 class Collection {
 private:
 
@@ -34,6 +84,8 @@ private:
             return match_score > a.match_score;
         }
     };
+
+    std::map<std::string, override_t> overrides;
 
     std::string name;
 
@@ -69,10 +121,13 @@ private:
     std::string get_seq_id_key(uint32_t seq_id);
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
-                          const Topster<512>::KV &field_order_kv, const nlohmann::json &document,
+                          const KV &field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils, highlight_t &highlight);
 
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+
+    void populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
+                            std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids);
 
 public:
     Collection() = delete;
@@ -103,7 +158,7 @@ public:
 
     void increment_next_seq_id_field();
 
-    Option<uint32_t> doc_id_to_seq_id(std::string doc_id);
+    Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id);
 
     std::vector<std::string> get_facet_fields();
 
@@ -135,9 +190,28 @@ public:
 
     Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
 
+    // FIXME: add persistence
+    bool add_override(override_t & override) {
+        if(overrides.count("id") != 0) {
+            return false;
+        }
+
+        overrides[override.id] = override;
+        return true;
+    }
+
+    bool remove_override(const std::string & id) {
+        if(overrides.count("id") != 0) {
+            overrides.erase(id);
+            return true;
+        }
+
+        return false;
+    }
+
     size_t get_num_indices();
 
-    static uint32_t get_seq_id_key(const std::string & key);
+    static uint32_t get_seq_id_from_key(const std::string & key);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 

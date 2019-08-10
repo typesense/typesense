@@ -97,6 +97,8 @@
 - ~~Have a LOG(ERROR) level~~
 - ~~Handle SIGTERM which is sent when process is killed~~
 - ~~Use snappy compression for storage~~
+- atleast 1 token match for proceeding with drop tokens
+- support wildcard query with filters
 - API for optimizing on disk storage
 - Jemalloc
 - Exact search 

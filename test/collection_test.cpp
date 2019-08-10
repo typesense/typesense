@@ -783,6 +783,134 @@ TEST_F(CollectionTest, MultipleFields) {
     collectionManager.drop_collection("coll_mul_fields");
 }
 
+TEST_F(CollectionTest, ExcludeIncludeExactQueryMatch) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+
+    // with override
+    nlohmann::json override_json = {
+        {"id", "exclude-rule"},
+        {
+            "rule", {
+               {"query", "of"},
+               {"match", override_t::MATCH_EXACT}
+            }
+        }
+    };
+    override_json["excludes"] = nlohmann::json::array();
+    override_json["excludes"][0] = nlohmann::json::object();
+    override_json["excludes"][0]["id"] = "4";
+
+    override_json["excludes"][1] = nlohmann::json::object();
+    override_json["excludes"][1]["id"] = "11";
+
+    override_t override(override_json);
+
+    coll_mul_fields->add_override(override);
+
+    std::vector<std::string> facets = {"cast"};
+
+    Option<nlohmann::json> res_op = coll_mul_fields->search("of", {"title"}, "", facets, sort_fields, 0, 10);
+    ASSERT_TRUE(res_op.ok());
+    nlohmann::json results = res_op.get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
+
+    // include
+    nlohmann::json override_json_include = {
+        {"id", "include-rule"},
+        {
+         "rule", {
+               {"query", "in"},
+               {"match", override_t::MATCH_EXACT}
+          }
+        }
+    };
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "0";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "3";
+    override_json_include["includes"][1]["position"] = 2;
+
+    override_t override_include(override_json_include);
+
+    coll_mul_fields->add_override(override_include);
+
+    res_op = coll_mul_fields->search("in", {"title"}, "", {}, sort_fields, 0, 10);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<uint32_t>());
+
+    coll_mul_fields->remove_override("exclude-rule");
+    coll_mul_fields->remove_override("include-rule");
+
+    // contains cases
+
+    nlohmann::json override_contains_inc = {
+        {"id", "include-rule"},
+        {
+         "rule", {
+               {"query", "will"},
+               {"match", override_t::MATCH_CONTAINS}
+           }
+        }
+    };
+    override_contains_inc["includes"] = nlohmann::json::array();
+    override_contains_inc["includes"][0] = nlohmann::json::object();
+    override_contains_inc["includes"][0]["id"] = "0";
+    override_contains_inc["includes"][0]["position"] = 1;
+
+    override_contains_inc["includes"][1] = nlohmann::json::object();
+    override_contains_inc["includes"][1]["id"] = "1";
+    override_contains_inc["includes"][1]["position"] = 7;  // purposely setting it way out
+
+    override_t override_inc_contains(override_contains_inc);
+    coll_mul_fields->add_override(override_inc_contains);
+
+    res_op = coll_mul_fields->search("will smith", {"title"}, "", {}, sort_fields, 0, 10);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    coll_mul_fields->remove_override("include-rule");
+
+    collectionManager.drop_collection("coll_mul_fields");
+}
+
 TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
     Collection *coll_mul_fields;
 

@@ -150,6 +150,10 @@ struct StringUtils {
         std::transform(str.begin(), str.end(), str.begin(), ::toupper);
     }
 
+    static void tolowercase(std::string& str) {
+        std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    }
+
     void unicode_normalize(std::string& str) const;
 
     /* https://stackoverflow.com/a/34571089/131050 */

@@ -13,6 +13,9 @@
 #include "topster.h"
 #include "logger.h"
 
+const std::string override_t::MATCH_EXACT = "exact";
+const std::string override_t::MATCH_CONTAINS = "contains";
+
 struct match_index_t {
     Match match;
     uint64_t match_score = 0;
@@ -273,6 +276,33 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
     }
 }
 
+void Collection::populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
+                                    std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids) {
+    StringUtils::tolowercase(query);
+
+    for(const auto & override_kv: overrides) {
+        const auto & override = override_kv.second;
+
+        if( (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
+            (override.rule.match == override_t::MATCH_CONTAINS && query.find(override.rule.query) != std::string::npos) )  {
+            for(const auto & hit: override.add_hits) {
+                Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+                if(seq_id_op.ok()) {
+                    included_ids.push_back(seq_id_op.get());
+                    id_pos_map[seq_id_op.get()] = hit.position;
+                }
+            }
+
+            for(const auto & hit: override.drop_hits) {
+                Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+                if(seq_id_op.ok()) {
+                    excluded_ids.push_back(seq_id_op.get());
+                }
+            }
+        }
+    }
+}
+
 Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
@@ -282,6 +312,25 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
                                   const spp::sparse_hash_set<std::string> include_fields,
                                   const spp::sparse_hash_set<std::string> exclude_fields,
                                   const size_t max_facet_values) {
+
+    std::vector<uint32_t> included_ids;
+    std::vector<uint32_t> excluded_ids;
+    std::map<uint32_t, size_t> id_pos_map;
+    populate_overrides(query, id_pos_map, included_ids, excluded_ids);
+
+    std::map<uint32_t, std::vector<uint32_t>> index_to_included_ids;
+    std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
+
+    for(auto seq_id: included_ids) {
+        auto index_id = (seq_id % num_indices);
+        index_to_included_ids[index_id].push_back(seq_id);
+    }
+
+    for(auto seq_id: excluded_ids) {
+        auto index_id = (seq_id % num_indices);
+        index_to_excluded_ids[index_id].push_back(seq_id);
+    }
+
     std::vector<facet> facets;
 
     // validate search fields
@@ -448,22 +497,26 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
         return Option<nlohmann::json>(422, message);
     }
 
-    // all search queries that were used for generating the results
-    std::vector<std::vector<art_leaf*>> searched_queries;
-    std::vector<Topster<512>::KV> field_order_kvs;
+    std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
+    std::vector<KV> raw_result_kvs;
+    std::vector<KV> override_result_kvs;
+
     size_t total_found = 0;
 
     // send data to individual index threads
+    size_t index_id = 0;
     for(Index* index: indices) {
-        index->search_params = search_args(query, search_fields, filters, facets, sort_fields_std,
-                                           num_typos, max_facet_values, per_page, page, token_order, prefix,
-                                           drop_tokens_threshold);
+        index->search_params = search_args(query, search_fields, filters, facets,
+                                           index_to_included_ids[index_id], index_to_excluded_ids[index_id],
+                                           sort_fields_std, num_typos, max_facet_values, per_page, page,
+                                           token_order, prefix, drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
             index->processed = false;
         }
         index->cv.notify_one();
+        index_id++;
     }
 
     Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
@@ -485,9 +538,14 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
             continue;
         }
 
-        for(auto & field_order_kv: index->search_params.field_order_kvs) {
+        for(auto & field_order_kv: index->search_params.raw_result_kvs) {
             field_order_kv.query_index += searched_queries.size();
-            field_order_kvs.push_back(field_order_kv);
+            raw_result_kvs.push_back(field_order_kv);
+        }
+
+        for(auto & field_order_kv: index->search_params.override_result_kvs) {
+            field_order_kv.query_index += searched_queries.size();
+            override_result_kvs.push_back(field_order_kv);
         }
 
         searched_queries.insert(searched_queries.end(), index->search_params.searched_queries.begin(),
@@ -519,25 +577,60 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     // All fields are sorted descending
-    std::sort(field_order_kvs.begin(), field_order_kvs.end(), Topster<>::is_greater_kv_value);
+    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster<>::is_greater_kv_value);
+
+    // Sort based on position in overriden list
+    std::sort(
+      override_result_kvs.begin(), override_result_kvs.end(),
+      [&id_pos_map](const KV & a, const KV & b) -> bool {
+          return id_pos_map[a.key] < id_pos_map[b.key];
+      }
+    );
 
     nlohmann::json result = nlohmann::json::object();
 
-    result["hits"] = nlohmann::json::array();
-    result["found"] = total_found;
-
     const int start_result_index = (page - 1) * per_page;
-    const int kvsize = field_order_kvs.size();
+    const int kvsize = raw_result_kvs.size() + override_result_kvs.size();
 
     if(start_result_index > (kvsize - 1)) {
         return Option<nlohmann::json>(result);
     }
 
-    const int end_result_index = std::min(int(num_results), kvsize) - 1;
+    std::vector<KV> result_kvs;
+    size_t override_kv_index = 0;
+    size_t raw_results_index = 0;
+
+    // merge raw results and override results
+    while(override_kv_index < override_result_kvs.size() && raw_results_index < raw_result_kvs.size()) {
+        if(override_kv_index < override_result_kvs.size() &&
+           id_pos_map.count(override_result_kvs[override_kv_index].key) != 0 &&
+           result_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index].key]) {
+             result_kvs.push_back(override_result_kvs[override_kv_index]);
+             override_kv_index++;
+        } else {
+            result_kvs.push_back(raw_result_kvs[raw_results_index]);
+            raw_results_index++;
+        }
+    }
+
+    while(override_kv_index < override_result_kvs.size()) {
+        result_kvs.push_back(override_result_kvs[override_kv_index]);
+        override_kv_index++;
+    }
+
+    while(raw_results_index < raw_result_kvs.size()) {
+        result_kvs.push_back(raw_result_kvs[raw_results_index]);
+        raw_results_index++;
+    }
+
+    size_t end_result_index = std::min(num_results, result_kvs.size()) - 1;
+
+    result["hits"] = nlohmann::json::array();
+    result["found"] = total_found;
 
     // construct results array
-    for(int field_order_kv_index = start_result_index; field_order_kv_index <= end_result_index; field_order_kv_index++) {
-        const auto & field_order_kv = field_order_kvs[field_order_kv_index];
+    for(size_t result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
+        const auto & field_order_kv = result_kvs[result_kvs_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.key);
 
         std::string json_doc_str;
@@ -634,7 +727,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
-                                  const Topster<512>::KV & field_order_kv, const nlohmann::json & document,
+                                  const KV & field_order_kv, const nlohmann::json & document,
                                   StringUtils & string_utils, highlight_t & highlight) {
     
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
@@ -838,7 +931,7 @@ size_t Collection::get_num_indices() {
     return num_indices;
 }
 
-uint32_t Collection::get_seq_id_key(const std::string & key) {
+uint32_t Collection::get_seq_id_from_key(const std::string & key) {
     // last 4 bytes of the key would be the serialized version of the sequence id
     std::string serialized_seq_id = key.substr(key.length() - 4);
     return StringUtils::deserialize_uint32_t(serialized_seq_id);
@@ -875,7 +968,7 @@ uint32_t Collection::get_collection_id() {
     return collection_id;
 }
 
-Option<uint32_t> Collection::doc_id_to_seq_id(std::string doc_id) {
+Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
     if(status == StoreStatus::FOUND) {

@@ -109,7 +109,7 @@ Option<bool> CollectionManager::init(Store *store,
         }
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-            const uint32_t seq_id = Collection::get_seq_id_key(iter->key().ToString());
+            const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
             nlohmann::json document;
 
