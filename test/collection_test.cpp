@@ -838,6 +838,10 @@ TEST_F(CollectionTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_EQ(3, results["found"].get<uint32_t>());
     ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
 
+    ASSERT_STREQ("12", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("17", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
     // include
     nlohmann::json override_json_include = {
         {"id", "include-rule"},
@@ -867,6 +871,10 @@ TEST_F(CollectionTest, ExcludeIncludeExactQueryMatch) {
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["found"].get<uint32_t>());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     coll_mul_fields->remove_override("exclude-rule");
     coll_mul_fields->remove_override("include-rule");
