@@ -838,11 +838,6 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         }
     }
 
-    if(override_query.size() == 0) {
-        // happens when the curated hit's field has no overlap with query string
-        //return ;
-    }
-
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
 
     for (art_leaf *token_leaf : override_query) {

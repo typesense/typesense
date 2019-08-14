@@ -97,6 +97,16 @@ Option<bool> CollectionManager::init(Store *store,
 
         LOG(INFO) << "Loading collection " << collection->get_name() << std::endl;
 
+        // initialize overrides
+        std::vector<std::string> collection_override_jsons;
+        store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
+
+        for(const auto & collection_override_json: collection_override_jsons) {
+            nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
+            override_t override(collection_override);
+            collection->add_override(override);
+        }
+
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
         const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();

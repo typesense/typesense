@@ -143,6 +143,63 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     infile.close();
 
+    // add some overrides
+    nlohmann::json override_json_include = {
+        {"id", "include-rule"},
+        {
+         "rule", {
+               {"query", "in"},
+               {"match", override_t::MATCH_EXACT}
+           }
+        }
+    };
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "0";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "3";
+    override_json_include["includes"][1]["position"] = 2;
+
+    override_t override_include(override_json_include);
+
+    nlohmann::json override_json = {
+            {"id", "exclude-rule"},
+            {
+             "rule", {
+                           {"query", "of"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+    override_json["excludes"] = nlohmann::json::array();
+    override_json["excludes"][0] = nlohmann::json::object();
+    override_json["excludes"][0]["id"] = "4";
+
+    override_json["excludes"][1] = nlohmann::json::object();
+    override_json["excludes"][1]["id"] = "11";
+
+    override_t override_exclude(override_json);
+
+    nlohmann::json override_json_deleted = {
+            {"id", "deleted-rule"},
+            {
+             "rule", {
+                           {"query", "of"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    override_t override_deleted(override_json_deleted);
+
+    collection1->add_override(override_include);
+    collection1->add_override(override_exclude);
+    collection1->add_override(override_deleted);
+
+    collection1->remove_override("deleted-rule");
+
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
 
@@ -167,6 +224,10 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
+
+    ASSERT_EQ(2, collection1->get_overrides().size());
+    ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
+    ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());

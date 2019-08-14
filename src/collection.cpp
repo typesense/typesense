@@ -927,6 +927,33 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     return Option<std::string>(id);
 }
 
+Option<uint32_t> Collection::add_override(const override_t & override) {
+    if(overrides.count("id") != 0) {
+        return Option<uint32_t>(409, "There is already another entry with that `id`.");
+    }
+
+    bool inserted = store->insert(Collection::get_override_key(name, override.id), override.to_json_str());
+    if(!inserted) {
+        return Option<uint32_t>(500, "Error while storing the override on disk.");
+    }
+
+    overrides[override.id] = override;
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t> Collection::remove_override(const std::string & id) {
+    if(overrides.count(id) != 0) {
+        bool removed = store->remove(Collection::get_override_key(name, id));
+        if(!removed) {
+            return Option<uint32_t>(500, "Error while deleting the override from disk.");
+        }
+        overrides.erase(id);
+        return Option<uint32_t>(200);
+    }
+
+    return Option<uint32_t>(404, "Could not find that `id`.");
+}
+
 size_t Collection::get_num_indices() {
     return num_indices;
 }
@@ -1011,6 +1038,10 @@ std::unordered_map<std::string, field> Collection::get_schema() {
 
 std::string Collection::get_meta_key(const std::string & collection_name) {
     return std::string(COLLECTION_META_PREFIX) + "_" + collection_name;
+}
+
+std::string Collection::get_override_key(const std::string & collection_name, const std::string & override_id) {
+    return std::string(COLLECTION_OVERRIDE_PREFIX) + "_" + collection_name + "_" + override_id;
 }
 
 std::string Collection::get_seq_id_collection_prefix() {

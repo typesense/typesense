@@ -65,6 +65,31 @@ struct override_t {
             }
         }
     }
+
+    std::string to_json_str() const {
+        nlohmann::json override;
+        override["id"] = id;
+        override["rule"]["query"] = rule.query;
+        override["rule"]["match"] = rule.match;
+
+        override["includes"] = nlohmann::json::array();
+
+        for(const auto & add_hit: add_hits) {
+            nlohmann::json include;
+            include["id"] = add_hit.doc_id;
+            include["position"] = add_hit.position;
+            override["includes"].push_back(include);
+        }
+
+        override["excludes"] = nlohmann::json::array();
+        for(const auto & drop_hit: drop_hits) {
+            nlohmann::json exclude;
+            exclude["id"] = drop_hit.doc_id;
+            override["excludes"].push_back(exclude);
+        }
+
+        return override.dump();
+    }
 };
 
 class Collection {
@@ -142,6 +167,8 @@ public:
 
     static std::string get_meta_key(const std::string & collection_name);
 
+    static std::string get_override_key(const std::string & collection_name, const std::string & override_id);
+
     std::string get_seq_id_collection_prefix();
 
     std::string get_name();
@@ -190,24 +217,13 @@ public:
 
     Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
 
-    // FIXME: add persistence
-    bool add_override(override_t & override) {
-        if(overrides.count("id") != 0) {
-            return false;
-        }
+    Option<uint32_t> add_override(const override_t & override);
 
-        overrides[override.id] = override;
-        return true;
-    }
+    Option<uint32_t> remove_override(const std::string & id);
 
-    bool remove_override(const std::string & id) {
-        if(overrides.count("id") != 0) {
-            overrides.erase(id);
-            return true;
-        }
-
-        return false;
-    }
+    std::map<std::string, override_t> get_overrides() {
+        return overrides;
+    };
 
     size_t get_num_indices();
 
@@ -232,6 +248,7 @@ public:
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 };
