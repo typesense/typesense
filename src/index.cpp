@@ -811,7 +811,7 @@ void Index::run_search() {
 
 void Index::collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                                 const std::vector<uint32_t> & included_ids,
-                                Topster<32> & curated_topster,
+                                Topster<512> & curated_topster,
                                 std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     if(included_ids.size() == 0) {
@@ -903,7 +903,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     uint32_t* all_result_ids = nullptr;
 
     Topster<512> topster;
-    Topster<32> curated_topster;
+    Topster<512> curated_topster;
 
     if(query == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
