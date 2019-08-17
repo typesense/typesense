@@ -186,7 +186,7 @@ private:
 
     void collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                              const std::vector<uint32_t> & included_ids,
-                             Topster<32> & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+                             Topster<512> & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
 
 public:
     Index() = delete;
