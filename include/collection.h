@@ -66,7 +66,7 @@ struct override_t {
         }
     }
 
-    std::string to_json_str() const {
+    nlohmann::json to_json() const {
         nlohmann::json override;
         override["id"] = id;
         override["rule"]["query"] = rule.query;
@@ -88,7 +88,7 @@ struct override_t {
             override["excludes"].push_back(exclude);
         }
 
-        return override.dump();
+        return override;
     }
 };
 

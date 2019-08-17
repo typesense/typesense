@@ -932,7 +932,7 @@ Option<uint32_t> Collection::add_override(const override_t & override) {
         return Option<uint32_t>(409, "There is already another entry with that `id`.");
     }
 
-    bool inserted = store->insert(Collection::get_override_key(name, override.id), override.to_json_str());
+    bool inserted = store->insert(Collection::get_override_key(name, override.id), override.to_json().dump());
     if(!inserted) {
         return Option<uint32_t>(500, "Error while storing the override on disk.");
     }
