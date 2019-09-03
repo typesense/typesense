@@ -1,0 +1,7 @@
+Package: typesense-server
+Version: $VERSION
+Maintainer: Typesense Inc. <contact@typesense.org>
+Description: Typesense Server
+Homepage: https://typesense.org
+Architecture: all
+Depends: curl

@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Create configuration directory
+mkdir -p /etc/typesense
+
+# Download Typesense, extract and make it executable
+
+curl -o /tmp/typesense-server-$VERSION.tar.gz https://dl.typesense.org/releases/typesense-server-$VERSION.tar.gz
+rm -rf /tmp/typesense-server-$VERSION && mkdir /tmp/typesense-server-$VERSION
+tar -xzf /tmp/typesense-server-$VERSION.tar.gz -C /tmp/typesense-server-$VERSION
+
+downloaded_hash=`md5sum /tmp/typesense-server-$VERSION/typesense-server | cut -d' ' -f1`
+original_hash=`cat /tmp/typesense-server-$VERSION/typesense-server.md5.txt`
+
+if [ "$downloaded_hash" == "$original_hash" ]; then
+    cp /tmp/typesense-server-$VERSION/typesense-server /usr/bin/typesense
+else
+    >&2 echo "Typesense server binary is corrupted. Quitting."
+fi
+
+rm -rf /tmp/typesense-server-$VERSION /tmp/typesense-server-$VERSION.tar.gz

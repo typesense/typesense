@@ -1,0 +1,10 @@
+[Unit]
+Description=Typesense Server
+Documentation=https://typesense.org
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/typesense-server --config=/etc/typesense/typesense-server.ini
+
+[Install]
+WantedBy=multi-user.target

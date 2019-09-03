@@ -5,3 +5,4 @@ build*
 cmake-build-debug
 cmake-build-release
 *.pem
+.DS_Store
