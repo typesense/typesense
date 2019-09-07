@@ -126,7 +126,7 @@ if (APPLE)
     set(STD_LIB -static-libstdc++) # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
 
     FIND_PACKAGE(ngHTTP2 REQUIRED)
-    set(CURL_LIBRARIES ldap ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # ldap and nghttp2 were not being statically built
+    set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
 endif()
