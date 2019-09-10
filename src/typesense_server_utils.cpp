@@ -18,8 +18,8 @@ bool directory_exists(const std::string & dir_path) {
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
-    options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", false);
-    options.add<std::string>("api-key", 'a', "API key that allows all operations.", false);
+    options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
+    options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "API key that allows only searches.", false);
 
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");

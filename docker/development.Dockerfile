@@ -16,21 +16,16 @@ RUN apt-get install -y python-software-properties \
 	libidn11 \
 	git
 
-RUN curl -L -o /opt/openssl-1.0.2k.tar.gz https://openssl.org/source/openssl-1.0.2k.tar.gz
-RUN tar -C /opt -xvzf /opt/openssl-1.0.2k.tar.gz
-RUN cd /opt/openssl-1.0.2k && sh ./config --prefix=/usr --openssldir=/usr zlib-dynamic
-RUN make -C /opt/openssl-1.0.2k depend
-RUN make -C /opt/openssl-1.0.2k -j4
-RUN make -C /opt/openssl-1.0.2k install
+RUN curl -L -o /opt/openssl-1.0.2s.tar.gz https://openssl.org/source/openssl-1.0.2s.tar.gz
+RUN tar -C /opt -xvzf /opt/openssl-1.0.2s.tar.gz
+RUN cd /opt/openssl-1.0.2s && sh ./config --prefix=/usr --openssldir=/usr zlib-dynamic
+RUN make -C /opt/openssl-1.0.2s depend
+RUN make -C /opt/openssl-1.0.2s -j4
+RUN make -C /opt/openssl-1.0.2s install
 
-RUN curl -L -o /opt/curl-7.55.1.tar.bz2 https://github.com/curl/curl/releases/download/curl-7_55_1/curl-7.55.1.tar.bz2
-RUN tar -C /opt -xf /opt/curl-7.55.1.tar.bz2
-RUN cd /opt/curl-7.55.1 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr \
---with-ca-bundle=/etc/ssl/certs/cacert.pem && make && make install
-
-RUN curl -L -o /opt/cmake-3.3.2-Linux-x86_64.tar.gz https://cmake.org/files/v3.3/cmake-3.3.2-Linux-x86_64.tar.gz
-RUN tar -C /opt -xvzf /opt/cmake-3.3.2-Linux-x86_64.tar.gz
-RUN cp -r /opt/cmake-3.3.2-Linux-x86_64/* /usr
+RUN curl -L -o /opt/cmake-3.15.2-Linux-x86_64.tar.gz https://cmake.org/files/v3.15/cmake-3.15.2-Linux-x86_64.tar.gz
+RUN tar -C /opt -xvzf /opt/cmake-3.15.2-Linux-x86_64.tar.gz
+RUN cp -r /opt/cmake-3.15.2-Linux-x86_64/* /usr
 
 RUN curl -L -o /opt/snappy_1.1.3.orig.tar.gz https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
@@ -43,6 +38,11 @@ RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/
     echo "#define U_USING_ICU_NAMESPACE 0" >> common/unicode/uconfig.h
 RUN cd /opt/icu/source && ./runConfigureICU Linux --disable-samples --disable-tests --enable-static \
     --disable-shared --disable-renaming && make && make install
+
+RUN curl -L -o /opt/curl-7.65.3.tar.gz https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz
+RUN tar -C /opt -xf /opt/curl-7.65.3.tar.gz
+RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr \
+--without-ca-bundle --without-ca-path && make && make install
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++

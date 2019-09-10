@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 2.8)
 project(typesense)
 
+cmake_policy(SET CMP0074 NEW)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -Wno-unused-parameter -O2")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -std=c++11 -O0")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
@@ -22,7 +24,7 @@ if (APPLE)
     set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
-    set(CMAKE_PREFIX_PATH /usr/local/opt/curl /usr/local/opt/icu4c)
+    set(CMAKE_PREFIX_PATH /usr/local/opt/curl-openssl /usr/local/opt/icu4c)
 endif (APPLE)
 
 # Ensure that we only use the static versions of libraries to link against
@@ -78,7 +80,7 @@ link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
 
 # Write dependency libraries to a file
 file(WRITE ${DEP_ROOT_DIR}/libs.txt "")
-file(APPEND ${DEP_ROOT_DIR}/libs.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${FOR_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/build")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build")
@@ -124,7 +126,7 @@ if (APPLE)
     set(STD_LIB -static-libstdc++) # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
 
     FIND_PACKAGE(ngHTTP2 REQUIRED)
-    set(CURL_LIBRARIES ldap ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # ldap and nghttp2 were not being statically built
+    set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
 endif()
