@@ -1,0 +1,5 @@
+#!/bin/sh
+
+systemctl enable typesense-server
+systemctl daemon-reload
+systemctl start typesense-server

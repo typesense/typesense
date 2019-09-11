@@ -1,10 +1,14 @@
 [Unit]
 Description=Typesense Server
 Documentation=https://typesense.org
-After=network.target
+Requires=network.target remote-fs.target
+After=network.target remote-fs.target
 
 [Service]
 ExecStart=/usr/bin/typesense-server --config=/etc/typesense/typesense-server.ini
+Restart=on-failure
+LimitNOFILE=64000
+LimitMEMLOCK=infinity
 
 [Install]
 WantedBy=multi-user.target
