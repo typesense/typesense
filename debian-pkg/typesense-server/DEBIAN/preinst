@@ -1,7 +1,11 @@
 #!/bin/sh
 
-# Create configuration directory
+set -ex
+
+# Create various directories
 mkdir -p /etc/typesense
+mkdir -p /var/lib/typesense
+mkdir -p /var/log/typesense
 
 # Download Typesense, extract and make it executable
 
