@@ -53,9 +53,6 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
 }
 
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
-    SSL_library_init();
-    SSL_load_error_strings();
-
     accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 
     // As recommended by:
