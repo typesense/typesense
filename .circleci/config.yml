@@ -19,7 +19,7 @@ jobs:
             - external-Linux-cache      
       - run: 
           name: build
-          command: $PROJECT_DIR/build.sh
+          command: $PROJECT_DIR/build.sh --clean --depclean
       - save_cache:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
