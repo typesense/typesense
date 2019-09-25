@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -ex
 PROJECT_DIR=`dirname $0 | while read a; do cd $a && pwd && break; done`
