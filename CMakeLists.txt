@@ -21,7 +21,7 @@ if (APPLE)
     add_definitions(-D__GLIBCXX__)
 
     # Prefer brew installated libraries
-    set(ENV{OPENSSL_ROOT_DIR} /usr/local/opt/openssl)
+    set(OPENSSL_ROOT_DIR /usr/local/opt/openssl@1.1)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
     set(CMAKE_PREFIX_PATH /usr/local/opt/curl-openssl /usr/local/opt/icu4c)
@@ -35,11 +35,13 @@ ELSE()
     SET(CMAKE_FIND_LIBRARY_SUFFIXES .a)
 ENDIF()
 
-FIND_PACKAGE(OpenSSL 1.0.2 REQUIRED)
+FIND_PACKAGE(OpenSSL 1.1.1 REQUIRED)
 FIND_PACKAGE(Snappy REQUIRED)
 FIND_PACKAGE(ZLIB REQUIRED)
 FIND_PACKAGE(CURL REQUIRED)
 FIND_PACKAGE(ICU REQUIRED)
+
+message("OpenSSL library: ${OPENSSL_LIBRARIES}")
 
 include(cmake/For.cmake)
 include(cmake/H2O.cmake)
@@ -138,8 +140,8 @@ if(NOT APPLE)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES} pthread
-              ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} dl ${STD_LIB})
+set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
+              ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
 target_link_libraries(typesense-server ${CORE_LIBS})
