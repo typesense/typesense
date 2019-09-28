@@ -72,12 +72,6 @@ int init_logger(Config & config, const std::string & server_version, std::unique
 int run_server(Config & config, const std::string & version,
                void (*master_server_routes)(), void (*replica_server_routes)()) {
 
-    std::unique_ptr<g3::LogWorker> log_worker = g3::LogWorker::createLogWorker();
-    int ret_code = init_logger(config, version, log_worker);
-    if(ret_code != 0) {
-        return ret_code;
-    }
-
     LOG(INFO) << "Starting Typesense " << version << std::flush;
 
     if(!directory_exists(config.get_data_dir())) {
