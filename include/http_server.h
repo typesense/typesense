@@ -31,6 +31,8 @@ private:
     h2o_multithread_receiver_t* message_receiver;
     bool exit_loop = false;
 
+    std::string version;
+
     std::vector<route_path> routes;
 
     std::map<std::string, void (*)(void*)> message_handlers;
@@ -67,8 +69,9 @@ private:
     static int send_401_unauthorized(h2o_req_t *req);
 
 public:
-    HttpServer(std::string listen_address, uint32_t listen_port,
-               std::string ssl_cert_path, std::string ssl_cert_key_path, bool cors_enabled);
+    HttpServer(const std::string & version,
+               const std::string & listen_address, uint32_t listen_port,
+               const std::string & ssl_cert_path, const std::string & ssl_cert_key_path, bool cors_enabled);
 
     ~HttpServer();
 
@@ -102,6 +105,8 @@ public:
     void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts);
 
     static void on_stop_server(void *data);
+
+    std::string get_version();
 
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
