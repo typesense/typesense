@@ -38,7 +38,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 }
 
-int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
+int init_logger(Config & config, const std::string & server_version, std::unique_ptr<g3::LogWorker> & log_worker) {
     // remove SIGTERM since we handle it on our own
     g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
 
@@ -60,7 +60,7 @@ int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
 
         log_worker->addDefaultLogger("typesense", log_dir, "");
 
-        std::cout << "Starting Typesense " << TYPESENSE_VERSION << ". Log directory is configured as: "
+        std::cout << "Starting Typesense " << server_version << ". Log directory is configured as: "
                   << log_dir << std::endl;
     }
 
@@ -69,8 +69,16 @@ int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
     return 0;
 }
 
-int run_server(Config & config, void (*master_server_routes)(), void (*replica_server_routes)()) {
-    LOG(INFO) << "Starting Typesense " << TYPESENSE_VERSION << std::flush;
+int run_server(Config & config, const std::string & version,
+               void (*master_server_routes)(), void (*replica_server_routes)()) {
+
+    std::unique_ptr<g3::LogWorker> log_worker = g3::LogWorker::createLogWorker();
+    int ret_code = init_logger(config, version, log_worker);
+    if(ret_code != 0) {
+        return ret_code;
+    }
+
+    LOG(INFO) << "Starting Typesense " << version << std::flush;
 
     if(!directory_exists(config.get_data_dir())) {
         LOG(ERR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
@@ -98,11 +106,12 @@ int run_server(Config & config, void (*master_server_routes)(), void (*replica_s
     curl_global_init(CURL_GLOBAL_SSL);
 
     server = new HttpServer(
-            config.get_listen_address(),
-            config.get_listen_port(),
-            config.get_ssl_cert(),
-            config.get_ssl_cert_key(),
-            config.get_enable_cors()
+        version,
+        config.get_listen_address(),
+        config.get_listen_port(),
+        config.get_ssl_cert(),
+        config.get_ssl_cert_key(),
+        config.get_enable_cors()
     );
 
     server->set_auth_handler(handle_authentication);
@@ -131,7 +140,7 @@ int run_server(Config & config, void (*master_server_routes)(), void (*replica_s
         replication_thread.detach();
     }
 
-    int ret_code = server->run();
+    ret_code = server->run();
 
     curl_global_cleanup();
 

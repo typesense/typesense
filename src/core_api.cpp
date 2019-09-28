@@ -152,7 +152,7 @@ void del_drop_collection(http_req & req, http_res & res) {
 
 void get_debug(http_req & req, http_res & res) {
     nlohmann::json result;
-    result["version"] = TYPESENSE_VERSION;
+    result["version"] = res.server->get_version();
     res.send_200(result.dump());
 }
 

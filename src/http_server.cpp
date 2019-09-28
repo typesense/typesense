@@ -27,10 +27,11 @@ struct h2o_custom_generator_t {
     void* data;
 };
 
-HttpServer::HttpServer(std::string listen_address, uint32_t listen_port, std::string ssl_cert_path,
-                       std::string ssl_cert_key_path, bool cors_enabled):
-                       listen_address(listen_address), listen_port(listen_port), ssl_cert_path(ssl_cert_path),
-                       ssl_cert_key_path(ssl_cert_key_path), cors_enabled(cors_enabled) {
+HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
+                       uint32_t listen_port, const std::string & ssl_cert_path,
+                       const std::string & ssl_cert_key_path, bool cors_enabled):
+                       version(version), listen_address(listen_address), listen_port(listen_port),
+                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path), cors_enabled(cors_enabled) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -152,6 +153,10 @@ int HttpServer::run() {
 
 void HttpServer::on_stop_server(void *data) {
     // do nothing
+}
+
+std::string HttpServer::get_version() {
+    return version;
 }
 
 void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts) {
