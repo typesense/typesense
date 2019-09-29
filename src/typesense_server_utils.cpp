@@ -134,7 +134,7 @@ int run_server(Config & config, const std::string & version,
         replication_thread.detach();
     }
 
-    ret_code = server->run();
+    int ret_code = server->run();
 
     curl_global_cleanup();
 
