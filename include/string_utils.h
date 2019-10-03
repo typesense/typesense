@@ -15,7 +15,7 @@ struct StringUtils {
 
     StringUtils(): status(U_ZERO_ERROR) {
         // transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status))
-        cd = iconv_open("ascii//TRANSLIT", "UTF-8");
+        cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
     }
 
     ~StringUtils() {
@@ -155,6 +155,8 @@ struct StringUtils {
     }
 
     void unicode_normalize(std::string& str) const;
+
+    void unicode_normalize2(std::string& str) const;
 
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {
