@@ -1,6 +1,7 @@
 #include "core_api.h"
 #include "typesense_server_utils.h"
 #include <curl/curl.h>
+#include <sys/stat.h>
 
 HttpServer* server;
 

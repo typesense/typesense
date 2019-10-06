@@ -74,6 +74,13 @@ public:
 
         if(!s.ok()) {
             LOG(ERR) << "Error while initializing store: " << s.ToString();
+            if(s.code() == rocksdb::Status::Code::kIOError) {
+                LOG(ERR) << "It seems like the data directory " << state_dir_path << " is already being used by "
+                         << "another Typesense server. ";
+                LOG(ERR) << "If you are SURE that this is not the case, delete the LOCK file "
+                         << "in the data directory and try again.";
+                exit(1);
+            }
         }
 
         assert(s.ok());
