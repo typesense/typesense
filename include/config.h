@@ -85,7 +85,7 @@ public:
     
     // getters
 
-    std::string get_data_dir() {
+    std::string get_data_dir() const {
         return this->data_dir;
     }
 
@@ -93,31 +93,31 @@ public:
         return this->log_dir;
     }
 
-    std::string get_api_key() {
+    std::string get_api_key() const {
         return this->api_key;
     }
 
-    std::string get_search_only_api_key() {
+    std::string get_search_only_api_key() const {
         return this->search_only_api_key;
     }
 
-    std::string get_listen_address() {
+    std::string get_listen_address() const {
         return this->listen_address;
     }
 
-    int get_listen_port() {
+    int get_listen_port() const {
         return this->listen_port;
     }
 
-    std::string get_master() {
+    std::string get_master() const {
         return this->master;
     }
 
-    std::string get_ssl_cert() {
+    std::string get_ssl_cert() const {
         return this->ssl_certificate;
     }
 
-    std::string get_ssl_cert_key() {
+    std::string get_ssl_cert_key() const {
         return this->ssl_certificate_key;
     }
 
@@ -125,11 +125,11 @@ public:
         return config_file;
     }
 
-    bool get_enable_cors() {
+    bool get_enable_cors() const {
         return this->enable_cors;
     }
 
-    size_t get_indices_per_collection() {
+    size_t get_indices_per_collection() const {
         return indices_per_collection;
     }
 
