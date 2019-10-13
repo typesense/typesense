@@ -89,7 +89,7 @@ public:
         return this->data_dir;
     }
 
-    std::string get_log_dir() {
+    std::string get_log_dir() const {
         return this->log_dir;
     }
 
@@ -121,7 +121,7 @@ public:
         return this->ssl_certificate_key;
     }
 
-    std::string get_config_file() {
+    std::string get_config_file() const {
         return config_file;
     }
 
