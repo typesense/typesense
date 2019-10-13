@@ -34,7 +34,7 @@ public:
 
 class Replicator {
 public:
-    static void start(HttpServer* server, const std::string master_host_port, const std::string api_key, Store& store);
+    static void start(HttpServer* server, const std::string & master_host_port, const std::string & api_key, Store& store);
 
     static void on_replication_event(void *data);
 };

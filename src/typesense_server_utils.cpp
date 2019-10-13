@@ -70,7 +70,7 @@ int init_logger(Config & config, const std::string & server_version, std::unique
     return 0;
 }
 
-int run_server(Config & config, const std::string & version,
+int run_server(const Config & config, const std::string & version,
                void (*master_server_routes)(), void (*replica_server_routes)()) {
 
     LOG(INFO) << "Starting Typesense " << version << std::flush;
@@ -127,9 +127,11 @@ int run_server(Config & config, const std::string & version,
             return 1;
         }
 
-        LOG(INFO) << "Typesense is starting as a read-only replica... Spawning replication thread...";
-        std::thread replication_thread([&master_host_port, &store, &config]() {
-            Replicator::start(::server, master_host_port, config.get_api_key(), store);
+        LOG(INFO) << "Typesense is starting as a read-only replica... Master URL is: " << master_host_port;
+        LOG(INFO) << "Spawning replication thread...";
+
+        std::thread replication_thread([&store, &config]() {
+            Replicator::start(::server, config.get_master(), config.get_api_key(), store);
         });
 
         replication_thread.detach();
