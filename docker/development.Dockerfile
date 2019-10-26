@@ -16,33 +16,33 @@ RUN apt-get install -y python-software-properties \
 	libidn11 \
 	git
 
-RUN curl -L -o /opt/openssl-1.0.2s.tar.gz https://openssl.org/source/openssl-1.0.2s.tar.gz
-RUN tar -C /opt -xvzf /opt/openssl-1.0.2s.tar.gz
-RUN cd /opt/openssl-1.0.2s && sh ./config --prefix=/usr --openssldir=/usr zlib-dynamic
-RUN make -C /opt/openssl-1.0.2s depend
-RUN make -C /opt/openssl-1.0.2s -j4
-RUN make -C /opt/openssl-1.0.2s install
-
-RUN curl -L -o /opt/cmake-3.15.2-Linux-x86_64.tar.gz https://cmake.org/files/v3.15/cmake-3.15.2-Linux-x86_64.tar.gz
+ADD https://cmake.org/files/v3.15/cmake-3.15.2-Linux-x86_64.tar.gz /opt/cmake-3.15.2-Linux-x86_64.tar.gz
 RUN tar -C /opt -xvzf /opt/cmake-3.15.2-Linux-x86_64.tar.gz
 RUN cp -r /opt/cmake-3.15.2-Linux-x86_64/* /usr
 
-RUN curl -L -o /opt/snappy_1.1.3.orig.tar.gz https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz
+ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz /opt/snappy_1.1.3.orig.tar.gz
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
-RUN mkdir /opt/snappy-1.1.3/build && cd /opt/snappy-1.1.3/build && ../configure && make && make install
+RUN mkdir /opt/snappy-1.1.3/build && cd /opt/snappy-1.1.3/build && ../configure && make -j8 && make install
 
-RUN curl -L -o /opt/icu4c-61_1-src.tgz https://ssl.icu-project.org/files/icu4c/61.1/icu4c-61_1-src.tgz
+ADD https://ssl.icu-project.org/files/icu4c/61.1/icu4c-61_1-src.tgz /opt/icu4c-61_1-src.tgz
 RUN tar -C /opt -xf /opt/icu4c-61_1-src.tgz
 RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/uconfig.h && \
     echo "#define U_STATIC_IMPLEMENTATION 1" >> common/unicode/uconfig.h && \
     echo "#define U_USING_ICU_NAMESPACE 0" >> common/unicode/uconfig.h
 RUN cd /opt/icu/source && ./runConfigureICU Linux --disable-samples --disable-tests --enable-static \
-    --disable-shared --disable-renaming && make && make install
+    --disable-shared --disable-renaming && make -j8 && make install
 
-RUN curl -L -o /opt/curl-7.65.3.tar.gz https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz
+ADD https://openssl.org/source/openssl-1.1.1d.tar.gz /opt/openssl-1.1.1d.tar.gz
+RUN tar -C /opt -xvzf /opt/openssl-1.1.1d.tar.gz
+RUN cd /opt/openssl-1.1.1d && sh ./config --prefix=/usr/local --openssldir=/usr/local zlib
+RUN make -C /opt/openssl-1.1.1d depend
+RUN make -C /opt/openssl-1.1.1d -j8
+RUN make -C /opt/openssl-1.1.1d install
+
+ADD https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz /opt/curl-7.65.3.tar.gz
 RUN tar -C /opt -xf /opt/curl-7.65.3.tar.gz
-RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr \
---without-ca-bundle --without-ca-path && make && make install
+RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
+--without-ca-bundle --without-ca-path && make -j8 && make install
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++

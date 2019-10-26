@@ -18,9 +18,9 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     string_utils.unicode_normalize(alphanum_specialchars);
     ASSERT_STREQ("aa12zzwr", alphanum_specialchars.c_str());
 
-    std::string alphanum_unicodechars = "abcÅà123ß";
+    std::string alphanum_unicodechars = "abcÅà123ß12";
     string_utils.unicode_normalize(alphanum_unicodechars);
-    ASSERT_STREQ("abcaa123ss", alphanum_unicodechars.c_str());
+    ASSERT_STREQ("abcaa123ss12", alphanum_unicodechars.c_str());
 
     std::string tamil_unicodechars = "தமிழ் நாடு";
     string_utils.unicode_normalize(tamil_unicodechars);
@@ -29,6 +29,12 @@ TEST(StringUtilsTest, ShouldNormalizeString) {
     std::string chinese_unicodechars = "你好吗";
     string_utils.unicode_normalize(chinese_unicodechars);
     ASSERT_STREQ("你好吗", chinese_unicodechars.c_str());
+
+    std::string mixed_unicodechars = "çн தமிழ் நாடு so...";
+    string_utils.unicode_normalize(mixed_unicodechars);
+    ASSERT_STREQ("cнதமிழ்நாடுso", mixed_unicodechars.c_str());
+
+    // Any-Latin; Latin-ASCII; Lower()
 }
 
 TEST(StringUtilsTest, ShouldJoinString) {

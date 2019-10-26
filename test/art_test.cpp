@@ -723,6 +723,33 @@ TEST(ArtTest, test_art_fuzzy_search) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_fuzzy_search_unicode_chars) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    std::vector<const char*> keys = {
+        "роман", "обладать", "роисхождения", "без", "பஞ்சமம்", "சுதந்திரமாகவே", "அல்லது", "அடிப்படையில்"
+    };
+
+    for(const char* key: keys) {
+        art_document doc = get_document((uint32_t) 1);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc, 1));
+    }
+
+    for(const char* key: keys) {
+        art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key, strlen(key)+1);
+        EXPECT_EQ(1, l->values->ids.at(0));
+
+        std::vector<art_leaf*> leaves;
+        art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 1, 10, FREQUENCY, true, leaves);
+        ASSERT_EQ(1, leaves.size());
+    }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_encode_int32) {
     unsigned char chars[8];
 

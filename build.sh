@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -ex
 PROJECT_DIR=`dirname $0 | while read a; do cd $a && pwd && break; done`
@@ -24,7 +24,7 @@ fi
 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION -DCMAKE_BUILD_TYPE=Release -H$PROJECT_DIR -B$PROJECT_DIR/$BUILD_DIR
 make -C $PROJECT_DIR/$BUILD_DIR
 
-if [[ "$@" == *"--create-binary"* ]]; then
+if [[ "$@" == *"--package-binary"* ]]; then
     OS_FAMILY=$(echo `uname` | awk '{print tolower($0)}')
     RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-amd64
     printf `md5sum $PROJECT_DIR/$BUILD_DIR/typesense-server | cut -b-32` > $PROJECT_DIR/$BUILD_DIR/typesense-server.md5.txt
