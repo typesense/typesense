@@ -3,5 +3,5 @@ Version: $VERSION
 Maintainer: Typesense Inc. <contact@typesense.org>
 Description: Typesense Server
 Homepage: https://typesense.org
-Architecture: all
+Architecture: amd64
 Depends: curl
