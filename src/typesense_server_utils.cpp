@@ -1,6 +1,7 @@
 #include "core_api.h"
 #include "typesense_server_utils.h"
 #include <curl/curl.h>
+#include <sys/stat.h>
 
 HttpServer* server;
 
@@ -38,7 +39,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 }
 
-int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
+int init_logger(Config & config, const std::string & server_version, std::unique_ptr<g3::LogWorker> & log_worker) {
     // remove SIGTERM since we handle it on our own
     g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
 
@@ -60,7 +61,7 @@ int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
 
         log_worker->addDefaultLogger("typesense", log_dir, "");
 
-        std::cout << "Starting Typesense " << TYPESENSE_VERSION << ". Log directory is configured as: "
+        std::cout << "Starting Typesense " << server_version << ". Log directory is configured as: "
                   << log_dir << std::endl;
     }
 
@@ -69,8 +70,10 @@ int init_logger(Config & config, std::unique_ptr<g3::LogWorker> & log_worker) {
     return 0;
 }
 
-int run_server(Config & config, void (*master_server_routes)(), void (*replica_server_routes)()) {
-    LOG(INFO) << "Starting Typesense " << TYPESENSE_VERSION << std::flush;
+int run_server(const Config & config, const std::string & version,
+               void (*master_server_routes)(), void (*replica_server_routes)()) {
+
+    LOG(INFO) << "Starting Typesense " << version << std::flush;
 
     if(!directory_exists(config.get_data_dir())) {
         LOG(ERR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
@@ -98,11 +101,12 @@ int run_server(Config & config, void (*master_server_routes)(), void (*replica_s
     curl_global_init(CURL_GLOBAL_SSL);
 
     server = new HttpServer(
-            config.get_listen_address(),
-            config.get_listen_port(),
-            config.get_ssl_cert(),
-            config.get_ssl_cert_key(),
-            config.get_enable_cors()
+        version,
+        config.get_listen_address(),
+        config.get_listen_port(),
+        config.get_ssl_cert(),
+        config.get_ssl_cert_key(),
+        config.get_enable_cors()
     );
 
     server->set_auth_handler(handle_authentication);
@@ -123,9 +127,11 @@ int run_server(Config & config, void (*master_server_routes)(), void (*replica_s
             return 1;
         }
 
-        LOG(INFO) << "Typesense is starting as a read-only replica... Spawning replication thread...";
-        std::thread replication_thread([&master_host_port, &store, &config]() {
-            Replicator::start(::server, master_host_port, config.get_api_key(), store);
+        LOG(INFO) << "Typesense is starting as a read-only replica... Master URL is: " << master_host_port;
+        LOG(INFO) << "Spawning replication thread...";
+
+        std::thread replication_thread([&store, &config]() {
+            Replicator::start(::server, config.get_master(), config.get_api_key(), store);
         });
 
         replication_thread.detach();

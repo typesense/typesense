@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -ex
 PROJECT_DIR=`dirname $0 | while read a; do cd $a && pwd && break; done`
@@ -21,14 +21,14 @@ if [[ "$@" == *"--depclean"* ]]; then
   mkdir $PROJECT_DIR/external-$SYSTEM_NAME
 fi
 
-echo "Creating development image..."
-docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
+#echo "Creating development image..."
+#docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
 
 echo "Building Typesense $TYPESENSE_VERSION..."
 docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
 
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make -C/typesense/$BUILD_DIR
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make typesense-server typesense-core -C/typesense/$BUILD_DIR
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
@@ -38,7 +38,7 @@ if [[ "$@" == *"--build-deploy-image"* ]]; then
                         $PROJECT_DIR/$BUILD_DIR
 fi
 
-if [[ "$@" == *"--create-binary"* ]]; then
+if [[ "$@" == *"--package-binary"* ]]; then
     OS_FAMILY=linux
     RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-amd64
     printf `md5sum $PROJECT_DIR/$BUILD_DIR/typesense-server | cut -b-32` > $PROJECT_DIR/$BUILD_DIR/typesense-server.md5.txt

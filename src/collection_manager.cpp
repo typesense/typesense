@@ -95,7 +95,7 @@ Option<bool> CollectionManager::init(Store *store,
 
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
-        LOG(INFO) << "Loading collection " << collection->get_name() << std::endl;
+        LOG(INFO) << "Loading collection " << collection->get_name();
 
         // initialize overrides
         std::vector<std::string> collection_override_jsons;

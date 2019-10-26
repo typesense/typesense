@@ -32,7 +32,7 @@
 
 enum recurse_progress { RECURSE, ABORT, ITERATE };
 
-static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
+static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int min_cost,
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results);
 
@@ -1144,7 +1144,8 @@ static inline void copyIntArray2(const int *src, int *dest, const int len) {
     }
 }
 
-static inline int levenshtein_dist(const int depth, const char p, const char c, const unsigned char* term, const int term_len,
+static inline int levenshtein_dist(const int depth, const unsigned char p, const unsigned char c,
+                                   const unsigned char* term, const int term_len,
                                    const int* irow, const int* jrow, int* krow) {
     int row_min = std::numeric_limits<int>::max();
     const int columns = term_len+1;
@@ -1234,7 +1235,7 @@ static inline void rotate(int &i, int &j, int &k) {
 
 // e.g. catapult against coratapult
 // e.g. microafot against microsoft
-static void art_fuzzy_recurse(char p, char c, const art_node *n, int depth, const unsigned char *term,
+static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int min_cost,
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results) {
     const int columns = term_len+1;
