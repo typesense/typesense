@@ -45,13 +45,13 @@ dpkg -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/type
 
 mkdir /tmp/typesense-rpm-build
 cp "/tmp/typesense-deb-build/typesense-server-${TS_VERSION}-amd64.deb" /tmp/typesense-rpm-build
-cd /tmp/typesense-rpm-build && alien --target=amd64 --scripts -k -r -g -v /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-amd64.deb
+cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-amd64.deb
 
 sed -i 's#%dir "/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 cd /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} && \
-  rpmbuild --target=amd64 --buildroot /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} -bb \
+  rpmbuild --target=x86_64 --buildroot /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} -bb \
   /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-1.spec
 
 cd /tmp/typesense-rpm-build
