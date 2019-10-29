@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # TS_VERSION is passed as an environment variable to the script
 
@@ -43,7 +43,7 @@ dpkg -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/type
 
 # Generate RPM
 
-mkdir /tmp/typesense-rpm-build
+rm -rf /tmp/typesense-rpm-build && mkdir /tmp/typesense-rpm-build
 cp "/tmp/typesense-deb-build/typesense-server-${TS_VERSION}-amd64.deb" /tmp/typesense-rpm-build
 cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-amd64.deb
 
