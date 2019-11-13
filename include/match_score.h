@@ -94,8 +94,8 @@ struct Match {
 
   /*
   *  Given *sorted offsets* of each target token in a *single* document, generates a score that indicates:
-  *  a) How many tokens are present in the document
-  *  b) The proximity between the tokens in the document
+  *  a) How many tokens are present within a match window
+  *  b) The proximity between the tokens within the match window
   *
   *  We use a priority queue to read the offset vectors in a sorted manner, slide a window of a given size, and
   *  compute the max_match and min_displacement of target tokens across the windows.
