@@ -859,7 +859,7 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         uint64_t match_score = 0;
 
         for(const std::vector<std::vector<uint16_t>> & token_positions: array_token_positions) {
-            if(token_positions.size() == 0) {
+            if(token_positions.empty()) {
                 continue;
             }
             const Match & match = Match::match(seq_id, token_positions);
@@ -1228,7 +1228,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
 
             for(const std::vector<std::vector<uint16_t>> & token_positions: array_token_positions) {
-                if(token_positions.size() == 0) {
+                if(token_positions.empty()) {
                     continue;
                 }
                 const Match & match = Match::match(seq_id, token_positions);
@@ -1288,7 +1288,7 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
     // for every element in a potential array, for every token in query suggestion, get the positions
 
     // first ascertain the size of the array
-    size_t array_size = 1;
+    size_t array_size = 0;
 
     for (const art_leaf *token_leaf : query_suggestion) {
         size_t this_array_size = 1;
