@@ -118,6 +118,8 @@ Option<bool> CollectionManager::init(Store *store,
             iter_batch.push_back(std::vector<index_record>());
         }
 
+        int num_docs_read = 0;
+
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
@@ -130,11 +132,13 @@ Option<bool> CollectionManager::init(Store *store,
                 return Option<bool>(false, "Bad JSON.");
             }
 
+            num_docs_read++;
+
             iter_batch[seq_id % collection->get_num_indices()].push_back(
                 index_record(0, seq_id, iter->value().ToString(), document)
             );
 
-            if(iter_batch.size() == init_batch_size) {
+            if(num_docs_read % init_batch_size == 0) {
                 batch_index_result res;
                 collection->par_index_in_memory(iter_batch, res);
                 for(size_t i = 0; i < collection->get_num_indices(); i++) {
