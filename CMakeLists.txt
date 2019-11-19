@@ -50,6 +50,7 @@ include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/g3log.cmake)
 include(cmake/Iconv.cmake)
+include(cmake/MariaDBConnector.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
 
@@ -64,6 +65,7 @@ include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include)
 include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${MDB_CONN_NAME}/include)
 
 # Write dependency include directories to a file
 file(WRITE ${DEP_ROOT_DIR}/includes.txt "")
