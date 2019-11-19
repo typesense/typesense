@@ -738,24 +738,24 @@ void Collection::highlight_result(const field &search_field,
         // is from the best matched field and need not be present in other fields of a document.
         Index* index = indices[field_order_kv.key % num_indices];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
-        if(actual_leaf != NULL) {
+        if(actual_leaf != nullptr) {
             query_suggestion.push_back(actual_leaf);
             std::vector<uint16_t> positions;
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv.key);
-            uint32_t *indices = new uint32_t[1];
-            indices[0] = doc_index;
-            leaf_to_indices.emplace(actual_leaf, indices);
+            auto doc_indices = new uint32_t[1];
+            doc_indices[0] = doc_index;
+            leaf_to_indices.emplace(actual_leaf, doc_indices);
         }
+    }
+
+    if(query_suggestion.empty()) {
+        // none of the tokens from the query were found on this field
+        return ;
     }
 
     // positions in the field of each token in the query
     std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
     Index::populate_token_positions(query_suggestion, leaf_to_indices, 0, array_token_positions);
-
-    if(array_token_positions.size() == 0) {
-        // none of the tokens from the query were found on this field
-        return ;
-    }
 
     std::vector<match_index_t> match_indices;
 
@@ -769,6 +769,11 @@ void Collection::highlight_result(const field &search_field,
         const Match & this_match = Match::match(field_order_kv.key, token_positions);
         uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
         match_indices.push_back(match_index_t(this_match, this_match_score, array_index));
+    }
+
+    if(match_indices.empty()) {
+        // none of the tokens from the query were found on this field
+        return ;
     }
 
     const size_t max_array_matches = std::min((size_t)MAX_ARRAY_MATCHES, match_indices.size());

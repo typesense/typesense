@@ -669,6 +669,12 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     ASSERT_STREQ(results["hits"][0]["highlights"][1]["snippet"].get<std::string>().c_str(),
                  "<mark>Amazing</mark> Spiderman is <mark>amazing</mark>"); // should highlight duplicating tokens
 
+    // when query tokens are not found in an array field they should be ignored
+    results = coll_array_text->search("winds", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                      false, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+
     collectionManager.drop_collection("coll_array_text");
 }
 

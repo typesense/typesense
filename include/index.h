@@ -249,8 +249,6 @@ public:
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};
 
-    enum {ARRAY_SEPARATOR = UINT16_MAX};
-
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";

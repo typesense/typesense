@@ -450,36 +450,40 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
 
 void Index::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
                                           uint32_t seq_id, const bool verbatim) const {
-    std::unordered_map<std::string, std::unordered_map<size_t, std::vector<uint32_t>>> token_array_positions;
+    std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string & str = strings[array_index];
         std::vector<std::string> tokens;
         std::string delim = verbatim ? "" : " ";
-
         StringUtils::split(str, tokens, delim);
 
-        for(uint32_t i=0; i<tokens.size(); i++) {
+        std::set<std::string> token_set;  // required to deal with repeating tokens
+
+        // iterate and append offset positions
+        for(size_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
+
             if(!verbatim) {
                 string_utils.unicode_normalize(token);
             }
-            token_array_positions[token][array_index].push_back(i);
+
+            token_positions[token].push_back(i);
+            token_set.insert(token);
+        }
+
+        // repeat last element to indicate end of offsets for this array index
+        for(auto & token: token_set) {
+            token_positions[token].push_back(token_positions[token].back());
+        }
+
+        // iterate and append this array index to all tokens
+        for(auto & token: token_set) {
+            token_positions[token].push_back(array_index);
         }
     }
 
-    std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
-
-    for(const auto & kv: token_array_positions) {
-        for(size_t array_index = 0; array_index < strings.size(); array_index++) {
-            token_to_offsets[kv.first].insert(token_to_offsets[kv.first].end(),
-                                              token_array_positions[kv.first][array_index].begin(),
-                                              token_array_positions[kv.first][array_index].end());
-            token_to_offsets[kv.first].push_back(ARRAY_SEPARATOR);
-        }
-    }
-
-    insert_doc(score, t, seq_id, token_to_offsets);
+    insert_doc(score, t, seq_id, token_positions);
 }
 
 void Index::index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t,
@@ -855,7 +859,7 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         uint64_t match_score = 0;
 
         for(const std::vector<std::vector<uint16_t>> & token_positions: array_token_positions) {
-            if(token_positions.size() == 0) {
+            if(token_positions.empty()) {
                 continue;
             }
             const Match & match = Match::match(seq_id, token_positions);
@@ -1224,7 +1228,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
 
             for(const std::vector<std::vector<uint16_t>> & token_positions: array_token_positions) {
-                if(token_positions.size() == 0) {
+                if(token_positions.empty()) {
                     continue;
                 }
                 const Match & match = Match::match(seq_id, token_positions);
@@ -1276,14 +1280,19 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
                                      spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
                                      size_t result_index,
                                      std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions) {
+    if(query_suggestion.empty()) {
+        return ;
+    }
 
     // array_token_positions:
     // for every element in a potential array, for every token in query suggestion, get the positions
 
-    // first let's ascertain the size of the array
+    // first ascertain the size of the array
     size_t array_size = 0;
 
     for (const art_leaf *token_leaf : query_suggestion) {
+        size_t this_array_size = 1;
+
         uint32_t doc_index = leaf_to_indices.at(token_leaf)[result_index];
         if(doc_index == token_leaf->values->ids.getLength()) {
             continue;
@@ -1294,20 +1303,24 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
                               token_leaf->values->offsets.getLength() :
                               token_leaf->values->offset_index.at(doc_index+1);
 
-        while(start_offset < end_offset) {
-            uint16_t pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
-            if(pos == ARRAY_SEPARATOR) {
-                array_size++;
+        if(end_offset - start_offset < 3) {
+            this_array_size = 1; // can only be a string since array needs atleast 3 positions for storage
+        } else {
+            // Array offset storage format:
+            // a) last element is array_index b) second and third last elements will be largest offset
+
+            auto last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 1);
+            auto second_last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 2);
+            auto third_last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 3);
+
+            if(second_last_val != third_last_val) {
+                this_array_size = 1;
+            } else {
+                this_array_size = last_val + 1;
             }
-            start_offset++;
         }
 
-        if(array_size == 0) {
-            // for plain string fields that don't use an ARRAY_SEPARATOR
-            array_size = 1;
-        }
-
-        break;
+        array_size = std::max(array_size, this_array_size);
     }
 
     // initialize array_token_positions
@@ -1325,28 +1338,32 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
                               token_leaf->values->offsets.getLength() :
                               token_leaf->values->offset_index.at(doc_index+1);
 
-        size_t array_index = 0;
         std::vector<uint16_t> positions;
+        uint16_t prev_pos = -1;
 
         while(start_offset < end_offset) {
-            uint16_t pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
+            auto pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
             start_offset++;
 
-            if(pos == ARRAY_SEPARATOR) {
-                if(positions.size() != 0) {
+            if(pos == prev_pos) {  // indicates end of array index
+                if(!positions.empty()) {
+                    size_t array_index = (uint16_t) token_leaf->values->offsets.at(start_offset);
                     array_token_positions[array_index].push_back(positions);
                     positions.clear();
                 }
-                array_index++;
+
+                start_offset++;  // skip current value which is array index
+                prev_pos = -1;
                 continue;
             }
 
+            prev_pos = pos;
             positions.push_back(pos);
         }
 
-        if(positions.size() != 0) {
-            // for plain string fields that don't use an ARRAY_SEPARATOR
-            array_token_positions[array_index].push_back(positions);
+        if(!positions.empty()) {
+            // for plain string fields
+            array_token_positions[0].push_back(positions);
         }
     }
 }
