@@ -29,7 +29,8 @@ TEST(StoreTest, GetUpdatesSince) {
     // querying for a seq_num > 1 on a fresh store
     updates_op = primary_store.get_updates_since(2, 10);
     ASSERT_FALSE(updates_op.ok());
-    ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 0", updates_op.error());
+    ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 0 but "
+              "requested sequence number is 2", updates_op.error());
 
     // get_updates_since(1) == get_updates_since(0) even after inserting a record
     primary_store.insert("foo1", "bar1");
@@ -112,7 +113,8 @@ TEST(StoreTest, GetUpdatesSince) {
 
     updates_op = primary_store.get_updates_since(50, 100);
     ASSERT_FALSE(updates_op.ok());
-    ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 3", updates_op.error());
+    ASSERT_EQ("Unable to fetch updates. Master's latest sequence number is 3 but "
+              "requested sequence number is 50", updates_op.error());
 }
 
 TEST(StoreTest, GetUpdateSinceInvalidIterator) {
