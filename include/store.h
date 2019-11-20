@@ -171,8 +171,12 @@ public:
 
         if(!status.ok()) {
             LOG(ERR) << "Error while fetching updates for replication: " << status.ToString();
+
             std::ostringstream error;
-            error << "Unable to fetch updates. " << "Master's latest sequence number is " << local_latest_seq_num;
+            error << "Unable to fetch updates. " << "Master's latest sequence number is " << local_latest_seq_num
+                  << " but requested sequence number is " << seq_number;
+            LOG(ERR) << error.str();
+
             return Option<std::vector<std::string>*>(400, error.str());
         }
 
@@ -181,6 +185,7 @@ public:
             error << "Invalid iterator. Master's latest sequence number is " << local_latest_seq_num << " but "
                   << "updates are requested from sequence number " << seq_number << ". "
                   << "The master's WAL entries might have expired (they are kept only for 24 hours).";
+            LOG(ERR) << error.str();
             return Option<std::vector<std::string>*>(400, error.str());
         }
 
@@ -198,6 +203,7 @@ public:
                     error << "Invalid iterator. Requested sequence number is " << seq_number << " but "
                           << "updates are available only from sequence number " << batch.sequence << ". "
                           << "The master's WAL entries might have expired (they are kept only for 24 hours).";
+                    LOG(ERR) << error.str();
                     return Option<std::vector<std::string>*>(400, error.str());
                 }
             }
