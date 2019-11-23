@@ -16,10 +16,15 @@ endif()
 
 if (APPLE)
     set(OPENSSL_ROOT_DIR /usr/local/opt/openssl@1.1)
+    set(ADDITIONAL_FLAGS "-DCMAKE_PREFIX_PATH=${OPENSSL_ROOT_DIR}")
+else()
+    set(ADDITIONAL_FLAGS "-DCMAKE_INCLUDE_PATH=${DEP_ROOT_DIR}/${ICONV_NAME}/include"
+            "-DCMAKE_PREFIX_PATH=${OPENSSL_ROOT_DIR};${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
 endif (APPLE)
 
-if(NOT EXISTS ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/h2o)
+if(NOT EXISTS ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/libmariadb/libmariadbclient.a)
     message("Configuring ${MDB_CONN_NAME}...")
+
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
             "-H${DEP_ROOT_DIR}/${MDB_CONN_NAME}"
@@ -34,7 +39,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/h2o)
             "-DCLIENT_PLUGIN_SHA256_PASSWORD=OFF"
             "-DCLIENT_PLUGIN_AURORA=OFF"
             "-DCLIENT_PLUGIN_REPLICATION=OFF"
-            "-DCMAKE_PREFIX_PATH=${OPENSSL_ROOT_DIR}"
+            ${ADDITIONAL_FLAGS}
             RESULT_VARIABLE
             MDB_CONN_CONFIGURE)
     if(NOT MDB_CONN_CONFIGURE EQUAL 0)

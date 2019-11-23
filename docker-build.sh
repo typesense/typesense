@@ -28,7 +28,7 @@ echo "Building Typesense $TYPESENSE_VERSION..."
 docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
 
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make typesense-server typesense-core -C/typesense/$BUILD_DIR
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make search -C/typesense/$BUILD_DIR
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
