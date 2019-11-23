@@ -55,6 +55,7 @@ include(cmake/MariaDBConnector.cmake)
 FILE(GLOB SRC_FILES src/*.cpp)
 
 include_directories(include)
+include_directories(include/connectors)
 include_directories(${OPENSSL_INCLUDE_DIR})
 include_directories(${CURL_INCLUDE_DIR})
 include_directories(${ICU_INCLUDE_DIRS})
@@ -66,6 +67,7 @@ include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include)
 include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${MDB_CONN_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/include)
 
 # Write dependency include directories to a file
 file(WRITE ${DEP_ROOT_DIR}/includes.txt "")
@@ -73,13 +75,16 @@ file(APPEND ${DEP_ROOT_DIR}/includes.txt "${DEP_ROOT_DIR}/${FOR_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/src")
-file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/include")
 
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
+link_directories(${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/libmariadb)
 link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
 
 # Write dependency libraries to a file
@@ -88,6 +93,7 @@ file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${FOR_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/build")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/libmariadb")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
 
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
@@ -142,8 +148,8 @@ if(NOT APPLE)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
-              ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
+set(CORE_LIBS h2o-evloop ${CURL_LIBRARIES} for ${G3LOGGER_LIBRARIES} mariadbclient
+              ${ROCKSDB_LIBS} ${ICU_ALL_LIBRARIES} iconv ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
 target_link_libraries(typesense-server ${CORE_LIBS})

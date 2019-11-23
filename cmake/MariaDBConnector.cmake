@@ -16,14 +16,18 @@ endif()
 
 if (APPLE)
     set(OPENSSL_ROOT_DIR /usr/local/opt/openssl@1.1)
-    set(ADDITIONAL_FLAGS "-DCMAKE_PREFIX_PATH=${OPENSSL_ROOT_DIR}")
-else()
-    set(ADDITIONAL_FLAGS "-DCMAKE_INCLUDE_PATH=${DEP_ROOT_DIR}/${ICONV_NAME}/include"
-            "-DCMAKE_PREFIX_PATH=${OPENSSL_ROOT_DIR};${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
 endif (APPLE)
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/libmariadb/libmariadbclient.a)
     message("Configuring ${MDB_CONN_NAME}...")
+
+    if (APPLE)
+        # Must replace this definition since it prevents GNU iconv from working
+        # See: https://stackoverflow.com/questions/57734434/libiconv-or-iconv-undefined-symbol-on-mac-osx
+        file(READ ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/libmariadb/CMakeLists.txt LIBMARIADB_CMAKE_LISTS)
+        string(REPLACE "ADD_DEFINITIONS\(-DLIBICONV_PLUG\)" "" PATCHED_LIBMARIADB_CMAKE_LISTS "${LIBMARIADB_CMAKE_LISTS}")
+        file(WRITE ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/libmariadb/CMakeLists.txt "${PATCHED_LIBMARIADB_CMAKE_LISTS}")
+    endif (APPLE)
 
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
@@ -39,7 +43,8 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${MDB_CONN_NAME}/build/libmariadb/libmariadbclient
             "-DCLIENT_PLUGIN_SHA256_PASSWORD=OFF"
             "-DCLIENT_PLUGIN_AURORA=OFF"
             "-DCLIENT_PLUGIN_REPLICATION=OFF"
-            ${ADDITIONAL_FLAGS}
+            "-DCMAKE_INCLUDE_PATH=${DEP_ROOT_DIR}/${ICONV_NAME}/include"
+            "-DCMAKE_PREFIX_PATH=${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs;${OPENSSL_ROOT_DIR}"
             RESULT_VARIABLE
             MDB_CONN_CONFIGURE)
     if(NOT MDB_CONN_CONFIGURE EQUAL 0)

@@ -11,10 +11,15 @@
 #include <sys/resource.h>
 #include "collection.h"
 #include "collection_manager.h"
+#include "connectors/mysql_connector.h"
 
 using namespace std;
 
 int main(int argc, char* argv[]) {
+    MySQLConnector m;
+    m.runQuery();
+    return 0;
+    
     const std::string state_dir_path = "/tmp/typesense-data";
     system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
 
