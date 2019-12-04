@@ -1,10 +1,20 @@
 #include <mysql.h>
 #include <iostream>
+#include <string>
 
 class MySQLConnector {
+private:
+    std::string host;
+    std::string username;
+    std::string password;
+    std::string database;
+    int port;
 
 public:
-    MySQLConnector() {
+
+    MySQLConnector(const std::string & host, const std::string & username, const std::string & password,
+                   const std::string & database, int port): host(host), username(username), password(password),
+                                                            database(database), port(port) {
 
     }
 
@@ -13,7 +23,8 @@ public:
 
         mysql_init(&mysql);
 
-        if(!mysql_real_connect(&mysql, "localhost", "typesense", "typesense", "typesense", 3306, NULL, 0)) {
+        if(!mysql_real_connect(&mysql, host.c_str(), username.c_str(), password.c_str(),
+                               database.c_str(), port, NULL, 0)) {
             std::cout << "Failed to connect to database: Error: %s\n" << mysql_error(&mysql);
         }
 

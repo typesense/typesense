@@ -16,7 +16,7 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    MySQLConnector m;
+    MySQLConnector m("localhost", "root", "", "typesense", 3306);
     m.runQuery();
     return 0;
     
