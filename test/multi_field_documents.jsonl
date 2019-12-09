@@ -1,18 +1,18 @@
-{"title": "Wake Up, Ron Burgundy: The Lost Movie", "starring": "Will Ferrell", "points": 62, "cast": [ "Adam McKay", "Steve Carell", "Paul Rudd"] }
-{"title": "Anchorman 2: The Legend Continues", "starring": "Will Ferrell", "points": 63, "cast": ["Josh Lawson", "Chris Parnell"] }
-{"title": "There Will Be Blood", "starring": "Daniel Day-Lewis", "points": 81, "cast": ["Martin Stringer", "Jacob Stringer", "Harrison Taylor"] }
-{"title": "Good Will Hunting", "starring": "Robin Williams", "points": 83, "cast": ["Matt Damon", "Ben Affleck", "Minnie Driver"] }
-{"title": "The Adventures of Huck Finn", "starring": "Ron Perlman", "points": 58, "cast": ["Elijah Wood", "Courtney B. Vance", "Robbie Coltrane"] }
-{"title": "Percy Jackson: Sea of Monsters", "starring": "Ron Perlman", "points": 59, "cast": ["Logan Lerman", "Alexandra Daddario"] }
-{"title": "Captain America: The Winter Soldier", "starring": "Samuel L. Jackson", "points": 78, "cast": ["Chris Evans", "Scarlett Johansson"] }
-{"title": "Quantum Quest: A Cassini Space Odyssey", "starring": "Samuel L. Jackson", "points": 52, "cast": ["Chris Pine"] }
-{"title": "Scott Pilgrim vs. the World", "starring": "Michael Cera", "points": 75, "cast": ["Alison Pill"] }
-{"title": "Homeland Security", "starring": "Scott Glenn", "points": 43, "cast": ["Tom Skerritt"] }
-{"title": "The Paperboy", "starring": "Scott Glenn", "points": 58, "cast": ["Zac Efron", "Matthew McConaughey"] }
-{"title": "The Silence of the Lambs", "starring": "Scott Glenn", "points": 86, "cast": ["Jodie Foster"] }
-{"title": "Confessions of a Shopaholic", "starring": "Kristin Scott Thomas", "points": 59, "cast": ["Isla Fisher", "Hugh Dancy"] }
-{"title": "The Woman in the Fifth", "starring": "Kristin Scott Thomas", "points": 53, "cast": ["Ethan Hawke"] }
-{"title": "Odd Thomas", "starring": "Matthew Page", "points": 69, "cast": ["Anton Yelchin", "Ashley Sommers"] }
-{"title": "Suffering Man's Charity", "starring": "Henry Thomas", "points": 69, "cast": ["Alan Cumming", "Alison Guh", "David Boreanaz"] }
-{"title": "The Gospel According to St. Matthew", "starring": "Paola Tedesco", "points": 79, "cast": ["Enrique Irazoqui", "Margherita Caruso"] }
-{"title": "Halloween 5: The Revenge of Michael Myers", "starring": "Donald Myers", "points": 52, "cast": ["Danielle Harris", "Ellie Cornell"] }
+{"cast":["Adam McKay","Steve Carell","Paul Rudd"],"points":62,"starring":"Will Ferrell","starring_facet":"Will Ferrell","title":"Wake Up, Ron Burgundy: The Lost Movie"}
+{"cast":["Josh Lawson","Chris Parnell"],"points":63,"starring":"Will Ferrell","starring_facet":"Will Ferrell","title":"Anchorman 2: The Legend Continues"}
+{"cast":["Martin Stringer","Jacob Stringer","Harrison Taylor"],"points":81,"starring":"Daniel Day-Lewis","starring_facet":"Daniel Day-Lewis","title":"There Will Be Blood"}
+{"cast":["Matt Damon","Ben Affleck","Minnie Driver"],"points":83,"starring":"Robin Williams","starring_facet":"Robin Williams","title":"Good Will Hunting"}
+{"cast":["Elijah Wood","Courtney B. Vance","Robbie Coltrane"],"points":58,"starring":"Ron Perlman","starring_facet":"Ron Perlman","title":"The Adventures of Huck Finn"}
+{"cast":["Logan Lerman","Alexandra Daddario"],"points":59,"starring":"Ron Perlman","starring_facet":"Ron Perlman","title":"Percy Jackson: Sea of Monsters"}
+{"cast":["Chris Evans","Scarlett Johansson"],"points":78,"starring":"Samuel L. Jackson","starring_facet":"Samuel L. Jackson","title":"Captain America: The Winter Soldier"}
+{"cast":["Chris Pine"],"points":52,"starring":"Samuel L. Jackson","starring_facet":"Samuel L. Jackson","title":"Quantum Quest: A Cassini Space Odyssey"}
+{"cast":["Alison Pill"],"points":75,"starring":"Michael Cera","starring_facet":"Michael Cera","title":"Scott Pilgrim vs. the World"}
+{"cast":["Tom Skerritt"],"points":43,"starring":"Scott Glenn","starring_facet":"Scott Glenn","title":"Homeland Security"}
+{"cast":["Zac Efron","Matthew McConaughey"],"points":58,"starring":"Scott Glenn","starring_facet":"Scott Glenn","title":"The Paperboy"}
+{"cast":["Jodie Foster"],"points":86,"starring":"Scott Glenn","starring_facet":"Scott Glenn","title":"The Silence of the Lambs"}
+{"cast":["Isla Fisher","Hugh Dancy"],"points":59,"starring":"Kristin Scott Thomas","starring_facet":"Kristin Scott Thomas","title":"Confessions of a Shopaholic"}
+{"cast":["Ethan Hawke"],"points":53,"starring":"Kristin Scott Thomas","starring_facet":"Kristin Scott Thomas","title":"The Woman in the Fifth from Kristin"}
+{"cast":["Anton Yelchin","Ashley Sommers"],"points":69,"starring":"Matthew Page","starring_facet":"Matthew Page","title":"Odd Thomas"}
+{"cast":["Alan Cumming","Alison Guh","David Boreanaz"],"points":69,"starring":"Henry Thomas","starring_facet":"Henry Thomas","title":"Suffering Man's Charity"}
+{"cast":["Enrique Irazoqui","Margherita Caruso"],"points":79,"starring":"Paola Tedesco","starring_facet":"Paola Tedesco","title":"The Gospel According to St. Matthew"}
+{"cast":["Danielle Harris","Ellie Cornell"],"points":52,"starring":"Donald Myers","starring_facet":"Donald Myers","title":"Halloween 5: The Revenge of Michael Myers"}
