@@ -584,7 +584,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
         uint32_t total_cost = 0;
         uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
 
-        for(auto tc: token_candidates_vec) {
+        for(const auto& tc: token_candidates_vec) {
             total_cost += tc.cost;
         }
 
@@ -615,8 +615,6 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             delete [] *all_result_ids;
             *all_result_ids = new_all_result_ids;
 
-            do_facets(facets, filtered_result_ids, filtered_results_size);
-
             // go through each matching document id and calculate match score
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
                           filtered_result_ids, filtered_results_size);
@@ -624,8 +622,6 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             delete[] filtered_result_ids;
             delete[] result_ids;
         } else {
-            do_facets(facets, result_ids, result_size);
-
             uint32_t* new_all_result_ids;
             all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, result_ids,
                                   result_size, &new_all_result_ids);
@@ -932,6 +928,7 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
                 collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
             }
         }
+        do_facets(facets, all_result_ids, all_result_ids_len);
     }
 
     do_facets(facets, &included_ids[0], included_ids.size());
