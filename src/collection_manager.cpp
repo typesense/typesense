@@ -210,9 +210,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
 
-    nlohmann::json collection_meta;
-
+    bool found_default_sorting_field = false;
     nlohmann::json fields_json = nlohmann::json::array();;
+
     for(const field & field: fields) {
         nlohmann::json field_val;
         field_val[fields::name] = field.name;
@@ -225,8 +225,18 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
             return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
                                             "` must be of type int32 or float.");
         }
+
+        if(field.name == default_sorting_field) {
+            found_default_sorting_field = true;
+        }
     }
 
+    if(!found_default_sorting_field) {
+        return Option<Collection*>(400, "Default sorting field is defined as `" + default_sorting_field +
+                                        "` but is not found in the schema.");
+    }
+
+    nlohmann::json collection_meta;
     collection_meta[COLLECTION_NAME_KEY] = name;
     collection_meta[COLLECTION_ID_KEY] = next_collection_id;
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
