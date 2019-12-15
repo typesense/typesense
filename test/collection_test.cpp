@@ -1939,7 +1939,8 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
-TEST_F(CollectionTest, DefaultSortingFieldMustBeInt32OrFloat) {
+TEST_F(CollectionTest, DefaultSortingFieldValidations) {
+    // Default sorting field must be int32 or float
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("age", field_types::INT32, false),
@@ -1950,6 +1951,19 @@ TEST_F(CollectionTest, DefaultSortingFieldMustBeInt32OrFloat) {
     Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", fields, "name");
     EXPECT_FALSE(collection_op.ok());
     EXPECT_EQ("Default sorting field `name` must be of type int32 or float.", collection_op.error());
+    collectionManager.drop_collection("sample_collection");
+
+    // Default sorting field must exist as a field in schema
+
+    fields = {field("name", field_types::STRING, false),
+              field("tags", field_types::STRING_ARRAY, true),
+              field("age", field_types::INT32, false),
+              field("average", field_types::INT32, false) };
+
+    sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
+    collection_op = collectionManager.create_collection("sample_collection", fields, "NOT-DEFINED");
+    EXPECT_FALSE(collection_op.ok());
+    EXPECT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
 }
 
