@@ -37,7 +37,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.11.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.11.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
@@ -156,4 +156,4 @@ In the mean time, if you have any numbers from your own datasets, please send us
 
 If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
-&copy; 2016-2019 Wreally Studios Inc.
+&copy; 2016-2019 Typesense Inc.
