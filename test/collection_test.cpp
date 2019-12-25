@@ -685,6 +685,7 @@ TEST_F(CollectionTest, MultipleFields) {
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("starring", field_types::STRING, false),
+            field("starring_facet", field_types::STRING, true),
             field("cast", field_types::STRING_ARRAY, false),
             field("points", field_types::INT32, false)
     };
@@ -774,8 +775,10 @@ TEST_F(CollectionTest, MultipleFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // when a token exists in multiple fields of the same document, document should be returned only once
+    // when a token exists in multiple fields of the same document, document and facet should be returned only once
     query_fields = {"starring", "title", "cast"};
+    facets = {"starring_facet"};
+
     results = coll_mul_fields->search("myers", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ids = {"17"};
@@ -785,6 +788,11 @@ TEST_F(CollectionTest, MultipleFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("starring_facet", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    size_t facet_count = results["facet_counts"][0]["counts"][0]["count"];
+    ASSERT_EQ(1, facet_count);
 
     collectionManager.drop_collection("coll_mul_fields");
 }
@@ -1931,7 +1939,8 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
-TEST_F(CollectionTest, DefaultSortingFieldMustBeInt32OrFloat) {
+TEST_F(CollectionTest, DefaultSortingFieldValidations) {
+    // Default sorting field must be int32 or float
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("age", field_types::INT32, false),
@@ -1942,6 +1951,19 @@ TEST_F(CollectionTest, DefaultSortingFieldMustBeInt32OrFloat) {
     Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", fields, "name");
     EXPECT_FALSE(collection_op.ok());
     EXPECT_EQ("Default sorting field `name` must be of type int32 or float.", collection_op.error());
+    collectionManager.drop_collection("sample_collection");
+
+    // Default sorting field must exist as a field in schema
+
+    fields = {field("name", field_types::STRING, false),
+              field("tags", field_types::STRING_ARRAY, true),
+              field("age", field_types::INT32, false),
+              field("average", field_types::INT32, false) };
+
+    sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
+    collection_op = collectionManager.create_collection("sample_collection", fields, "NOT-DEFINED");
+    EXPECT_FALSE(collection_op.ok());
+    EXPECT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
 }
 
