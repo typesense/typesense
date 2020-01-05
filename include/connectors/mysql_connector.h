@@ -1,6 +1,7 @@
 #include <mysql.h>
 #include <iostream>
 #include <string>
+#include "option.h"
 
 class MySQLConnector {
 private:
@@ -18,31 +19,35 @@ public:
 
     }
 
-    void runQuery() {
+    Option<bool> query(const std::string & query_str, std::vector<char**> & rows) {
         MYSQL mysql;
 
         mysql_init(&mysql);
 
         if(!mysql_real_connect(&mysql, host.c_str(), username.c_str(), password.c_str(),
                                database.c_str(), port, NULL, 0)) {
-            std::cout << "Failed to connect to database: Error: %s\n" << mysql_error(&mysql);
+            std::cout << "Failed to connect to database: Error:\n" << mysql_error(&mysql);
         }
 
-        const char *query = "SELECT * FROM stores";
-        mysql_real_query(&mysql, query, strlen(query));
+        std::cout << "query_str: " << query_str << std::endl;
+        int status;
+
+        status = mysql_real_query(&mysql, query_str.c_str(), query_str.size());
+
+        if(status != 0) {
+            return Option<bool>(500, mysql_error(&mysql));
+        }
 
         MYSQL_RES *result = mysql_store_result(&mysql);
-        const size_t num_fields = mysql_field_count(&mysql);
-
         MYSQL_ROW row;
 
         while ((row = mysql_fetch_row(result))) {
-            for(size_t i = 0; i < num_fields; i++) {
-                printf("%s, ", row[i]);
-            }
-            printf("\n");
+            rows.push_back(row);
         }
 
         mysql_free_result(result);
+        mysql_close(&mysql);
+
+        return Option<bool>(true);
     }
 };

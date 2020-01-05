@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -12,12 +11,13 @@
 #include "collection.h"
 #include "collection_manager.h"
 #include "connectors/mysql_connector.h"
+#include "rd_replicator.h"
 
 using namespace std;
 
 int main(int argc, char* argv[]) {
-    MySQLConnector m("localhost", "root", "", "typesense", 3306);
-    m.runQuery();
+    RDReplicator replicator;
+    replicator.start(nullptr);
     return 0;
     
     const std::string state_dir_path = "/tmp/typesense-data";
