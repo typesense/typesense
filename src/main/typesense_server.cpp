@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
         std::cerr << "Invalid configuration: " << config_validitation.error() << std::endl;
         std::cerr << "Command line " << options.usage() << std::endl;
         std::cerr << "You can also pass these arguments as environment variables such as "
-                  << "DATA_DIR, API_KEY, etc." << std::endl;
+                  << "TYPESENSE_DATA_DIR, TYPESENSE_API_KEY, etc." << std::endl;
         exit(1);
     }
 
