@@ -156,4 +156,4 @@ In the mean time, if you have any numbers from your own datasets, please send us
 
 If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
-&copy; 2016-2019 Typesense Inc.
+&copy; 2016-2020 Typesense Inc.
