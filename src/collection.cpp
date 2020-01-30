@@ -589,6 +589,9 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     nlohmann::json result = nlohmann::json::object();
 
+    result["hits"] = nlohmann::json::array();
+    result["found"] = total_found;
+
     const int start_result_index = (page - 1) * per_page;
     const int kvsize = raw_result_kvs.size() + override_result_kvs.size();
 
@@ -624,9 +627,6 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     size_t end_result_index = std::min(num_results, result_kvs.size()) - 1;
-
-    result["hits"] = nlohmann::json::array();
-    result["found"] = total_found;
 
     // construct results array
     for(size_t result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {

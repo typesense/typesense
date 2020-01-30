@@ -112,6 +112,11 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
         std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+    
+    // when a query does not return results, hits and found fields should still exist in response
+    results = collection->search("zxsadqewsad", query_fields, "", facets, sort_fields_asc, 0, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<int>());
 }
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
