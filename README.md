@@ -139,7 +139,7 @@ Elasticsearch is better suited for larger teams who have the bandwidth to admini
 especially when have a need to store billions of documents and scale horizontally. 
 
 Typesense is built specifically for decreasing the "time to market" for a delightful search experience. This means 
-focussing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
+focusing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
 works without turning many knobs.
 
 **Speed is great, but what about the memory footprint?**
