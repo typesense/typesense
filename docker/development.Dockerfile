@@ -24,7 +24,7 @@ ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.g
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
 RUN mkdir /opt/snappy-1.1.3/build && cd /opt/snappy-1.1.3/build && ../configure && make -j8 && make install
 
-ADD https://ssl.icu-project.org/files/icu4c/61.1/icu4c-61_1-src.tgz /opt/icu4c-61_1-src.tgz
+ADD https://github.com/unicode-org/icu/releases/download/release-61-1/icu4c-61_1-src.tgz /opt/icu4c-61_1-src.tgz
 RUN tar -C /opt -xf /opt/icu4c-61_1-src.tgz
 RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/uconfig.h && \
     echo "#define U_STATIC_IMPLEMENTATION 1" >> common/unicode/uconfig.h && \
