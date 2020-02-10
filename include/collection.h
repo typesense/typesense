@@ -211,7 +211,7 @@ public:
                           const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                           const spp::sparse_hash_set<std::string> include_fields = spp::sparse_hash_set<std::string>(),
                           const spp::sparse_hash_set<std::string> exclude_fields = spp::sparse_hash_set<std::string>(),
-                          const size_t max_facet_values=10);
+                          const size_t max_facet_values=10, size_t max_hits=512);
 
     Option<nlohmann::json> get(const std::string & id);
 
@@ -234,11 +234,10 @@ public:
     void par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
                              batch_index_result & result);
 
-    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
-                               const spp::sparse_hash_set<std::string> exclude_fields);
+    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
+                               const spp::sparse_hash_set<std::string> & exclude_fields);
 
     static const int MAX_SEARCH_TOKENS = 10;
-    static const int MAX_RESULTS = 500;
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

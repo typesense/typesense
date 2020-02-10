@@ -21,19 +21,20 @@ struct KV {
 /*
 * Remembers the max-K elements seen so far using a min-heap
 */
-template <size_t MAX_SIZE=512>
 struct Topster {
+    const uint32_t MAX_SIZE;
     KV *data;
     uint32_t size;
 
     spp::sparse_hash_map<uint64_t, KV*> keys;
 
-    KV *kvs[MAX_SIZE];
+    KV* *kvs;
 
-    Topster(): size(0){
-        data = new KV[MAX_SIZE];
+    explicit Topster(size_t capacity): MAX_SIZE(capacity), size(0) {
+        kvs = new KV*[capacity];
+        data = new KV[capacity];
 
-        for(size_t i=0; i<MAX_SIZE; i++) {
+        for(size_t i=0; i<capacity; i++) {
             data[i].field_id = 0;
             data[i].query_index = 0;
             data[i].key = 0;
@@ -185,7 +186,7 @@ struct Topster {
 
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
-        std::stable_sort(std::begin(kvs), std::begin(kvs) + size, is_greater_kv);
+        std::stable_sort(kvs, kvs+size, is_greater_kv);
     }
 
     void clear(){
