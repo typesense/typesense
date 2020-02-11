@@ -5,9 +5,18 @@
 
 class RDReplicator {
 private:
-    static void replicate();
-public:
-    static void start(HttpServer* server);
+    int64_t last_upserted_id;
+    int64_t last_deleted_id;
+    std::string last_updated_at;
 
-    static void on_replication_event(void *data);
+    void replicate();
+
+    void upsert_delete(const std::vector<std::string> & columns,
+                              const std::string & upsert_query,
+                              const std::string & delete_query);
+public:
+
+    void start(HttpServer* server);
+
+    void on_replication_event(void *data);
 };
