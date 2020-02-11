@@ -303,14 +303,14 @@ void Collection::populate_overrides(std::string query, std::map<uint32_t, size_t
     }
 }
 
-Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
+Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
-                                  const spp::sparse_hash_set<std::string> include_fields,
-                                  const spp::sparse_hash_set<std::string> exclude_fields,
+                                  const spp::sparse_hash_set<std::string> & include_fields,
+                                  const spp::sparse_hash_set<std::string> & exclude_fields,
                                   const size_t max_facet_values, const size_t max_hits) {
 
     std::vector<uint32_t> included_ids;
