@@ -37,7 +37,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.11.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.11.2 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
@@ -139,7 +139,7 @@ Elasticsearch is better suited for larger teams who have the bandwidth to admini
 especially when have a need to store billions of documents and scale horizontally. 
 
 Typesense is built specifically for decreasing the "time to market" for a delightful search experience. This means 
-focussing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
+focusing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
 works without turning many knobs.
 
 **Speed is great, but what about the memory footprint?**
@@ -156,4 +156,4 @@ In the mean time, if you have any numbers from your own datasets, please send us
 
 If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
-&copy; 2016-2019 Typesense Inc.
+&copy; 2016-2020 Typesense Inc.
