@@ -203,19 +203,19 @@ public:
 
     Option<nlohmann::json> add_many(const std::string & json_str);
 
-    Option<nlohmann::json> search(std::string query, const std::vector<std::string> search_fields,
+    Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<sort_by> & sort_fields, const int num_typos,
-                          const size_t per_page = 10, const size_t page = 1,
-                          const token_ordering token_order = FREQUENCY, const bool prefix = false,
-                          const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                          const spp::sparse_hash_set<std::string> include_fields = spp::sparse_hash_set<std::string>(),
-                          const spp::sparse_hash_set<std::string> exclude_fields = spp::sparse_hash_set<std::string>(),
-                          const size_t max_facet_values=10);
+                          const std::vector<sort_by> & sort_fields, int num_typos,
+                          size_t per_page = 10, size_t page = 1,
+                          token_ordering token_order = FREQUENCY, bool prefix = false,
+                          size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                          const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
+                          const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
+                          size_t max_facet_values=10, size_t max_hits=500);
 
     Option<nlohmann::json> get(const std::string & id);
 
-    Option<std::string> remove(const std::string & id, const bool remove_from_store = true);
+    Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<uint32_t> add_override(const override_t & override);
 
@@ -234,11 +234,8 @@ public:
     void par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
                              batch_index_result & result);
 
-    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
-                               const spp::sparse_hash_set<std::string> exclude_fields);
-
-    static const int MAX_SEARCH_TOKENS = 10;
-    static const int MAX_RESULTS = 500;
+    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
+                               const spp::sparse_hash_set<std::string> & exclude_fields);
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

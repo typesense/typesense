@@ -176,6 +176,7 @@ void get_search(http_req & req, http_res & res) {
     const char *FACET_BY = "facet_by";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
+    const char *MAX_HITS = "max_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
@@ -205,6 +206,10 @@ void get_search(http_req & req, http_res & res) {
 
     if(req.params.count(MAX_FACET_VALUES) == 0) {
         req.params[MAX_FACET_VALUES] = "10";
+    }
+
+    if(req.params.count(MAX_HITS) == 0) {
+        req.params[MAX_HITS] = "500";
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -301,7 +306,8 @@ void get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stoi(req.params[PAGE])),
                                                           token_order, prefix, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
-                                                          static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])));
+                                                          static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
+                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])));
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();

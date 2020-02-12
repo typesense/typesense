@@ -264,8 +264,8 @@ void Collection::par_index_in_memory(std::vector<std::vector<index_record>> & it
     }
 }
 
-void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> include_fields,
-                                const spp::sparse_hash_set<std::string> exclude_fields) {
+void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string>& include_fields,
+                                const spp::sparse_hash_set<std::string>& exclude_fields) {
     auto it = document.begin();
     for(; it != document.end(); ) {
         if(exclude_fields.count(it.key()) != 0 || (include_fields.size() != 0 && include_fields.count(it.key()) == 0)) {
@@ -303,15 +303,15 @@ void Collection::populate_overrides(std::string query, std::map<uint32_t, size_t
     }
 }
 
-Option<nlohmann::json> Collection::search(std::string query, const std::vector<std::string> search_fields,
+Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
-                                  const spp::sparse_hash_set<std::string> include_fields,
-                                  const spp::sparse_hash_set<std::string> exclude_fields,
-                                  const size_t max_facet_values) {
+                                  const spp::sparse_hash_set<std::string> & include_fields,
+                                  const spp::sparse_hash_set<std::string> & exclude_fields,
+                                  const size_t max_facet_values, const size_t max_hits) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -492,8 +492,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
 
     const size_t num_results = (page * per_page);
 
-    if(num_results > MAX_RESULTS) {
-        std::string message = "Only the first " + std::to_string(MAX_RESULTS) + " results are available.";
+    if(num_results > max_hits) {
+        std::string message = "Only the first " + std::to_string(max_hits) + " results are available.";
         return Option<nlohmann::json>(422, message);
     }
 
@@ -508,8 +508,8 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
-                                           sort_fields_std, num_typos, max_facet_values, per_page, page,
-                                           token_order, prefix, drop_tokens_threshold);
+                                           sort_fields_std, num_typos, max_facet_values, max_hits,
+                                           per_page, page, token_order, prefix, drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
@@ -577,7 +577,7 @@ Option<nlohmann::json> Collection::search(std::string query, const std::vector<s
     }
 
     // All fields are sorted descending
-    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster<>::is_greater_kv_value);
+    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_value);
 
     // Sort based on position in overriden list
     std::sort(
