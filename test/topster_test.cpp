@@ -3,7 +3,7 @@
 #include "match_score.h"
 
 TEST(TopsterTest, MaxIntValues) {
-    Topster<5> topster;
+    Topster topster(5);
 
     struct {
         uint8_t field_id;
@@ -52,7 +52,7 @@ TEST(TopsterTest, MaxIntValues) {
 }
 
 TEST(TopsterTest, MaxFloatValues) {
-    Topster<5> topster;
+    Topster topster(5);
 
     struct {
         uint8_t field_id;

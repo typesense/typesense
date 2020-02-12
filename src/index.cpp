@@ -559,9 +559,9 @@ void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t>
 void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                               const std::vector<sort_by> & sort_fields,
                               std::vector<token_candidates> & token_candidates_vec, const token_ordering token_order,
-                              std::vector<std::vector<art_leaf*>> & searched_queries, Topster<512> & topster,
+                              std::vector<std::vector<art_leaf*>> & searched_queries, Topster & topster,
                               uint32_t** all_result_ids, size_t & all_result_ids_len,
-                              const size_t & max_results, const bool prefix) {
+                              const size_t & max_results) {
     const long long combination_limit = 10;
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
@@ -795,7 +795,7 @@ void Index::run_search() {
         search(search_params.outcome, search_params.query, search_params.search_fields,
                search_params.filters, search_params.facets, search_params.included_ids,
                search_params.excluded_ids, search_params.sort_fields_std, search_params.num_typos,
-               search_params.per_page, search_params.page, search_params.token_order,
+               search_params.max_hits, search_params.per_page, search_params.page, search_params.token_order,
                search_params.prefix, search_params.drop_tokens_threshold, search_params.raw_result_kvs,
                search_params.all_result_ids_len, search_params.searched_queries, search_params.override_result_kvs);
 
@@ -811,7 +811,7 @@ void Index::run_search() {
 
 void Index::collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                                 const std::vector<uint32_t> & included_ids,
-                                Topster<512> & curated_topster,
+                                Topster & curated_topster,
                                 std::vector<std::vector<art_leaf*>> & searched_queries) {
 
     if(included_ids.size() == 0) {
@@ -873,11 +873,13 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
     }
 }
 
-void Index::search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> & search_fields,
+void Index::search(Option<uint32_t> & outcome,
+                   std::string query,
+                   const std::vector<std::string> & search_fields,
                    const std::vector<filter> & filters, std::vector<facet> & facets,
                    const std::vector<uint32_t> & included_ids,
                    const std::vector<uint32_t> & excluded_ids,
-                   const std::vector<sort_by> & sort_fields_std, const int num_typos,
+                   const std::vector<sort_by> & sort_fields_std, const int num_typos, const size_t max_hits,
                    const size_t per_page, const size_t page, const token_ordering token_order,
                    const bool prefix, const size_t drop_tokens_threshold,
                    std::vector<KV> & raw_result_kvs,
@@ -902,8 +904,8 @@ void Index::search(Option<uint32_t> & outcome, std::string query, const std::vec
     //auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
 
-    Topster<512> topster;
-    Topster<512> curated_topster;
+    Topster topster(max_hits);
+    Topster curated_topster(max_hits);
 
     if(query == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
@@ -986,7 +988,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
                          uint32_t *filter_ids, size_t filter_ids_length,
                          std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                          const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
-                         Topster<512> &topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
+                         Topster & topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
                          const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold) {
     std::vector<std::string> tokens;
     StringUtils::split(query, tokens, " ");
@@ -1103,7 +1105,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(field_id, filter_ids, filter_ids_length, facets, sort_fields, token_candidates_vec,
                               token_order, searched_queries, topster, all_result_ids, all_result_ids_len,
-                              Index::SEARCH_LIMIT_NUM, prefix);
+                              Index::SEARCH_LIMIT_NUM);
 
             if (all_result_ids_len >= Index::SEARCH_LIMIT_NUM) {
                 // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
@@ -1154,7 +1156,7 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 }
 
 void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
-                          const uint32_t total_cost, Topster<512> & topster,
+                          const uint32_t total_cost, Topster & topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           const uint32_t *result_ids, const size_t result_size) const {
 

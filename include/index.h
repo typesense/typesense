@@ -31,6 +31,7 @@ struct search_args {
     std::vector<sort_by> sort_fields_std;
     int num_typos;
     size_t max_facet_values;
+    size_t max_hits;
     size_t per_page;
     size_t page;
     token_ordering token_order;
@@ -49,10 +50,11 @@ struct search_args {
     search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::vector<uint32_t> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, int num_typos, size_t max_facet_values,
-                size_t per_page, size_t page, token_ordering token_order, bool prefix, size_t drop_tokens_threshold):
+                size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
+                size_t drop_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), num_typos(num_typos),
-            max_facet_values(max_facet_values), per_page(per_page),
+            max_facet_values(max_facet_values), max_hits(max_hits), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
 
@@ -146,15 +148,15 @@ private:
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, const size_t num_results,
                       std::vector<std::vector<art_leaf*>> & searched_queries,
-                      Topster<512> & topster, uint32_t** all_result_ids,
+                      Topster & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
                       const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
 
     void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster<512> & topster, uint32_t** all_result_ids,
-                           size_t & all_result_ids_len, const size_t & max_results, const bool prefix);
+                           Topster & topster, uint32_t** all_result_ids,
+                           size_t & all_result_ids_len, const size_t & max_results);
 
     void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -186,7 +188,7 @@ private:
 
     void collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                              const std::vector<uint32_t> & included_ids,
-                             Topster<512> & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+                             Topster & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
 
 public:
     Index() = delete;
@@ -202,7 +204,7 @@ public:
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
                           const std::vector<sort_by> & sort_fields_std, const int num_typos,
-                          const size_t per_page, const size_t page, const token_ordering token_order,
+                          const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
                           const bool prefix, const size_t drop_tokens_threshold, std::vector<KV> & raw_result_kvs,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries,
                           std::vector<KV> & override_result_kvs);
@@ -217,7 +219,7 @@ public:
                                          std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions);
 
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
-                       const uint32_t total_cost, Topster<512> &topster, const std::vector<art_leaf *> & query_suggestion,
+                       const uint32_t total_cost, Topster &topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
     static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
