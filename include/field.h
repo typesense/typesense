@@ -134,6 +134,7 @@ struct facet_value {
     spp::sparse_hash_map<std::string, uint32_t> value_index;
     spp::sparse_hash_map<uint32_t, std::string> index_value;
 
+    // doc_id => facet_ids mapping
     spp::sparse_hash_map<uint32_t, std::vector<uint32_t>> doc_values;
 
     uint32_t get_value_index(const std::string & value) {

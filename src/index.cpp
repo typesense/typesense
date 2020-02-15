@@ -523,7 +523,7 @@ void Index::do_facets(std::vector<facet> & facets, const uint32_t* result_ids, s
         for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
             if(fvalue.doc_values.count(doc_seq_id) != 0) {
-                // for every result document, get the values associated and increment counter
+                // for every result document, get the facet values and increment counter
                 const std::vector<uint32_t> & value_indices = fvalue.doc_values.at(doc_seq_id);
                 for(size_t j = 0; j < value_indices.size(); j++) {
                     const std::string & facet_value = fvalue.index_value.at(value_indices.at(j));
