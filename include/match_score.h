@@ -93,14 +93,14 @@ struct Match {
   }
 
   /*
-  *  Given *sorted offsets* of each target token in a *single* document, generates a score that indicates:
+  *  Given *sorted offsets* of each target token in a *single* document (token_offsets), generates a score indicating:
   *  a) How many tokens are present within a match window
   *  b) The proximity between the tokens within the match window
   *
   *  We use a priority queue to read the offset vectors in a sorted manner, slide a window of a given size, and
   *  compute the max_match and min_displacement of target tokens across the windows.
   */
-  static Match match(uint32_t doc_id, const std::vector<std::vector<uint16_t>> &token_offsets) {
+  static Match match(uint32_t doc_id, const std::vector<std::vector<uint16_t>> & token_offsets) {
     std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset> heap;
 
     const size_t tokens_size = std::min(token_offsets.size(), WINDOW_SIZE);
