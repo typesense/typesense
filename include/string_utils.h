@@ -156,8 +156,6 @@ struct StringUtils {
 
     void unicode_normalize(std::string& str) const;
 
-    void unicode_normalize2(std::string& str) const;
-
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {
         std::string out;

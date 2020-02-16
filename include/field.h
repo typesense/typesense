@@ -120,39 +120,17 @@ struct sort_by {
     }
 };
 
-struct facet {
-    const std::string field_name;
-    std::map<std::string, size_t> result_map;
-
-    facet(const std::string field_name): field_name(field_name) {
-
-    }
+struct facet_count {
+    uint32_t count;
+    uint32_t doc_id;    // used to fetch the actual document and the value from store
+    uint32_t array_pos;
 };
 
-struct facet_value {
-    // use string to int mapping for saving memory
-    spp::sparse_hash_map<std::string, uint32_t> value_index;
-    spp::sparse_hash_map<uint32_t, std::string> index_value;
+struct facet {
+    const std::string field_name;
+    std::map<uint64_t, facet_count> result_map;
 
-    // doc_id => facet_ids mapping
-    spp::sparse_hash_map<uint32_t, std::vector<uint32_t>> doc_values;
+    facet(const std::string & field_name): field_name(field_name) {
 
-    uint32_t get_value_index(const std::string & value) {
-        if(value_index.count(value) != 0) {
-            return value_index[value];
-        }
-
-        uint32_t new_index = value_index.size();
-        value_index.emplace(value, new_index);
-        index_value.emplace(new_index, value);
-        return new_index;
-    }
-
-    void index_values(uint32_t doc_seq_id, const std::vector<std::string> & values) {
-        std::vector<uint32_t> value_vec(values.size());
-        for(size_t i = 0; i < values.size(); i++) {
-            value_vec[i] = get_value_index(values[i]);
-        }
-        doc_values.emplace(doc_seq_id, value_vec);
     }
 };

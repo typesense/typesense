@@ -133,7 +133,7 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> facet_schema;
+    std::map<std::string, field> facet_schema;   // std::map guarantees order of fields
 
     std::unordered_map<std::string, field> sort_schema;
 
@@ -153,6 +153,16 @@ private:
 
     void populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
                             std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids);
+
+    static bool facet_count_compare(const std::pair<uint64_t, facet_count>& a,
+                                    const std::pair<uint64_t, facet_count>& b) {
+        return std::tie(a.second.count, a.first) > std::tie(b.second.count, a.first);
+    }
+
+    static bool facet_count_str_compare(const std::pair<std::string, size_t>& a,
+                                        const std::pair<std::string, size_t>& b) {
+        return a.second > b.second;
+    }
 
 public:
     Collection() = delete;
@@ -228,6 +238,8 @@ public:
     size_t get_num_indices();
 
     static uint32_t get_seq_id_from_key(const std::string & key);
+
+    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 

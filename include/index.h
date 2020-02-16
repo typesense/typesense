@@ -118,13 +118,13 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> facet_schema;
+    std::map<std::string, field> facet_schema;  // std::map guarantees order of fields
 
     std::unordered_map<std::string, field> sort_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
-    spp::sparse_hash_map<std::string, facet_value> facet_index;
+    spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
 
@@ -141,7 +141,7 @@ private:
 
     void do_facets(std::vector<facet> & facets, const uint32_t* result_ids, size_t results_size);
 
-    void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> ids);
+    void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
 
     void search_field(const uint8_t & field_id, std::string & query,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
@@ -193,8 +193,8 @@ private:
 public:
     Index() = delete;
 
-    Index(const std::string name, std::unordered_map<std::string, field> search_schema,
-          std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
+    Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
+          std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
 
     ~Index();
 
@@ -230,13 +230,13 @@ public:
     static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::unordered_map<std::string, field> & facet_schema);
+                                                     const std::map<std::string, field> & facet_schema);
 
     static batch_index_result batch_memory_index(Index *index,
                                         std::vector<index_record> & iter_batch,
                                         const std::string & default_sorting_field,
                                         const std::unordered_map<std::string, field> & search_schema,
-                                        const std::unordered_map<std::string, field> & facet_schema);
+                                        const std::map<std::string, field> & facet_schema);
 
     // for limiting number of results on multiple candidates / query rewrites
     enum {SEARCH_LIMIT_NUM = 100};
@@ -270,5 +270,9 @@ public:
     bool terminate;   // used for interrupting the thread during tear down
 
     search_args search_params;
+
+    static void
+    populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions,
+                                   const art_leaf *token_leaf, uint32_t doc_index);
 };
 
