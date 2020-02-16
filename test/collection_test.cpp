@@ -1619,7 +1619,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags : FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : fine PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
