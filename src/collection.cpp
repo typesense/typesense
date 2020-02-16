@@ -344,11 +344,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             std::string error = "Field `" + field_name + "` should be a string or a string array.";
             return Option<nlohmann::json>(400, error);
         }
-
-        if(search_field.facet) {
-            std::string error = "Field `" + field_name + "` is a faceted field - it cannot be used as a query field.";
-            return Option<nlohmann::json>(400, error);
-        }
     }
 
     // validate filter fields

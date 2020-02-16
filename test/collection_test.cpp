@@ -964,21 +964,64 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
 
     std::vector<std::string> facets;
 
-    // query should be allowed only on non-faceted text fields
+    // query shall be allowed on faceted text fields as well
     query_fields = {"cast"};
     Option<nlohmann::json> result_op =
             coll_mul_fields->search("anton", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_FALSE(result_op.ok());
-    ASSERT_EQ(400, result_op.code());
-    ASSERT_EQ("Field `cast` is a faceted field - it cannot be used as a query field.", result_op.error());
+    ASSERT_TRUE(result_op.ok());
+
+    nlohmann::json results = result_op.get();
+    ASSERT_EQ(1, results["hits"].size());
+    std::string solo_id = results["hits"].at(0)["document"]["id"];
+    ASSERT_STREQ("14", solo_id.c_str());
 
     // filtering on string field should be possible
     query_fields = {"title"};
     result_op = coll_mul_fields->search("captain", query_fields, "starring: Samuel L. Jackson", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(true, result_op.ok());
-    nlohmann::json results = result_op.get();
+    results = result_op.get();
     ASSERT_EQ(1, results["hits"].size());
+    solo_id = results["hits"].at(0)["document"]["id"];
+    ASSERT_STREQ("6", solo_id.c_str());
+
+    // filtering on facet field should be possible (supports partial word search but without typo tolerance)
+    query_fields = {"title"};
+    result_op = coll_mul_fields->search("*", query_fields, "cast: chris", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(true, result_op.ok());
+    results = result_op.get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    // bad query string
+    result_op = coll_mul_fields->search("captain", query_fields, "BLAH", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Could not parse the filter query.", result_op.error().c_str());
+
+    // missing field
+    result_op = coll_mul_fields->search("captain", query_fields, "age: 100", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Could not find a filter field named `age` in the schema.", result_op.error().c_str());
+
+    // bad filter value type
+    result_op = coll_mul_fields->search("captain", query_fields, "points: \"100\"", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Error with field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
+
+    // bad filter value type - equaling float on an integer field
+    result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Error with field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
+
+    // bad filter value type - less than float on an integer field
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <100.0", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Error with field `points`: Not an integer.", result_op.error().c_str());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
