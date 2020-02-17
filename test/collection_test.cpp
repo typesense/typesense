@@ -1843,6 +1843,47 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
     ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
 
+    // facet with facet filter query (allows typo correction!)
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, " tags : sliver").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // facet query that does not match any indexed value
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, " tags : notfound").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+
+    // bad facet query syntax
+    auto res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "foobar");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Facet query must be in the `facet_field: value` format.", res_op.error().c_str());
+
+    // unknown facet field
+    res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, 500, "foobar: baz");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Could not find a facet field named `foobar` in the schema.", res_op.error().c_str());
+
     collectionManager.drop_collection("coll_array_fields");
 }
 

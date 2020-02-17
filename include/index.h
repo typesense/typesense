@@ -29,6 +29,7 @@ struct search_args {
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by> sort_fields_std;
+    facet_query_t facet_query;
     int num_typos;
     size_t max_facet_values;
     size_t max_hits;
@@ -49,11 +50,11 @@ struct search_args {
 
     search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::vector<uint32_t> included_ids, std::vector<uint32_t> excluded_ids,
-                std::vector<sort_by> sort_fields_std, int num_typos, size_t max_facet_values,
+                std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
-            excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), num_typos(num_typos),
+            excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), max_hits(max_hits), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
@@ -139,7 +140,8 @@ private:
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
-    void do_facets(std::vector<facet> & facets, const uint32_t* result_ids, size_t results_size);
+    void do_facets(std::vector<facet> & facets, const facet_query_t & facet_query,
+                   const uint32_t* result_ids, size_t results_size);
 
     void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
 
@@ -202,6 +204,7 @@ public:
 
     void search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
+                          const facet_query_t & facet_query,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
                           const std::vector<sort_by> & sort_fields_std, const int num_typos,
                           const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
@@ -271,8 +274,9 @@ public:
 
     search_args search_params;
 
-    static void
-    populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions,
-                                   const art_leaf *token_leaf, uint32_t doc_index);
+    static void populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
+                                               const art_leaf *token_leaf, uint32_t doc_index);
+
+    int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
 };
 

@@ -310,7 +310,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
-                                  const size_t max_facet_values, const size_t max_hits) {
+                                  const size_t max_facet_values, const size_t max_hits,
+                                  const std::string & simple_facet_query) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -453,6 +454,24 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         facets.emplace_back(field_name);
     }
 
+    // parse facet query
+    std::vector<std::string> facet_query_vec;
+    facet_query_t facet_query;
+
+    if(!simple_facet_query.empty() && simple_facet_query.find(':') == std::string::npos) {
+        std::string error = "Facet query must be in the `facet_field: value` format.";
+        return Option<nlohmann::json>(404, error);
+    }
+
+    StringUtils::split(simple_facet_query, facet_query_vec, ":");
+    if(!facet_query_vec.empty()) {
+        facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
+        if(facet_schema.count(facet_query.field_name) == 0) {
+            std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
+            return Option<nlohmann::json>(404, error);
+        }
+    }
+
     // validate sort fields and standardize
 
     std::vector<sort_by> sort_fields_std;
@@ -502,7 +521,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
-                                           sort_fields_std, num_typos, max_facet_values, max_hits,
+                                           sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                            per_page, page, token_order, prefix, drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
