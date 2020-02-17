@@ -522,7 +522,8 @@ void Index::index_float_array_field(const std::vector<float> & values, const uin
     }
 }
 
-void Index::do_facets(std::vector<facet> & facets, const uint32_t* result_ids, size_t results_size) {
+void Index::do_facets(std::vector<facet> & facets, const facet_query_t & facet_query,
+                      const uint32_t* result_ids, size_t results_size) {
     std::map<std::string, size_t> facet_to_index;
     
     size_t i_facet = 0;
@@ -533,12 +534,35 @@ void Index::do_facets(std::vector<facet> & facets, const uint32_t* result_ids, s
     
     for(auto & a_facet: facets) {
         // assumed that facet fields have already been validated upstream
+        spp::sparse_hash_set<int64_t> facet_filter_set;
+        bool use_facet_query = false;
+
+        if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
+            use_facet_query = true;
+            int bounded_cost = get_bounded_typo_cost(2, facet_query.query.size());
+            std::vector<art_leaf*> leaves;
+            art_fuzzy_search(search_index.at(a_facet.field_name), (const unsigned char *) facet_query.query.c_str(),
+                             facet_query.query.size(),0, bounded_cost, 10000,
+                             token_ordering::MAX_SCORE, true, leaves);
+
+            for(const auto & leaf: leaves) {
+                // calculate hash without terminating null char
+                uint64_t hash = wyhash(leaf->key, leaf->key_len-1, 0, _wyp);
+                facet_filter_set.insert(hash);
+            }
+        }
+
         for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
+
             if(facet_index_v2.count(doc_seq_id) != 0) {
                 const std::vector<uint64_t> & values = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
 
                 for(size_t j = 0; j < values.size(); j++) {
+                    if(use_facet_query && facet_filter_set.find(values[j]) == facet_filter_set.end()) {
+                        // this particular facet value is not found in facet filter, so ignore
+                        continue;
+                    }
                     a_facet.result_map[values[j]].count += 1;
                     a_facet.result_map[values[j]].doc_id = doc_seq_id;
                     a_facet.result_map[values[j]].array_pos = j;
@@ -804,7 +828,7 @@ void Index::run_search() {
 
         // after the wait, we own the lock.
         search(search_params.outcome, search_params.query, search_params.search_fields,
-               search_params.filters, search_params.facets, search_params.included_ids,
+               search_params.filters, search_params.facets, search_params.facet_query, search_params.included_ids,
                search_params.excluded_ids, search_params.sort_fields_std, search_params.num_typos,
                search_params.max_hits, search_params.per_page, search_params.page, search_params.token_order,
                search_params.prefix, search_params.drop_tokens_threshold, search_params.raw_result_kvs,
@@ -887,7 +911,8 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
 void Index::search(Option<uint32_t> & outcome,
                    std::string query,
                    const std::vector<std::string> & search_fields,
-                   const std::vector<filter> & filters, std::vector<facet> & facets,
+                   const std::vector<filter> & filters,
+                   std::vector<facet> & facets, const facet_query_t & facet_query,
                    const std::vector<uint32_t> & included_ids,
                    const std::vector<uint32_t> & excluded_ids,
                    const std::vector<sort_by> & sort_fields_std, const int num_typos, const size_t max_hits,
@@ -925,13 +950,13 @@ void Index::search(Option<uint32_t> & outcome,
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
                       filter_ids, filter_ids_length);
         collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
-        do_facets(facets, filter_ids, filter_ids_length);
+        do_facets(facets, facet_query, filter_ids, filter_ids_length);
         all_result_ids_len = filter_ids_length;
     } else {
         const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
         for(size_t i = 0; i < num_search_fields; i++) {
             // proceed to query search only when no filters are provided or when filtering produces results
-            if(filters.size() == 0 || filter_ids_length > 0) {
+            if(filters.empty() || filter_ids_length > 0) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i); // Order of `fields` are used to sort results
                 const std::string & field = search_fields[i];
 
@@ -941,10 +966,10 @@ void Index::search(Option<uint32_t> & outcome,
                 collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
             }
         }
-        do_facets(facets, all_result_ids, all_result_ids_len);
+        do_facets(facets, facet_query, all_result_ids, all_result_ids_len);
     }
 
-    do_facets(facets, &included_ids[0], included_ids.size());
+    do_facets(facets, facet_query, &included_ids[0], included_ids.size());
 
     // must be sorted before iterated upon to remove "empty" array entries
     topster.sort();
@@ -1019,10 +1044,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
         const size_t token_len = tokens[token_index].length();
 
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
-        int bounded_cost = max_cost;
-        if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
-            bounded_cost = token_len - 1;
-        }
+        int bounded_cost = get_bounded_typo_cost(max_cost, token_len);
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
@@ -1152,6 +1174,14 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
                             num_results, searched_queries, topster, all_result_ids, all_result_ids_len,
                             token_order, prefix);
     }
+}
+
+int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const {
+    int bounded_cost = max_cost;
+    if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
+        bounded_cost = token_len - 1;
+    }
+    return bounded_cost;
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {

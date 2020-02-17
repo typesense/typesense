@@ -174,6 +174,7 @@ void get_search(http_req & req, http_res & res) {
     const char *SORT_BY = "sort_by";
 
     const char *FACET_BY = "facet_by";
+    const char *FACET_QUERY = "facet_query";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *MAX_HITS = "max_hits";
@@ -252,6 +253,10 @@ void get_search(http_req & req, http_res & res) {
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, ",");
 
+    if(req.params.count(FACET_QUERY) == 0) {
+        req.params[FACET_QUERY] = "";
+    }
+
     std::vector<std::string> include_fields_vec;
     StringUtils::split(req.params[INCLUDE_FIELDS], include_fields_vec, ",");
 
@@ -307,7 +312,8 @@ void get_search(http_req & req, http_res & res) {
                                                           token_order, prefix, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
                                                           static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
-                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])));
+                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])),
+                                                          req.params[FACET_QUERY]);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();

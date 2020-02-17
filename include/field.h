@@ -134,3 +134,8 @@ struct facet {
 
     }
 };
+
+struct facet_query_t {
+    std::string field_name;
+    std::string query;
+};
