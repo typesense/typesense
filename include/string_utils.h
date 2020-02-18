@@ -7,6 +7,7 @@
 #include <unicode/translit.h>
 #include <iconv.h>
 #include <vector>
+#include "wyhash_v5.h"
 
 struct StringUtils {
     UErrorCode status;
@@ -217,5 +218,10 @@ struct StringUtils {
         uint32_t seq_id = ((serialized_num[0] & 0xFF) << 24) | ((serialized_num[1] & 0xFF) << 16) |
                           ((serialized_num[2] & 0xFF) << 8)  | (serialized_num[3] & 0xFF);
         return seq_id;
+    }
+
+    static int64_t hash_wy(const void* key, uint64_t len) {
+        uint64_t hash = wyhash(key, len, 0, _wyp);
+        return hash != 0 ? hash : 1;  // reserve 0 for use as a delimiter
     }
 };
