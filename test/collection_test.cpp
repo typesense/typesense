@@ -520,6 +520,32 @@ TEST_F(CollectionTest, PrefixSearching) {
     ASSERT_EQ("16", results["hits"].at(0)["document"]["id"]);
 }
 
+TEST_F(CollectionTest, MultiOccurrenceString) {
+    Collection *coll_multi_string;
+
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_multi_string = collectionManager.get_collection("coll_multi_string");
+    if (coll_multi_string == nullptr) {
+        coll_multi_string = collectionManager.create_collection("coll_multi_string", fields, "points").get();
+    }
+
+    nlohmann::json document;
+    document["title"] = "The brown fox was the tallest of the lot and the quickest of the trot.";
+    document["points"] = 100;
+
+    coll_multi_string->add(document.dump());
+
+    query_fields = {"title"};
+    nlohmann::json results = coll_multi_string->search("the", query_fields, "", {}, sort_fields, 0, 10, 1,
+                                                       FREQUENCY, false, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    collectionManager.drop_collection("coll_multi_string");
+}
+
 TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     Collection *coll_array_text;
 
@@ -1854,6 +1880,18 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // facet with facet filter query matching 2 tokens
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "tags: fine pltinum").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
 
     // facet query that does not match any indexed value
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,

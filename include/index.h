@@ -154,7 +154,7 @@ private:
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
                       const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
 
-    void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
+    void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster & topster, uint32_t** all_result_ids,
@@ -164,10 +164,10 @@ private:
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
-                            const bool verbatim) const;
+                            int facet_id);
 
     void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
-                                  uint32_t seq_id, const bool verbatim) const;
+                                  uint32_t seq_id, int facet_id);
 
     void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
