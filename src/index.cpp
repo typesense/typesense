@@ -72,19 +72,25 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                                         const std::string & default_sorting_field) {
     int32_t points = get_points_from_doc(document, default_sorting_field);
 
+    std::unordered_map<std::string, size_t> facet_to_id;
+    size_t i_facet = 0;
+    for(const auto & facet: facet_schema) {
+        facet_to_id[facet.first] = i_facet;
+        i_facet++;
+    }
+
     // initialize facet index since it will be updated as well during search indexing
     std::vector<std::vector<uint64_t>> values(facet_schema.size());
     facet_index_v2.emplace(seq_id, values);
-
-    int facet_id = -1;   // used to assign a facet field ID
 
     // assumes that validation has already been done
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
         art_tree *t = search_index.at(field_name);
 
-        if(field_pair.second.is_facet()) {
-            facet_id++;
+        int facet_id = -1;
+        if(facet_schema.count(field_name) != 0) {
+            facet_id = facet_to_id[field_name];
         }
 
         if(field_pair.second.type == field_types::STRING) {
@@ -469,6 +475,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
             if(facet_id >= 0) {
                 // facet field
                 uint64_t hash = StringUtils::hash_wy(token.c_str(), token.size());
+                //printf("indexing %.*s - %llu\n", token.size(), token.c_str(), hash);
                 facet_index_v2[seq_id][facet_id].push_back(hash);
             }
         }
