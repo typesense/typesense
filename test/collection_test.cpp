@@ -829,7 +829,6 @@ TEST_F(CollectionTest, MultipleFields) {
 }
 
 TEST_F(CollectionTest, ExcludeIncludeExactQueryMatch) {
-    return ;
     Collection *coll_mul_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
