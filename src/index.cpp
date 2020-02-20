@@ -130,11 +130,11 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                 field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL) {
             spp::sparse_hash_map<uint32_t, number_t> *doc_to_score = sort_index.at(field_pair.first);
 
-            if(document[field_pair.first].is_number_integer()) {
+            if(field_pair.second.is_integer() ) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<int64_t>());
-            } else if(document[field_pair.first].is_number_float()) {
+            } else if(field_pair.second.is_float()) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<float>());
-            } else if(document[field_pair.first].is_boolean()) {
+            } else if(field_pair.second.is_bool()) {
                 doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
             }
         }

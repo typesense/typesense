@@ -435,6 +435,21 @@ TEST_F(CollectionTest, WildcardQuery) {
     ASSERT_TRUE(results_op.ok());
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<uint32_t>());
+
+    // wildcard query with no filters and ASC sort
+    std::vector<sort_by> sort_fields = { sort_by("points", "ASC") };
+    results = collection->search("*", query_fields, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<uint32_t>());
+
+    std::vector<std::string> ids = {"21", "24", "17"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
