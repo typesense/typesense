@@ -1083,7 +1083,14 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        // ensure that default_sorting_field is a non-array numerical field
+        auto coll_op = collectionManager.create_collection("coll_array_fields", fields, "years");
+        ASSERT_EQ(false, coll_op.ok());
+        ASSERT_STREQ("Default sorting field `years` must be of type int32 or float.", coll_op.error().c_str());
+
+        // let's try again properly
+        coll_op = collectionManager.create_collection("coll_array_fields", fields, "age");
+        coll_array_fields = coll_op.get();
     }
 
     std::string json_line;

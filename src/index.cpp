@@ -157,12 +157,12 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be of type int32 or float.");
     }
 
-    if(document[default_sorting_field].is_number_integer() &&
+    if(search_schema.at(default_sorting_field).is_single_integer() &&
        document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
     }
 
-    if(document[default_sorting_field].is_number_float() &&
+    if(search_schema.at(default_sorting_field).is_single_float() &&
        document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
