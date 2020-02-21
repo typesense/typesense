@@ -582,6 +582,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 acc_facet.result_map[facet_kv.first].count = count;
                 acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                 acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+                acc_facet.result_map[facet_kv.first].token_query_pos = facet_kv.second.token_query_pos;
             }
         }
 
@@ -699,7 +700,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
-        std::vector<std::pair<uint64_t, facet_count>> facet_hash_counts;
+        std::vector<std::pair<uint64_t, facet_count_t>> facet_hash_counts;
         for (const auto & itr : a_facet.result_map) {
             facet_hash_counts.emplace_back(itr);
         }
@@ -709,14 +710,19 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
                          facet_hash_counts.end(), Collection::facet_count_compare);
 
-        std::vector<std::pair<std::string, size_t>> facet_counts;
+
+        std::vector<std::string> facet_query_tokens;
+        StringUtils::split(facet_query.query, facet_query_tokens, " ");
+
+        std::vector<facet_value_t> facet_values;
 
         for(size_t i = 0; i < max_facets; i++) {
             // remap facet value hash with actual string
             auto & kv = facet_hash_counts[i];
+            auto & facet_count = kv.second;
 
             // fetch actual facet value from representative doc id
-            const std::string& seq_id_key = get_seq_id_key((uint32_t) kv.second.doc_id);
+            const std::string& seq_id_key = get_seq_id_key((uint32_t) facet_count.doc_id);
             nlohmann::json document;
             const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
 
@@ -725,23 +731,45 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 continue;
             }
 
-            std::string facet_value;
+            std::string value;
 
             if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
-                facet_value =  document[a_facet.field_name];
+                value =  document[a_facet.field_name];
             } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
-                facet_value = document[a_facet.field_name][kv.second.array_pos];
+                value = document[a_facet.field_name][facet_count.array_pos];
             }
 
-            facet_counts.emplace_back(std::make_pair(facet_value, kv.second.count));
+            std::vector<std::string> tokens;
+            StringUtils::split(value, tokens, " ");
+            std::stringstream highlightedss;
+
+            for(size_t i = 0; i < tokens.size(); i++) {
+                if(i != 0) {
+                    highlightedss << " ";
+                }
+
+                if(facet_count.token_query_pos.count(i) != 0) {
+                    size_t highlight_len = facet_query_tokens[facet_count.token_query_pos[i]].size();
+                    const std::string & unmarked = tokens[i].substr(highlight_len, std::string::npos);
+                    highlightedss << "<mark>" + tokens[i].substr(0, highlight_len) + "</mark>" + unmarked;
+                } else {
+                    highlightedss << tokens[i];
+                }
+            }
+
+            facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
+            facet_values.emplace_back(facet_value);
         }
 
-        std::stable_sort(facet_counts.begin(), facet_counts.end(), Collection::facet_count_str_compare);
+        std::stable_sort(facet_values.begin(), facet_values.end(), Collection::facet_count_str_compare);
 
-        for(const auto & facet_count: facet_counts) {
+        for(const auto & facet_count: facet_values) {
             nlohmann::json facet_value_count = nlohmann::json::object();
-            facet_value_count["value"] = facet_count.first;
-            facet_value_count["count"] = facet_count.second;
+            const std::string & value = facet_count.value;
+
+            facet_value_count["value"] = value;
+            facet_value_count["highlighted"] = facet_count.highlighted;
+            facet_value_count["count"] = facet_count.count;
             facet_result["counts"].push_back(facet_value_count);
         }
 

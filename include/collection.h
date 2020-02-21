@@ -154,14 +154,14 @@ private:
     void populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
                             std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids);
 
-    static bool facet_count_compare(const std::pair<uint64_t, facet_count>& a,
-                                    const std::pair<uint64_t, facet_count>& b) {
+    static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
+                                    const std::pair<uint64_t, facet_count_t>& b) {
         return std::tie(a.second.count, a.first) > std::tie(b.second.count, a.first);
     }
 
-    static bool facet_count_str_compare(const std::pair<std::string, size_t>& a,
-                                        const std::pair<std::string, size_t>& b) {
-        return a.second > b.second;
+    static bool facet_count_str_compare(const facet_value_t& a,
+                                        const facet_value_t& b) {
+        return a.count > b.count;
     }
 
 public:
