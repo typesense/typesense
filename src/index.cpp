@@ -973,8 +973,9 @@ void Index::search(Option<uint32_t> & outcome,
     //auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
 
-    Topster topster(max_hits);
-    Topster curated_topster(max_hits);
+    const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
+    Topster topster(topster_size);
+    Topster curated_topster(topster_size);
 
     if(query == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
@@ -994,7 +995,7 @@ void Index::search(Option<uint32_t> & outcome,
                 const std::string & field = search_fields[i];
 
                 search_field(field_id, query, field, filter_ids, filter_ids_length, facets, sort_fields_std,
-                             num_typos, num_results, searched_queries, topster, &all_result_ids, all_result_ids_len,
+                             num_typos, searched_queries, topster, &all_result_ids, all_result_ids_len,
                              token_order, prefix, drop_tokens_threshold);
                 collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
             }
@@ -1056,7 +1057,7 @@ void Index::search(Option<uint32_t> & outcome,
 void Index::search_field(const uint8_t & field_id, std::string & query, const std::string & field,
                          uint32_t *filter_ids, size_t filter_ids_length,
                          std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
-                         const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
+                         std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster & topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
                          const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold) {
     std::vector<std::string> tokens;
@@ -1204,7 +1205,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
         }
 
         return search_field(field_id, truncated_query, field, filter_ids, filter_ids_length, facets, sort_fields, num_typos,
-                            num_results, searched_queries, topster, all_result_ids, all_result_ids_len,
+                            searched_queries, topster, all_result_ids, all_result_ids_len,
                             token_order, prefix);
     }
 }

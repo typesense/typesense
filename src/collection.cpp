@@ -456,7 +456,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     // parse facet query
     std::vector<std::string> facet_query_vec;
-    facet_query_t facet_query;
+    facet_query_t facet_query = {"", ""};
 
     if(!simple_facet_query.empty() && simple_facet_query.find(':') == std::string::npos) {
         std::string error = "Facet query must be in the `facet_field: value` format.";
@@ -503,7 +503,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    const size_t num_results = (page * per_page);
+    const size_t results_per_page = std::min(per_page, max_hits);
+    const size_t num_results = (page * results_per_page);
 
     if(num_results > max_hits) {
         std::string message = "Only the first " + std::to_string(max_hits) + " results are available.";
@@ -522,7 +523,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
                                            sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                           per_page, page, token_order, prefix, drop_tokens_threshold);
+                                           results_per_page, page, token_order, prefix, drop_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
@@ -607,13 +608,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     result["hits"] = nlohmann::json::array();
     result["found"] = total_found;
 
-    const int start_result_index = (page - 1) * per_page;
-    const int kvsize = raw_result_kvs.size() + override_result_kvs.size();
-
-    if(start_result_index > (kvsize - 1)) {
-        return Option<nlohmann::json>(result);
-    }
-
     std::vector<KV> result_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
@@ -641,10 +635,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         raw_results_index++;
     }
 
-    size_t end_result_index = std::min(num_results, result_kvs.size()) - 1;
+    const long start_result_index = (page - 1) * results_per_page;
+    const long end_result_index = std::min(num_results, result_kvs.size()) - 1;  // could be -1 when max_hits is 0
 
     // construct results array
-    for(size_t result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
+    for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const auto & field_order_kv = result_kvs[result_kvs_index];
         const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.key);
 

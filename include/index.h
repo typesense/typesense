@@ -148,8 +148,7 @@ private:
     void search_field(const uint8_t & field_id, std::string & query,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
-                      const int num_typos, const size_t num_results,
-                      std::vector<std::vector<art_leaf*>> & searched_queries,
+                      const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
                       const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
