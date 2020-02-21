@@ -449,7 +449,7 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
     insert_doc(score, t, seq_id, token_to_offsets);
 
     if(facet_id >= 0) {
-        facet_index_v2[seq_id][facet_id].resize(facet_index_v2[seq_id][facet_id].size());
+        facet_index_v2[seq_id][facet_id].shrink_to_fit();
     }
 }
 
@@ -496,7 +496,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
     }
 
     if(facet_id >= 0) {
-        facet_index_v2[seq_id][facet_id].resize(facet_index_v2[seq_id][facet_id].size());
+        facet_index_v2[seq_id][facet_id].shrink_to_fit();
     }
 
     insert_doc(score, t, seq_id, token_positions);
@@ -539,29 +539,31 @@ void Index::do_facets(std::vector<facet> & facets, const facet_query_t & facet_q
         facet_to_index[facet.first] = i_facet;
         i_facet++;
     }
-    
+
+    // assumed that facet fields have already been validated upstream
     for(auto & a_facet: facets) {
-        // assumed that facet fields have already been validated upstream
-        spp::sparse_hash_set<int64_t> facet_filter_set;
+        spp::sparse_hash_map<int64_t, uint32_t> fhash_qtoken_pos;  // facet hash => token position in the query
         bool use_facet_query = false;
 
         if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
             use_facet_query = true;
-            std::vector<std::string> facet_queries;
-            StringUtils::split(facet_query.query, facet_queries, " ");
+            std::vector<std::string> query_tokens;
+            StringUtils::split(facet_query.query, query_tokens, " ");
 
-            for(auto & q: facet_queries) {
+            for(size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
+                auto & q = query_tokens[qtoken_index];
                 StringUtils::trim(q);
                 int bounded_cost = get_bounded_typo_cost(2, q.size());
                 std::vector<art_leaf*> leaves;
                 art_fuzzy_search(search_index.at(a_facet.field_name), (const unsigned char *) q.c_str(),
                                  q.size(),0, bounded_cost, 10000,
                                  token_ordering::MAX_SCORE, true, leaves);
-                for(const auto & leaf: leaves) {
+                for(size_t i = 0; i < leaves.size(); i++) {
+                    const auto & leaf = leaves[i];
                     // calculate hash without terminating null char
                     uint64_t hash = StringUtils::hash_wy(leaf->key, leaf->key_len-1);
-                    facet_filter_set.insert(hash);
-                    //printf("%.*s - %llu\n", leaf->key_len, leaf->key, hash);
+                    fhash_qtoken_pos.emplace(hash, qtoken_index);
+                    printf("%.*s - %llu\n", leaf->key_len, leaf->key, hash);
                 }
             }
         }
@@ -573,21 +575,58 @@ void Index::do_facets(std::vector<facet> & facets, const facet_query_t & facet_q
                 // FORMAT OF VALUES
                 // String: h1 h2 h3
                 // String array: h1 h2 h3 0 h1 0 h1 h2 0
-                const std::vector<uint64_t> & values = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
+                const std::vector<uint64_t> & fhashes = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
                 int array_pos = -1;
+                int fvalue_found = 0;
+                std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
+                spp::sparse_hash_map<uint32_t, uint32_t> token_query_positions;
+                size_t field_token_index = -1;
 
-                for(size_t j = 0; j < values.size(); j++) {
-                    if(values[j] == 0 || (values.back() != 0 && j == values.size()-1)) {
-                        array_pos++;
-                        size_t value_index = (j == 0 ? j : j - 1);
+                for(size_t j = 0; j < fhashes.size(); j++) {
+                    if(fhashes[j] != 0) {
+                        uint64_t ftoken_hash = fhashes[j];
+                        fvaluestream << ftoken_hash;
+                        field_token_index++;
 
-                        if(use_facet_query && facet_filter_set.find(values[value_index]) == facet_filter_set.end()) {
+                        if(use_facet_query && fhash_qtoken_pos.find(ftoken_hash) == fhash_qtoken_pos.end()) {
                             // this particular facet value is not found in facet filter, so ignore
                             continue;
                         }
-                        a_facet.result_map[values[value_index]].count += 1;
-                        a_facet.result_map[values[value_index]].doc_id = doc_seq_id;
-                        a_facet.result_map[values[value_index]].array_pos = array_pos;
+
+                        fvalue_found |= 1;  // bitwise to ensure only one count for a multi-token facet value
+
+                        if(use_facet_query) {
+                            // map token index to query index (used for highlighting later on)
+                            token_query_positions.emplace(field_token_index, fhash_qtoken_pos[ftoken_hash]);
+                        }
+                    }
+
+                    // 0 indicates separator, while the second condition checks for non-array string
+                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                        if(!use_facet_query || fvalue_found != 0) {
+                            array_pos++;
+
+                            const std::string & fvalue_str = fvaluestream.str();
+                            uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
+
+                            if(a_facet.result_map.count(fhash) == 0) {
+                                a_facet.result_map[fhash] = facet_count_t{0, doc_seq_id, {},
+                                                                          spp::sparse_hash_map<uint32_t, uint32_t>()};
+                            }
+
+                            a_facet.result_map[fhash].count += 1;
+                            a_facet.result_map[fhash].doc_id = doc_seq_id;
+                            a_facet.result_map[fhash].array_pos = array_pos;
+
+                            if(use_facet_query) {
+                                a_facet.result_map[fhash].token_query_pos = token_query_positions;
+                            }
+                        }
+
+                        fvalue_found = 0;
+                        std::stringstream().swap(fvaluestream);
+                        spp::sparse_hash_map<uint32_t, uint32_t>().swap(token_query_positions);
+                        field_token_index = 0;
                     }
                 }
             }
@@ -611,19 +650,26 @@ void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t>
                 // FORMAT OF VALUES
                 // String: h1 h2 h3
                 // String array: h1 h2 h3 0 h1 0 h1 h2 0
-                const std::vector<uint64_t> & values = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
+                const std::vector<uint64_t> & fhashes = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
+                std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
 
-                int array_pos = -1;
+                for(size_t j = 0; j < fhashes.size(); j++) {
+                    if(fhashes[j] != 0) {
+                        uint64_t ftoken_hash = fhashes[j];
+                        fvaluestream << ftoken_hash;
+                    }
 
-                for(size_t j = 0; j < values.size(); j++) {
-                    if(values[j] == 0 || (values.back() != 0 && j == values.size()-1)) {
-                        array_pos++;
-                        size_t value_index = (j == 0 ? j : j - 1);
+                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                        const std::string & fvalue_str = fvaluestream.str();
+                        uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
 
-                        a_facet.result_map[values[value_index]].count -= 1;
-                        if(a_facet.result_map[values[value_index]].count == 0) {
-                            a_facet.result_map.erase(values[value_index]);
+                        if(a_facet.result_map.count(fhash) != 0) {
+                            a_facet.result_map[fhash].count -= 1;
+                            if(a_facet.result_map[fhash].count == 0) {
+                                a_facet.result_map.erase(fhash);
+                            }
                         }
+                        std::stringstream().swap(fvaluestream);
                     }
                 }
             }

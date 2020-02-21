@@ -120,15 +120,16 @@ struct sort_by {
     }
 };
 
-struct facet_count {
+struct facet_count_t {
     uint32_t count;
     uint32_t doc_id;    // used to fetch the actual document and the value from store
     uint32_t array_pos;
+    spp::sparse_hash_map<uint32_t, uint32_t> token_query_pos;
 };
 
 struct facet {
     const std::string field_name;
-    std::map<uint64_t, facet_count> result_map;
+    std::map<uint64_t, facet_count_t> result_map;
 
     facet(const std::string & field_name): field_name(field_name) {
 
@@ -138,4 +139,10 @@ struct facet {
 struct facet_query_t {
     std::string field_name;
     std::string query;
+};
+
+struct facet_value_t {
+    std::string value;
+    std::string highlighted;
+    uint32_t count;
 };
