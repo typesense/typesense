@@ -209,8 +209,17 @@ void get_search(http_req & req, http_res & res) {
         req.params[MAX_FACET_VALUES] = "10";
     }
 
+    if(req.params.count(FACET_QUERY) == 0) {
+        req.params[FACET_QUERY] = "";
+    }
+
     if(req.params.count(MAX_HITS) == 0) {
-        req.params[MAX_HITS] = "500";
+        // for facet query, let max hits be 0 if it is not explicitly set
+        if(req.params[FACET_QUERY].empty()) {
+            req.params[MAX_HITS] = "500";
+        } else {
+            req.params[MAX_HITS] = "0";
+        }
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -252,10 +261,6 @@ void get_search(http_req & req, http_res & res) {
 
     std::vector<std::string> facet_fields;
     StringUtils::split(req.params[FACET_BY], facet_fields, ",");
-
-    if(req.params.count(FACET_QUERY) == 0) {
-        req.params[FACET_QUERY] = "";
-    }
 
     std::vector<std::string> include_fields_vec;
     StringUtils::split(req.params[INCLUDE_FIELDS], include_fields_vec, ",");
