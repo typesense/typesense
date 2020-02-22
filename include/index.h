@@ -140,7 +140,7 @@ private:
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
-    void do_facets(std::vector<facet> & facets, const facet_query_t & facet_query,
+    void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    const uint32_t* result_ids, size_t results_size);
 
     void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
@@ -203,7 +203,7 @@ public:
 
     void search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
-                          const facet_query_t & facet_query,
+                          facet_query_t & facet_query,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
                           const std::vector<sort_by> & sort_fields_std, const int num_typos,
                           const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
