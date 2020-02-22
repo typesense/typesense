@@ -156,7 +156,7 @@ private:
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
-        return std::tie(a.second.count, a.first) > std::tie(b.second.count, a.first);
+        return std::tie(a.second.count, a.first) > std::tie(b.second.count, b.first);
     }
 
     static bool facet_count_str_compare(const facet_value_t& a,
