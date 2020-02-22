@@ -1827,14 +1827,13 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(5, results["hits"].size());
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(2, results["facet_counts"][0].size());
-    ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 
-    ASSERT_EQ("gold", results["facet_counts"][0]["counts"][0]["value"]);
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
 
-    ASSERT_EQ("silver", results["facet_counts"][0]["counts"][1]["value"]);
+    ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
 
     // 2 facets, 1 text filter with no filters
@@ -1846,11 +1845,11 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(2, results["facet_counts"].size());
 
-    ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
-    ASSERT_EQ("name_facet", results["facet_counts"][1]["field_name"]);
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_STREQ("name_facet", results["facet_counts"][1]["field_name"].get<std::string>().c_str());
 
     // facet value must one that's stored, not indexed (i.e. no tokenization/standardization)
-    ASSERT_EQ("Jeremy Howard", results["facet_counts"][1]["counts"][0]["value"]);
+    ASSERT_STREQ("Jeremy Howard", results["facet_counts"][1]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(5, (int) results["facet_counts"][1]["counts"][0]["count"]);
 
     // facet with filters
@@ -1861,7 +1860,7 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
 
-    ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
+    ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
@@ -2651,4 +2650,27 @@ TEST_F(CollectionTest, PruneFieldsFromDocument) {
     document = get_prune_doc();
     Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"notfound"});
     ASSERT_EQ(4, document.size());
+}
+
+TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("categories", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["categories"] = "Should not be allowed!";
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_STREQ("Field `categories` must be a string array.", add_op.error().c_str());
 }
