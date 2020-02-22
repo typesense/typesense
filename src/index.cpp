@@ -1555,7 +1555,10 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
         if(name_field.second.type == field_types::STRING) {
             StringUtils::split(document[name_field.first], tokens, " ");
         } else if(name_field.second.type == field_types::STRING_ARRAY) {
-            tokens = document[name_field.first].get<std::vector<std::string>>();
+            std::vector<std::string> values = document[name_field.first].get<std::vector<std::string>>();
+            for(const std::string & value: values) {
+                StringUtils::split(value, tokens, " ");
+            }
         } else if(name_field.second.type == field_types::INT32) {
             const int KEY_LEN = 8;
             unsigned char key[KEY_LEN];
@@ -1677,4 +1680,8 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     const art_tree *t = search_index.at(field_name);
     return (art_leaf*) art_search(t, token, (int) token_len);
+}
+
+const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() const {
+    return search_index;
 }

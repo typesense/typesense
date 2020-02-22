@@ -2378,6 +2378,70 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection_for_del");
 }
 
+TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("strarray", field_types::STRING_ARRAY, false),
+                                 field("int32array", field_types::INT32_ARRAY, false),
+                                 field("int64array", field_types::INT64_ARRAY, false),
+                                 field("floatarray", field_types::FLOAT_ARRAY, false),
+                                 field("boolarray", field_types::BOOL_ARRAY, false),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["strarray"] = {"Cell Phones", "Cell Phone Accessories", "Cell Phone Cases & Clips"};
+    doc["int32array"] = {100, 200, 300};
+    doc["int64array"] = {1582369739000, 1582369739000, 1582369739000};
+    doc["floatarray"] = {19.99, 400.999, 500};
+    doc["boolarray"] = {true, false, true};
+    doc["points"] = 25;
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json res = coll1->search("phone", {"strarray"}, "", {}, sort_fields, 0, 10, 1,
+                                       token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, 500).get();
+
+    ASSERT_EQ(1, res["found"]);
+
+    Option<std::string> rem_op = coll1->remove("100");
+
+    ASSERT_TRUE(rem_op.ok());
+
+    res = coll1->search("phone", {"strarray"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, 500).get();
+
+    ASSERT_EQ(0, res["found"].get<int32_t>());
+
+    // also assert against the actual index
+    Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
+    auto search_index = index->_get_search_index();
+
+    auto strarray_tree = search_index["strarray"];
+    auto int32array_tree = search_index["int32array"];
+    auto int64array_tree = search_index["int64array"];
+    auto floatarray_tree = search_index["floatarray"];
+    auto boolarray_tree = search_index["boolarray"];
+
+    ASSERT_EQ(0, art_size(strarray_tree));
+    ASSERT_EQ(0, art_size(int32array_tree));
+    ASSERT_EQ(0, art_size(int64array_tree));
+    ASSERT_EQ(0, art_size(floatarray_tree));
+    ASSERT_EQ(0, art_size(boolarray_tree));
+
+    collectionManager.drop_collection("coll1");
+}
+
 nlohmann::json get_prune_doc() {
     nlohmann::json document;
     document["one"] = 1;

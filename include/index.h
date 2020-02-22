@@ -240,6 +240,8 @@ public:
                                         const std::unordered_map<std::string, field> & search_schema,
                                         const std::map<std::string, field> & facet_schema);
 
+    const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
+
     // for limiting number of results on multiple candidates / query rewrites
     enum {SEARCH_LIMIT_NUM = 100};
 

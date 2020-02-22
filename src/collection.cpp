@@ -1130,3 +1130,7 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
 
     return Option<bool>(true);
 }
+
+const std::vector<Index *> &Collection::_get_indexes() const {
+    return indices;
+}
