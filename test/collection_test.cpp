@@ -1960,7 +1960,7 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("Facet query must be in the `facet_field: value` format.", res_op.error().c_str());
 
     // unknown facet field
-    res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+    res_op = coll_array_fields->search("*", query_fields, "", {"foobar"}, sort_fields, 0, 10, 1, FREQUENCY,
                                        false, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
                                        spp::sparse_hash_set<std::string>(), 10, 500, "foobar: baz");
@@ -1968,7 +1968,122 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Could not find a facet field named `foobar` in the schema.", res_op.error().c_str());
 
+    // when facet query is given but no facet fields are specified, must return an error message
+    res_op = coll_array_fields->search("*", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, 500, "tags: foo");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("The `facet_query` parameter is supplied without a `facet_by` parameter.", res_op.error().c_str());
+
+    // given facet query field must be part of facet fields requested
+    res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, 500, "name_facet: jeremy");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Facet query refers to a facet field `name_facet` that is not part of `facet_by` parameter.", res_op.error().c_str());
+
     collectionManager.drop_collection("coll_array_fields");
+}
+
+TEST_F(CollectionTest, FacetCountsHighlighting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("categories", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["categories"] = {"Cell Phones", "Cell Phone Accessories", "Cell Phone Cases & Clips"};
+    doc["points"] = 25;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"categories"};
+
+    nlohmann::json results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                                           token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_STREQ("Cell Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
+
+    coll1->remove("100");
+
+    doc["categories"] = {"Cell Phones", "Unlocked Cell Phones", "All Unlocked Cell Phones" };
+    coll1->add(doc.dump());
+
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_STREQ("All Unlocked Cell Phones", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("All Unlocked <mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Unlocked Cell Phones", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Unlocked <mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
+
+    coll1->remove("100");
+    doc["categories"] = {"Cell Phones", "Cell Phone Accessories", "Cell Phone Cases & Clips"};
+    coll1->add(doc.dump());
+
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:acces").get();
+
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone <mark>Acces</mark>sories", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    // ensure that query is NOT case sensitive
+
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:ACCES").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone <mark>Acces</mark>sories", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionTest, SortingOrder) {
@@ -2352,13 +2467,16 @@ TEST_F(CollectionTest, DeletionOfADocument) {
 
     results = collection_for_del->search("cryogenic", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"]);
 
     results = collection_for_del->search("archives", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"]);
 
     collection_for_del->remove("foo");   // custom id record
     results = collection_for_del->search("martian", query_fields, "", {}, sort_fields, 0, 5, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"]);
 
     // delete all records
     for(int id = 0; id <= 25; id++) {

@@ -460,12 +460,24 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     if(!simple_facet_query.empty() && simple_facet_query.find(':') == std::string::npos) {
         std::string error = "Facet query must be in the `facet_field: value` format.";
-        return Option<nlohmann::json>(404, error);
+        return Option<nlohmann::json>(400, error);
     }
 
     StringUtils::split(simple_facet_query, facet_query_vec, ":");
     if(!facet_query_vec.empty()) {
+        if(facet_fields.empty()) {
+            std::string error = "The `facet_query` parameter is supplied without a `facet_by` parameter.";
+            return Option<nlohmann::json>(400, error);
+        }
+
+        // facet query field must be part of facet fields requested
         facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
+        if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
+            std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
+                                "that is not part of `facet_by` parameter.";
+            return Option<nlohmann::json>(400, error);
+        }
+
         if(facet_schema.count(facet_query.field_name) == 0) {
             std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
             return Option<nlohmann::json>(404, error);
@@ -582,7 +594,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 acc_facet.result_map[facet_kv.first].count = count;
                 acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                 acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                acc_facet.result_map[facet_kv.first].token_query_pos = facet_kv.second.token_query_pos;
+                acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
             }
         }
 
@@ -743,13 +755,28 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             StringUtils::split(value, tokens, " ");
             std::stringstream highlightedss;
 
+            /*std::cout << "array_pos: " << facet_count.array_pos << std::endl;
+
+            for(auto xx: facet_count.query_token_pos) {
+                std::cout << xx.first << " -> " << xx.second.pos << " , " << xx.second.cost << std::endl;
+            }
+
+            std::cout << "doc id: " << facet_count.doc_id << " i: " << i << std::endl;
+            std::cout << "doc: " << document << std::endl;*/
+
+            // invert query_pos -> token_pos
+            spp::sparse_hash_map<uint32_t, uint32_t> token_query_pos;
+            for(auto qtoken_pos: facet_count.query_token_pos) {
+                token_query_pos.emplace(qtoken_pos.second.pos, qtoken_pos.first);
+            }
+
             for(size_t i = 0; i < tokens.size(); i++) {
                 if(i != 0) {
                     highlightedss << " ";
                 }
 
-                if(facet_count.token_query_pos.count(i) != 0) {
-                    size_t highlight_len = facet_query_tokens[facet_count.token_query_pos[i]].size();
+                if(token_query_pos.count(i) != 0) {
+                    size_t highlight_len = facet_query_tokens[token_query_pos[i]].size();
                     const std::string & unmarked = tokens[i].substr(highlight_len, std::string::npos);
                     highlightedss << "<mark>" + tokens[i].substr(0, highlight_len) + "</mark>" + unmarked;
                 } else {

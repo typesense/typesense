@@ -120,11 +120,19 @@ struct sort_by {
     }
 };
 
+struct token_pos_cost_t {
+    size_t pos;
+    uint32_t cost;
+};
+
 struct facet_count_t {
     uint32_t count;
-    uint32_t doc_id;    // used to fetch the actual document and the value from store
+
+    // used to fetch the actual document and value for representation
+    uint32_t doc_id;
     uint32_t array_pos;
-    spp::sparse_hash_map<uint32_t, uint32_t> token_query_pos;
+
+    spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_pos;
 };
 
 struct facet {
