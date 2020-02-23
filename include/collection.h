@@ -169,7 +169,7 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field> & fields,
-               const std::string & default_sorting_field, const size_t num_indices=4);
+               const std::string & default_sorting_field, const size_t num_indices);
 
     ~Collection();
 
