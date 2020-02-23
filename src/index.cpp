@@ -555,10 +555,12 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 auto & q = query_tokens[qtoken_index];
                 string_utils.unicode_normalize(q);
                 int bounded_cost = (q.size() < 3) ? 0 : 1;
+                bool prefix_search = (qtoken_index == (query_tokens.size()-1)); // only last token must be used as prefix
+
                 std::vector<art_leaf*> leaves;
                 art_fuzzy_search(search_index.at(a_facet.field_name), (const unsigned char *) q.c_str(),
-                                 q.size(),0, bounded_cost, 10000,
-                                 token_ordering::MAX_SCORE, true, leaves);
+                                 q.size(), 0, bounded_cost, 10000,
+                                 token_ordering::MAX_SCORE, prefix_search, leaves);
                 for(size_t i = 0; i < leaves.size(); i++) {
                     const auto & leaf = leaves[i];
                     // calculate hash without terminating null char

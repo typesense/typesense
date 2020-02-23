@@ -2082,6 +2082,22 @@ TEST_F(CollectionTest, FacetCountsHighlighting) {
     ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("Cell Phone <mark>Acces</mark>sories", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
+    // ensure that only the last token is treated as prefix search
+
+    coll1->remove("100");
+    doc["categories"] = {"Cell Phones", "Cell Phone Accessories", "Cellophanes"};
+    coll1->add(doc.dump());
+
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell ph").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -2673,4 +2689,6 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
     auto add_op = coll1->add(doc.dump());
     ASSERT_FALSE(add_op.ok());
     ASSERT_STREQ("Field `categories` must be a string array.", add_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
 }
