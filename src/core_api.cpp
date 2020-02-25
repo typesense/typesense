@@ -174,6 +174,7 @@ void get_search(http_req & req, http_res & res) {
     const char *SORT_BY = "sort_by";
 
     const char *FACET_BY = "facet_by";
+    const char *FACET_QUERY = "facet_query";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *MAX_HITS = "max_hits";
@@ -208,8 +209,17 @@ void get_search(http_req & req, http_res & res) {
         req.params[MAX_FACET_VALUES] = "10";
     }
 
+    if(req.params.count(FACET_QUERY) == 0) {
+        req.params[FACET_QUERY] = "";
+    }
+
     if(req.params.count(MAX_HITS) == 0) {
-        req.params[MAX_HITS] = "500";
+        // for facet query, let max hits be 0 if it is not explicitly set
+        if(req.params[FACET_QUERY].empty()) {
+            req.params[MAX_HITS] = "500";
+        } else {
+            req.params[MAX_HITS] = "0";
+        }
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -307,7 +317,8 @@ void get_search(http_req & req, http_res & res) {
                                                           token_order, prefix, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
                                                           static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
-                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])));
+                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])),
+                                                          req.params[FACET_QUERY]);
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();

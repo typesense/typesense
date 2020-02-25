@@ -125,6 +125,7 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
     uint32_t low_index, high_index;
     uint32_t actual_value = 0;
 
+    // identify the upper and lower bounds of the search space
     int head = -1;
     do {
         head++;
@@ -145,6 +146,7 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
         indices[j] = length;
     }
 
+    // recursively search within the bounds for all values
     binary_search_indices(values, head, tail, low_index, high_index, base, bits, indices);
 }
 

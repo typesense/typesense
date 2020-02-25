@@ -29,6 +29,7 @@ struct search_args {
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by> sort_fields_std;
+    facet_query_t facet_query;
     int num_typos;
     size_t max_facet_values;
     size_t max_hits;
@@ -49,11 +50,11 @@ struct search_args {
 
     search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::vector<uint32_t> included_ids, std::vector<uint32_t> excluded_ids,
-                std::vector<sort_by> sort_fields_std, int num_typos, size_t max_facet_values,
+                std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
-            excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), num_typos(num_typos),
+            excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), max_hits(max_hits), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
@@ -118,13 +119,13 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> facet_schema;
+    std::map<std::string, field> facet_schema;  // std::map guarantees order of fields
 
     std::unordered_map<std::string, field> sort_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
-    spp::sparse_hash_map<std::string, facet_value> facet_index;
+    spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, number_t>*> sort_index;
 
@@ -139,20 +140,20 @@ private:
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
-    void do_facets(std::vector<facet> & facets, const uint32_t* result_ids, size_t results_size);
+    void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
+                   const uint32_t* result_ids, size_t results_size);
 
-    void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> ids);
+    void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
 
     void search_field(const uint8_t & field_id, std::string & query,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
-                      const int num_typos, const size_t num_results,
-                      std::vector<std::vector<art_leaf*>> & searched_queries,
+                      const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
                       const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
 
-    void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
+    void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster & topster, uint32_t** all_result_ids,
@@ -162,10 +163,10 @@ private:
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
-                            const bool verbatim) const;
+                            int facet_id);
 
     void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
-                                  uint32_t seq_id, const bool verbatim) const;
+                                  uint32_t seq_id, int facet_id);
 
     void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
@@ -193,8 +194,8 @@ private:
 public:
     Index() = delete;
 
-    Index(const std::string name, std::unordered_map<std::string, field> search_schema,
-          std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
+    Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
+          std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
 
     ~Index();
 
@@ -202,6 +203,7 @@ public:
 
     void search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
+                          facet_query_t & facet_query,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
                           const std::vector<sort_by> & sort_fields_std, const int num_typos,
                           const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
@@ -230,13 +232,15 @@ public:
     static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::unordered_map<std::string, field> & facet_schema);
+                                                     const std::map<std::string, field> & facet_schema);
 
     static batch_index_result batch_memory_index(Index *index,
                                         std::vector<index_record> & iter_batch,
                                         const std::string & default_sorting_field,
                                         const std::unordered_map<std::string, field> & search_schema,
-                                        const std::unordered_map<std::string, field> & facet_schema);
+                                        const std::map<std::string, field> & facet_schema);
+
+    const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
 
     // for limiting number of results on multiple candidates / query rewrites
     enum {SEARCH_LIMIT_NUM = 100};
@@ -270,5 +274,10 @@ public:
     bool terminate;   // used for interrupting the thread during tear down
 
     search_args search_params;
+
+    static void populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
+                                               const art_leaf *token_leaf, uint32_t doc_index);
+
+    int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
 };
 
