@@ -133,7 +133,7 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> facet_schema;
+    std::map<std::string, field> facet_schema;   // std::map guarantees order of fields
 
     std::unordered_map<std::string, field> sort_schema;
 
@@ -154,12 +154,22 @@ private:
     void populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
                             std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids);
 
+    static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
+                                    const std::pair<uint64_t, facet_count_t>& b) {
+        return std::tie(a.second.count, a.first) > std::tie(b.second.count, b.first);
+    }
+
+    static bool facet_count_str_compare(const facet_value_t& a,
+                                        const facet_value_t& b) {
+        return a.count > b.count;
+    }
+
 public:
     Collection() = delete;
 
     Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field> & fields,
-               const std::string & default_sorting_field, const size_t num_indices=4);
+               const std::string & default_sorting_field, const size_t num_indices);
 
     ~Collection();
 
@@ -211,7 +221,8 @@ public:
                           size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                           const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
                           const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
-                          size_t max_facet_values=10, size_t max_hits=500);
+                          size_t max_facet_values=10, size_t max_hits=500,
+                          const std::string & simple_facet_query = "");
 
     Option<nlohmann::json> get(const std::string & id);
 
@@ -229,6 +240,8 @@ public:
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 
+    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document);
+
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
     void par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
@@ -236,6 +249,8 @@ public:
 
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
                                const spp::sparse_hash_set<std::string> & exclude_fields);
+
+    const std::vector<Index *> &_get_indexes() const;
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     enum {SNIPPET_STR_ABOVE_LEN = 30};

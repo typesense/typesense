@@ -10,22 +10,18 @@
 #include <art.h>
 #include "logger.h"
 
-Index::Index(const std::string name, std::unordered_map<std::string, field> search_schema,
-             std::unordered_map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
+Index::Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
+             std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
         name(name), search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema) {
 
-    for(const auto pair: search_schema) {
+    for(const auto & pair: search_schema) {
+        // NOTE: facet fields are also part of search schema
         art_tree *t = new art_tree;
         art_tree_init(t);
         search_index.emplace(pair.first, t);
     }
 
-    for(const auto pair: facet_schema) {
-        facet_value fvalue;
-        facet_index.emplace(pair.first, fvalue);
-    }
-
-    for(const auto pair: sort_schema) {
+    for(const auto & pair: sort_schema) {
         spp::sparse_hash_map<uint32_t, number_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, number_t>();
         sort_index.emplace(pair.first, doc_to_score);
     }
@@ -76,14 +72,30 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                                         const std::string & default_sorting_field) {
     int32_t points = get_points_from_doc(document, default_sorting_field);
 
+    std::unordered_map<std::string, size_t> facet_to_id;
+    size_t i_facet = 0;
+    for(const auto & facet: facet_schema) {
+        facet_to_id[facet.first] = i_facet;
+        i_facet++;
+    }
+
+    // initialize facet index since it will be updated as well during search indexing
+    std::vector<std::vector<uint64_t>> values(facet_schema.size());
+    facet_index_v2.emplace(seq_id, values);
+
     // assumes that validation has already been done
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
         art_tree *t = search_index.at(field_name);
 
+        int facet_id = -1;
+        if(facet_schema.count(field_name) != 0) {
+            facet_id = facet_to_id[field_name];
+        }
+
         if(field_pair.second.type == field_types::STRING) {
             const std::string & text = document[field_name];
-            index_string_field(text, points, t, seq_id, field_pair.second.is_facet());
+            index_string_field(text, points, t, seq_id, facet_id);
         } else if(field_pair.second.type == field_types::INT32) {
             uint32_t value = document[field_name];
             index_int32_field(value, points, t, seq_id);
@@ -98,7 +110,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             index_bool_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             std::vector<std::string> strings = document[field_name];
-            index_string_array_field(strings, points, t, seq_id, field_pair.second.is_facet());
+            index_string_array_field(strings, points, t, seq_id, facet_id);
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
             std::vector<int32_t> values = document[field_name];
             index_int32_array_field(values, points, t, seq_id);
@@ -118,25 +130,13 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                 field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL) {
             spp::sparse_hash_map<uint32_t, number_t> *doc_to_score = sort_index.at(field_pair.first);
 
-            if(document[field_pair.first].is_number_integer()) {
+            if(field_pair.second.is_integer() ) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<int64_t>());
-            } else if(document[field_pair.first].is_number_float()) {
+            } else if(field_pair.second.is_float()) {
                 doc_to_score->emplace(seq_id, document[field_pair.first].get<float>());
-            } else if(document[field_pair.first].is_boolean()) {
+            } else if(field_pair.second.is_bool()) {
                 doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
             }
-        }
-    }
-
-    for(const std::pair<std::string, field> & field_pair: facet_schema) {
-        const std::string & field_name = field_pair.first;
-        facet_value & fvalue = facet_index.at(field_name);
-        if(field_pair.second.type == field_types::STRING) {
-            const std::string & value = document[field_name];
-            fvalue.index_values(seq_id, { value });
-        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
-            const std::vector<std::string> & values = document[field_name];
-            fvalue.index_values(seq_id, values);
         }
     }
 
@@ -147,7 +147,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
-                                                 const std::unordered_map<std::string, field> & facet_schema) {
+                                                 const std::map<std::string, field> & facet_schema) {
     if(document.count(default_sorting_field) == 0) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
@@ -157,12 +157,12 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be of type int32 or float.");
     }
 
-    if(document[default_sorting_field].is_number_integer() &&
+    if(search_schema.at(default_sorting_field).is_single_integer() &&
        document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
     }
 
-    if(document[default_sorting_field].is_number_float() &&
+    if(search_schema.at(default_sorting_field).is_single_float() &&
        document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
@@ -272,7 +272,7 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
 batch_index_result Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                     const std::string & default_sorting_field,
                                     const std::unordered_map<std::string, field> & search_schema,
-                                    const std::unordered_map<std::string, field> & facet_schema) {
+                                    const std::map<std::string, field> & facet_schema) {
 
     batch_index_result result;
 
@@ -428,34 +428,39 @@ void Index::index_float_field(const float value, uint32_t score, art_tree *t, ui
 
 
 void Index::index_string_field(const std::string & text, const uint32_t score, art_tree *t,
-                                    uint32_t seq_id, const bool verbatim) const {
+                                    uint32_t seq_id, int facet_id) {
     std::vector<std::string> tokens;
+    StringUtils::split(text, tokens, " ");
+
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    if(verbatim) {
-        tokens.push_back(text);
-        token_to_offsets[text].push_back(0);
-    } else {
-        StringUtils::split(text, tokens, " ");
+    for(uint32_t i=0; i<tokens.size(); i++) {
+        auto & token = tokens[i];
+        string_utils.unicode_normalize(token);
+        token_to_offsets[token].push_back(i);
 
-        for(uint32_t i=0; i<tokens.size(); i++) {
-            auto & token = tokens[i];
-            string_utils.unicode_normalize(token);
-            token_to_offsets[token].push_back(i);
+        if(facet_id >= 0) {
+            // facet field
+            uint64_t hash = StringUtils::hash_wy(token.c_str(), token.size());
+            facet_index_v2[seq_id][facet_id].push_back(hash);
         }
     }
 
     insert_doc(score, t, seq_id, token_to_offsets);
+
+    if(facet_id >= 0) {
+        facet_index_v2[seq_id][facet_id].shrink_to_fit();
+    }
 }
 
 void Index::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
-                                          uint32_t seq_id, const bool verbatim) const {
+                                          uint32_t seq_id, int facet_id) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string & str = strings[array_index];
         std::vector<std::string> tokens;
-        std::string delim = verbatim ? "" : " ";
+        std::string delim = " ";
         StringUtils::split(str, tokens, delim);
 
         std::set<std::string> token_set;  // required to deal with repeating tokens
@@ -463,13 +468,20 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         // iterate and append offset positions
         for(size_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
-
-            if(!verbatim) {
-                string_utils.unicode_normalize(token);
-            }
-
+            string_utils.unicode_normalize(token);
             token_positions[token].push_back(i);
             token_set.insert(token);
+
+            if(facet_id >= 0) {
+                // facet field
+                uint64_t hash = StringUtils::hash_wy(token.c_str(), token.size());
+                //printf("indexing %.*s - %llu\n", token.size(), token.c_str(), hash);
+                facet_index_v2[seq_id][facet_id].push_back(hash);
+            }
+        }
+
+        if(facet_id >= 0) {
+            facet_index_v2[seq_id][facet_id].push_back(0); // as a delimiter
         }
 
         // repeat last element to indicate end of offsets for this array index
@@ -481,6 +493,10 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         for(auto & token: token_set) {
             token_positions[token].push_back(array_index);
         }
+    }
+
+    if(facet_id >= 0) {
+        facet_index_v2[seq_id][facet_id].shrink_to_fit();
     }
 
     insert_doc(score, t, seq_id, token_positions);
@@ -514,41 +530,123 @@ void Index::index_float_array_field(const std::vector<float> & values, const uin
     }
 }
 
-void Index::do_facets(std::vector<facet> & facets, const uint32_t* result_ids, size_t results_size) {
-    for(auto & a_facet: facets) {
-        // assumed that facet fields have already been validated upstream
-        const field & facet_field = facet_schema.at(a_facet.field_name);
-        const facet_value & fvalue = facet_index.at(facet_field.name);
+void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
+                      const uint32_t* result_ids, size_t results_size) {
 
-        for(size_t i = 0; i < results_size; i++) {
-            uint32_t doc_seq_id = result_ids[i];
-            if(fvalue.doc_values.count(doc_seq_id) != 0) {
-                // for every result document, get the values associated and increment counter
-                const std::vector<uint32_t> & value_indices = fvalue.doc_values.at(doc_seq_id);
-                for(size_t j = 0; j < value_indices.size(); j++) {
-                    const std::string & facet_value = fvalue.index_value.at(value_indices.at(j));
-                    a_facet.result_map[facet_value] += 1;
+    std::map<std::string, size_t> facet_to_index;
+
+    size_t i_facet = 0;
+    for(const auto & facet: facet_schema) {
+        facet_to_index[facet.first] = i_facet;
+        i_facet++;
+    }
+
+    // assumed that facet fields have already been validated upstream
+    for(auto & a_facet: facets) {
+        spp::sparse_hash_map<int64_t, token_pos_cost_t> fhash_qtoken_pos;  // facet hash => token position in the query
+        bool use_facet_query = false;
+
+        if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
+            use_facet_query = true;
+            std::vector<std::string> query_tokens;
+            StringUtils::split(facet_query.query, query_tokens, " ");
+
+            for(size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
+                auto & q = query_tokens[qtoken_index];
+                string_utils.unicode_normalize(q);
+                int bounded_cost = (q.size() < 3) ? 0 : 1;
+                bool prefix_search = (qtoken_index == (query_tokens.size()-1)); // only last token must be used as prefix
+
+                std::vector<art_leaf*> leaves;
+                art_fuzzy_search(search_index.at(a_facet.field_name), (const unsigned char *) q.c_str(),
+                                 q.size(), 0, bounded_cost, 10000,
+                                 token_ordering::MAX_SCORE, prefix_search, leaves);
+                for(size_t i = 0; i < leaves.size(); i++) {
+                    const auto & leaf = leaves[i];
+                    // calculate hash without terminating null char
+                    uint64_t hash = StringUtils::hash_wy(leaf->key, leaf->key_len-1);
+                    token_pos_cost_t token_pos_cost = {qtoken_index, 0};
+                    fhash_qtoken_pos.emplace(hash, token_pos_cost);
+                    //printf("%.*s - %llu\n", leaf->key_len, leaf->key, hash);
                 }
             }
         }
-    }
-}
 
-void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> ids) {
-    for(auto & a_facet: facets) {
-        // assumed that facet fields have already been validated upstream
-        const field & facet_field = facet_schema.at(a_facet.field_name);
-        const facet_value & fvalue = facet_index.at(facet_field.name);
+        size_t facet_id = facet_to_index[a_facet.field_name];
 
-        for(const uint32_t doc_seq_id: ids) {
-            if(fvalue.doc_values.count(doc_seq_id) != 0) {
-                // for every result document, get the values associated and decrement counter
-                const std::vector<uint32_t> & value_indices = fvalue.doc_values.at(doc_seq_id);
-                for(size_t j = 0; j < value_indices.size(); j++) {
-                    const std::string & facet_value = fvalue.index_value.at(value_indices.at(j));
-                    a_facet.result_map[facet_value] -= 1;
-                    if(a_facet.result_map[facet_value] == 0) {
-                        a_facet.result_map.erase(facet_value);
+        for(size_t i = 0; i < results_size; i++) {
+            uint32_t doc_seq_id = result_ids[i];
+
+            if(facet_index_v2.count(doc_seq_id) != 0) {
+                // FORMAT OF VALUES
+                // String: h1 h2 h3
+                // String array: h1 h2 h3 0 h1 0 h1 h2 0
+                const std::vector<uint64_t> & fhashes = facet_index_v2[doc_seq_id][facet_id];
+
+                int array_pos = 0;
+                int fvalue_found = 0;
+                std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
+                spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_positions;
+                size_t field_token_index = -1;
+
+                for(size_t j = 0; j < fhashes.size(); j++) {
+                    if(fhashes[j] != 0) {
+                        uint64_t ftoken_hash = fhashes[j];
+                        fvaluestream << ftoken_hash;
+                        field_token_index++;
+
+                        if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
+                            // not using facet query or this particular facet value is found in facet filter
+                            fvalue_found |= 1;  // bitwise to ensure only one count for a multi-token facet value
+
+                            if(use_facet_query) {
+                                // map token index to query index (used for highlighting later on)
+                                token_pos_cost_t qtoken_pos = fhash_qtoken_pos[ftoken_hash];
+
+                                // if the query token has already matched another token in the string
+                                // we will replace the position only if the cost is lower
+                                if(query_token_positions.find(qtoken_pos.pos) == query_token_positions.end() ||
+                                   query_token_positions[qtoken_pos.pos].cost >= qtoken_pos.cost ) {
+                                    token_pos_cost_t ftoken_pos_cost = {field_token_index, qtoken_pos.cost};
+                                    query_token_positions.emplace(qtoken_pos.pos, ftoken_pos_cost);
+                                }
+                            }
+                        }
+                    }
+
+                    //std::cout << "j: " << j << std::endl;
+
+                    // 0 indicates separator, while the second condition checks for non-array string
+                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                        if(!use_facet_query || fvalue_found != 0) {
+                            const std::string & fvalue_str = fvaluestream.str();
+                            uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
+
+                            if(a_facet.result_map.count(fhash) == 0) {
+                                a_facet.result_map[fhash] = facet_count_t{0, doc_seq_id, 0,
+                                                                          spp::sparse_hash_map<uint32_t, token_pos_cost_t>()};
+                            }
+
+                            a_facet.result_map[fhash].count += 1;
+                            a_facet.result_map[fhash].doc_id = doc_seq_id;
+                            a_facet.result_map[fhash].array_pos = array_pos;
+
+                            if(use_facet_query) {
+                                a_facet.result_map[fhash].query_token_pos = query_token_positions;
+
+                                /*if(j == 11) {
+                                    for(auto xx: query_token_positions) {
+                                        std::cout << xx.first << " -> " << xx.second.pos << " , " << xx.second.cost << std::endl;
+                                    }
+                                }*/
+                            }
+                        }
+
+                        array_pos++;
+                        fvalue_found = 0;
+                        std::stringstream().swap(fvaluestream);
+                        spp::sparse_hash_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
+                        field_token_index = -1;
                     }
                 }
             }
@@ -556,7 +654,50 @@ void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t>
     }
 }
 
-void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length, std::vector<facet> & facets,
+void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids) {
+    std::map<std::string, size_t> facet_to_index;
+
+    size_t i_facet = 0;
+    for(const auto & facet: facet_schema) {
+        facet_to_index[facet.first] = i_facet;
+        i_facet++;
+    }
+
+    for(auto & a_facet: facets) {
+        // assumed that facet fields have already been validated upstream
+        for(const uint32_t doc_seq_id: ids) {
+            if(facet_index_v2.count(doc_seq_id) != 0) {
+                // FORMAT OF VALUES
+                // String: h1 h2 h3
+                // String array: h1 h2 h3 0 h1 0 h1 h2 0
+                const std::vector<uint64_t> & fhashes = facet_index_v2[doc_seq_id][facet_to_index[a_facet.field_name]];
+                std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
+
+                for(size_t j = 0; j < fhashes.size(); j++) {
+                    if(fhashes[j] != 0) {
+                        uint64_t ftoken_hash = fhashes[j];
+                        fvaluestream << ftoken_hash;
+                    }
+
+                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                        const std::string & fvalue_str = fvaluestream.str();
+                        uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
+
+                        if(a_facet.result_map.count(fhash) != 0) {
+                            a_facet.result_map[fhash].count -= 1;
+                            if(a_facet.result_map[fhash].count == 0) {
+                                a_facet.result_map.erase(fhash);
+                            }
+                        }
+                        std::stringstream().swap(fvaluestream);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
                               const std::vector<sort_by> & sort_fields,
                               std::vector<token_candidates> & token_candidates_vec, const token_ordering token_order,
                               std::vector<std::vector<art_leaf*>> & searched_queries, Topster & topster,
@@ -715,21 +856,14 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
             } else if(f.is_string()) {
                 for(const std::string & filter_value: a_filter.values) {
                     std::vector<std::string> str_tokens;
-
-                    bool is_facet_field = (facet_index.count(a_filter.field_name) != 0);
-                    std::string delim = is_facet_field ? "" : " ";
-                    StringUtils::split(filter_value, str_tokens, delim);
+                    StringUtils::split(filter_value, str_tokens, " ");
 
                     uint32_t* filtered_ids = nullptr;
                     size_t filtered_size = 0;
 
                     for(size_t i = 0; i < str_tokens.size(); i++) {
                         std::string & str_token = str_tokens[i];
-
-                        if(!is_facet_field) {
-                            // We should not normalize when the filter field is also a facet field
-                            string_utils.unicode_normalize(str_token);
-                        }
+                        string_utils.unicode_normalize(str_token);
 
                         art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                                  str_token.length()+1);
@@ -752,7 +886,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                         }
                     }
 
-                    filter_result_array_pairs.push_back(std::make_pair(filtered_ids, filtered_size));
+                    filter_result_array_pairs.emplace_back(filtered_ids, filtered_size);
                 }
             }
 
@@ -793,7 +927,7 @@ void Index::run_search() {
 
         // after the wait, we own the lock.
         search(search_params.outcome, search_params.query, search_params.search_fields,
-               search_params.filters, search_params.facets, search_params.included_ids,
+               search_params.filters, search_params.facets, search_params.facet_query, search_params.included_ids,
                search_params.excluded_ids, search_params.sort_fields_std, search_params.num_typos,
                search_params.max_hits, search_params.per_page, search_params.page, search_params.token_order,
                search_params.prefix, search_params.drop_tokens_threshold, search_params.raw_result_kvs,
@@ -876,7 +1010,8 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
 void Index::search(Option<uint32_t> & outcome,
                    std::string query,
                    const std::vector<std::string> & search_fields,
-                   const std::vector<filter> & filters, std::vector<facet> & facets,
+                   const std::vector<filter> & filters,
+                   std::vector<facet> & facets, facet_query_t & facet_query,
                    const std::vector<uint32_t> & included_ids,
                    const std::vector<uint32_t> & excluded_ids,
                    const std::vector<sort_by> & sort_fields_std, const int num_typos, const size_t max_hits,
@@ -904,8 +1039,9 @@ void Index::search(Option<uint32_t> & outcome,
     //auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
 
-    Topster topster(max_hits);
-    Topster curated_topster(max_hits);
+    const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
+    Topster topster(topster_size);
+    Topster curated_topster(topster_size);
 
     if(query == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
@@ -914,26 +1050,26 @@ void Index::search(Option<uint32_t> & outcome,
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
                       filter_ids, filter_ids_length);
         collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
-        do_facets(facets, filter_ids, filter_ids_length);
+        do_facets(facets, facet_query, filter_ids, filter_ids_length);
         all_result_ids_len = filter_ids_length;
     } else {
         const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
         for(size_t i = 0; i < num_search_fields; i++) {
             // proceed to query search only when no filters are provided or when filtering produces results
-            if(filters.size() == 0 || filter_ids_length > 0) {
+            if(filters.empty() || filter_ids_length > 0) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i); // Order of `fields` are used to sort results
                 const std::string & field = search_fields[i];
 
                 search_field(field_id, query, field, filter_ids, filter_ids_length, facets, sort_fields_std,
-                             num_typos, num_results, searched_queries, topster, &all_result_ids, all_result_ids_len,
+                             num_typos, searched_queries, topster, &all_result_ids, all_result_ids_len,
                              token_order, prefix, drop_tokens_threshold);
                 collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
             }
         }
-        do_facets(facets, all_result_ids, all_result_ids_len);
+        do_facets(facets, facet_query, all_result_ids, all_result_ids_len);
     }
 
-    do_facets(facets, &included_ids[0], included_ids.size());
+    do_facets(facets, facet_query, &included_ids[0], included_ids.size());
 
     // must be sorted before iterated upon to remove "empty" array entries
     topster.sort();
@@ -987,7 +1123,7 @@ void Index::search(Option<uint32_t> & outcome,
 void Index::search_field(const uint8_t & field_id, std::string & query, const std::string & field,
                          uint32_t *filter_ids, size_t filter_ids_length,
                          std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
-                         const size_t num_results, std::vector<std::vector<art_leaf*>> & searched_queries,
+                         std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster & topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
                          const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold) {
     std::vector<std::string> tokens;
@@ -1008,10 +1144,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
         const size_t token_len = tokens[token_index].length();
 
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
-        int bounded_cost = max_cost;
-        if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
-            bounded_cost = token_len - 1;
-        }
+        int bounded_cost = get_bounded_typo_cost(max_cost, token_len);
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
@@ -1103,7 +1236,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
 
         if(token_candidates_vec.size() != 0 && token_candidates_vec.size() == tokens.size()) {
             // If all tokens were found, go ahead and search for candidates with what we have so far
-            search_candidates(field_id, filter_ids, filter_ids_length, facets, sort_fields, token_candidates_vec,
+            search_candidates(field_id, filter_ids, filter_ids_length, sort_fields, token_candidates_vec,
                               token_order, searched_queries, topster, all_result_ids, all_result_ids_len,
                               Index::SEARCH_LIMIT_NUM);
 
@@ -1138,9 +1271,17 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
         }
 
         return search_field(field_id, truncated_query, field, filter_ids, filter_ids_length, facets, sort_fields, num_typos,
-                            num_results, searched_queries, topster, all_result_ids, all_result_ids_len,
+                            searched_queries, topster, all_result_ids, all_result_ids_len,
                             token_order, prefix);
     }
+}
+
+int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const {
+    int bounded_cost = max_cost;
+    if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
+        bounded_cost = token_len - 1;
+    }
+    return bounded_cost;
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
@@ -1305,6 +1446,7 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
         if(end_offset - start_offset < 3) {
             this_array_size = 1; // can only be a string since array needs atleast 3 positions for storage
         } else {
+            // Could be either an array or a string.
             // Array offset storage format:
             // a) last element is array_index b) second and third last elements will be largest offset
 
@@ -1313,6 +1455,7 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
             auto third_last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 3);
 
             if(second_last_val != third_last_val) {
+                // guarantees that this is a string
                 this_array_size = 1;
             } else {
                 this_array_size = last_val + 1;
@@ -1332,38 +1475,43 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
             continue;
         }
 
-        uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-        uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                              token_leaf->values->offsets.getLength() :
-                              token_leaf->values->offset_index.at(doc_index+1);
+        populate_array_token_positions(array_token_positions, token_leaf, doc_index);
+    }
+}
 
-        std::vector<uint16_t> positions;
-        uint16_t prev_pos = -1;
+void Index::populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
+                                           const art_leaf *token_leaf, uint32_t doc_index) {
+    uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
+    uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
+                          token_leaf->values->offsets.getLength() :
+                          token_leaf->values->offset_index.at(doc_index+1);
 
-        while(start_offset < end_offset) {
-            auto pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
-            start_offset++;
+    std::vector<uint16_t> positions;
+    uint16_t prev_pos = -1;
 
-            if(pos == prev_pos) {  // indicates end of array index
-                if(!positions.empty()) {
-                    size_t array_index = (uint16_t) token_leaf->values->offsets.at(start_offset);
-                    array_token_positions[array_index].push_back(positions);
-                    positions.clear();
-                }
+    while(start_offset < end_offset) {
+        auto pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
+        start_offset++;
 
-                start_offset++;  // skip current value which is array index
-                prev_pos = -1;
-                continue;
+        if(pos == prev_pos) {  // indicates end of array index
+            if(!positions.empty()) {
+                size_t array_index = (uint16_t) token_leaf->values->offsets.at(start_offset);
+                array_token_positions[array_index].push_back(positions);
+                positions.clear();
             }
 
-            prev_pos = pos;
-            positions.push_back(pos);
+            start_offset++;  // skip current value which is array index
+            prev_pos = -1;
+            continue;
         }
 
-        if(!positions.empty()) {
-            // for plain string fields
-            array_token_positions[0].push_back(positions);
-        }
+        prev_pos = pos;
+        positions.push_back(pos);
+    }
+
+    if(!positions.empty()) {
+        // for plain string fields
+        array_token_positions[0].push_back(positions);
     }
 }
 
@@ -1427,7 +1575,10 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
         if(name_field.second.type == field_types::STRING) {
             StringUtils::split(document[name_field.first], tokens, " ");
         } else if(name_field.second.type == field_types::STRING_ARRAY) {
-            tokens = document[name_field.first].get<std::vector<std::string>>();
+            std::vector<std::string> values = document[name_field.first].get<std::vector<std::string>>();
+            for(const std::string & value: values) {
+                StringUtils::split(value, tokens, " ");
+            }
         } else if(name_field.second.type == field_types::INT32) {
             const int KEY_LEN = 8;
             unsigned char key[KEY_LEN];
@@ -1536,9 +1687,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
     }
 
     // remove facets if any
-    for(auto & field_facet_value: facet_index) {
-        field_facet_value.second.doc_values.erase(seq_id);
-    }
+    facet_index_v2.erase(seq_id);
 
     // remove sort index if any
     for(auto & field_doc_value_map: sort_index) {
@@ -1551,4 +1700,8 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document)
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     const art_tree *t = search_index.at(field_name);
     return (art_leaf*) art_search(t, token, (int) token_len);
+}
+
+const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() const {
+    return search_index;
 }

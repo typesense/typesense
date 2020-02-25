@@ -47,6 +47,7 @@ struct Topster {
 
     ~Topster() {
         delete [] data;
+        delete [] kvs;
     }
 
     static inline void swapMe(KV** a, KV** b) {
