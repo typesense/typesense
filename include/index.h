@@ -252,15 +252,6 @@ public:
     // in the query that have the least individual hits one by one until enough results are found.
     static const int DROP_TOKENS_THRESHOLD = 10;
 
-    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
-    enum {SNIPPET_STR_ABOVE_LEN = 30};
-
-    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
-    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
-    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
-    static constexpr const char* SEQ_ID_PREFIX = "$SI";
-    static constexpr const char* DOC_ID_PREFIX = "$DI";
-
     /*
      * Concurrency Primitives
     */

@@ -1773,9 +1773,10 @@ TEST_F(CollectionTest, FacetCounts) {
     std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("name_facet", field_types::STRING, true),
-                                 field("age", field_types::INT32, false),
-                                 field("years", field_types::INT32_ARRAY, false),
-                                 field("timestamps", field_types::INT64_ARRAY, false),
+                                 field("age", field_types::INT32, true),
+                                 field("years", field_types::INT32_ARRAY, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("timestamps", field_types::INT64_ARRAY, true),
                                  field("tags", field_types::STRING_ARRAY, true)};
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
@@ -1938,8 +1939,53 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
 
+    // facet query on an integer field
+    results = coll_array_fields->search("*", query_fields, "", {"age"}, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "age: 2").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("age", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("24", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>4", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+    ASSERT_STREQ("21", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+
+    // facet query on a float field
+    results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "rating: 7").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_STREQ("rating", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("7.812", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>7</mark>.812", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    // facet query on a arrary integer field
+
+    results = coll_array_fields->search("*", query_fields, "", {"timestamps"}, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "timestamps: 142189002").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_STREQ("timestamps", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("1421890022", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>142189002</mark>2", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
     // facet query that does not match any indexed value
-    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+    results = coll_array_fields->search("*", query_fields, "", {facets}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
                                         spp::sparse_hash_set<std::string>(), 10, 500, " tags : notfound").get();
@@ -2097,6 +2143,60 @@ TEST_F(CollectionTest, FacetCountsHighlighting) {
 
     ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, FacetCountsBool) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),
+                                 field("in_stock", field_types::BOOL, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "Ford Mustang";
+    doc["points"] = 25;
+    doc["in_stock"] = true;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "101";
+    doc["title"] = "Tesla Model S";
+    doc["points"] = 40;
+    doc["in_stock"] = false;
+
+    coll1->add(doc.dump());
+
+    doc["id"] = "102";
+    doc["title"] = "Chevrolet Beat";
+    doc["points"] = 10;
+    doc["in_stock"] = true;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"in_stock"};
+
+    nlohmann::json results = coll1->search("*", {"title"}, "in_stock:true", facets, sort_fields, 0, 10, 1,
+                                           token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, 500, "in_stock:true").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("in_stock", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("true", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>true</mark>",
+                 results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
