@@ -15,10 +15,16 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
         name(name), search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema) {
 
     for(const auto & pair: search_schema) {
-        // NOTE: facet fields are also part of search schema
         art_tree *t = new art_tree;
         art_tree_init(t);
         search_index.emplace(pair.first, t);
+
+        // initialize for non-string facet fields
+        if(pair.second.facet && !pair.second.is_string()) {
+            art_tree *ft = new art_tree;
+            art_tree_init(ft);
+            search_index.emplace(pair.second.faceted_name(), ft);
+        }
     }
 
     for(const auto & pair: sort_schema) {
@@ -86,12 +92,55 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     // assumes that validation has already been done
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
-        art_tree *t = search_index.at(field_name);
 
         int facet_id = -1;
         if(facet_schema.count(field_name) != 0) {
             facet_id = facet_to_id[field_name];
         }
+
+        // non-string faceted field should be indexed as faceted string field as well
+        if(field_pair.second.facet && !field_pair.second.is_string()) {
+            art_tree *t = search_index.at(field_pair.second.faceted_name());
+
+            if(field_pair.second.is_array()) {
+                std::vector<std::string> strings;
+
+                if(field_pair.second.type == field_types::INT32_ARRAY) {
+                    for(int32_t value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+                    for(int64_t value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
+                    for(float value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+                    for(bool value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                }
+                index_string_array_field(strings, points, t, seq_id, facet_id);
+            } else {
+                std::string text;
+
+                if(field_pair.second.type == field_types::INT32) {
+                    text = std::to_string(document[field_name].get<int32_t>());
+                } else if(field_pair.second.type == field_types::INT64) {
+                    text = std::to_string(document[field_name].get<int64_t>());
+                } else if(field_pair.second.type == field_types::FLOAT) {
+                    text = std::to_string(document[field_name].get<float>());
+                } else if(field_pair.second.type == field_types::BOOL) {
+                    text = std::to_string(document[field_name].get<bool>());
+                }
+
+                index_string_field(text, points, t, seq_id, facet_id);
+            }
+        }
+
+        art_tree *t = search_index.at(field_name);
 
         if(field_pair.second.type == field_types::STRING) {
             const std::string & text = document[field_name];
@@ -241,28 +290,13 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
         }
     }
 
+    // since every facet field has to be a search field, we don't have to revalidate types here
     for(const std::pair<std::string, field> & field_pair: facet_schema) {
         const std::string & field_name = field_pair.first;
 
         if(document.count(field_name) == 0) {
             return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
                     "but is not found in the document.");
-        }
-
-        if(field_pair.second.type == field_types::STRING) {
-            if(!document[field_name].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string.");
-            }
-        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
-            }
-
-            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
-                return Option<>(400, "Facet field `" + field_name  + "` must be a string array.");
-            }
-        } else {
-            return Option<>(400, "Facet field `" + field_name  + "` must be a string or a string[].");
         }
     }
 
@@ -384,7 +418,6 @@ void Index::index_bool_field(const bool value, const uint32_t score, art_tree *t
     const int KEY_LEN = 1;
     unsigned char key[KEY_LEN];
     key[0] = value ? '1' : '0';
-    //key[1] = '\0';
 
     uint32_t num_hits = 0;
     art_leaf* leaf = (art_leaf *) art_search(t, key, KEY_LEN);
@@ -548,8 +581,20 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
             use_facet_query = true;
+            const field & facet_field = facet_schema.at(a_facet.field_name);
+
+            if(facet_field.is_bool()) {
+                if(facet_query.query == "true") {
+                    facet_query.query = "1";
+                } else if(facet_query.query == "false") {
+                    facet_query.query = "0";
+                }
+            }
+
             std::vector<std::string> query_tokens;
             StringUtils::split(facet_query.query, query_tokens, " ");
+
+            art_tree *t = search_index.at(facet_field.faceted_name());
 
             for(size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
                 auto & q = query_tokens[qtoken_index];
@@ -558,9 +603,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 bool prefix_search = (qtoken_index == (query_tokens.size()-1)); // only last token must be used as prefix
 
                 std::vector<art_leaf*> leaves;
-                art_fuzzy_search(search_index.at(a_facet.field_name), (const unsigned char *) q.c_str(),
+
+                art_fuzzy_search(t, (const unsigned char *) q.c_str(),
                                  q.size(), 0, bounded_cost, 10000,
                                  token_ordering::MAX_SCORE, prefix_search, leaves);
+
                 for(size_t i = 0; i < leaves.size(); i++) {
                     const auto & leaf = leaves[i];
                     // calculate hash without terminating null char

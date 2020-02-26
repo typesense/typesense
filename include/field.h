@@ -65,6 +65,16 @@ struct field {
     bool is_facet() const {
         return facet;
     }
+
+    bool is_array() const {
+        return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
+                type == field_types::FLOAT_ARRAY ||
+                type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
+    }
+
+    std::string faceted_name() const {
+        return (facet && !is_string()) ? "_fstr_" + name : name;
+    }
 };
 
 struct filter {

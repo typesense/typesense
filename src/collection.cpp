@@ -749,6 +749,26 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 value =  document[a_facet.field_name];
             } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
                 value = document[a_facet.field_name][facet_count.array_pos];
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32) {
+                value = std::to_string(document[a_facet.field_name].get<int32_t>());
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
+                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<int32_t>());
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64) {
+                value = std::to_string(document[a_facet.field_name].get<int64_t>());
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
+                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<int64_t>());
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
+                value = std::to_string(document[a_facet.field_name].get<float>());
+                value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
+                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<float>());
+                value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
+                value = std::to_string(document[a_facet.field_name].get<bool>());
+                value = (value == "1") ? "true" : "false";
+            } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL_ARRAY) {
+                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<bool>());
+                value = (value == "1") ? "true" : "false";
             }
 
             std::vector<std::string> tokens;
