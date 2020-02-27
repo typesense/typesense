@@ -263,5 +263,9 @@ public:
     static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
+
+    void compute_facet_results(const facet &a_facet, double &fvmin, double &fvmax, double &fvcount, double &fvsum,
+                               const facet_count_t &facet_count, const nlohmann::json &document,
+                               std::string &value);
 };
 

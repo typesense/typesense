@@ -745,6 +745,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         std::vector<facet_value_t> facet_values;
 
+        double fvmin = std::numeric_limits<double>::max(), 
+               fvmax = std::numeric_limits<double>::min(), 
+               fvcount = 0, 
+               fvsum = 0;
+
         for(size_t i = 0; i < max_facets; i++) {
             // remap facet value hash with actual string
             auto & kv = facet_hash_counts[i];
@@ -761,45 +766,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
 
             std::string value;
-
-            if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
-                value =  document[a_facet.field_name];
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
-                value = document[a_facet.field_name][facet_count.array_pos];
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32) {
-                value = std::to_string(document[a_facet.field_name].get<int32_t>());
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
-                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<int32_t>());
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64) {
-                value = std::to_string(document[a_facet.field_name].get<int64_t>());
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
-                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<int64_t>());
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
-                value = std::to_string(document[a_facet.field_name].get<float>());
-                value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
-                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<float>());
-                value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
-                value = std::to_string(document[a_facet.field_name].get<bool>());
-                value = (value == "1") ? "true" : "false";
-            } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL_ARRAY) {
-                value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<bool>());
-                value = (value == "1") ? "true" : "false";
-            }
+            compute_facet_results(a_facet, fvmin, fvmax, fvcount, fvsum, facet_count, document, value);
 
             std::vector<std::string> tokens;
             StringUtils::split(value, tokens, " ");
             std::stringstream highlightedss;
-
-            /*std::cout << "array_pos: " << facet_count.array_pos << std::endl;
-
-            for(auto xx: facet_count.query_token_pos) {
-                std::cout << xx.first << " -> " << xx.second.pos << " , " << xx.second.cost << std::endl;
-            }
-
-            std::cout << "doc id: " << facet_count.doc_id << " i: " << i << std::endl;
-            std::cout << "doc: " << document << std::endl;*/
 
             // invert query_pos -> token_pos
             spp::sparse_hash_map<uint32_t, uint32_t> token_query_pos;
@@ -837,6 +808,15 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             facet_result["counts"].push_back(facet_value_count);
         }
 
+        // add facet value stats
+        facet_result["stats"] = nlohmann::json::object();
+        if(fvcount != 0) {
+            facet_result["stats"]["min"] = fvmin;
+            facet_result["stats"]["max"] = fvmax;
+            facet_result["stats"]["sum"] = fvsum;
+            facet_result["stats"]["avg"] = (fvsum / fvcount);
+        }
+
         result["facet_counts"].push_back(facet_result);
     }
 
@@ -844,6 +824,90 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return result;
+}
+
+void Collection::compute_facet_results(const facet &a_facet, double &fvmin, double &fvmax, double &fvcount,
+                                       double &fvsum, const facet_count_t &facet_count,
+                                       const nlohmann::json &document, std::string &value) {
+    if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
+        value =  document[a_facet.field_name];
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
+        value = document[a_facet.field_name][facet_count.array_pos];
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32) {
+        int32_t raw_val = document[a_facet.field_name].get<int32_t>();
+        value = std::to_string(raw_val);
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
+        int32_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int32_t>();
+        value = std::to_string(raw_val);
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64) {
+        int64_t raw_val = document[a_facet.field_name].get<int64_t>();
+        value = std::to_string(raw_val);
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
+        int64_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int64_t>();
+        value = std::to_string(raw_val);
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
+        float raw_val = document[a_facet.field_name].get<float>();
+        value = std::to_string(raw_val);
+        value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
+        float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
+        value = std::to_string(raw_val);
+        value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
+        if(raw_val < fvmin) {
+            fvmin = raw_val;
+        }
+        if(raw_val > fvmax) {
+            fvmax = raw_val;
+        }
+        fvsum += raw_val;
+        fvcount++;
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
+        value = std::to_string(document[a_facet.field_name].get<bool>());
+        value = (value == "1") ? "true" : "false";
+    } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL_ARRAY) {
+        value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<bool>());
+        value = (value == "1") ? "true" : "false";
+    }
 }
 
 void Collection::highlight_result(const field &search_field,
