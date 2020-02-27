@@ -1608,14 +1608,32 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     // searching against a bool array field
 
-    // should be able to search only with a single boolean value
+    // should be able to filter with an array of boolean values
     Option<nlohmann::json> res_op = coll_bool->search("the", query_fields, "bool_array:[true, false]", facets,
                                                       sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_FALSE(res_op.ok());
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(5, results["hits"].size());
 
     results = coll_bool->search("the", query_fields, "bool_array: true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
     ids = {"1", "4", "9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // should be able to search using array with a single element boolean value
+
+    auto res = coll_bool->search("the", query_fields, "bool_array:[true]", facets,
+                               sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    results = coll_bool->search("the", query_fields, "bool_array: true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
