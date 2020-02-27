@@ -147,7 +147,7 @@ private:
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const KV &field_order_kv, const nlohmann::json &document,
-                          StringUtils & string_utils, highlight_t &highlight);
+                          StringUtils & string_utils, size_t snippet_threshold, highlight_t &highlight);
 
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
@@ -222,7 +222,8 @@ public:
                           const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
                           const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
                           size_t max_facet_values=10, size_t max_hits=500,
-                          const std::string & simple_facet_query = "");
+                          const std::string & simple_facet_query = "",
+                          const size_t snippet_threshold = 30);
 
     Option<nlohmann::json> get(const std::string & id);
 
@@ -251,9 +252,6 @@ public:
                                const spp::sparse_hash_set<std::string> & exclude_fields);
 
     const std::vector<Index *> &_get_indexes() const;
-
-    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
-    enum {SNIPPET_STR_ABOVE_LEN = 30};
 
     enum {MAX_ARRAY_MATCHES = 5};
 

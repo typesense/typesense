@@ -185,6 +185,9 @@ void get_search(http_req & req, http_res & res) {
     const char *INCLUDE_FIELDS = "include_fields";
     const char *EXCLUDE_FIELDS = "exclude_fields";
 
+    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
+    const char *SNIPPET_THRESHOLD = "snippet_threshold";
+
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
     }
@@ -220,6 +223,10 @@ void get_search(http_req & req, http_res & res) {
         } else {
             req.params[MAX_HITS] = "0";
         }
+    }
+
+    if(req.params.count(SNIPPET_THRESHOLD) == 0) {
+        req.params[SNIPPET_THRESHOLD] = "30";
     }
 
     if(req.params.count(PER_PAGE) == 0) {
@@ -318,7 +325,8 @@ void get_search(http_req & req, http_res & res) {
                                                           include_fields, exclude_fields,
                                                           static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
                                                           static_cast<size_t>(std::stoi(req.params[MAX_HITS])),
-                                                          req.params[FACET_QUERY]);
+                                                          req.params[FACET_QUERY],
+                                                          static_cast<size_t>(std::stoi(req.params[SNIPPET_THRESHOLD])));
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                std::chrono::high_resolution_clock::now() - begin).count();
