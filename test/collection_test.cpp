@@ -2837,3 +2837,45 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // first with a large threshold
+
+    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                  token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                  spp::sparse_hash_set<std::string>(), 10, 500, "", 500).get();
+
+    ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    // now with with a small threshold (will show only 4 words either side of the matched token)
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, 500, "", 5).get();
+
+    ASSERT_STREQ("fox jumped over the <mark>lazy</mark> dog and ran straight",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

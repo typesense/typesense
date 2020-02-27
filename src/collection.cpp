@@ -311,7 +311,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
                                   const size_t max_facet_values, const size_t max_hits,
-                                  const std::string & simple_facet_query) {
+                                  const std::string & simple_facet_query,
+                                  const size_t snippet_threshold) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -691,7 +692,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             if(query != "*" && (search_field.type == field_types::STRING ||
                                 search_field.type == field_types::STRING_ARRAY)) {
                 highlight_t highlight;
-                highlight_result(search_field, searched_queries, field_order_kv, document, string_utils, highlight);
+                highlight_result(search_field, searched_queries, field_order_kv, document,
+                             string_utils, snippet_threshold, highlight);
                 if(!highlight.snippets.empty()) {
                     highlights.push_back(highlight);
                 }
@@ -913,7 +915,7 @@ void Collection::compute_facet_results(const facet &a_facet, double &fvmin, doub
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
                                   const KV & field_order_kv, const nlohmann::json & document,
-                                  StringUtils & string_utils, highlight_t & highlight) {
+                                  StringUtils & string_utils, size_t snippet_threshold, highlight_t & highlight) {
     
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
     std::vector<art_leaf *> query_suggestion;
@@ -992,11 +994,11 @@ void Collection::highlight_result(const field &search_field,
 
         auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
 
-        // For longer strings, pick surrounding tokens within N tokens of min_index and max_index for the snippet
-        const size_t start_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? 0 :
-                                   std::max(0, (int)(*(minmax.first) - 5));
+        // For longer strings, pick surrounding tokens within 4 tokens of min_index and max_index for the snippet
+        const size_t start_index = (tokens.size() <= snippet_threshold) ? 0 :
+                                   std::max(0, (int)(*(minmax.first) - 4));
 
-        const size_t end_index = (tokens.size() <= SNIPPET_STR_ABOVE_LEN) ? tokens.size() :
+        const size_t end_index = (tokens.size() <= snippet_threshold) ? tokens.size() :
                                  std::min((int)tokens.size(), (int)(*(minmax.second) + 5));
 
         std::stringstream snippet_stream;
