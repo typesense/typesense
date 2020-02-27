@@ -1823,9 +1823,10 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(5, results["hits"].size());
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(2, results["facet_counts"][0].size());
+    ASSERT_EQ(3, results["facet_counts"][0].size());
     ASSERT_EQ("tags", results["facet_counts"][0]["field_name"]);
     ASSERT_EQ(4, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["stats"].size());
 
     ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
@@ -1974,6 +1975,18 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("21", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
 
+    // facet on a float field without query to check on stats
+    results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(), 10, 500, "").get();
+
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
+
     // facet query on a float field
     results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
@@ -1987,7 +2000,14 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("7.812", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>7</mark>.812", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
-    // facet query on a arrary integer field
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["sum"].get<double>());
+
+
+    // facet query on an array integer field
 
     results = coll_array_fields->search("*", query_fields, "", {"timestamps"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
@@ -2001,6 +2021,12 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("1421890022", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>142189002</mark>2", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["sum"].get<double>());
 
     // facet query that does not match any indexed value
     results = coll_array_fields->search("*", query_fields, "", {facets}, sort_fields, 0, 10, 1, FREQUENCY,
@@ -2209,6 +2235,7 @@ TEST_F(CollectionTest, FacetCountsBool) {
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(0, results["facet_counts"][0]["stats"].size());
 
     ASSERT_STREQ("in_stock", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, (int) results["facet_counts"][0]["counts"][0]["count"]);
