@@ -416,11 +416,28 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 f = {field_name, {filter_value}, op_comparator.get()};
             }
         } else if(_field.is_bool()) {
-            if(raw_value != "true" && raw_value != "false") {
-                return Option<nlohmann::json>(400, "Value of field `" + _field.name + "`: must be `true` or `false`.");
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+                for(std::string & filter_value: filter_values) {
+                    if(filter_value != "true" && filter_value != "false") {
+                        return Option<nlohmann::json>(400, "Values of field `" + _field.name +
+                                                      "`: must be `true` or `false`.");
+                    }
+
+                    filter_value = (filter_value == "true") ? "1" : "0";
+                }
+
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                if(raw_value != "true" && raw_value != "false") {
+                    return Option<nlohmann::json>(400, "Value of field `" + _field.name + "`: must be `true` or `false`.");
+                }
+                std::string bool_value = (raw_value == "true") ? "1" : "0";
+                f = {field_name, {bool_value}, EQUALS};
             }
-            std::string bool_value = (raw_value == "true") ? "1" : "0";
-            f = {field_name, {bool_value}, EQUALS};
+
         } else if(_field.is_string()) {
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
