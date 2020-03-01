@@ -122,7 +122,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                         strings.push_back(std::to_string(value));
                     }
                 }
-                index_string_array_field(strings, points, t, seq_id, facet_id);
+                index_string_array_field(strings, points, t, seq_id, facet_id, field_pair.second);
             } else {
                 std::string text;
 
@@ -136,7 +136,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                     text = std::to_string(document[field_name].get<bool>());
                 }
 
-                index_string_field(text, points, t, seq_id, facet_id);
+                index_string_field(text, points, t, seq_id, facet_id, field_pair.second);
             }
         }
 
@@ -144,7 +144,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
         if(field_pair.second.type == field_types::STRING) {
             const std::string & text = document[field_name];
-            index_string_field(text, points, t, seq_id, facet_id);
+            index_string_field(text, points, t, seq_id, facet_id, field_pair.second);
         } else if(field_pair.second.type == field_types::INT32) {
             uint32_t value = document[field_name];
             index_int32_field(value, points, t, seq_id);
@@ -159,7 +159,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             index_bool_field(value, points, t, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             std::vector<std::string> strings = document[field_name];
-            index_string_array_field(strings, points, t, seq_id, facet_id);
+            index_string_array_field(strings, points, t, seq_id, facet_id, field_pair.second);
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
             std::vector<int32_t> values = document[field_name];
             index_int32_array_field(values, points, t, seq_id);
@@ -460,8 +460,25 @@ void Index::index_float_field(const float value, uint32_t score, art_tree *t, ui
 }
 
 
+uint64_t Index::facet_token_hash(const field & a_field, const std::string &token) {
+    // for integer/float use their native values
+    uint64_t hash = 0;
+
+    if(a_field.is_float()) {
+        float f = atof(token.c_str());
+        hash = *reinterpret_cast<uint64_t*>(&f);  // store as int without loss of precision
+    } else if(a_field.is_integer() || a_field.is_bool()) {
+        hash = atol(token.c_str());
+    } else {
+        // string field
+        hash = StringUtils::hash_wy(token.c_str(), token.size());
+    }
+
+    return hash;
+}
+
 void Index::index_string_field(const std::string & text, const uint32_t score, art_tree *t,
-                                    uint32_t seq_id, int facet_id) {
+                                    uint32_t seq_id, int facet_id, const field & a_field) {
     std::vector<std::string> tokens;
     StringUtils::split(text, tokens, " ");
 
@@ -469,14 +486,17 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
 
     for(uint32_t i=0; i<tokens.size(); i++) {
         auto & token = tokens[i];
-        string_utils.unicode_normalize(token);
-        token_to_offsets[token].push_back(i);
+
+        if(a_field.is_string()) {
+            string_utils.unicode_normalize(token);
+        }
 
         if(facet_id >= 0) {
-            // facet field
-            uint64_t hash = StringUtils::hash_wy(token.c_str(), token.size());
+            uint64_t hash = facet_token_hash(a_field, token);
             facet_index_v2[seq_id][facet_id].push_back(hash);
         }
+
+        token_to_offsets[token].push_back(i);
     }
 
     insert_doc(score, t, seq_id, token_to_offsets);
@@ -487,7 +507,7 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
 }
 
 void Index::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
-                                          uint32_t seq_id, int facet_id) {
+                                          uint32_t seq_id, int facet_id, const field & a_field) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
@@ -501,20 +521,23 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         // iterate and append offset positions
         for(size_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
-            string_utils.unicode_normalize(token);
-            token_positions[token].push_back(i);
-            token_set.insert(token);
+
+            if(a_field.is_string()) {
+                string_utils.unicode_normalize(token);
+            }
 
             if(facet_id >= 0) {
-                // facet field
-                uint64_t hash = StringUtils::hash_wy(token.c_str(), token.size());
-                //printf("indexing %.*s - %llu\n", token.size(), token.c_str(), hash);
+                uint64_t hash = facet_token_hash(a_field, token);
                 facet_index_v2[seq_id][facet_id].push_back(hash);
+                //printf("indexing %.*s - %llu\n", token.size(), token.c_str(), hash);
             }
+
+            token_positions[token].push_back(i);
+            token_set.insert(token);
         }
 
         if(facet_id >= 0) {
-            facet_index_v2[seq_id][facet_id].push_back(0); // as a delimiter
+            facet_index_v2[seq_id][facet_id].push_back(FACET_ARRAY_DELIMETER); // as a delimiter
         }
 
         // repeat last element to indicate end of offsets for this array index
@@ -563,6 +586,40 @@ void Index::index_float_array_field(const std::vector<float> & values, const uin
     }
 }
 
+void Index::compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type) {
+    if(field_type == field_types::INT32 || field_type == field_types::INT32_ARRAY) {
+        int32_t val = raw_value;
+        if (val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if (val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    } else if(field_type == field_types::INT64 || field_type == field_types::INT64_ARRAY) {
+        int64_t val = raw_value;
+        if(val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if(val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    } else if(field_type == field_types::FLOAT || field_type == field_types::FLOAT_ARRAY) {
+        float val = *reinterpret_cast<float*>(&raw_value);
+        if(val < a_facet.stats.fvmin) {
+            a_facet.stats.fvmin = val;
+        }
+        if(val > a_facet.stats.fvmax) {
+            a_facet.stats.fvmax = val;
+        }
+        a_facet.stats.fvsum += val;
+        a_facet.stats.fvcount++;
+    }
+}
+
 void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const uint32_t* result_ids, size_t results_size) {
 
@@ -576,12 +633,12 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
     // assumed that facet fields have already been validated upstream
     for(auto & a_facet: facets) {
-        spp::sparse_hash_map<int64_t, token_pos_cost_t> fhash_qtoken_pos;  // facet hash => token position in the query
+        spp::sparse_hash_map<uint64_t, token_pos_cost_t> fhash_qtoken_pos;  // facet hash => token position in the query
         bool use_facet_query = false;
+        const field & facet_field = facet_schema.at(a_facet.field_name);
 
         if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
             use_facet_query = true;
-            const field & facet_field = facet_schema.at(a_facet.field_name);
 
             if(facet_field.is_bool()) {
                 if(facet_query.query == "true") {
@@ -598,7 +655,10 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
             for(size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
                 auto & q = query_tokens[qtoken_index];
-                string_utils.unicode_normalize(q);
+                if(facet_field.is_string()) {
+                    string_utils.unicode_normalize(q);
+                }
+
                 int bounded_cost = (q.size() < 3) ? 0 : 1;
                 bool prefix_search = (qtoken_index == (query_tokens.size()-1)); // only last token must be used as prefix
 
@@ -611,7 +671,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 for(size_t i = 0; i < leaves.size(); i++) {
                     const auto & leaf = leaves[i];
                     // calculate hash without terminating null char
-                    uint64_t hash = StringUtils::hash_wy(leaf->key, leaf->key_len-1);
+                    std::string key_str((const char*)leaf->key, leaf->key_len-1);
+                    uint64_t hash = facet_token_hash(facet_field, key_str);
+
                     token_pos_cost_t token_pos_cost = {qtoken_index, 0};
                     fhash_qtoken_pos.emplace(hash, token_pos_cost);
                     //printf("%.*s - %llu\n", leaf->key_len, leaf->key, hash);
@@ -637,10 +699,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 size_t field_token_index = -1;
 
                 for(size_t j = 0; j < fhashes.size(); j++) {
-                    if(fhashes[j] != 0) {
-                        uint64_t ftoken_hash = fhashes[j];
+                    if(fhashes[j] != FACET_ARRAY_DELIMETER) {
+                        int64_t ftoken_hash = fhashes[j];
                         fvaluestream << ftoken_hash;
                         field_token_index++;
+
+                        // ftoken_hash is the raw value for numeric fields
+                        compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
 
                         if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
                             // not using facet query or this particular facet value is found in facet filter
@@ -664,10 +729,15 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     //std::cout << "j: " << j << std::endl;
 
                     // 0 indicates separator, while the second condition checks for non-array string
-                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                    if(fhashes[j] == FACET_ARRAY_DELIMETER || (fhashes.back() != FACET_ARRAY_DELIMETER && j == fhashes.size() - 1)) {
                         if(!use_facet_query || fvalue_found != 0) {
                             const std::string & fvalue_str = fvaluestream.str();
-                            uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
+                            uint64_t fhash = 0;
+                            if(facet_field.is_string()) {
+                                fhash = facet_token_hash(facet_field, fvalue_str);
+                            } else {
+                                fhash = std::atoi(fvalue_str.c_str());
+                            }
 
                             if(a_facet.result_map.count(fhash) == 0) {
                                 a_facet.result_map[fhash] = facet_count_t{0, doc_seq_id, 0,
@@ -711,6 +781,8 @@ void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t>
     }
 
     for(auto & a_facet: facets) {
+        const field & facet_field = facet_schema.at(a_facet.field_name);
+
         // assumed that facet fields have already been validated upstream
         for(const uint32_t doc_seq_id: ids) {
             if(facet_index_v2.count(doc_seq_id) != 0) {
@@ -721,14 +793,15 @@ void Index::drop_facets(std::vector<facet> & facets, const std::vector<uint32_t>
                 std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
 
                 for(size_t j = 0; j < fhashes.size(); j++) {
-                    if(fhashes[j] != 0) {
-                        uint64_t ftoken_hash = fhashes[j];
+                    if(fhashes[j] != FACET_ARRAY_DELIMETER) {
+                        int64_t ftoken_hash = fhashes[j];
                         fvaluestream << ftoken_hash;
                     }
 
-                    if(fhashes[j] == 0 || (fhashes.back() != 0 && j == fhashes.size() - 1)) {
+                    if(fhashes[j] == FACET_ARRAY_DELIMETER || (fhashes.back() != FACET_ARRAY_DELIMETER &&
+                       j == fhashes.size() - 1)) {
                         const std::string & fvalue_str = fvaluestream.str();
-                        uint64_t fhash = StringUtils::hash_wy(fvalue_str.c_str(), fvalue_str.size());
+                        uint64_t fhash = facet_token_hash(facet_field, fvalue_str);
 
                         if(a_facet.result_map.count(fhash) != 0) {
                             a_facet.result_map[fhash].count -= 1;

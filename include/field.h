@@ -145,9 +145,17 @@ struct facet_count_t {
     spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_pos;
 };
 
+struct facet_stats_t {
+    double fvmin = std::numeric_limits<double>::max(),
+            fvmax = -std::numeric_limits<double>::min(),
+            fvcount = 0,
+            fvsum = 0;
+};
+
 struct facet {
     const std::string field_name;
     std::map<uint64_t, facet_count_t> result_map;
+    facet_stats_t stats;
 
     facet(const std::string & field_name): field_name(field_name) {
 
