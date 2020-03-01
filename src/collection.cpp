@@ -614,6 +614,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
                 acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
             }
+
+            if(this_facet.stats.fvcount != 0) {
+                acc_facet.stats.fvcount += this_facet.stats.fvcount;
+                acc_facet.stats.fvsum += this_facet.stats.fvsum;
+                acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
+                acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
+            }
         }
 
         total_found += index->search_params.all_result_ids_len;
@@ -731,9 +738,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
 
-        std::vector<std::pair<uint64_t, facet_count_t>> facet_hash_counts;
-        for (const auto & itr : a_facet.result_map) {
-            facet_hash_counts.emplace_back(itr);
+        std::vector<std::pair<int64_t, facet_count_t>> facet_hash_counts;
+        for (const auto & kv : a_facet.result_map) {
+            facet_hash_counts.emplace_back(kv);
         }
 
         // keep only top K facets
@@ -747,14 +754,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         std::vector<facet_value_t> facet_values;
 
-        double fvmin = std::numeric_limits<double>::max(), 
-               fvmax = std::numeric_limits<double>::min(), 
-               fvcount = 0, 
-               fvsum = 0;
-
-        for(size_t i = 0; i < max_facets; i++) {
+        for(size_t fi = 0; fi < max_facets; fi++) {
             // remap facet value hash with actual string
-            auto & kv = facet_hash_counts[i];
+            auto & kv = facet_hash_counts[fi];
             auto & facet_count = kv.second;
 
             // fetch actual facet value from representative doc id
@@ -768,7 +770,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
 
             std::string value;
-            compute_facet_results(a_facet, fvmin, fvmax, fvcount, fvsum, facet_count, document, value);
+            facet_value_to_string(a_facet, facet_count, document, value);
 
             std::vector<std::string> tokens;
             StringUtils::split(value, tokens, " ");
@@ -812,11 +814,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         // add facet value stats
         facet_result["stats"] = nlohmann::json::object();
-        if(fvcount != 0) {
-            facet_result["stats"]["min"] = fvmin;
-            facet_result["stats"]["max"] = fvmax;
-            facet_result["stats"]["sum"] = fvsum;
-            facet_result["stats"]["avg"] = (fvsum / fvcount);
+        if(a_facet.stats.fvcount != 0) {
+            facet_result["stats"]["min"] = a_facet.stats.fvmin;
+            facet_result["stats"]["max"] = a_facet.stats.fvmax;
+            facet_result["stats"]["sum"] = a_facet.stats.fvsum;
+            facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
         }
 
         result["facet_counts"].push_back(facet_result);
@@ -828,9 +830,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     return result;
 }
 
-void Collection::compute_facet_results(const facet &a_facet, double &fvmin, double &fvmax, double &fvcount,
-                                       double &fvsum, const facet_count_t &facet_count,
+void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
                                        const nlohmann::json &document, std::string &value) {
+
     if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
         value =  document[a_facet.field_name];
     } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
@@ -838,71 +840,23 @@ void Collection::compute_facet_results(const facet &a_facet, double &fvmin, doub
     } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32) {
         int32_t raw_val = document[a_facet.field_name].get<int32_t>();
         value = std::to_string(raw_val);
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
         int32_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int32_t>();
         value = std::to_string(raw_val);
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64) {
         int64_t raw_val = document[a_facet.field_name].get<int64_t>();
         value = std::to_string(raw_val);
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
         int64_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int64_t>();
         value = std::to_string(raw_val);
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
         float raw_val = document[a_facet.field_name].get<float>();
         value = std::to_string(raw_val);
         value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
         float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
         value = std::to_string(raw_val);
         value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
-        if(raw_val < fvmin) {
-            fvmin = raw_val;
-        }
-        if(raw_val > fvmax) {
-            fvmax = raw_val;
-        }
-        fvsum += raw_val;
-        fvcount++;
     } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
         value = std::to_string(document[a_facet.field_name].get<bool>());
         value = (value == "1") ? "true" : "false";

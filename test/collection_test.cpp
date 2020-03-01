@@ -1540,6 +1540,72 @@ TEST_F(CollectionTest, SortOnFloatFields) {
     collectionManager.drop_collection("coll_float_fields");
 }
 
+TEST_F(CollectionTest, FacetStatOnFloatFields) {
+    Collection *coll_float_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/float_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("score", field_types::FLOAT, false),
+            field("average", field_types::FLOAT, true)
+    };
+
+    std::vector<sort_by> sort_fields_desc = { sort_by("average", "DESC") };
+
+    coll_float_fields = collectionManager.get_collection("coll_float_fields");
+    if(coll_float_fields == nullptr) {
+        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields, "average").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_float_fields->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    auto res_op = coll_float_fields->search("Jeremy", query_fields, "", {"average"}, sort_fields_desc, 0, 10,
+                             1, FREQUENCY, false);
+
+    auto results = res_op.get();
+
+    ASSERT_EQ(7, results["hits"].size());
+
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(-21.3799991607666, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(277.8160007725237, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(39.68800011036053, results["facet_counts"][0]["stats"]["avg"].get<double>());
+
+    results = coll_float_fields->search("*", query_fields, "average:>100", {"average"}, sort_fields_desc, 0, 10,
+                                        1, FREQUENCY, false).get();
+
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["sum"].get<double>());
+
+    // facet filter, though should not be considered when calculating facet stats
+
+    results = coll_float_fields->search("*", query_fields, "", {"average"}, sort_fields_desc, 0, 10, 1, FREQUENCY,
+                                        false, Index::DROP_TOKENS_THRESHOLD,
+                                        spp::sparse_hash_set<std::string>(),
+                                        spp::sparse_hash_set<std::string>(),
+                                         10, 500, "average: 11").get();
+
+    ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
+    ASSERT_FLOAT_EQ(39.68800011036053, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(-21.3799991607666, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(300, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(277.8160007725237, results["facet_counts"][0]["stats"]["sum"].get<double>());
+
+    collectionManager.drop_collection("coll_float_fields");
+}
+
 TEST_F(CollectionTest, QueryBoolFields) {
     Collection *coll_bool;
 
@@ -1968,19 +2034,18 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_STREQ("age", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_STREQ("24", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>2</mark>4", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("21", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_STREQ("21", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("24", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>2</mark>4", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
 
     // facet on a float field without query to check on stats
     results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
                                         spp::sparse_hash_set<std::string>(), 10, 500, "").get();
-
     ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
     ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
     ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
@@ -2001,10 +2066,10 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("<mark>7</mark>.812", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
-    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["avg"].get<double>());
-    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["min"].get<double>());
-    ASSERT_FLOAT_EQ(7.811999797821045, results["facet_counts"][0]["stats"]["max"].get<double>());
-    ASSERT_FLOAT_EQ(7.812, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
+    ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
 
 
     // facet query on an array integer field
@@ -2023,10 +2088,10 @@ TEST_F(CollectionTest, FacetCounts) {
     ASSERT_STREQ("<mark>142189002</mark>2", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
-    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["avg"].get<double>());
-    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["min"].get<double>());
-    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["max"].get<double>());
-    ASSERT_FLOAT_EQ(1421890022.0, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(348974822.0, results["facet_counts"][0]["stats"]["min"].get<double>());
+    ASSERT_FLOAT_EQ(1453426022.0, results["facet_counts"][0]["stats"]["max"].get<double>());
+    ASSERT_FLOAT_EQ(13275854664.0, results["facet_counts"][0]["stats"]["sum"].get<double>());
+    ASSERT_FLOAT_EQ(1106321222.0, results["facet_counts"][0]["stats"]["avg"].get<double>());
 
     // facet query that does not match any indexed value
     results = coll_array_fields->search("*", query_fields, "", {facets}, sort_fields, 0, 10, 1, FREQUENCY,
@@ -2113,12 +2178,12 @@ TEST_F(CollectionTest, FacetCountsHighlighting) {
     ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_STREQ("Cell Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][2]["count"]);
-    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone Cases & Clips", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Cases & Clips", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
 
     coll1->remove("100");
 

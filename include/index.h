@@ -113,6 +113,8 @@ struct batch_index_result {
 
 class Index {
 private:
+    const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
+
     std::string name;
 
     size_t num_documents;
@@ -163,10 +165,10 @@ private:
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
-                            int facet_id);
+                            int facet_id, const field & a_field);
 
     void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
-                                  uint32_t seq_id, int facet_id);
+                                  uint32_t seq_id, int facet_id, const field & a_field);
 
     void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
 
@@ -190,6 +192,10 @@ private:
     void collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                              const std::vector<uint32_t> & included_ids,
                              Topster & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+
+    uint64_t facet_token_hash(const field & a_field, const std::string &token);
+
+    void compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type);
 
 public:
     Index() = delete;

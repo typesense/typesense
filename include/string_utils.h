@@ -220,8 +220,9 @@ struct StringUtils {
         return seq_id;
     }
 
-    static int64_t hash_wy(const void* key, uint64_t len) {
+    static uint64_t hash_wy(const void* key, uint64_t len) {
         uint64_t hash = wyhash(key, len, 0, _wyp);
-        return hash != 0 ? hash : 1;  // reserve 0 for use as a delimiter
+        // reserve max() for use as a delimiter
+        return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
 };
