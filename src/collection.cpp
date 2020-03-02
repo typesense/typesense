@@ -312,7 +312,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
                                   const size_t max_facet_values, const size_t max_hits,
                                   const std::string & simple_facet_query,
-                                  const size_t snippet_threshold) {
+                                  const size_t snippet_threshold,
+                                  const std::string & highlight_full_fields) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -694,13 +695,26 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         std::vector<highlight_t> highlights;
         StringUtils string_utils;
 
+        // find out if fields have to be highlighted fully
+        std::vector<std::string> fields_highlighted_fully_vec;
+        spp::sparse_hash_set<std::string> fields_highlighted_fully;
+        StringUtils::split(highlight_full_fields, fields_highlighted_fully_vec, ",");
+
+        for(std::string & highlight_full_field: fields_highlighted_fully_vec) {
+            StringUtils::trim(highlight_full_field);
+            fields_highlighted_fully.emplace(highlight_full_field);
+        }
+
         for(const std::string & field_name: search_fields) {
             field search_field = search_schema.at(field_name);
             if(query != "*" && (search_field.type == field_types::STRING ||
                                 search_field.type == field_types::STRING_ARRAY)) {
+
+                bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
                 highlight_t highlight;
                 highlight_result(search_field, searched_queries, field_order_kv, document,
-                             string_utils, snippet_threshold, highlight);
+                                 string_utils, snippet_threshold, highlighted_fully, highlight);
+
                 if(!highlight.snippets.empty()) {
                     highlights.push_back(highlight);
                 }
@@ -712,11 +726,20 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         for(const auto & highlight: highlights) {
             nlohmann::json h_json = nlohmann::json::object();
             h_json["field"] = highlight.field;
+            bool highlight_fully = (fields_highlighted_fully.find(highlight.field) != fields_highlighted_fully.end());
+
             if(!highlight.indices.empty()) {
                 h_json["indices"] = highlight.indices;
                 h_json["snippets"] = highlight.snippets;
+                if(highlight_fully) {
+                    h_json["values"] = highlight.values;
+                }
+
             } else {
                 h_json["snippet"] = highlight.snippets[0];
+                if(highlight_fully) {
+                    h_json["value"] = highlight.values[0];
+                }
             }
 
             wrapper_doc["highlights"].push_back(h_json);
@@ -869,7 +892,9 @@ void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
                                   const KV & field_order_kv, const nlohmann::json & document,
-                                  StringUtils & string_utils, size_t snippet_threshold, highlight_t & highlight) {
+                                  StringUtils & string_utils, size_t snippet_threshold,
+                                  bool highlighted_fully,
+                                  highlight_t & highlight) {
     
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
     std::vector<art_leaf *> query_suggestion;
@@ -972,9 +997,28 @@ void Collection::highlight_result(const field &search_field,
         }
 
         highlight.snippets.push_back(snippet_stream.str());
-
         if(search_field.type == field_types::STRING_ARRAY) {
             highlight.indices.push_back(match_index.index);
+        }
+
+        if(highlighted_fully) {
+            std::stringstream value_stream;
+            for(size_t value_index = 0; value_index < tokens.size(); value_index++) {
+                if(value_index != 0) {
+                    value_stream << " ";
+                }
+
+                std::string token = tokens[value_index];
+                string_utils.unicode_normalize(token);
+
+                if(token_hits.count(token) != 0) {
+                    value_stream << "<mark>" + tokens[value_index] + "</mark>";
+                } else {
+                    value_stream << tokens[value_index];
+                }
+            }
+
+            highlight.values.push_back(value_stream.str());
         }
     }
 

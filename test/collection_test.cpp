@@ -2944,3 +2944,58 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, SearchHighlightFieldFully) {
+    Collection *coll1;
+
+    std::vector<field> fields = { field("title", field_types::STRING, true),
+                                  field("tags", field_types::STRING_ARRAY, true),
+                                  field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc["tags"] = {"NEWS", "LAZY"};
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // look for fully highlighted value in response
+
+    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, 500, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"][0]["highlights"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["highlights"][0]["value"].get<std::string>().c_str());
+
+    // should not return value key when highlight_full_fields is not specified
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, 500, "", 5, "").get();
+
+    ASSERT_EQ(2, res["hits"][0]["highlights"][0].size());
+
+    // query multiple fields
+    res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, 500, "", 5, "title, tags").get();
+
+    ASSERT_EQ(2, res["hits"][0]["highlights"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["highlights"][0]["value"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["values"][0].size());
+    ASSERT_STREQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["values"][0].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
