@@ -98,6 +98,7 @@ private:
     struct highlight_t {
         std::string field;
         std::vector<std::string> snippets;
+        std::vector<std::string> values;
         std::vector<size_t> indices;
         uint64_t match_score;
 
@@ -147,7 +148,9 @@ private:
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const KV &field_order_kv, const nlohmann::json &document,
-                          StringUtils & string_utils, size_t snippet_threshold, highlight_t &highlight);
+                          StringUtils & string_utils, size_t snippet_threshold,
+                          bool highlighted_fully,
+                          highlight_t &highlight);
 
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
@@ -223,7 +226,8 @@ public:
                           const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
                           size_t max_facet_values=10, size_t max_hits=500,
                           const std::string & simple_facet_query = "",
-                          const size_t snippet_threshold = 30);
+                          const size_t snippet_threshold = 30,
+                          const std::string & highlight_full_fields = "");
 
     Option<nlohmann::json> get(const std::string & id);
 
