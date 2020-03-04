@@ -465,8 +465,8 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
     uint64_t hash = 0;
 
     if(a_field.is_float()) {
-        float f = atof(token.c_str());
-        hash = *reinterpret_cast<uint64_t*>(&f);  // store as int without loss of precision
+        float f = std::stof(token);
+        reinterpret_cast<float&>(hash) = f;  // store as int without loss of precision
     } else if(a_field.is_integer() || a_field.is_bool()) {
         hash = atol(token.c_str());
     } else {
@@ -608,7 +608,7 @@ void Index::compute_facet_stats(facet &a_facet, int64_t raw_value, const std::st
         a_facet.stats.fvsum += val;
         a_facet.stats.fvcount++;
     } else if(field_type == field_types::FLOAT || field_type == field_types::FLOAT_ARRAY) {
-        float val = *reinterpret_cast<float*>(&raw_value);
+        float val = reinterpret_cast<float&>(raw_value);
         if(val < a_facet.stats.fvmin) {
             a_facet.stats.fvmin = val;
         }
@@ -1120,8 +1120,12 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
             }
         }
 
-        curated_topster.add(seq_id, field_id, searched_queries.size(), match_score,
-                            number_t(int64_t(1)), number_t(int64_t(1)));
+        number_t scores[3];
+        scores[0] = number_t(int64_t(match_score));
+        scores[1] = number_t(int64_t(1));
+        scores[2] = number_t(int64_t(1));
+
+        curated_topster.add(seq_id, field_id, searched_queries.size(), match_score, scores);
 
         searched_queries.push_back(override_query);
     }
@@ -1416,8 +1420,8 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
     }
 }
 
-void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
-                          const uint32_t total_cost, Topster & topster,
+void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
+                          const uint8_t & field_id, const uint32_t total_cost, Topster & topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           const uint32_t *result_ids, const size_t result_size) const {
 
@@ -1429,44 +1433,22 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         leaf_to_indices.emplace(token_leaf, indices);
     }
 
-    spp::sparse_hash_map<uint32_t, number_t> * primary_rank_scores = nullptr;
-    spp::sparse_hash_map<uint32_t, number_t> * secondary_rank_scores = nullptr;
-
     // Used for asc/desc ordering. NOTE: Topster keeps biggest keys (i.e. it's desc in nature)
     number_t primary_rank_factor;
     number_t secondary_rank_factor;
 
-    if(sort_fields.size() > 0) {
-        // assumed that rank field exists in the index - checked earlier in the chain
-        primary_rank_scores = sort_index.at(sort_fields[0].name);
+    int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
+    spp::sparse_hash_map<uint32_t, number_t>* field_values[3];
 
-        // initialize primary_rank_factor
-        field sort_field = sort_schema.at(sort_fields[0].name);
-        if(sort_field.is_single_integer() || sort_field.is_single_bool()) {
-            primary_rank_factor = ((int64_t) 1);
-        } else {
-            primary_rank_factor = ((float) 1);
+    for(size_t i = 0; i < sort_fields.size(); i++) {
+        sort_order[i] = 1;
+        if(sort_fields[i].order == sort_field_const::asc) {
+            sort_order[i] = -1;
         }
 
-        if(sort_fields[0].order == sort_field_const::asc) {
-            primary_rank_factor = -primary_rank_factor;
-        }
-    }
-
-    if(sort_fields.size() > 1) {
-        secondary_rank_scores = sort_index.at(sort_fields[1].name);
-
-        // initialize secondary_rank_factor
-        field sort_field = sort_schema.at(sort_fields[1].name);
-        if(sort_field.is_single_integer() || sort_field.is_single_bool()) {
-            secondary_rank_factor = ((int64_t) 1);
-        } else {
-            secondary_rank_factor = ((float) 1);
-        }
-
-        if(sort_fields[1].order == sort_field_const::asc) {
-            secondary_rank_factor = -secondary_rank_factor;
-        }
+        field_values[i] = (sort_fields[i].name != sort_field_const::match_score) ?
+                          sort_index.at(sort_fields[i].name) :
+                          nullptr;
     }
 
     //auto begin = std::chrono::high_resolution_clock::now();
@@ -1509,22 +1491,46 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         const int64_t default_score = 0;
-        number_t primary_rank_score = number_t(default_score);
-        number_t secondary_rank_score = number_t(default_score);
+        number_t scores[3];
 
-        if(primary_rank_scores) {
-            auto it = primary_rank_scores->find(seq_id);
-            primary_rank_score = (it == primary_rank_scores->end()) ? number_t(default_score) : number_t(it->second);
+        // avoiding loop
+        if(sort_fields.size() > 0) {
+            if (field_values[0] != nullptr) {
+                auto it = field_values[0]->find(seq_id);
+                scores[0] = (it == field_values[0]->end()) ? number_t(default_score) : number_t(it->second);
+            } else {
+                scores[0] = number_t(int64_t(match_score));
+            }
+            if (sort_order[0] == -1) {
+                scores[0] = -scores[0];
+            }
         }
 
-        if(secondary_rank_scores) {
-            auto it = secondary_rank_scores->find(seq_id);
-            secondary_rank_score = (it == secondary_rank_scores->end()) ? number_t(default_score) : number_t(it->second);
+        if(sort_fields.size() > 1) {
+            if (field_values[1] != nullptr) {
+                auto it = field_values[1]->find(seq_id);
+                scores[1] = (it == field_values[1]->end()) ? number_t(default_score) : number_t(it->second);
+            } else {
+                scores[1] = number_t(int64_t(match_score));
+            }
+            if (sort_order[1] == -1) {
+                scores[1] = -scores[1];
+            }
         }
 
-        const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
-        const number_t & secondary_rank_value = secondary_rank_score * secondary_rank_factor;
-        topster.add(seq_id, field_id, query_index, match_score, primary_rank_value, secondary_rank_value);
+        if(sort_fields.size() > 2) {
+            if(field_values[2] != nullptr) {
+                auto it = field_values[2]->find(seq_id);
+                scores[2] = (it == field_values[2]->end()) ? number_t(default_score) : number_t(it->second);
+            } else {
+                scores[2] = number_t(int64_t(match_score));
+            }
+            if(sort_order[2] == -1) {
+                scores[2] = -scores[2];
+            }
+        }
+
+        topster.add(seq_id, field_id, query_index, match_score, scores);
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
