@@ -30,8 +30,8 @@ TEST(TopsterTest, MaxIntValues) {
     };
 
     for(int i = 0; i < 14; i++) {
-        topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score, data[i].primary_attr,
-                    data[i].secondary_attr);
+        topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score,
+                    number_t(data[i].primary_attr), number_t(data[i].secondary_attr));
     }
 
     topster.sort();
@@ -77,8 +77,8 @@ TEST(TopsterTest, MaxFloatValues) {
     };
 
     for(int i = 0; i < 12; i++) {
-        topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score, data[i].primary_attr,
-                    data[i].secondary_attr);
+        topster.add(data[i].key, data[i].field_id, data[i].query_index, data[i].match_score,
+                    number_t(data[i].primary_attr), number_t(data[i].secondary_attr));
     }
 
     topster.sort();
