@@ -1442,7 +1442,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
         // initialize primary_rank_factor
         field sort_field = sort_schema.at(sort_fields[0].name);
-        if(sort_field.is_single_integer()) {
+        if(sort_field.is_single_integer() || sort_field.is_single_bool()) {
             primary_rank_factor = ((int64_t) 1);
         } else {
             primary_rank_factor = ((float) 1);
@@ -1458,7 +1458,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
         // initialize secondary_rank_factor
         field sort_field = sort_schema.at(sort_fields[1].name);
-        if(sort_field.is_single_integer()) {
+        if(sort_field.is_single_integer() || sort_field.is_single_bool()) {
             secondary_rank_factor = ((int64_t) 1);
         } else {
             secondary_rank_factor = ((float) 1);
@@ -1509,17 +1509,17 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         const int64_t default_score = 0;
-        number_t primary_rank_score = default_score;
-        number_t secondary_rank_score = default_score;
+        number_t primary_rank_score = number_t(default_score);
+        number_t secondary_rank_score = number_t(default_score);
 
         if(primary_rank_scores) {
             auto it = primary_rank_scores->find(seq_id);
-            primary_rank_score = (it == primary_rank_scores->end()) ? default_score : it->second;
+            primary_rank_score = (it == primary_rank_scores->end()) ? number_t(default_score) : number_t(it->second);
         }
 
         if(secondary_rank_scores) {
             auto it = secondary_rank_scores->find(seq_id);
-            secondary_rank_score = (it == secondary_rank_scores->end()) ? default_score : it->second;
+            secondary_rank_score = (it == secondary_rank_scores->end()) ? number_t(default_score) : number_t(it->second);
         }
 
         const number_t & primary_rank_value = primary_rank_score * primary_rank_factor;
