@@ -14,8 +14,7 @@ struct KV {
     uint16_t array_index;
     uint64_t key;
     uint64_t match_score;
-    number_t primary_attr;
-    number_t secondary_attr;
+    number_t scores[3];  // match score + 2 custom attributes
 };
 
 /*
@@ -39,8 +38,6 @@ struct Topster {
             data[i].query_index = 0;
             data[i].key = 0;
             data[i].match_score = 0;
-            data[i].primary_attr = number_t();
-            data[i].secondary_attr = number_t();
             kvs[i] = &data[i];
         }
     }
@@ -61,9 +58,9 @@ struct Topster {
     }
 
     void add(const uint64_t &key, const uint8_t &field_id, const uint16_t &query_index, const uint64_t &match_score,
-             const number_t &primary_attr, const number_t &secondary_attr) {
+             const number_t scores[3]) {
         if (size >= MAX_SIZE) {
-            if(!is_greater(kvs[0], match_score, primary_attr, secondary_attr)) {
+            if(!is_greater(kvs[0], scores)) {
                 // when incoming value is less than the smallest in the heap, ignore
                 return;
             }
@@ -90,8 +87,9 @@ struct Topster {
             kvs[start]->query_index = query_index;
             kvs[start]->array_index = start;
             kvs[start]->match_score = match_score;
-            kvs[start]->primary_attr = primary_attr;
-            kvs[start]->secondary_attr = secondary_attr;
+            kvs[start]->scores[0] = scores[0];
+            kvs[start]->scores[1] = scores[1];
+            kvs[start]->scores[2] = scores[2];
 
             // sift down to maintain heap property
             while ((2*start+1) < MAX_SIZE) {
@@ -129,8 +127,9 @@ struct Topster {
             kvs[start]->query_index = query_index;
             kvs[start]->array_index = start;
             kvs[start]->match_score = match_score;
-            kvs[start]->primary_attr = primary_attr;
-            kvs[start]->secondary_attr = secondary_attr;
+            kvs[start]->scores[0] = scores[0];
+            kvs[start]->scores[1] = scores[1];
+            kvs[start]->scores[2] = scores[2];
 
             keys[key] = kvs[start];
 
@@ -170,19 +169,19 @@ struct Topster {
         }
     }
 
-    static bool is_greater(const struct KV* i, uint64_t match_score, number_t primary_attr, number_t secondary_attr) {
-        return std::tie(match_score, primary_attr, secondary_attr) >
-               std::tie(i->match_score, i->primary_attr, i->secondary_attr);
+    static bool is_greater(const struct KV* i, const number_t scores[3]) {
+        return std::tie(scores[0], scores[1], scores[2]) >
+               std::tie(i->scores[0], i->scores[1], i->scores[2]);
     }
 
     static bool is_greater_kv(const struct KV* i, const struct KV* j) {
-        return std::tie(i->match_score, i->primary_attr, i->secondary_attr, i->key) >
-               std::tie(j->match_score, j->primary_attr, j->secondary_attr, j->key);
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) >
+               std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
     }
 
     static bool is_greater_kv_value(const struct KV & i, const struct KV & j) {
-        return std::tie(i.match_score, i.primary_attr, i.secondary_attr, i.key) >
-               std::tie(j.match_score, j.primary_attr, j.secondary_attr, j.key);
+        return std::tie(i.scores[0], i.scores[1], i.scores[2], i.key) >
+               std::tie(j.scores[0], j.scores[1], j.scores[2], j.key);
     }
 
     // topster must be sorted before iterated upon to remove dead array entries
