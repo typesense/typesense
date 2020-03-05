@@ -2,6 +2,7 @@
 
 #include <sparsepp.h>
 
+/*
 struct number_t {
     bool is_float;
     int64_t intval;
@@ -69,4 +70,4 @@ struct number_t {
 
         return *this;
     }
-};
+};*/
