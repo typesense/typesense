@@ -103,6 +103,10 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
+        if(field_pair.second.optional && document.count(field_name) == 0) {
+            continue;
+        }
+
         int facet_id = -1;
         if(facet_schema.count(field_name) != 0) {
             facet_id = facet_to_id[field_name];
@@ -230,9 +234,13 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
+        if(field_pair.second.optional && document.count(field_name) == 0) {
+            continue;
+        }
+
         if(document.count(field_name) == 0) {
             return Option<>(400, "Field `" + field_name  + "` has been declared in the schema, "
-                    "but is not found in the document.");
+                                 "but is not found in the document.");
         }
 
         if(field_pair.second.type == field_types::STRING) {
@@ -298,16 +306,6 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
             if(document[field_name].size() > 0 && !document[field_name][0].is_boolean()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
             }
-        }
-    }
-
-    // since every facet field has to be a search field, we don't have to revalidate types here
-    for(const std::pair<std::string, field> & field_pair: facet_schema) {
-        const std::string & field_name = field_pair.first;
-
-        if(document.count(field_name) == 0) {
-            return Option<>(400, "Field `" + field_name  + "` has been declared as a facet field in the schema, "
-                    "but is not found in the document.");
         }
     }
 

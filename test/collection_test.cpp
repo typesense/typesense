@@ -2290,3 +2290,73 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, OptionalFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("description", field_types::STRING, true, true),
+        field("max", field_types::INT32, false),
+        field("scores", field_types::INT64_ARRAY, false, true),
+        field("average", field_types::FLOAT, false, true),
+        field("is_valid", field_types::BOOL, false, true),
+    };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", fields, "max").get();
+    }
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll1->add(json_line);
+        if(!add_op.ok()) {
+            std::cout << add_op.error() << std::endl;
+        }
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    infile.close();
+
+    // first must be able to fetch all records (i.e. all must have been index)
+
+    auto res = coll1->search("*", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(6, res["found"].get<size_t>());
+
+    // search on optional `description` field
+    res = coll1->search("book", {"description"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, res["found"].get<size_t>());
+
+    // filter on optional `average` field
+    res = coll1->search("the", {"title"}, "average: >0", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, res["found"].get<size_t>());
+
+    // facet on optional `description` field
+    res = coll1->search("the", {"title"}, "", {"description"}, {}, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(6, res["found"].get<size_t>());
+    ASSERT_EQ(5, res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_STREQ("description", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
+
+    // sort_by optional `average` field should be rejected
+    std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
+    auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Cannot sort by `average` as it is defined as an optional field.", res_op.error().c_str());
+
+    // default sorting field should not be declared optional
+    fields = {
+        field("title", field_types::STRING, false),
+        field("score", field_types::INT32, false, true),
+    };
+
+    auto create_op = collectionManager.create_collection("coll2", fields, "score");
+
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_STREQ("Default sorting field `score` cannot be an optional field.", create_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

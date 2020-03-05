@@ -225,8 +225,6 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
                                  field("max", field_types::INT32, false),
                                  };
 
-    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
-
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", fields, "points").get();
@@ -250,7 +248,7 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
         sort_by("min", "DESC"),
     };
 
-    auto res_op = coll1->search("Jeremy", query_fields, "", {}, sort_fields_desc, 0, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("the", query_fields, "", {}, sort_fields_desc, 0, 10, 1, FREQUENCY, false);
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Only upto 3 sort_by fields can be specified.", res_op.error().c_str());
