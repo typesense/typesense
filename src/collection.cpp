@@ -513,6 +513,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             return Option<nlohmann::json>(404, error);
         }
 
+        if(sort_schema.count(_sort_field.name) != 0 && sort_schema.at(_sort_field.name).optional) {
+            std::string error = "Cannot sort by `" + _sort_field.name + "` as it is defined as an optional field.";
+            return Option<nlohmann::json>(400, error);
+        }
+
         std::string sort_order = _sort_field.order;
         StringUtils::toupper(sort_order);
 

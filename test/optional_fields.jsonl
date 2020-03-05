@@ -1,0 +1,6 @@
+{"title": "The quick brown fox.", "description": "A book.", "max": 25, "scores": [10, 25, 15], "average": 16.66, "is_valid": true}
+{"title": "The quick brown fox.", "max": 25, "scores": [10, 25, 15], "average": 16.66, "is_valid": true}
+{"title": "The quick brown fox.", "description": "A book.", "max": 25, "scores": [10, 25, 15], "average": 16.66, "is_valid": true}
+{"title": "The quick brown fox.", "description": "A book.", "max": 25, "average": 16.66, "is_valid": true}
+{"title": "The quick brown fox.", "description": "A book.", "max": 25, "scores": [10, 25, 15], "is_valid": true}
+{"title": "The quick brown fox.", "description": "A book.", "max": 25, "scores": [10, 25, 15], "average": 16.66}

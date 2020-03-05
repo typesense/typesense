@@ -114,8 +114,12 @@ void post_create_collection(http_req & req, http_res & res) {
             field_json["facet"] = false;
         }
 
-        fields.push_back(
-            field(field_json["name"], field_json["type"], field_json["facet"])
+        if(field_json.count("optional") == 0) {
+            field_json["optional"] = false;
+        }
+
+        fields.emplace_back(
+            field(field_json["name"], field_json["type"], field_json["facet"], field_json["optional"])
         );
     }
 

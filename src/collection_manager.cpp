@@ -227,6 +227,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
         }
 
         if(field.name == default_sorting_field) {
+            if(field.optional) {
+                return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
+                                                "` cannot be an optional field.");
+            }
+
             found_default_sorting_field = true;
         }
     }

@@ -28,8 +28,15 @@ struct field {
     std::string name;
     std::string type;
     bool facet;
+    bool optional;
 
-    field(const std::string & name, const std::string & type, const bool & facet): name(name), type(type), facet(facet) {
+    field(const std::string & name, const std::string & type, const bool facet):
+        name(name), type(type), facet(facet), optional(false) {
+
+    }
+
+    field(const std::string & name, const std::string & type, const bool facet, const bool optional):
+            name(name), type(type), facet(facet), optional(optional) {
 
     }
 
