@@ -52,6 +52,7 @@ include(cmake/g3log.cmake)
 include(cmake/Iconv.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
+FILE(GLOB TEST_FILES test/*.cpp)
 
 include_directories(include)
 include_directories(${OPENSSL_INCLUDE_DIR})
@@ -91,10 +92,7 @@ file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
 add_executable(search ${SRC_FILES} src/main/main.cpp)
 add_executable(benchmark ${SRC_FILES} src/main/benchmark.cpp)
-add_executable(typesense-test ${SRC_FILES} test/main.cpp test/array_test.cpp test/sorted_array_test.cpp test/art_test.cpp
-               test/collection_test.cpp test/collection_manager_test.cpp
-               test/topster_test.cpp test/match_score_test.cpp test/store_test.cpp test/array_utils_test.cpp
-               test/string_utils_test.cpp test/config_test.cpp)
+add_executable(typesense-test ${SRC_FILES} ${TEST_FILES})
 
 add_library(typesense-core STATIC ${SRC_FILES})
 
