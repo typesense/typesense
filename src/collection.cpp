@@ -547,6 +547,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         sort_fields_std.emplace_back(sort_field_const::match_score, sort_field_const::desc);
     }
 
+    if(sort_fields_std.size() > 3) {
+        std::string message = "Only upto 3 sort_by fields can be specified.";
+        return Option<nlohmann::json>(422, message);
+    }
+
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
