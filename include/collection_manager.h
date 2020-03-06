@@ -71,7 +71,7 @@ public:
 
     bool auth_key_matches(std::string auth_key_sent);
 
-    bool search_only_auth_key_matches(std::string auth_key_sent);
+    bool search_only_auth_key_matches(const std::string & auth_key_sent);
 
     Option<Collection*> create_collection(const std::string name, const std::vector<field> & fields,
                                           const std::string & default_sorting_field,
