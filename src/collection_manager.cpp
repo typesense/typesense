@@ -16,7 +16,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     nlohmann::json fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
 
     for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
-        fields.push_back({it.value()[fields::name], it.value()[fields::type], it.value()[fields::facet]});
+        fields.push_back({it.value()[fields::name], it.value()[fields::type],
+                          it.value()[fields::facet], it.value()[fields::optional]});
     }
 
     std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
@@ -218,6 +219,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
         field_val[fields::name] = field.name;
         field_val[fields::type] = field.type;
         field_val[fields::facet] = field.facet;
+        field_val[fields::optional] = field.optional;
         fields_json.push_back(field_val);
 
         if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
