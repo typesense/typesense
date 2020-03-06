@@ -22,6 +22,7 @@ namespace fields {
     static const std::string name = "name";
     static const std::string type = "type";
     static const std::string facet = "facet";
+    static const std::string optional = "facet";
 }
 
 struct field {
