@@ -85,6 +85,9 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     nlohmann::json results = collection->search("the", query_fields, "", facets, sort_fields, 0, 10).get();
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
+    
+    ASSERT_STREQ("the", results["request_params"]["q"].get<std::string>().c_str());
+    ASSERT_EQ(10, results["request_params"]["per_page"].get<size_t>());
 
     // For two documents of the same score, the larger doc_id appears first
     std::vector<std::string> ids = {"1", "6", "foo", "13", "10", "8", "16"};
@@ -166,6 +169,8 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 3).get();
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
+
+    ASSERT_EQ(3, results["request_params"]["per_page"].get<size_t>());
 
     ids = {"8", "1", "17"};
 

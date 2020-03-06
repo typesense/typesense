@@ -253,7 +253,6 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
     ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
 
-
     // facet query on an array integer field
 
     results = coll_array_fields->search("*", query_fields, "", {"timestamps"}, sort_fields, 0, 10, 1, FREQUENCY,
