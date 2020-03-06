@@ -876,6 +876,10 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         result["facet_counts"].push_back(facet_result);
     }
 
+    result["request_params"] = nlohmann::json::object();;
+    result["request_params"]["per_page"] = per_page;
+    result["request_params"]["q"] = query;
+
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
