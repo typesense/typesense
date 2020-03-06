@@ -200,8 +200,8 @@ bool CollectionManager::auth_key_matches(std::string auth_key_sent) {
     return (auth_key == auth_key_sent);
 }
 
-bool CollectionManager::search_only_auth_key_matches(std::string auth_key_sent) {
-    return (search_only_auth_key == auth_key_sent);
+bool CollectionManager::search_only_auth_key_matches(const std::string & auth_key_sent) {
+    return !auth_key_sent.empty() && (search_only_auth_key == auth_key_sent);
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,
