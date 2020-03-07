@@ -85,7 +85,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     nlohmann::json results = collection->search("the", query_fields, "", facets, sort_fields, 0, 10).get();
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
-    
+
     ASSERT_STREQ("the", results["request_params"]["q"].get<std::string>().c_str());
     ASSERT_EQ(10, results["request_params"]["per_page"].get<size_t>());
 
@@ -537,6 +537,23 @@ TEST_F(CollectionTest, PrefixSearching) {
     results = collection->search("late propx", query_fields, "", facets, sort_fields, 2, 1, 1, FREQUENCY, true).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("16", results["hits"].at(0)["document"]["id"]);
+}
+
+TEST_F(CollectionTest, TypoTokensThreshold) {
+    // Query expansion should happen only based on the `typo_tokens_threshold` value
+    auto results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
+                       token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                       spp::sparse_hash_set<std::string>(), 10, 500, "", 5, "", 0).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<size_t>());
+
+    results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
+                                token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, 500, "", 5, "", 10).get();
+
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionTest, MultiOccurrenceString) {

@@ -831,7 +831,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
                               std::vector<token_candidates> & token_candidates_vec, const token_ordering token_order,
                               std::vector<std::vector<art_leaf*>> & searched_queries, Topster & topster,
                               uint32_t** all_result_ids, size_t & all_result_ids_len,
-                              const size_t & max_results) {
+                              const size_t typo_tokens_threshold) {
     const long long combination_limit = 10;
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
@@ -905,7 +905,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
 
         searched_queries.push_back(query_suggestion);
 
-        if(all_result_ids_len >= max_results) {
+        if(all_result_ids_len >= typo_tokens_threshold) {
             break;
         }
     }
@@ -1060,7 +1060,8 @@ void Index::run_search() {
                search_params.excluded_ids, search_params.sort_fields_std, search_params.num_typos,
                search_params.max_hits, search_params.per_page, search_params.page, search_params.token_order,
                search_params.prefix, search_params.drop_tokens_threshold, search_params.raw_result_kvs,
-               search_params.all_result_ids_len, search_params.searched_queries, search_params.override_result_kvs);
+               search_params.all_result_ids_len, search_params.searched_queries, search_params.override_result_kvs,
+               search_params.typo_tokens_threshold);
 
         // hand control back to main thread
         processed = true;
@@ -1141,7 +1142,7 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
 }
 
 void Index::search(Option<uint32_t> & outcome,
-                   std::string query,
+                   const std::string & query,
                    const std::vector<std::string> & search_fields,
                    const std::vector<filter> & filters,
                    std::vector<facet> & facets, facet_query_t & facet_query,
@@ -1153,7 +1154,8 @@ void Index::search(Option<uint32_t> & outcome,
                    std::vector<KV> & raw_result_kvs,
                    size_t & all_result_ids_len,
                    std::vector<std::vector<art_leaf*>> & searched_queries,
-                   std::vector<KV> & override_result_kvs) {
+                   std::vector<KV> & override_result_kvs,
+                   const size_t typo_tokens_threshold) {
 
     const size_t num_results = (page * per_page);
 
@@ -1195,7 +1197,7 @@ void Index::search(Option<uint32_t> & outcome,
 
                 search_field(field_id, query, field, filter_ids, filter_ids_length, facets, sort_fields_std,
                              num_typos, searched_queries, topster, &all_result_ids, all_result_ids_len,
-                             token_order, prefix, drop_tokens_threshold);
+                             token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
                 collate_curated_ids(query, field, field_id, included_ids, curated_topster, searched_queries);
             }
         }
@@ -1253,12 +1255,13 @@ void Index::search(Option<uint32_t> & outcome,
    4. Intersect the lists to find docs that match each phrase
    5. Sort the docs based on some ranking criteria
 */
-void Index::search_field(const uint8_t & field_id, std::string & query, const std::string & field,
+void Index::search_field(const uint8_t & field_id, const std::string & query, const std::string & field,
                          uint32_t *filter_ids, size_t filter_ids_length,
                          std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                          std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster & topster, uint32_t** all_result_ids, size_t & all_result_ids_len,
-                         const token_ordering token_order, const bool prefix, const size_t drop_tokens_threshold) {
+                         const token_ordering token_order, const bool prefix, 
+                         const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) {
     std::vector<std::string> tokens;
     StringUtils::split(query, tokens, " ");
 
@@ -1320,7 +1323,7 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 // prefix should apply only for last token
-                const bool prefix_search = prefix && ((token_index == tokens.size()-1) ? true : false);
+                const bool prefix_search = prefix && (token_index == tokens.size()-1);
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 // If this is a prefix search, look for more candidates and do a union of those document IDs
@@ -1367,16 +1370,16 @@ void Index::search_field(const uint8_t & field_id, std::string & query, const st
             token_index++;
         }
 
-        if(token_candidates_vec.size() != 0 && token_candidates_vec.size() == tokens.size()) {
+        if(!token_candidates_vec.empty() && token_candidates_vec.size() == tokens.size()) {
             // If all tokens were found, go ahead and search for candidates with what we have so far
             search_candidates(field_id, filter_ids, filter_ids_length, sort_fields, token_candidates_vec,
                               token_order, searched_queries, topster, all_result_ids, all_result_ids_len,
-                              Index::SEARCH_LIMIT_NUM);
+                              typo_tokens_threshold);
+        }
 
-            if (all_result_ids_len >= Index::SEARCH_LIMIT_NUM) {
-                // If we don't find enough results, we continue outerloop (looking at tokens with greater cost)
-                break;
-            }
+        if (all_result_ids_len >= typo_tokens_threshold) {
+            // If we don't find enough results, we continue outerloop (looking at tokens with greater typo cost)
+            break;
         }
 
         n++;

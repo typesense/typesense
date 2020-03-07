@@ -172,6 +172,7 @@ void get_search(http_req & req, http_res & res) {
     const char *NUM_TYPOS = "num_typos";
     const char *PREFIX = "prefix";
     const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
+    const char *TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
     const char *FILTER = "filter_by";
     const char *QUERY = "q";
     const char *QUERY_BY = "query_by";
@@ -205,6 +206,10 @@ void get_search(http_req & req, http_res & res) {
 
     if(req.params.count(DROP_TOKENS_THRESHOLD) == 0) {
         req.params[DROP_TOKENS_THRESHOLD] = std::to_string(Index::DROP_TOKENS_THRESHOLD);
+    }
+
+    if(req.params.count(TYPO_TOKENS_THRESHOLD) == 0) {
+        req.params[TYPO_TOKENS_THRESHOLD] = std::to_string(Index::TYPO_TOKENS_THRESHOLD);
     }
 
     if(req.params.count(QUERY) == 0) {
@@ -258,6 +263,10 @@ void get_search(http_req & req, http_res & res) {
 
     if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
         return res.send_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
+    }
+
+    if(!StringUtils::is_uint64_t(req.params[TYPO_TOKENS_THRESHOLD])) {
+        return res.send_400("Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
     }
 
     if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
@@ -320,6 +329,7 @@ void get_search(http_req & req, http_res & res) {
 
     bool prefix = (req.params[PREFIX] == "true");
     const size_t drop_tokens_threshold = (size_t) std::stoi(req.params[DROP_TOKENS_THRESHOLD]);
+    const size_t typo_tokens_threshold = (size_t) std::stoi(req.params[TYPO_TOKENS_THRESHOLD]);
 
     if(req.params.count(RANK_TOKENS_BY) == 0) {
         req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
@@ -338,7 +348,8 @@ void get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stoi(req.params[MAX_HITS])),
                                                           req.params[FACET_QUERY],
                                                           static_cast<size_t>(std::stoi(req.params[SNIPPET_THRESHOLD])),
-                                                          req.params[HIGHLIGHT_FULL_FIELDS]
+                                                          req.params[HIGHLIGHT_FULL_FIELDS],
+                                                          typo_tokens_threshold
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
