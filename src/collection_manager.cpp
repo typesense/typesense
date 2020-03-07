@@ -16,8 +16,15 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     nlohmann::json fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
 
     for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
-        fields.push_back({it.value()[fields::name], it.value()[fields::type],
-                          it.value()[fields::facet], it.value()[fields::optional]});
+        nlohmann::json & field_obj = it.value();
+
+        // handle older records indexed before optional field introduction
+        if(field_obj.count(fields::optional) == 0) {
+            field_obj[fields::optional] = false;
+        }
+
+        fields.push_back({field_obj[fields::name], field_obj[fields::type],
+                          field_obj[fields::facet], field_obj[fields::optional]});
     }
 
     std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();

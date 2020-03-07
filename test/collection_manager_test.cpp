@@ -25,7 +25,7 @@ protected:
         search_fields = {
                 field("title", field_types::STRING, false),
                 field("starring", field_types::STRING, false),
-                field("cast", field_types::STRING_ARRAY, true),
+                field("cast", field_types::STRING_ARRAY, true, true),
                 field("points", field_types::INT32, false)
         };
 
@@ -81,10 +81,10 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\","
-              "\"fields\":[{\"facet\":false,\"name\":\"title\",\"type\":\"string\"},"
-              "{\"facet\":false,\"name\":\"starring\",\"type\":\"string\"},"
-              "{\"facet\":true,\"name\":\"cast\",\"type\":\"string[]\"},"
-              "{\"facet\":false,\"name\":\"points\",\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\"}",
+              "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
+              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\"}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -224,6 +224,12 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
+
+    auto restored_schema = collection1->get_schema();
+    ASSERT_EQ(true, restored_schema.at("cast").optional);
+    ASSERT_EQ(true, restored_schema.at("cast").facet);
+    ASSERT_EQ(false, restored_schema.at("title").facet);
+    ASSERT_EQ(false, restored_schema.at("title").optional);
 
     ASSERT_EQ(2, collection1->get_overrides().size());
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
