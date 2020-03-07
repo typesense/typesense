@@ -313,7 +313,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t max_facet_values, const size_t max_hits,
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
-                                  const std::string & highlight_full_fields) {
+                                  const std::string & highlight_full_fields,
+                                  size_t typo_tokens_threshold ) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -583,7 +584,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
                                            sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                           results_per_page, page, token_order, prefix, drop_tokens_threshold);
+                                           results_per_page, page, token_order, prefix,
+                                           drop_tokens_threshold, typo_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;

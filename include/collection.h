@@ -227,7 +227,8 @@ public:
                           size_t max_facet_values=10, size_t max_hits=500,
                           const std::string & simple_facet_query = "",
                           const size_t snippet_threshold = 30,
-                          const std::string & highlight_full_fields = "");
+                          const std::string & highlight_full_fields = "",
+                          size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
 
     Option<nlohmann::json> get(const std::string & id);
 

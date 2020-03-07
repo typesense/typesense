@@ -38,6 +38,7 @@ struct search_args {
     token_ordering token_order;
     bool prefix;
     size_t drop_tokens_threshold;
+    size_t typo_tokens_threshold;
     std::vector<KV> raw_result_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -52,11 +53,12 @@ struct search_args {
                 std::vector<facet> facets, std::vector<uint32_t> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
-                size_t drop_tokens_threshold):
+                size_t drop_tokens_threshold, size_t typo_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), max_hits(max_hits), per_page(per_page),
-            page(page), token_order(token_order), prefix(prefix), drop_tokens_threshold(drop_tokens_threshold),
+            page(page), token_order(token_order), prefix(prefix),
+            drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
 
     }
@@ -147,19 +149,22 @@ private:
 
     void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
 
-    void search_field(const uint8_t & field_id, std::string & query,
+    void search_field(const uint8_t & field_id, const std::string & query,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster & topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
-                      const bool prefix = false, const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD);
+                      const bool prefix = false,
+                      const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
 
     void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster & topster, uint32_t** all_result_ids,
-                           size_t & all_result_ids_len, const size_t & max_results);
+                           size_t & all_result_ids_len,
+                           const size_t typo_tokens_threshold);
 
     void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -208,7 +213,7 @@ public:
 
     void run_search();
 
-    void search(Option<uint32_t> & outcome, std::string query, const std::vector<std::string> & search_fields,
+    void search(Option<uint32_t> & outcome, const std::string & query, const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           facet_query_t & facet_query,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
@@ -216,7 +221,7 @@ public:
                           const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
                           const bool prefix, const size_t drop_tokens_threshold, std::vector<KV> & raw_result_kvs,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries,
-                          std::vector<KV> & override_result_kvs);
+                          std::vector<KV> & override_result_kvs, const size_t typo_tokens_threshold);
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
@@ -250,7 +255,7 @@ public:
     const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
 
     // for limiting number of results on multiple candidates / query rewrites
-    enum {SEARCH_LIMIT_NUM = 100};
+    enum {TYPO_TOKENS_THRESHOLD = 100};
 
     // for limiting number of fields that can be searched on
     enum {FIELD_LIMIT_NUM = 100};
