@@ -16,6 +16,10 @@ private:
     std::string listen_address;
     uint32_t listen_port;
 
+    std::string raft_dir;
+    uint32_t raft_port;
+    std::string raft_peers;
+
     std::string master;
 
     std::string ssl_certificate;
@@ -33,6 +37,7 @@ public:
     Config() {
         this->listen_address = "0.0.0.0";
         this->listen_port = 8108;
+        this->raft_port = 8107;
         this->enable_cors = false;
         this->indices_per_collection = 4;
     }
@@ -81,6 +86,18 @@ public:
 
     void set_indices_per_collection(size_t indices_per_collection) {
         this->indices_per_collection  = indices_per_collection;
+    }
+
+    void set_raft_port(int v) {
+        this->raft_port = raft_port;
+    }
+
+    void set_raft_dir(const std::string & raft_dir) {
+        this->raft_dir = raft_dir;
+    }
+
+    void set_raft_peers(const std::string & raft_peers) {
+        this->raft_peers = raft_peers;
     }
     
     // getters
@@ -133,6 +150,18 @@ public:
         return indices_per_collection;
     }
 
+    int get_raft_port() const {
+        return this->raft_port;
+    }
+
+    std::string get_raft_dir() const {
+        return this->raft_dir;
+    }
+
+    std::string get_raft_peers() const {
+        return this->raft_peers;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -157,6 +186,13 @@ public:
         if(!get_env("TYPESENSE_LISTEN_PORT").empty()) {
             this->listen_port = std::stoi(get_env("TYPESENSE_LISTEN_PORT"));
         }
+
+        if(!get_env("TYPESENSE_RAFT_PORT").empty()) {
+            this->raft_port = std::stoi(get_env("TYPESENSE_RAFT_PORT"));
+        }
+
+        this->raft_dir = get_env("TYPESENSE_RAFT_DIR");
+        this->raft_peers = get_env("TYPESENSE_RAFT_PEERS");
 
         this->master = get_env("TYPESENSE_MASTER");
         this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
@@ -225,6 +261,18 @@ public:
         if(reader.Exists("server", "enable-cors")) {
             this->enable_cors = reader.GetBoolean("server", "enable-cors", false);
         }
+
+        if(reader.Exists("server", "raft-port")) {
+            this->raft_port = reader.GetInteger("server", "raft-port", 8107);
+        }
+
+        if(reader.Exists("server", "raft-dir")) {
+            this->raft_dir = reader.Get("server", "raft-dir", "");
+        }
+
+        if(reader.Exists("server", "raft-peers")) {
+            this->raft_peers = reader.Get("server", "raft-peers", "");
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -267,6 +315,18 @@ public:
         if(options.exist("enable-cors")) {
             this->enable_cors = options.exist("enable-cors");
         }
+
+        if(options.exist("raft-port")) {
+            this->raft_port = options.get<uint32_t>("raft-port");
+        }
+
+        if(options.exist("raft-dir")) {
+            this->raft_dir = options.get<std::string>("raft-dir");
+        }
+
+        if(options.exist("raft-peers")) {
+            this->raft_peers = options.get<std::string>("raft-peers");
+        }
     }
 
     // validation
@@ -282,6 +342,14 @@ public:
 
         if(api_key.empty()) {
             return Option<bool>(500, "API key is not specified.");
+        }
+
+        if(!raft_dir.empty() && raft_peers.empty()) {
+            return Option<bool>(500, "Argument --raft-peers is not specified.");
+        }
+
+        if(!raft_peers.empty() && raft_dir.empty()) {
+            return Option<bool>(500, "Argument --raft-dir is not specified.");
         }
 
         return Option<bool>(true);

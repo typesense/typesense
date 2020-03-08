@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include "json.hpp"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -76,8 +77,35 @@ struct http_res {
 
 struct http_req {
     h2o_req_t* _req;
+    std::string path_without_query;
     std::map<std::string, std::string> params;
     std::string body;
+
+    http_req() {}
+
+    http_req(h2o_req_t* _req, const std::string & path_without_query, const std::map<std::string, std::string> & params,
+            std::string body): _req(_req), path_without_query(path_without_query), params(params), body(body) {}
+
+    void deserialize(const std::string& serialized_content) {
+        nlohmann::json content = nlohmann::json::parse(serialized_content);
+        path_without_query = content["path"];
+        body = content["body"];
+
+        for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
+            params.emplace(it.key(), it.value());
+        }
+
+        _req = nullptr;
+    }
+
+    std::string serialize() const {
+        nlohmann::json content;
+        content["path"] = path_without_query;
+        content["params"] = params;
+        content["body"] = body;
+
+        return content.dump();
+    }
 };
 
 struct route_path {

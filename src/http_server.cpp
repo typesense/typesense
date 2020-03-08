@@ -349,7 +349,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                 }
             }
 
-            http_req* request = new http_req{req, query_map, req_body};
+            http_req* request = new http_req(req, path_without_query, query_map, req_body);
             http_res* response = new http_res();
             response->server = self->http_server;
             (rpath.handler)(*request, *response);

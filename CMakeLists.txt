@@ -40,6 +40,7 @@ FIND_PACKAGE(Snappy REQUIRED)
 FIND_PACKAGE(ZLIB REQUIRED)
 FIND_PACKAGE(CURL REQUIRED)
 FIND_PACKAGE(ICU REQUIRED)
+FIND_PACKAGE(Protobuf REQUIRED)
 
 message("OpenSSL library: ${OPENSSL_LIBRARIES}")
 
@@ -50,6 +51,8 @@ include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/g3log.cmake)
 include(cmake/Iconv.cmake)
+include(cmake/brpc.cmake)
+include(cmake/braft.cmake)
 
 FILE(GLOB SRC_FILES src/*.cpp)
 FILE(GLOB TEST_FILES test/*.cpp)
@@ -65,6 +68,8 @@ include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/src)
 include_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include)
 include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${BRPC_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${BRAFT_NAME}/include)
 
 # Write dependency include directories to a file
 file(WRITE ${DEP_ROOT_DIR}/includes.txt "")
@@ -73,6 +78,9 @@ file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/src")
 file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${BRPC_NAME}/include")
+file(APPEND ${DEP_ROOT_DIR}/includes.txt " ${DEP_ROOT_DIR}/${BRAFT_NAME}/include")
 
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
 link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
@@ -80,6 +88,8 @@ link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${G3LOG_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
+link_directories(${DEP_ROOT_DIR}/${BRPC_NAME}/lib)
+link_directories(${DEP_ROOT_DIR}/${BRAFT_NAME}/lib)
 
 # Write dependency libraries to a file
 file(WRITE ${DEP_ROOT_DIR}/libs.txt "")
@@ -88,6 +98,8 @@ file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${H2O_NAME}/build")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ROCKSDB_NAME}")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${G3LOG_NAME}/build")
 file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${BRPC_NAME}/lib")
+file(APPEND ${DEP_ROOT_DIR}/libs.txt " ${DEP_ROOT_DIR}/${BRAFT_NAME}/lib")
 
 add_executable(typesense-server ${SRC_FILES} src/main/typesense_server.cpp)
 add_executable(search ${SRC_FILES} src/main/main.cpp)
@@ -122,24 +134,26 @@ target_compile_definitions(
     TYPESENSE_VERSION="${TYPESENSE_VERSION}"
 )
 
+set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
+
 if (APPLE)
     set(STD_LIB -static-libstdc++) # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
 
     FIND_PACKAGE(ngHTTP2 REQUIRED)
     set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
+    set(SYSTEM_LIBS "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreData"
+            "-framework CoreText" "-framework Security" "-framework Foundation")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
-endif()
-
-set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
-
-if(NOT APPLE)
+    set(SYSTEM_LIBS "")
     list(APPEND ROCKSDB_LIBS rt)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
 set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
               ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
+
+set(CORE_LIBS braft brpc leveldb profiler tcmalloc ${CORE_LIBS} gflags ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
 target_link_libraries(typesense-server ${CORE_LIBS})
