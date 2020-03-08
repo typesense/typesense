@@ -1,7 +1,18 @@
-#include "core_api.h"
-#include "typesense_server_utils.h"
 #include <curl/curl.h>
 #include <sys/stat.h>
+
+#include <gflags/gflags.h>
+#include <brpc/controller.h>
+#include <brpc/server.h>
+#include <braft/raft.h>
+#include <braft/storage.h>
+#include <braft/util.h>
+#include <braft/protobuf_file.h>
+#include <raft_server.h>
+#include <fstream>
+
+#include "core_api.h"
+#include "typesense_server_utils.h"
 
 HttpServer* server;
 
@@ -16,6 +27,11 @@ bool directory_exists(const std::string & dir_path) {
     return stat(dir_path.c_str(), &info) == 0 && (info.st_mode & S_IFDIR);
 }
 
+bool file_exists(const std::string & file_path) {
+    struct stat info;
+    return stat(file_path.c_str(), &info) == 0;
+}
+
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
@@ -25,6 +41,11 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
+
+    options.add<std::string>("raft-dir", '\0', "Directory where raft data will be stored.", false);
+    options.add<uint32_t>("raft-port", '\0', "Port on which Typesense raft service listens.", false, 8107);
+    options.add<std::string>("raft-peers", '\0', "Path to file having comma separated string of Raft node IPs.", false);
+
     options.add<std::string>("master", 'm', "To start the server as read-only replica, "
                              "provide the master's address in http(s)://<master_address>:<master_port> format.",
                              false, "");
@@ -137,11 +158,89 @@ int run_server(const Config & config, const std::string & version,
         replication_thread.detach();
     }
 
+    std::thread raft_thread([&store, &config]() {
+        std::string path_to_peers = config.get_raft_peers();
+
+        if(path_to_peers.empty()) {
+            return 0;
+        }
+
+        if(!file_exists(path_to_peers)) {
+            LOG(ERR) << "Error reading file containing raft peers.";
+            return -1;
+        }
+
+        std::string peer_ips_string;
+        std::ifstream infile(path_to_peers);
+        std::getline(infile, peer_ips_string);
+        infile.close();
+
+        if(peer_ips_string.empty()) {
+            LOG(ERR) << "File containing raft peers is empty.";
+            return -1;
+        }
+
+        // start raft server
+        brpc::Server raft_server;
+        ReplicationState replication_state;
+
+        uint32_t raft_port = config.get_raft_port();
+
+        if (braft::add_service(&raft_server, raft_port) != 0) {
+            LOG(ERR) << "Failed to add raft service";
+            return -1;  // TODO: must quit parent process as well
+        }
+
+        if (raft_server.Start(raft_port, NULL) != 0) {
+            LOG(ERR) << "Failed to start raft server";
+            return -1;
+        }
+
+        std::vector<std::string> peer_ips;
+        StringUtils::split(peer_ips_string, peer_ips, ",");
+        std::string peers = StringUtils::join(peer_ips, ":0,");
+
+        if (replication_state.start(raft_port, 1000, 3600, config.get_raft_dir(), peers) != 0) {
+            LOG(ERR) << "Failed to start raft state";
+            return -1;
+        }
+
+        LOG(INFO) << "Typesense raft service is running on " << raft_server.listen_address();
+
+        // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
+        size_t raft_counter = 0;
+        while (!brpc::IsAskedToQuit()) {
+            if(++raft_counter % 10 == 0) {
+                // reset peer configuration periodically to identify change in cluster membership
+                std::string new_peer_ips_string;
+                std::ifstream peers_infile(path_to_peers);
+                std::getline(peers_infile, new_peer_ips_string);
+                infile.close();
+                replication_state.refresh_peers(new_peer_ips_string);
+            }
+            sleep(1);
+        }
+
+        LOG(INFO) << "Typesense raft service is going to quit";
+
+        // Stop counter before server
+        replication_state.shutdown();
+        raft_server.Stop(0);
+
+        // Wait until all the processing tasks are over.
+        replication_state.join();
+        raft_server.Join();
+        return 0;
+    });
+
+    raft_thread.detach();
+
     int ret_code = server->run();
+
+    // we are out of the event loop here
 
     curl_global_cleanup();
 
-    // we are out of the event loop here
     delete server;
     CollectionManager::get_instance().dispose();
 
