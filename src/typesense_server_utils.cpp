@@ -32,6 +32,19 @@ bool file_exists(const std::string & file_path) {
     return stat(file_path.c_str(), &info) == 0;
 }
 
+Option<std::string> fetch_file_contents(const std::string & file_path) {
+    if(!file_exists(file_path)) {
+        return Option<std::string>(404, "Error reading file containing raft peers.");
+    }
+
+    std::string contents;
+    std::ifstream infile(file_path);
+    std::string content((std::istreambuf_iterator<char>(infile)), (std::istreambuf_iterator<char>()));
+    infile.close();
+
+    return Option<std::string>(content);
+}
+
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
@@ -165,15 +178,13 @@ int run_server(const Config & config, const std::string & version,
             return 0;
         }
 
-        if(!file_exists(path_to_peers)) {
-            LOG(ERR) << "Error reading file containing raft peers.";
+        const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
+        if(!peers_op.ok()) {
+            LOG(ERR) << peers_op.error();
             return -1;
         }
 
-        std::string peer_ips_string;
-        std::ifstream infile(path_to_peers);
-        std::getline(infile, peer_ips_string);
-        infile.close();
+        const std::string & peer_ips_string = peers_op.get();
 
         if(peer_ips_string.empty()) {
             LOG(ERR) << "File containing raft peers is empty.";
@@ -212,12 +223,16 @@ int run_server(const Config & config, const std::string & version,
         while (!brpc::IsAskedToQuit()) {
             if(++raft_counter % 10 == 0) {
                 // reset peer configuration periodically to identify change in cluster membership
-                std::string new_peer_ips_string;
-                std::ifstream peers_infile(path_to_peers);
-                std::getline(peers_infile, new_peer_ips_string);
-                infile.close();
-                replication_state.refresh_peers(new_peer_ips_string);
+                const Option<std::string> & refreshed_peers_op = fetch_file_contents(path_to_peers);
+                if(!peers_op.ok()) {
+                    LOG(ERR) << "Error while refreshing peer configuration: " << refreshed_peers_op.error();
+                    continue;
+                }
+
+                const std::string & refreshed_peer_ips_string = refreshed_peers_op.get();
+                replication_state.refresh_peers(refreshed_peer_ips_string);
             }
+
             sleep(1);
         }
 
