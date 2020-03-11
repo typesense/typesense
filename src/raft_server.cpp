@@ -1,15 +1,15 @@
 #include "raft_server.h"
 #include <butil/files/file_enumerator.h>
 #include <thread>
+#include <string_utils.h>
 #include "rocksdb/utilities/checkpoint.h"
 
 
 void ReplicationClosure::Run() {
-    // Auto delete this after Run()
+    // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
 
     // Respond to this RPC.
-    brpc::ClosureGuard done_guard(done);
     if (status().ok()) {
         return;
     }
@@ -51,12 +51,13 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
     return 0;
 }
 
-void ReplicationState::write(const http_req* request, http_res* response, google::protobuf::Closure* done) {
-    brpc::ClosureGuard done_guard(done);
-
+void ReplicationState::write(http_req* request, http_res* response) {
     if (!is_leader()) {
+        LOG(INFO) << "Write called on a follower.";
         // TODO: return redirect(response);
     }
+
+    LOG(INFO) << "*** write thread id: " << std::this_thread::get_id();
 
     // Serialize request to replicated WAL so that all the peers in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
@@ -69,7 +70,7 @@ void ReplicationState::write(const http_req* request, http_res* response, google
     braft::Task task;
     task.data = &log;
     // This callback would be invoked when the task actually executes or fails
-    task.done = new ReplicationClosure(this, _http_server, request, response, done_guard.release());
+    task.done = new ReplicationClosure(message_dispatcher, request, response);
 
     // To avoid ABA problem
     task.expected_term = _leader_term.load(butil::memory_order_relaxed);
@@ -104,13 +105,8 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
-        int64_t detal_value = 0;
-        http_res* response = NULL;
-        const http_req* request;
-        std::unique_ptr<http_req> remote_request(new http_req);
-
-        // Guard helps to invoke iter.done()->Run() asynchronously to avoid the callback blocking the StateMachine
-        braft::AsyncClosureGuard closure_guard(iter.done());
+        http_res* response;
+        http_req* request;
 
         if (iter.done()) {
             // This task is applied by this node, get value from the closure to avoid additional parsing.
@@ -119,16 +115,23 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             request = c->get_request();
         } else {
             // Parse request from the log
+            response = new http_res;
+            http_req* remote_request = new http_req;
             remote_request->deserialize(iter.data().to_string());
-            request = remote_request.get();
+            remote_request->_req = nullptr;  // indicates remote request
+
+            request = remote_request;
         }
 
         // Now that the log has been parsed, perform the actual operation
-        // TODO: call http server thread for write
+        // Call http server thread for write and response back to client (if `response` is NOT null)
+        //auto replication_arg = new ReplicationArg{request, response, iter.done()};
+        //message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        if (response) {
-            // TODO: leader, so send response back to the client
-        }
+        LOG(INFO) << "*** on_apply thread id: " << std::this_thread::get_id();
+        LOG(INFO) << request->body;
+        LOG(INFO) << "Done";
+        //iter.done()->Run();
     }
 }
 
@@ -158,8 +161,6 @@ void* ReplicationState::save_snapshot(void* arg) {
     butil::FileEnumerator dir_enum(butil::FilePath(snapshot_path),false, butil::FileEnumerator::FILES);
     for (butil::FilePath name = dir_enum.Next(); !name.empty(); name = dir_enum.Next()) {
         std::string file_name = "rocksdb_snapshot/" + name.BaseName().value();
-        sa->writer->add_file(file_name);
-
         if (sa->writer->add_file(file_name) != 0) {
             sa->done->status().set_error(EIO, "Fail to add file to writer.");
             return NULL;
@@ -172,7 +173,7 @@ void* ReplicationState::save_snapshot(void* arg) {
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
     // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
     SnapshotArg* arg = new SnapshotArg;
-    arg->db = _db;
+    arg->db = db;
     arg->writer = writer;
     arg->done = done;
     bthread_t tid;
@@ -212,9 +213,9 @@ bool ReplicationState::copy_snapshot(const std::string& from_path, const std::st
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     // reset rocksdb handle
-    if (_db != NULL) {
-        delete _db;
-        _db = NULL;
+    if (db != NULL) {
+        delete db;
+        db = NULL;
     }
 
     CHECK(!is_leader()) << "Leader is not supposed to load snapshot";
@@ -231,8 +232,8 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     }
 
     LOG(TRACE) << "rm " << db_path << " success";
-    //TODO: try use link instead of copy
 
+    // tries to use link if possible, or else copies
     if (!copy_snapshot(snapshot_path, db_path)) {
         LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << db_path << " failed";
         return -1;
@@ -251,4 +252,31 @@ void ReplicationState::refresh_peers(const std::string & peers) {
         RefreshPeersClosure* refresh_peers_done = new RefreshPeersClosure;
         _node->change_peers(conf, refresh_peers_done);
     }
+}
+
+bool ReplicationState::on_raft_replication(void *data) {
+    ReplicationArg* replication_arg = static_cast<ReplicationArg*>(data);
+
+    // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
+    braft::AsyncClosureGuard closure_guard(replication_arg->done);
+
+    std::vector<std::string> path_parts;
+    StringUtils::split(replication_arg->req->path_without_query, path_parts, "/");
+
+    /*route_path* found_rpath = nullptr;
+    bool found = replication_arg->res->server->find_route(path_parts, replication_arg->req->http_method, &found_rpath);
+
+    if(found) {
+        // call handler function -- this effectively does the write
+        found_rpath->handler(*replication_arg->req, *replication_arg->res);
+
+        if(replication_arg->req->_req != nullptr) {
+            // local request, respond to request
+            replication_arg->res->server->send_response(replication_arg->req, replication_arg->res);
+        }
+    }
+
+    delete replication_arg;*/
+
+    return true;
 }

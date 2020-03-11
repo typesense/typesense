@@ -45,6 +45,49 @@ Option<std::string> fetch_file_contents(const std::string & file_path) {
     return Option<std::string>(content);
 }
 
+void response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+    custom_generator->handler(custom_generator->req, custom_generator->res, custom_generator->data);
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, custom_generator->res->body.c_str(), SIZE_MAX);
+    const h2o_send_state_t state = custom_generator->res->final ?
+                                   H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    h2o_send(req, &body, 1, state);
+
+    if(custom_generator->res->final) {
+        h2o_dispose_request(req);
+        delete custom_generator->req;
+        delete custom_generator->res;
+        delete custom_generator;
+    }
+}
+
+void response_stop(h2o_generator_t *generator, h2o_req_t *req) {
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+
+    h2o_dispose_request(req);
+    delete custom_generator->req;
+    delete custom_generator->res;
+    delete custom_generator;
+}
+
+void stream_response(bool (*handler)(http_req* req, http_res* res, void* data),
+                     http_req & request, http_res & response, void* data) {
+    h2o_req_t* req = request._req;
+    h2o_custom_generator_t* custom_generator = new h2o_custom_generator_t {
+            h2o_generator_t {response_proceed, response_stop}, handler, &request, &response, data
+    };
+
+    req->res.status = response.status_code;
+    req->res.reason = http_res::get_status_reason(response.status_code);
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, response.content_type_header.c_str(),
+                   response.content_type_header.size());
+    h2o_start_response(req, &custom_generator->super);
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, "", SIZE_MAX);
+    h2o_send(req, &body, 1, H2O_SEND_STATE_IN_PROGRESS);
+}
+
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 
@@ -104,6 +147,14 @@ int init_logger(Config & config, const std::string & server_version, std::unique
     return 0;
 }
 
+bool on_send_response(void *data) {
+    request_response* req_res = static_cast<request_response*>(data);
+    server->send_response(req_res->req, req_res->res);
+    delete req_res;
+
+    return true;
+}
+
 int run_server(const Config & config, const std::string & version,
                void (*master_server_routes)(), void (*replica_server_routes)()) {
 
@@ -147,6 +198,7 @@ int run_server(const Config & config, const std::string & version,
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
+    server->on(ReplicationState::REPLICATION_MSG, ReplicationState::on_raft_replication);
 
     if(config.get_master().empty()) {
         master_server_routes();
@@ -165,13 +217,15 @@ int run_server(const Config & config, const std::string & version,
         LOG(INFO) << "Spawning replication thread...";
 
         std::thread replication_thread([&store, &config]() {
-            Replicator::start(::server, config.get_master(), config.get_api_key(), store);
+            Replicator::start(server->get_message_dispatcher(), config.get_master(), config.get_api_key(), store);
         });
 
         replication_thread.detach();
     }
 
-    std::thread raft_thread([&store, &config]() {
+    ReplicationState replication_state(server->get_message_dispatcher(), store._get_db_unsafe());
+
+    std::thread raft_thread([&replication_state, &store, &config]() {
         std::string path_to_peers = config.get_raft_peers();
 
         if(path_to_peers.empty()) {
@@ -193,7 +247,6 @@ int run_server(const Config & config, const std::string & version,
 
         // start raft server
         brpc::Server raft_server;
-        ReplicationState replication_state;
 
         uint32_t raft_port = config.get_raft_port();
 
@@ -211,7 +264,7 @@ int run_server(const Config & config, const std::string & version,
         StringUtils::split(peer_ips_string, peer_ips, ",");
         std::string peers = StringUtils::join(peer_ips, ":0,");
 
-        if (replication_state.start(raft_port, 1000, 3600, config.get_raft_dir(), peers) != 0) {
+        if (replication_state.start(raft_port, 1000, 60, config.get_raft_dir(), peers) != 0) {
             LOG(ERR) << "Failed to start raft state";
             return -1;
         }
@@ -250,7 +303,7 @@ int run_server(const Config & config, const std::string & version,
 
     raft_thread.detach();
 
-    int ret_code = server->run();
+    int ret_code = server->run(&replication_state);
 
     // we are out of the event loop here
 

@@ -9,30 +9,25 @@
 #include <rocksdb/db.h>
 
 #include "http_data.h"
-#include "http_server.h"
 
-class ReplicationState;
 
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
-    ReplicationState *searchStore;
-    HttpServer* httpServer;
-    const http_req* request;
+    http_message_dispatcher* message_dispatcher;
+    http_req* request;
     http_res* response;
-    google::protobuf::Closure* done;
 
 public:
-    ReplicationClosure(ReplicationState *searchStore, HttpServer* httpServer, const http_req* request, http_res* response,
-                       google::protobuf::Closure* done):
-                       searchStore(searchStore), httpServer(httpServer),
-                       request(request), response(response), done(done) {
+    ReplicationClosure(http_message_dispatcher* message_dispatcher,
+                       http_req* request, http_res* response): message_dispatcher(message_dispatcher),
+                       request(request), response(response) {
 
     }
 
     ~ReplicationClosure() {}
 
-    const http_req* get_request() const {
+    http_req* get_request() const {
         return request;
     }
 
@@ -69,11 +64,13 @@ private:
     braft::Node* volatile _node;
     butil::atomic<int64_t> _value;
     butil::atomic<int64_t> _leader_term;
-    rocksdb::DB* _db;
-    HttpServer* _http_server;
+    rocksdb::DB* db;
+    http_message_dispatcher* message_dispatcher;
 
 public:
-    ReplicationState(): _node(NULL), _value(0), _leader_term(-1) {
+    ReplicationState(http_message_dispatcher* message_dispatcher, rocksdb::DB* db):
+                            _node(NULL), _value(0), _leader_term(-1), db(db),
+                            message_dispatcher(message_dispatcher) {
 
     }
 
@@ -86,7 +83,7 @@ public:
               const std::string & data_path, const std::string & peers);
 
     // Generic write method for synchronizing all writes
-    void write(const http_req* request, http_res* response, google::protobuf::Closure* done);
+    void write(http_req* request, http_res* response);
 
     // Generic read method for consistent reads
     void read(http_res* response);
@@ -112,11 +109,22 @@ public:
         }
     }
 
+    static constexpr const char* REPLICATION_MSG = "raft_replication";
+
+    static bool on_raft_replication(void *data);
+
 private:
+
     friend class ReplicationClosure;
 
     // redirecting request to leader
     void redirect(http_res* response);
+
+    struct ReplicationArg {
+        http_req* req;
+        http_res* res;
+        braft::Closure* done;
+    };
 
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);
