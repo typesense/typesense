@@ -142,7 +142,8 @@ if (APPLE)
     FIND_PACKAGE(ngHTTP2 REQUIRED)
     set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
     set(SYSTEM_LIBS "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreData"
-            "-framework CoreText" "-framework Security" "-framework Foundation")
+            "-framework CoreText" "-framework Security" "-framework Foundation"
+            "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
     set(SYSTEM_LIBS "")
@@ -153,7 +154,7 @@ set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIE
 set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
               ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
 
-set(CORE_LIBS braft brpc leveldb profiler tcmalloc ${CORE_LIBS} gflags ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
+set(CORE_LIBS braft brpc leveldb ${CORE_LIBS} gflags ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
 target_link_libraries(typesense-server ${CORE_LIBS})
