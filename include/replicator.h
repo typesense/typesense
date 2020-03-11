@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string>
-#include "http_server.h"
+#include "http_data.h"
 #include "store.h"
 
 static constexpr const char* REPLICATION_EVENT_MSG = "replication_event";
@@ -19,9 +19,9 @@ struct ReplicationEvent {
 
 class IterateBatchHandler: public rocksdb::WriteBatch::Handler {
 private:
-    HttpServer* server;
+    http_message_dispatcher* message_dispatcher;
 public:
-    IterateBatchHandler(HttpServer* server): server(server) {
+    IterateBatchHandler(http_message_dispatcher* message_dispatcher): message_dispatcher(message_dispatcher) {
 
     }
 
@@ -34,7 +34,7 @@ public:
 
 class Replicator {
 public:
-    static void start(HttpServer* server, const std::string & master_host_port, const std::string & api_key, Store& store);
+    static void start(http_message_dispatcher* message_dispatcher, const std::string & master_host_port, const std::string & api_key, Store& store);
 
-    static void on_replication_event(void *data);
+    static bool on_replication_event(void *data);
 };

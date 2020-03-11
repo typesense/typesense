@@ -22,25 +22,25 @@ void IterateBatchHandler::Put(const rocksdb::Slice& key, const rocksdb::Slice& v
     if(parts.size() == 1 && parts[0] == CollectionManager::NEXT_COLLECTION_ID_KEY) {
         ReplicationEvent* replication_event = new ReplicationEvent("UPDATE_NEXT_COLLECTION_ID", 0,
                                                                    key.ToString(), value.ToString());
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
     if(parts.size() >= 2 && parts[0] == Collection::COLLECTION_META_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("ADD_COLLECTION_META", 0,
                                                                    key.ToString(), value.ToString());
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
     if(parts.size() == 3 && parts[1] == Collection::SEQ_ID_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("ADD_DOCUMENT", std::stoi(parts[0]),
                                                                    key.ToString(), value.ToString());
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
     if(parts.size() >= 2 && parts[0] == CollectionManager::SYMLINK_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("ADD_SYMLINK", 0,
                                                                    key.ToString(), value.ToString());
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 }
 
@@ -50,18 +50,18 @@ void IterateBatchHandler::Delete(const rocksdb::Slice& key) {
 
     if(parts.size() == 3 && parts[1] == Collection::DOC_ID_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("REMOVE_DOCUMENT", 0, key.ToString(), "");
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
     if(parts.size() >= 2 && parts[0] == Collection::COLLECTION_META_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("DROP_COLLECTION", 0, key.ToString(), "");
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
     if(parts.size() >= 2 && parts[0] == CollectionManager::SYMLINK_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("REMOVE_SYMLINK", 0,
                                                                    key.ToString(), "");
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 
 }
@@ -73,16 +73,16 @@ void IterateBatchHandler::Merge(const rocksdb::Slice& key, const rocksdb::Slice&
     if(parts.size() >= 2 && parts[0] == Collection::COLLECTION_NEXT_SEQ_PREFIX) {
         ReplicationEvent* replication_event = new ReplicationEvent("INCR_COLLECTION_NEXT_SEQ", 0,
                                                                    key.ToString(), value.ToString());
-        server->send_message(REPLICATION_EVENT_MSG, replication_event);
+        message_dispatcher->send_message(REPLICATION_EVENT_MSG, replication_event);
     }
 }
 
-void Replicator::start(HttpServer* server, const std::string & master_host_port,
+void Replicator::start(http_message_dispatcher* message_dispatcher, const std::string & master_host_port,
                        const std::string & api_key, Store& store) {
     size_t total_runs = 0;
 
     while(true) {
-        IterateBatchHandler handler(server);
+        IterateBatchHandler handler(message_dispatcher);
         uint64_t latest_seq_num = store.get_latest_seq_number();
 
         if(total_runs++ % 20 == 0) {
@@ -132,7 +132,7 @@ void Replicator::start(HttpServer* server, const std::string & master_host_port,
     }
 }
 
-void Replicator::on_replication_event(void *data) {
+bool Replicator::on_replication_event(void *data) {
     ReplicationEvent* replication_event = static_cast<ReplicationEvent*>(data);
 
     if(replication_event->type == "UPDATE_NEXT_COLLECTION_ID") {
@@ -209,4 +209,6 @@ void Replicator::on_replication_event(void *data) {
     }
 
     delete replication_event;
+
+    return true;
 }

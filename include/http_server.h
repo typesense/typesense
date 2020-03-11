@@ -11,13 +11,11 @@ extern "C" {
 
 #include <map>
 #include <string>
-#include <stdio.h>
+#include <cstdio>
 #include "http_data.h"
+#include "option.h"
 
-struct request_response {
-    http_req* req;
-    http_res* response;
-};
+class ReplicationState;
 
 class HttpServer {
 private:
@@ -27,15 +25,16 @@ private:
     h2o_accept_ctx_t* accept_ctx;
     h2o_hostconf_t *hostconf;
     h2o_socket_t* listener_socket;
-    h2o_multithread_queue_t* message_queue;
-    h2o_multithread_receiver_t* message_receiver;
+
+    http_message_dispatcher* message_dispatcher;
+
+    ReplicationState* replication_state;
+
     bool exit_loop = false;
 
     std::string version;
 
     std::vector<route_path> routes;
-
-    std::map<std::string, void (*)(void*)> message_handlers;
 
     const std::string listen_address;
 
@@ -58,13 +57,9 @@ private:
     h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                      int (*on_req)(h2o_handler_t *, h2o_req_t *));
 
-    static const char* get_status_reason(uint32_t status_code);
-
     static std::map<std::string, std::string> parse_query(const std::string& query);
 
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
-
-    static void on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t *messages);
 
     static int send_401_unauthorized(h2o_req_t *req);
 
@@ -75,36 +70,36 @@ public:
 
     ~HttpServer();
 
+    http_message_dispatcher* get_message_dispatcher() const;
+
+    ReplicationState* get_replication_state() const;
+
     void set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key));
 
-    void get(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
+    void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void post(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
+    void post(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void put(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
+    void put(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void del(const std::string & path, void (*handler)(http_req & req, http_res & res), bool async = false);
+    void del(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
 
-    void on(const std::string & message, void (*handler)(void*));
+    void on(const std::string & message, bool (*handler)(void*));
 
     void send_message(const std::string & type, void* data);
 
     void send_response(http_req* request, const http_res* response);
 
-    void stream_response(void (*handler)(http_req* req, http_res* res, void* data), http_req & request,
-                         http_res & response, void* data);
+    bool find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
+                    route_path** found_rpath);
 
-    static void response_proceed(h2o_generator_t *generator, h2o_req_t *req);
-
-    static void response_stop(h2o_generator_t *generator, h2o_req_t *req);
-
-    int run();
+    int run(ReplicationState* replication_state);
 
     void stop();
 
     void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts);
 
-    static void on_stop_server(void *data);
+    static bool on_stop_server(void *data);
 
     std::string get_version();
 

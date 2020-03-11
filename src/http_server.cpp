@@ -6,25 +6,12 @@
 #include <signal.h>
 #include <h2o.h>
 #include <iostream>
+#include "raft_server.h"
 #include "logger.h"
 
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
     HttpServer* http_server;
-};
-
-struct h2o_custom_res_message_t {
-    h2o_multithread_message_t super;
-    HttpServer* http_server;
-    std::string type;
-    void* data;
-};
-
-struct h2o_custom_generator_t {
-    h2o_generator_t super;
-    void (*handler)(http_req* req, http_res* res, void* data);
-    request_response req_res;
-    void* data;
 };
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
@@ -36,6 +23,7 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
+    message_dispatcher = new http_message_dispatcher;
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -127,13 +115,12 @@ int HttpServer::create_listener(void) {
     return 0;
 }
 
-int HttpServer::run() {
+int HttpServer::run(ReplicationState* replication_state) {
     signal(SIGPIPE, SIG_IGN);
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
-    message_queue = h2o_multithread_create_queue(ctx.loop);
-    message_receiver = new h2o_multithread_receiver_t();
-    h2o_multithread_register_receiver(message_queue, message_receiver, on_message);
+    this->replication_state = replication_state;
+    message_dispatcher->init(ctx.loop);
 
     if (create_listener() != 0) {
         LOG(ERR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
@@ -142,7 +129,7 @@ int HttpServer::run() {
         LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;
     }
 
-    on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
+    message_dispatcher->on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
 
     while(!exit_loop) {
         h2o_evloop_run(ctx.loop, INT32_MAX);
@@ -151,8 +138,9 @@ int HttpServer::run() {
     return 0;
 }
 
-void HttpServer::on_stop_server(void *data) {
+bool HttpServer::on_stop_server(void *data) {
     // do nothing
+    return true;
 }
 
 std::string HttpServer::get_version() {
@@ -179,22 +167,7 @@ void HttpServer::stop() {
     exit_loop = true;
 
     // send a message to activate the idle event loop to exit, just in case
-    send_message(STOP_SERVER_MESSAGE, nullptr);
-}
-
-void HttpServer::on_message(h2o_multithread_receiver_t *receiver, h2o_linklist_t *messages) {
-    while (!h2o_linklist_is_empty(messages)) {
-        h2o_multithread_message_t *message = H2O_STRUCT_FROM_MEMBER(h2o_multithread_message_t, link, messages->next);
-        h2o_custom_res_message_t *custom_message = reinterpret_cast<h2o_custom_res_message_t*>(message);
-
-        if(custom_message->http_server->message_handlers.count(custom_message->type) != 0) {
-            auto handler = custom_message->http_server->message_handlers.at(custom_message->type);
-            (handler)(custom_message->data);
-        }
-
-        h2o_linklist_unlink(&message->link);
-        delete custom_message;
-    }
+    message_dispatcher->send_message(STOP_SERVER_MESSAGE, nullptr);
 }
 
 h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const char *path,
@@ -212,21 +185,6 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
 
     return pathconf;
 }
-
-const char* HttpServer::get_status_reason(uint32_t status_code) {
-    switch(status_code) {
-        case 200: return "OK";
-        case 201: return "Created";
-        case 400: return "Bad Request";
-        case 401: return "Unauthorized";
-        case 404: return "Not Found";
-        case 409: return "Conflict";
-        case 422: return "Unprocessable Entity";
-        case 500: return "Internal Server Error";
-        default: return "";
-    }
-}
-
 
 std::map<std::string, std::string> HttpServer::parse_query(const std::string& query) {
     std::map<std::string, std::string> query_map;
@@ -247,6 +205,32 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
     }
 
     return query_map;
+}
+
+bool HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
+    for(const route_path & rpath: routes) {
+        if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
+            continue;
+        }
+
+        bool found = true;
+
+        for(size_t i = 0; i < rpath.path_parts.size(); i++) {
+            const std::string & rpart = rpath.path_parts[i];
+            const std::string & given_part = path_parts[i];
+            if(rpart != given_part && rpart[0] != ':') {
+                found = false;
+                break;
+            }
+        }
+
+        if(found) {
+            *found_rpath = const_cast<route_path *>(&rpath);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
@@ -298,7 +282,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
                 h2o_generator_t generator = {NULL, NULL};
                 h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
                 req->res.status = 200;
-                req->res.reason = get_status_reason(200);
+                req->res.reason = http_res::get_status_reason(200);
 
                 h2o_add_header_by_str(&req->pool, &req->res.headers,
                                       H2O_STRLIT("access-control-allow-methods"),
@@ -317,57 +301,48 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         }
     }
 
-    for(const route_path & rpath: self->http_server->routes) {
-        if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
-            continue;
+    route_path *rpath = nullptr;
+    bool found = self->http_server->find_route(path_parts, http_method, &rpath);
+
+    if(found) {
+        bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
+        if(!authenticated) {
+            return send_401_unauthorized(req);
         }
 
-        bool found = true;
-
-        for(size_t i = 0; i < rpath.path_parts.size(); i++) {
-            const std::string & rpart = rpath.path_parts[i];
-            const std::string & given_part = path_parts[i];
-            if(rpart != given_part && rpart[0] != ':') {
-                found = false;
-                goto check_next_route;
+        // routes match and is an authenticated request - iterate and extract path params
+        for(size_t i = 0; i < rpath->path_parts.size(); i++) {
+            const std::string & path_part = rpath->path_parts[i];
+            if(path_part[0] == ':') {
+                query_map.emplace(path_part.substr(1), path_parts[i]);
             }
         }
 
-        check_next_route:
+        http_req* request = new http_req(req, http_method, path_without_query, query_map, req_body);
+        http_res* response = new http_res();
 
-        if(found) {
-            bool authenticated = self->http_server->auth_handler(rpath, auth_key_from_header);
-            if(!authenticated) {
-                return send_401_unauthorized(req);
-            }
-
-            // routes match and is an authenticated request - iterate and extract path params
-            for(size_t i = 0; i < rpath.path_parts.size(); i++) {
-                const std::string & path_part = rpath.path_parts[i];
-                if(path_part[0] == ':') {
-                    query_map.emplace(path_part.substr(1), path_parts[i]);
-                }
-            }
-
-            http_req* request = new http_req(req, path_without_query, query_map, req_body);
-            http_res* response = new http_res();
-            response->server = self->http_server;
-            (rpath.handler)(*request, *response);
-
-            if(!rpath.async) {
-                // If a handler is marked async, it's assumed that it's responsible for sending the response itself
-                // later in an async fashion by calling into the main http thread via a message
-                self->http_server->send_response(request, response);
-            }
-
+        // for writes, we defer to replication_state
+        if(http_method != "GET") {
+            LOG(INFO) << "*** server thread id: " << std::this_thread::get_id();
+            self->http_server->get_replication_state()->write(request, response);
             return 0;
         }
+
+        (rpath->handler)(*request, *response);
+
+        if(!rpath->async) {
+            // If a handler is marked async, it's assumed that it's responsible for sending the response itself
+            // later in an async fashion by calling into the main http thread via a message
+            self->http_server->send_response(request, response);
+        }
+
+        return 0;
     }
 
     h2o_generator_t generator = {NULL, NULL};
     h2o_iovec_t res_body = h2o_strdup(&req->pool, "{ \"message\": \"Not Found\"}", SIZE_MAX);
     req->res.status = 404;
-    req->res.reason = get_status_reason(404);
+    req->res.reason = http_res::get_status_reason(404);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
@@ -376,8 +351,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
-    h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL, NULL}}, this, type.c_str(), data};
-    h2o_multithread_send_message(message_receiver, &message->super);
+    message_dispatcher->send_message(type, data);
 }
 
 void HttpServer::send_response(http_req* request, const http_res* response) {
@@ -386,7 +360,7 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     req->res.status = response->status_code;
-    req->res.reason = get_status_reason(response->status_code);
+    req->res.reason = http_res::get_status_reason(response->status_code);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
@@ -395,57 +369,13 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     delete response;
 }
 
-void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
-    custom_generator->handler(custom_generator->req_res.req, custom_generator->req_res.response,
-                              custom_generator->data);
-
-    h2o_iovec_t body = h2o_strdup(&req->pool, custom_generator->req_res.response->body.c_str(), SIZE_MAX);
-    const h2o_send_state_t state = custom_generator->req_res.response->final ?
-                                   H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
-    h2o_send(req, &body, 1, state);
-
-    if(custom_generator->req_res.response->final) {
-        h2o_dispose_request(req);
-        delete custom_generator->req_res.req;
-        delete custom_generator->req_res.response;
-        delete custom_generator;
-    }
-}
-
-void HttpServer::response_stop(h2o_generator_t *generator, h2o_req_t *req) {
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
-
-    h2o_dispose_request(req);
-    delete custom_generator->req_res.req;
-    delete custom_generator->req_res.response;
-    delete custom_generator;
-}
-
-void HttpServer::stream_response(void (*handler)(http_req* req, http_res* res, void* data),
-                                 http_req & request, http_res & response, void* data) {
-    h2o_req_t* req = request._req;
-    h2o_custom_generator_t* custom_generator = new h2o_custom_generator_t {
-        h2o_generator_t {response_proceed, response_stop}, handler, request_response {&request, &response}, data
-    };
-
-    req->res.status = response.status_code;
-    req->res.reason = get_status_reason(response.status_code);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, response.content_type_header.c_str(),
-                   response.content_type_header.size());
-    h2o_start_response(req, &custom_generator->super);
-
-    h2o_iovec_t body = h2o_strdup(&req->pool, "", SIZE_MAX);
-    h2o_send(req, &body, 1, H2O_SEND_STATE_IN_PROGRESS);
-}
-
 int HttpServer::send_401_unauthorized(h2o_req_t *req) {
     h2o_generator_t generator = {NULL, NULL};
     std::string res_body = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
                                        "` header must be sent.\"}";
     h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
     req->res.status = 401;
-    req->res.reason = get_status_reason(req->res.status);
+    req->res.reason = http_res::get_status_reason(req->res.status);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
@@ -456,46 +386,40 @@ void HttpServer::set_auth_handler(bool (*handler)(const route_path & rpath, cons
     auth_handler = handler;
 }
 
-void HttpServer::get(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"GET", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::post(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"POST", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::put(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"PUT", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::del(const std::string & path, void (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"DELETE", path_parts, handler, async};
     routes.push_back(rpath);
 }
 
-void HttpServer::on(const std::string & message, void (*handler)(void*)) {
-    message_handlers.emplace(message, handler);
+void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
+    message_dispatcher->on(message, handler);
 }
 
 HttpServer::~HttpServer() {
-    // drain all existing messages
-    on_message(message_receiver, &message_receiver->_messages);
-
-    h2o_multithread_unregister_receiver(message_queue, message_receiver);
-    h2o_multithread_destroy_queue(message_queue);
-    free(message_queue);
-    delete message_receiver;
+    delete message_dispatcher;
 
     // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
     std::vector<h2o_timeout_t*> timeouts = {
@@ -520,4 +444,12 @@ HttpServer::~HttpServer() {
 
     SSL_CTX_free(accept_ctx->ssl_ctx);
     delete accept_ctx;
+}
+
+http_message_dispatcher* HttpServer::get_message_dispatcher() const {
+    return message_dispatcher;
+}
+
+ReplicationState* HttpServer::get_replication_state() const {
+    return replication_state;
 }
