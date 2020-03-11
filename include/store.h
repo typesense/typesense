@@ -47,6 +47,7 @@ private:
 
     rocksdb::DB *db;
     rocksdb::Options options;
+    rocksdb::WriteOptions write_options;
 
 public:
 
@@ -68,6 +69,10 @@ public:
         // these need to be high for replication scenarios
         options.WAL_ttl_seconds = wal_ttl_secs;
         options.WAL_size_limit_MB = wal_size_mb;
+
+        // Disable WAL for master writes (Raft's WAL is used)
+        // The replica uses native WAL, though.
+        write_options.disableWAL = true;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
@@ -91,12 +96,12 @@ public:
     }
 
     bool insert(const std::string& key, const std::string& value) {
-        rocksdb::Status status = db->Put(rocksdb::WriteOptions(), key, value);
+        rocksdb::Status status = db->Put(write_options, key, value);
         return status.ok();
     }
 
     bool batch_write(rocksdb::WriteBatch& batch) {
-        rocksdb::Status status = db->Write(rocksdb::WriteOptions(), &batch);
+        rocksdb::Status status = db->Write(write_options, &batch);
         return status.ok();
     }
 
@@ -122,7 +127,7 @@ public:
     }
 
     bool remove(const std::string& key) {
-        rocksdb::Status status = db->Delete(rocksdb::WriteOptions(), key);
+        rocksdb::Status status = db->Delete(write_options, key);
         return status.ok();
     }
 
@@ -147,7 +152,7 @@ public:
     }
 
     void increment(const std::string & key, uint32_t value) {
-        db->Merge(rocksdb::WriteOptions(), key, StringUtils::serialize_uint32_t(value));
+        db->Merge(write_options, key, StringUtils::serialize_uint32_t(value));
     }
 
     uint64_t get_latest_seq_number() const {

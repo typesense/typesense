@@ -607,3 +607,26 @@ bool get_replication_updates(http_req & req, http_res & res) {
     response_thread.detach();
     return true;
 }
+
+bool async_write_request(void *data) {
+    LOG(INFO) << "async_write_request called";
+    AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
+
+    if(index_arg->req->route_index == -1) {
+        return false;
+    }
+
+    route_path* found_rpath;
+    server->get_route(index_arg->req->route_index, &found_rpath);
+
+    // call the underlying http handler
+    found_rpath->handler(*index_arg->req, *index_arg->res);
+
+    if(index_arg->req->_req != nullptr) {
+        // we have to return a response to the client
+        server->send_response(index_arg->req, index_arg->res);
+    }
+
+    index_arg->promise->set_value(true);  // returns control back to caller
+    return true;
+}

@@ -70,7 +70,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     braft::Task task;
     task.data = &log;
     // This callback would be invoked when the task actually executes or fails
-    task.done = new ReplicationClosure(message_dispatcher, request, response);
+    task.done = new ReplicationClosure(request, response);
 
     // To avoid ABA problem
     task.expected_term = _leader_term.load(butil::memory_order_relaxed);
@@ -108,6 +108,9 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         http_res* response;
         http_req* request;
 
+        // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
+        braft::AsyncClosureGuard closure_guard(iter.done());
+
         if (iter.done()) {
             // This task is applied by this node, get value from the closure to avoid additional parsing.
             ReplicationClosure* c = dynamic_cast<ReplicationClosure*>(iter.done());
@@ -125,20 +128,21 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
 
         // Now that the log has been parsed, perform the actual operation
         // Call http server thread for write and response back to client (if `response` is NOT null)
-        //auto replication_arg = new ReplicationArg{request, response, iter.done()};
-        //message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        // We use a future to block current thread until the async flow finishes
 
-        LOG(INFO) << "*** on_apply thread id: " << std::this_thread::get_id();
-        LOG(INFO) << request->body;
-        LOG(INFO) << "Done";
-        //iter.done()->Run();
+        std::promise<bool> promise;
+        std::future<bool> future = promise.get_future();
+        auto replication_arg = new AsyncIndexArg{request, response, &promise};
+        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+
+        bool value = future.get();
+
     }
 }
 
 void* ReplicationState::save_snapshot(void* arg) {
-    ReplicationState::SnapshotArg* sa = (ReplicationState::SnapshotArg*) arg;
-    std::unique_ptr<ReplicationState::SnapshotArg> arg_guard(sa);
-
+    SnapshotArg* sa = static_cast<SnapshotArg*>(arg);
+    std::unique_ptr<SnapshotArg> arg_guard(sa);
     brpc::ClosureGuard done_guard(sa->done);
 
     std::string snapshot_path = sa->writer->get_path() + "/rocksdb_snapshot";
@@ -245,6 +249,10 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 }
 
 void ReplicationState::refresh_peers(const std::string & peers) {
+    if(db == NULL) {
+        LOG(ERROR) << "DB IS NULL!";
+    }
+
     if(_node && is_leader()) {
         LOG(INFO) << "Refreshing peer config";
         braft::Configuration conf;
@@ -254,29 +262,3 @@ void ReplicationState::refresh_peers(const std::string & peers) {
     }
 }
 
-bool ReplicationState::on_raft_replication(void *data) {
-    ReplicationArg* replication_arg = static_cast<ReplicationArg*>(data);
-
-    // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
-    braft::AsyncClosureGuard closure_guard(replication_arg->done);
-
-    std::vector<std::string> path_parts;
-    StringUtils::split(replication_arg->req->path_without_query, path_parts, "/");
-
-    /*route_path* found_rpath = nullptr;
-    bool found = replication_arg->res->server->find_route(path_parts, replication_arg->req->http_method, &found_rpath);
-
-    if(found) {
-        // call handler function -- this effectively does the write
-        found_rpath->handler(*replication_arg->req, *replication_arg->res);
-
-        if(replication_arg->req->_req != nullptr) {
-            // local request, respond to request
-            replication_arg->res->server->send_response(replication_arg->req, replication_arg->res);
-        }
-    }
-
-    delete replication_arg;*/
-
-    return true;
-}

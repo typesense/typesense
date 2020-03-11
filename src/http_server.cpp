@@ -207,8 +207,9 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
     return query_map;
 }
 
-bool HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
-    for(const route_path & rpath: routes) {
+int HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
+    for(size_t i = 0; i < routes.size(); i++) {
+        const route_path & rpath = routes[i];
         if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
             continue;
         }
@@ -226,11 +227,11 @@ bool HttpServer::find_route(const std::vector<std::string> & path_parts, const s
 
         if(found) {
             *found_rpath = const_cast<route_path *>(&rpath);
-            return true;
+            return i;
         }
     }
 
-    return false;
+    return -1;
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
@@ -302,9 +303,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     }
 
     route_path *rpath = nullptr;
-    bool found = self->http_server->find_route(path_parts, http_method, &rpath);
+    int route_index = self->http_server->find_route(path_parts, http_method, &rpath);
 
-    if(found) {
+    if(route_index != -1) {
         bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
         if(!authenticated) {
             return send_401_unauthorized(req);
@@ -318,12 +319,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
             }
         }
 
-        http_req* request = new http_req(req, http_method, path_without_query, query_map, req_body);
+        http_req* request = new http_req(req, http_method, route_index, query_map, req_body);
         http_res* response = new http_res();
 
         // for writes, we defer to replication_state
         if(http_method != "GET") {
-            LOG(INFO) << "*** server thread id: " << std::this_thread::get_id();
             self->http_server->get_replication_state()->write(request, response);
             return 0;
         }
@@ -452,4 +452,10 @@ http_message_dispatcher* HttpServer::get_message_dispatcher() const {
 
 ReplicationState* HttpServer::get_replication_state() const {
     return replication_state;
+}
+
+void HttpServer::get_route(size_t index, route_path** found_rpath) {
+    if(index >= 0 && index < routes.size()) {
+        *found_rpath = &routes[index];
+    }
 }
