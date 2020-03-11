@@ -90,8 +90,10 @@ public:
 
     void send_response(http_req* request, const http_res* response);
 
-    bool find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
+    int find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
+
+    void get_route(size_t index, route_path** found_rpath);
 
     int run(ReplicationState* replication_state);
 

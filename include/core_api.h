@@ -32,4 +32,6 @@ bool get_replication_updates(http_req &req, http_res &res);
 
 bool collection_export_handler(http_req* req, http_res* res, void* data);
 
+bool async_write_request(void *data);
+
 static constexpr const char* SEND_RESPONSE_MSG = "send_response";

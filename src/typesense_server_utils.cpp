@@ -5,9 +5,6 @@
 #include <brpc/controller.h>
 #include <brpc/server.h>
 #include <braft/raft.h>
-#include <braft/storage.h>
-#include <braft/util.h>
-#include <braft/protobuf_file.h>
 #include <raft_server.h>
 #include <fstream>
 
@@ -198,7 +195,7 @@ int run_server(const Config & config, const std::string & version,
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
-    server->on(ReplicationState::REPLICATION_MSG, ReplicationState::on_raft_replication);
+    server->on(ReplicationState::REPLICATION_MSG, async_write_request);
 
     if(config.get_master().empty()) {
         master_server_routes();
@@ -225,7 +222,7 @@ int run_server(const Config & config, const std::string & version,
 
     ReplicationState replication_state(server->get_message_dispatcher(), store._get_db_unsafe());
 
-    std::thread raft_thread([&replication_state, &store, &config]() {
+    std::thread raft_thread([&replication_state, &config]() {
         std::string path_to_peers = config.get_raft_peers();
 
         if(path_to_peers.empty()) {

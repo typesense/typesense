@@ -7,6 +7,7 @@
 #include <braft/util.h>                  // braft::AsyncClosureGuard
 #include <braft/protobuf_file.h>         // braft::ProtoBufFile
 #include <rocksdb/db.h>
+#include <future>
 
 #include "http_data.h"
 
@@ -14,14 +15,11 @@
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
-    http_message_dispatcher* message_dispatcher;
     http_req* request;
     http_res* response;
 
 public:
-    ReplicationClosure(http_message_dispatcher* message_dispatcher,
-                       http_req* request, http_res* response): message_dispatcher(message_dispatcher),
-                       request(request), response(response) {
+    ReplicationClosure(http_req* request, http_res* response): request(request), response(response) {
 
     }
 
@@ -111,20 +109,12 @@ public:
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
-    static bool on_raft_replication(void *data);
-
 private:
 
     friend class ReplicationClosure;
 
     // redirecting request to leader
     void redirect(http_res* response);
-
-    struct ReplicationArg {
-        http_req* req;
-        http_res* res;
-        braft::Closure* done;
-    };
 
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);

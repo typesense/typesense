@@ -88,7 +88,7 @@ public:
         this->indices_per_collection  = indices_per_collection;
     }
 
-    void set_raft_port(int v) {
+    void set_raft_port(int raft_port) {
         this->raft_port = raft_port;
     }
 

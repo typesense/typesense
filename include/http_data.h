@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <future>
 #include "json.hpp"
 
 #define H2O_USE_LIBUV 0
@@ -89,20 +90,20 @@ struct http_res {
 struct http_req {
     h2o_req_t* _req;
     std::string http_method;
-    std::string path_without_query;
+    int route_index;
     std::map<std::string, std::string> params;
     std::string body;
 
-    http_req() {}
+    http_req(): route_index(-1) {}
 
-    http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query,
+    http_req(h2o_req_t* _req, const std::string & http_method, size_t route_index,
             const std::map<std::string, std::string> & params,
-            std::string body): _req(_req), http_method(http_method), path_without_query(path_without_query),
+            std::string body): _req(_req), http_method(http_method), route_index(route_index),
             params(params), body(body) {}
 
     void deserialize(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
-        path_without_query = content["path"];
+        route_index = content["route_index"];
         body = content["body"];
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
@@ -114,7 +115,7 @@ struct http_req {
 
     std::string serialize() const {
         nlohmann::json content;
-        content["path"] = path_without_query;
+        content["route_index"] = route_index;
         content["params"] = params;
         content["body"] = body;
 
@@ -197,4 +198,10 @@ struct http_message_dispatcher {
     void on(const std::string & message, bool (*handler)(void*)) {
         message_handlers.emplace(message, handler);
     }
+};
+
+struct AsyncIndexArg {
+    http_req* req;
+    http_res* res;
+    std::promise<bool>* promise;
 };
