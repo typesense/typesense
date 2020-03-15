@@ -252,12 +252,12 @@ public:
             this->enable_cors = reader.GetBoolean("server", "enable-cors", false);
         }
 
-        if(reader.Exists("server", "raft-port")) {
+        if(reader.Exists("server", "peering-port")) {
             this->raft_port = reader.GetInteger("server", "raft-port", 8107);
         }
 
-        if(reader.Exists("server", "raft-peers")) {
-            this->raft_peers = reader.Get("server", "raft-peers", "");
+        if(reader.Exists("server", "peers")) {
+            this->raft_peers = reader.Get("server", "peers", "");
         }
     }
 
@@ -302,12 +302,12 @@ public:
             this->enable_cors = options.exist("enable-cors");
         }
 
-        if(options.exist("raft-port")) {
-            this->raft_port = options.get<uint32_t>("raft-port");
+        if(options.exist("peering-port")) {
+            this->raft_port = options.get<uint32_t>("peering-port");
         }
 
-        if(options.exist("raft-peers")) {
-            this->raft_peers = options.get<std::string>("raft-peers");
+        if(options.exist("peers")) {
+            this->raft_peers = options.get<std::string>("peers");
         }
     }
 
