@@ -51,7 +51,9 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot() firing and we will wait for that to return the promise
-    } else {
+    } else if(!create_init_db_snapshot) {
+        // `create_init_db_snapshot` will be handled only after leader starts, otherwise:
+
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
         if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
@@ -158,11 +160,13 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             request = remote_request;
         }
 
-        if(request->http_method == "SELF") {
+        if(request->http_method == "PRIVATE" && request->body == "INIT_SNAPSHOT") {
             // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
-            InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(ready);
+            InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(this);
             node->snapshot(init_snapshot_closure);
-            return ;
+            delete request;
+            delete response;
+            continue ;
         }
 
         // Now that the log has been parsed, perform the actual operation
@@ -303,9 +307,23 @@ rocksdb::DB *ReplicationState::get_db() const {
     return db;
 }
 
-ReplicationState::ReplicationState(Store *store, http_message_dispatcher *message_dispatcher, std::promise<bool> *ready):
-        node(nullptr), leader_term(-1), message_dispatcher(message_dispatcher), has_initialized(false), ready(ready) {
+ReplicationState::ReplicationState(Store *store, http_message_dispatcher *message_dispatcher,
+                                   std::promise<bool> *ready, bool create_init_db_snapshot):
+        node(nullptr), leader_term(-1), message_dispatcher(message_dispatcher),
+        has_initialized(false), ready(ready), create_init_db_snapshot(create_init_db_snapshot) {
     db = store->_get_db_unsafe();
     db_path = store->get_state_dir_path();
     db_options = store->get_db_options();
+}
+
+void InitSnapshotClosure::Run() {
+    // Auto delete this after Run()
+    std::unique_ptr<InitSnapshotClosure> self_guard(this);
+
+    if(status().ok()) {
+        LOG(INFO) << "Init snapshot succeeded!";
+        replication_state->init_db();
+    } else {
+        LOG(ERROR) << "Init snapshot failed, error: " << status().error_str();
+    }
 }
