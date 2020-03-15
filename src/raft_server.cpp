@@ -56,6 +56,7 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
 
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
+        reset_db();
         if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
             LOG(WARNING) << "rm " << db_path << " failed";
             return -1;
@@ -226,11 +227,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 }
 
 int ReplicationState::init_db() {
-    if (db != nullptr) {
-        delete db;
-        db = nullptr;
-    }
-
     if (!butil::CreateDirectory(butil::FilePath(db_path))) {
         LOG(WARNING) << "CreateDirectory " << db_path << " failed";
         return -1;
@@ -270,15 +266,16 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     // Load snapshot from reader, replacing the running StateMachine
 
-    std::string snapshot_path = reader->get_path();
-    snapshot_path.append(std::string("/") + db_snapshot_name);
-
+    reset_db();
     if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
         LOG(WARNING) << "rm " << db_path << " failed";
         return -1;
     }
 
     LOG(TRACE) << "rm " << db_path << " success";
+
+    std::string snapshot_path = reader->get_path();
+    snapshot_path.append(std::string("/") + db_snapshot_name);
 
     // tries to use link if possible, or else copies
     if (!copy_dir(snapshot_path, db_path)) {
@@ -316,12 +313,18 @@ ReplicationState::ReplicationState(Store *store, http_message_dispatcher *messag
     db_options = store->get_db_options();
 }
 
+void ReplicationState::reset_db() {
+    delete db;
+    db = nullptr;
+}
+
 void InitSnapshotClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<InitSnapshotClosure> self_guard(this);
 
     if(status().ok()) {
         LOG(INFO) << "Init snapshot succeeded!";
+        replication_state->reset_db();
         replication_state->init_db();
     } else {
         LOG(ERROR) << "Init snapshot failed, error: " << status().error_str();
