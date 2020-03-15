@@ -2,6 +2,7 @@
 
 #include <string>
 #include <curl/curl.h>
+#include "file_utils.h"
 
 /*
   NOTE: This is a really primitive blocking client meant only for specific Typesense use cases.

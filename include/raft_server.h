@@ -11,6 +11,7 @@
 
 #include "http_data.h"
 
+class Store;
 
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
@@ -56,29 +57,61 @@ public:
     }
 };
 
+// Closure that fires when initial snapshot operation finishes
+class InitSnapshotClosure : public braft::Closure {
+private:
+    std::promise<bool>* ready;
+public:
+
+    InitSnapshotClosure(std::promise<bool>* ready): ready(ready) {}
+
+    ~InitSnapshotClosure() {}
+
+    void Run() {
+        // Auto delete this after Run()
+        std::unique_ptr<InitSnapshotClosure> self_guard(this);
+
+        if(status().ok()) {
+            LOG(INFO) << "Init snapshot succeeded!";
+        } else {
+            LOG(ERROR) << "Init snapshot failed, error: " << status().error_str();
+        }
+    }
+};
+
+
 // Implements braft::StateMachine.
 class ReplicationState : public braft::StateMachine {
 private:
-    braft::Node* volatile _node;
-    butil::atomic<int64_t> _value;
-    butil::atomic<int64_t> _leader_term;
+    static constexpr const char* db_snapshot_name = "db_snapshot";
+
+    braft::Node* volatile node;
+    butil::atomic<int64_t> leader_term;
+
     rocksdb::DB* db;
+    std::string db_path;
+    rocksdb::Options db_options;
+
     http_message_dispatcher* message_dispatcher;
 
-public:
-    ReplicationState(http_message_dispatcher* message_dispatcher, rocksdb::DB* db):
-                            _node(NULL), _value(0), _leader_term(-1), db(db),
-                            message_dispatcher(message_dispatcher) {
+    butil::atomic<bool> has_initialized;
+    std::promise<bool>* ready;
 
-    }
+public:
+
+    static constexpr const char* log_dir_name = "log";
+    static constexpr const char* meta_dir_name = "meta";
+    static constexpr const char* snapshot_dir_name = "snapshot";
+
+    ReplicationState(Store* store, http_message_dispatcher* message_dispatcher, std::promise<bool>* ready);
 
     ~ReplicationState() {
-        delete _node;
+        delete node;
     }
 
     // Starts this node
     int start(int port, int election_timeout_ms, int snapshot_interval_s,
-              const std::string & data_path, const std::string & peers);
+              const std::string & raft_dir, const std::string & peers);
 
     // Generic write method for synchronizing all writes
     void write(http_req* request, http_res* response);
@@ -90,22 +123,24 @@ public:
     void refresh_peers(const std::string & peers);
 
     bool is_leader() const {
-        return _leader_term.load(butil::memory_order_acquire) > 0;
+        return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
     // Shut this node down.
     void shutdown() {
-        if (_node) {
-            _node->shutdown(NULL);
+        if (node) {
+            node->shutdown(nullptr);
         }
     }
 
     // Blocking this thread until the node is eventually down.
     void join() {
-        if (_node) {
-            _node->join();
+        if (node) {
+            node->join();
         }
     }
+
+    rocksdb::DB *get_db() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
@@ -129,17 +164,27 @@ private:
 
     void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done);
 
-    static bool copy_snapshot(const std::string& from_path, const std::string& to_path);
+    int init_db();
 
     int on_snapshot_load(braft::SnapshotReader* reader);
 
     void on_leader_start(int64_t term) {
-        _leader_term.store(term, butil::memory_order_release);
+        leader_term.store(term, butil::memory_order_release);
+        /*if(!has_initialized.load()) {
+            has_initialized.store(true, butil::memory_order_release);
+            ready->set_value(true);
+        }*/
+
+        // have to write a dummy write, otherwise snapshot will not trigger
+        //http_req* request = new http_req(nullptr, "SELF", 0, {}, "INIT");
+        //http_res* response = new http_res();
+        //write(request, response);
+
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
     void on_leader_stop(const butil::Status& status) {
-        _leader_term.store(-1, butil::memory_order_release);
+        leader_term.store(-1, butil::memory_order_release);
         LOG(INFO) << "Node stepped down : " << status;
     }
 
@@ -155,11 +200,15 @@ private:
         LOG(INFO) << "Configuration of this group is " << conf;
     }
 
-    void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
-        LOG(INFO) << "Node stops following " << ctx;
+    void on_start_following(const ::braft::LeaderChangeContext& ctx) {
+        if(!has_initialized.load()) {
+            has_initialized.store(true, butil::memory_order_release);
+            ready->set_value(true);
+        }
+        LOG(INFO) << "Node start following " << ctx;
     }
 
-    void on_start_following(const ::braft::LeaderChangeContext& ctx) {
-        LOG(INFO) << "Node start following " << ctx;
+    void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
+        LOG(INFO) << "Node stops following " << ctx;
     }
 };

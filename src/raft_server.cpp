@@ -1,7 +1,10 @@
+#include "store.h"
 #include "raft_server.h"
 #include <butil/files/file_enumerator.h>
 #include <thread>
 #include <string_utils.h>
+#include <file_utils.h>
+#include <collection_manager.h>
 #include "rocksdb/utilities/checkpoint.h"
 
 
@@ -21,7 +24,8 @@ void ReplicationClosure::Run() {
 // State machine implementation
 
 int ReplicationState::start(int port, int election_timeout_ms, int snapshot_interval_s,
-                            const std::string & data_path, const std::string & peers) {
+                            const std::string & raft_dir, const std::string & peers) {
+
     butil::EndPoint addr(butil::my_ip(), port);
     braft::NodeOptions node_options;
 
@@ -34,20 +38,50 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
     node_options.snapshot_interval_s = snapshot_interval_s;
-    std::string prefix = "local://" + data_path;
-    node_options.log_uri = prefix + "/log";
-    node_options.raft_meta_uri = prefix + "/raft_meta";
-    node_options.snapshot_uri = prefix + "/snapshot";
+    std::string prefix = "local://" + raft_dir;
+    node_options.log_uri = prefix + "/" + log_dir_name;
+    node_options.raft_meta_uri = prefix + "/" + meta_dir_name;
+    node_options.snapshot_uri = prefix + "/" + snapshot_dir_name;
     node_options.disable_cli = true;
 
     braft::Node* node = new braft::Node("default_group", braft::PeerId(addr));
+
+    std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
+    bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
+
+    if(snapshot_exists) {
+        // we will be assured of on_snapshot() firing and we will wait for that to return the promise
+    } else {
+        LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
+
+        if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
+            LOG(WARNING) << "rm " << db_path << " failed";
+            return -1;
+        }
+
+        init_db(); // TODO: handle error
+    }
+
     if (node->init(node_options) != 0) {
         LOG(ERROR) << "Fail to init raft node";
         delete node;
         return -1;
     }
 
-    _node = node;
+    std::vector<std::string> peer_vec;
+    StringUtils::split(peers, peer_vec, ",");
+
+    if(peer_vec.size() == 1) {
+        // NOTE: `reset_peers` is NOT safe to run on a cluster of nodes, but okay for standalone
+        braft::Configuration conf;
+        conf.parse_from(peers);
+        auto status = node->reset_peers(conf);
+        if(!status.ok()) {
+            LOG(ERROR) << status.error_str();
+        }
+    }
+
+    this->node = node;
     return 0;
 }
 
@@ -56,8 +90,6 @@ void ReplicationState::write(http_req* request, http_res* response) {
         LOG(INFO) << "Write called on a follower.";
         // TODO: return redirect(response);
     }
-
-    LOG(INFO) << "*** write thread id: " << std::this_thread::get_id();
 
     // Serialize request to replicated WAL so that all the peers in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
@@ -73,10 +105,10 @@ void ReplicationState::write(http_req* request, http_res* response) {
     task.done = new ReplicationClosure(request, response);
 
     // To avoid ABA problem
-    task.expected_term = _leader_term.load(butil::memory_order_relaxed);
+    task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
     // Now the task is applied to the group, waiting for the result.
-    return _node->apply(task);
+    return node->apply(task);
 }
 
 void ReplicationState::read(http_res* response) {
@@ -93,8 +125,8 @@ void ReplicationState::read(http_res* response) {
 }
 
 void ReplicationState::redirect(http_res* response) {
-    if (_node) {
-        braft::PeerId leader = _node->leader_id();
+    if (node) {
+        braft::PeerId leader = node->leader_id();
         if (!leader.is_empty()) {
             // TODO: response->set_redirect(leader.to_string());
         }
@@ -126,6 +158,13 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             request = remote_request;
         }
 
+        if(request->http_method == "SELF") {
+            // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
+            InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(ready);
+            node->snapshot(init_snapshot_closure);
+            return ;
+        }
+
         // Now that the log has been parsed, perform the actual operation
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
@@ -134,9 +173,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         std::future<bool> future = promise.get_future();
         auto replication_arg = new AsyncIndexArg{request, response, &promise};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
-
-        bool value = future.get();
-
+        future.get();
     }
 }
 
@@ -145,33 +182,33 @@ void* ReplicationState::save_snapshot(void* arg) {
     std::unique_ptr<SnapshotArg> arg_guard(sa);
     brpc::ClosureGuard done_guard(sa->done);
 
-    std::string snapshot_path = sa->writer->get_path() + "/rocksdb_snapshot";
+    std::string snapshot_path = sa->writer->get_path() + "/" + db_snapshot_name;
 
-    rocksdb::Checkpoint* checkpoint = NULL;
+    rocksdb::Checkpoint* checkpoint = nullptr;
     rocksdb::Status status = rocksdb::Checkpoint::Create(sa->db, &checkpoint);
 
     if(!status.ok()) {
         LOG(WARNING) << "Checkpoint Create failed, msg:" << status.ToString();
-        return NULL;
+        return nullptr;
     }
 
     std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
     status = checkpoint->CreateCheckpoint(snapshot_path);
     if(!status.ok()) {
         LOG(WARNING) << "Checkpoint CreateCheckpoint failed, msg:" << status.ToString();
-        return NULL;
+        return nullptr;
     }
 
     butil::FileEnumerator dir_enum(butil::FilePath(snapshot_path),false, butil::FileEnumerator::FILES);
     for (butil::FilePath name = dir_enum.Next(); !name.empty(); name = dir_enum.Next()) {
-        std::string file_name = "rocksdb_snapshot/" + name.BaseName().value();
+        std::string file_name = std::string(db_snapshot_name) + "/" + name.BaseName().value();
         if (sa->writer->add_file(file_name) != 0) {
             sa->done->status().set_error(EIO, "Fail to add file to writer.");
-            return NULL;
+            return nullptr;
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
@@ -184,52 +221,54 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
 
-bool ReplicationState::copy_snapshot(const std::string& from_path, const std::string& to_path) {
-    struct stat from_stat;
-
-    if (stat(from_path.c_str(), &from_stat) < 0 || !S_ISDIR(from_stat.st_mode)) {
-        LOG(WARNING) << "stat " << from_path << " failed";
-        return false;
+int ReplicationState::init_db() {
+    if (db != nullptr) {
+        delete db;
+        db = nullptr;
     }
 
-    if (!butil::CreateDirectory(butil::FilePath(to_path))) {
-        LOG(WARNING) << "CreateDirectory " << to_path << " failed";
-        return false;
+    if (!butil::CreateDirectory(butil::FilePath(db_path))) {
+        LOG(WARNING) << "CreateDirectory " << db_path << " failed";
+        return -1;
     }
 
-    butil::FileEnumerator dir_enum(butil::FilePath(from_path),false, butil::FileEnumerator::FILES);
-    for (butil::FilePath name = dir_enum.Next(); !name.empty(); name = dir_enum.Next()) {
-        std::string src_file(from_path);
-        std::string dst_file(to_path);
-        butil::string_appendf(&src_file, "/%s", name.BaseName().value().c_str());
-        butil::string_appendf(&dst_file, "/%s", name.BaseName().value().c_str());
-
-        if (0 != link(src_file.c_str(), dst_file.c_str())) {
-            if (!butil::CopyFile(butil::FilePath(src_file), butil::FilePath(dst_file))) {
-                LOG(WARNING) << "copy " << src_file << " to " << dst_file << " failed";
-                return false;
-            }
-        }
+    db_options.create_if_missing = true;
+    rocksdb::Status status = rocksdb::DB::Open(db_options, db_path, &db);
+    if (!status.ok()) {
+        LOG(WARNING) << "Open DB " << db_path << " failed, msg: " << status.ToString();
+        return -1;
     }
 
-    return true;
+    LOG(NOTICE) << "DB open success!";
+    LOG(INFO) << "Loading collections from disk...";
+
+    Option<bool> init_op = CollectionManager::get_instance().load();
+
+    if(init_op.ok()) {
+        LOG(INFO) << "Finished loading collections from disk.";
+    } else {
+        LOG(ERROR)<< "Typesense failed to start. " << "Could not load collections from disk: " << init_op.error();
+        return 1;
+    }
+
+    if(!has_initialized.load()) {
+        has_initialized.store(true, butil::memory_order_release);
+        ready->set_value(true);
+    }
+
+    return 0;
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
-    // reset rocksdb handle
-    if (db != NULL) {
-        delete db;
-        db = NULL;
-    }
-
     CHECK(!is_leader()) << "Leader is not supposed to load snapshot";
+
+    LOG(INFO) << "on_snapshot_load";
 
     // Load snapshot from reader, replacing the running StateMachine
 
     std::string snapshot_path = reader->get_path();
-    snapshot_path.append("/rocksdb_snapshot");
+    snapshot_path.append(std::string("/") + db_snapshot_name);
 
-    std::string db_path = "./data/rocksdb_data";  // TODO
     if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
         LOG(WARNING) << "rm " << db_path << " failed";
         return -1;
@@ -238,27 +277,35 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     LOG(TRACE) << "rm " << db_path << " success";
 
     // tries to use link if possible, or else copies
-    if (!copy_snapshot(snapshot_path, db_path)) {
+    if (!copy_dir(snapshot_path, db_path)) {
         LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << db_path << " failed";
         return -1;
     }
 
     LOG(TRACE) << "copy snapshot " << snapshot_path << " to " << db_path << " success";
 
-    return 0;
+    return init_db();
 }
 
 void ReplicationState::refresh_peers(const std::string & peers) {
-    if(db == NULL) {
-        LOG(ERROR) << "DB IS NULL!";
-    }
-
-    if(_node && is_leader()) {
+    if(node && is_leader()) {
         LOG(INFO) << "Refreshing peer config";
+
         braft::Configuration conf;
         conf.parse_from(peers);
+
         RefreshPeersClosure* refresh_peers_done = new RefreshPeersClosure;
-        _node->change_peers(conf, refresh_peers_done);
+        node->change_peers(conf, refresh_peers_done);
     }
 }
 
+rocksdb::DB *ReplicationState::get_db() const {
+    return db;
+}
+
+ReplicationState::ReplicationState(Store *store, http_message_dispatcher *message_dispatcher, std::promise<bool> *ready):
+        node(nullptr), leader_term(-1), message_dispatcher(message_dispatcher), has_initialized(false), ready(ready) {
+    db = store->_get_db_unsafe();
+    db_path = store->get_state_dir_path();
+    db_options = store->get_db_options();
+}

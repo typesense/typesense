@@ -16,7 +16,6 @@ private:
     std::string listen_address;
     uint32_t listen_port;
 
-    std::string raft_dir;
     uint32_t raft_port;
     std::string raft_peers;
 
@@ -92,10 +91,6 @@ public:
         this->raft_port = raft_port;
     }
 
-    void set_raft_dir(const std::string & raft_dir) {
-        this->raft_dir = raft_dir;
-    }
-
     void set_raft_peers(const std::string & raft_peers) {
         this->raft_peers = raft_peers;
     }
@@ -154,10 +149,6 @@ public:
         return this->raft_port;
     }
 
-    std::string get_raft_dir() const {
-        return this->raft_dir;
-    }
-
     std::string get_raft_peers() const {
         return this->raft_peers;
     }
@@ -191,7 +182,6 @@ public:
             this->raft_port = std::stoi(get_env("TYPESENSE_RAFT_PORT"));
         }
 
-        this->raft_dir = get_env("TYPESENSE_RAFT_DIR");
         this->raft_peers = get_env("TYPESENSE_RAFT_PEERS");
 
         this->master = get_env("TYPESENSE_MASTER");
@@ -266,10 +256,6 @@ public:
             this->raft_port = reader.GetInteger("server", "raft-port", 8107);
         }
 
-        if(reader.Exists("server", "raft-dir")) {
-            this->raft_dir = reader.Get("server", "raft-dir", "");
-        }
-
         if(reader.Exists("server", "raft-peers")) {
             this->raft_peers = reader.Get("server", "raft-peers", "");
         }
@@ -320,10 +306,6 @@ public:
             this->raft_port = options.get<uint32_t>("raft-port");
         }
 
-        if(options.exist("raft-dir")) {
-            this->raft_dir = options.get<std::string>("raft-dir");
-        }
-
         if(options.exist("raft-peers")) {
             this->raft_peers = options.get<std::string>("raft-peers");
         }
@@ -342,14 +324,6 @@ public:
 
         if(api_key.empty()) {
             return Option<bool>(500, "API key is not specified.");
-        }
-
-        if(!raft_dir.empty() && raft_peers.empty()) {
-            return Option<bool>(500, "Argument --raft-peers is not specified.");
-        }
-
-        if(!raft_peers.empty() && raft_dir.empty()) {
-            return Option<bool>(500, "Argument --raft-dir is not specified.");
         }
 
         return Option<bool>(true);
