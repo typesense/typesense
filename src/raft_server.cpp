@@ -29,7 +29,15 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
     butil::EndPoint addr(butil::my_ip(), port);
     braft::NodeOptions node_options;
 
-    if(node_options.initial_conf.parse_from(peers) != 0) {
+    std::string actual_peers = peers;
+
+    if(actual_peers == "::") {
+        char str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(addr.ip.s_addr), str, INET_ADDRSTRLEN);
+        actual_peers = std::string(str) + ":" + std::to_string(port) + ":0";
+    }
+
+    if(node_options.initial_conf.parse_from(actual_peers) != 0) {
         LOG(ERROR) << "Fail to parse peer configuration `" << peers << "`";
         return -1;
     }
@@ -76,9 +84,7 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
 
     if(peer_vec.size() == 1) {
         // NOTE: `reset_peers` is NOT safe to run on a cluster of nodes, but okay for standalone
-        braft::Configuration conf;
-        conf.parse_from(peers);
-        auto status = node->reset_peers(conf);
+        auto status = node->reset_peers(node_options.initial_conf);
         if(!status.ok()) {
             LOG(ERROR) << status.error_str();
         }

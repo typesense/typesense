@@ -86,8 +86,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
 
-    options.add<uint32_t>("raft-port", '\0', "Port on which Typesense raft service listens.", false, 8107);
-    options.add<std::string>("raft-peers", '\0', "Path to file with comma separated string of Raft node IPs.", false);
+    options.add<uint32_t>("peering-port", '\0', "Port on which Typesense peering service listens.", false, 8107);
+    options.add<std::string>("peers", '\0', "Path to file with comma separated string of peer node IPs.", false);
 
     options.add<std::string>("master", 'm', "To start the server as read-only replica, "
                              "provide the master's address in http(s)://<master_address>:<master_port> format.",
@@ -147,12 +147,18 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // TODO: early returns must quit parent process as well
 
     const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
-    if(!peers_op.ok()) {
-        LOG(ERR) << peers_op.error();
-        return -1;
-    }
+    std::string peer_ips_string = "::";
 
-    const std::string & peer_ips_string = peers_op.get();
+    if(!peers_op.ok()) {
+        if(peers_op.code() == 404) {
+            LOG(INFO) << "Since no --peers argument is provided, starting a single node Typesense cluster.";
+        } else {
+            LOG(ERR) << peers_op.error();
+            return -1;
+        }
+    } else {
+        peer_ips_string = peers_op.get();
+    }
 
     if(peer_ips_string.empty()) {
         LOG(ERR) << "File containing raft peers is empty.";
@@ -167,7 +173,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         return -1;
     }
 
-    if (raft_server.Start(raft_port, NULL) != 0) {
+    if (raft_server.Start(raft_port, nullptr) != 0) {
         LOG(ERR) << "Failed to start raft server";
         return -1;
     }
@@ -186,7 +192,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
     while (!brpc::IsAskedToQuit()) {
-        if(++raft_counter % 10 == 0) {
+        if(++raft_counter % 10 == 0 && !path_to_peers.empty()) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_peers_op = fetch_file_contents(path_to_peers);
             if(!peers_op.ok()) {
@@ -231,6 +237,12 @@ int run_server(const Config & config, const std::string & version,
     bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
 
     if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
+        if(!config.get_raft_peers().empty()) {
+            LOG(ERR) << "Your data directory needs to be migrated to the new format.";
+            LOG(ERR) << "To do that, please start the Typesense server without the --peers argument.";
+            return 1;
+        }
+
         LOG(INFO) << "Migrating contents of data directory in a `db` sub-directory, as per the new data layout.";
         bool moved = mv_dir(data_dir, db_dir);
         if(!moved) {
