@@ -56,11 +56,13 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    Option<bool> init(Store *store,
-                      const size_t default_num_indices,
-                      const std::string & auth_key,
-                      const std::string & search_only_auth_key,
-                      const size_t init_batch_size=1000);
+    void init(Store *store,
+              const size_t default_num_indices,
+              const std::string & auth_key,
+              const std::string & search_only_auth_key
+              );
+
+    Option<bool> load(const size_t init_batch_size=1000);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
     void dispose();

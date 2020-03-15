@@ -48,16 +48,17 @@ void CollectionManager::add_to_collections(Collection* collection) {
     collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
 }
 
-Option<bool> CollectionManager::init(Store *store,
-                                     const size_t default_num_indices,
-                                     const std::string & auth_key,
-                                     const std::string & search_only_auth_key,
-                                     const size_t init_batch_size) {
+void CollectionManager::init(Store *store,
+                             const size_t default_num_indices,
+                             const std::string & auth_key,
+                             const std::string & search_only_auth_key) {
     this->store = store;
     this->auth_key = auth_key;
     this->search_only_auth_key = search_only_auth_key;
     this->default_num_indices = default_num_indices;
+}
 
+Option<bool> CollectionManager::load(const size_t init_batch_size) {
     std::string next_collection_id_str;
     StoreStatus next_coll_id_status = store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
 
@@ -143,7 +144,7 @@ Option<bool> CollectionManager::init(Store *store,
             num_docs_read++;
 
             iter_batch[seq_id % collection->get_num_indices()].push_back(
-                index_record(0, seq_id, iter->value().ToString(), document)
+                    index_record(0, seq_id, iter->value().ToString(), document)
             );
 
             if(num_docs_read % init_batch_size == 0) {
@@ -193,6 +194,7 @@ Option<bool> CollectionManager::init(Store *store,
 
     return Option<bool>(true);
 }
+
 
 void CollectionManager::dispose() {
     for(auto & name_collection: collections) {

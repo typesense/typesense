@@ -44,7 +44,6 @@ class Store {
 private:
 
     const std::string state_dir_path;
-
     rocksdb::DB *db;
     rocksdb::Options options;
     rocksdb::WriteOptions write_options;
@@ -235,6 +234,14 @@ public:
     // Only for internal tests
     rocksdb::DB* _get_db_unsafe() const {
         return db;
+    }
+
+    const std::string& get_state_dir_path() const {
+        return state_dir_path;
+    }
+
+    const rocksdb::Options &get_db_options() const {
+        return options;
     }
 
     void print_memory_usage() {

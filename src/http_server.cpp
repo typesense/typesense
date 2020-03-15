@@ -23,7 +23,12 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
+
+    signal(SIGPIPE, SIG_IGN);
+    h2o_context_init(&ctx, h2o_evloop_create(), &config);
+
     message_dispatcher = new http_message_dispatcher;
+    message_dispatcher->init(ctx.loop);
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -116,11 +121,7 @@ int HttpServer::create_listener(void) {
 }
 
 int HttpServer::run(ReplicationState* replication_state) {
-    signal(SIGPIPE, SIG_IGN);
-    h2o_context_init(&ctx, h2o_evloop_create(), &config);
-
     this->replication_state = replication_state;
-    message_dispatcher->init(ctx.loop);
 
     if (create_listener() != 0) {
         LOG(ERR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
