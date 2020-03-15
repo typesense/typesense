@@ -228,6 +228,8 @@ int run_server(const Config & config, const std::string & version,
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
 
+    bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
+
     if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
         LOG(INFO) << "Migrating contents of data directory in a `db` sub-directory, as per the new data layout.";
         bool moved = mv_dir(data_dir, db_dir);
@@ -236,6 +238,8 @@ int run_server(const Config & config, const std::string & version,
             LOG(ERR) << "NOTE: Please move remaining files manually. Failure to do so **WILL** lead to **DATA LOSS**.";
             return 1;
         }
+
+        create_init_db_snapshot = true;
     }
 
     Store store(db_dir);
@@ -264,7 +268,7 @@ int run_server(const Config & config, const std::string & version,
     std::promise<bool> ready_promise;
     std::future<bool> ready_future = ready_promise.get_future();
 
-    ReplicationState replication_state(&store, server->get_message_dispatcher(), &ready_promise);
+    ReplicationState replication_state(&store, server->get_message_dispatcher(), &ready_promise, create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
         std::string path_to_peers = config.get_raft_peers();

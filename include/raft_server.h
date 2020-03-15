@@ -12,6 +12,7 @@
 #include "http_data.h"
 
 class Store;
+class ReplicationState;
 
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
@@ -60,23 +61,14 @@ public:
 // Closure that fires when initial snapshot operation finishes
 class InitSnapshotClosure : public braft::Closure {
 private:
-    std::promise<bool>* ready;
+    ReplicationState* replication_state;
 public:
 
-    InitSnapshotClosure(std::promise<bool>* ready): ready(ready) {}
+    InitSnapshotClosure(ReplicationState* replication_state): replication_state(replication_state) {}
 
     ~InitSnapshotClosure() {}
 
-    void Run() {
-        // Auto delete this after Run()
-        std::unique_ptr<InitSnapshotClosure> self_guard(this);
-
-        if(status().ok()) {
-            LOG(INFO) << "Init snapshot succeeded!";
-        } else {
-            LOG(ERROR) << "Init snapshot failed, error: " << status().error_str();
-        }
-    }
+    void Run();
 };
 
 
@@ -96,6 +88,7 @@ private:
 
     butil::atomic<bool> has_initialized;
     std::promise<bool>* ready;
+    bool create_init_db_snapshot;
 
 public:
 
@@ -103,7 +96,8 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(Store* store, http_message_dispatcher* message_dispatcher, std::promise<bool>* ready);
+    ReplicationState(Store* store, http_message_dispatcher* message_dispatcher,
+                     std::promise<bool>* ready, bool create_init_db_snapshot);
 
     ~ReplicationState() {
         delete node;
@@ -140,6 +134,8 @@ public:
         }
     }
 
+    int init_db();
+
     rocksdb::DB *get_db() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
@@ -164,21 +160,17 @@ private:
 
     void on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done);
 
-    int init_db();
-
     int on_snapshot_load(braft::SnapshotReader* reader);
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
-        /*if(!has_initialized.load()) {
-            has_initialized.store(true, butil::memory_order_release);
-            ready->set_value(true);
-        }*/
 
-        // have to write a dummy write, otherwise snapshot will not trigger
-        //http_req* request = new http_req(nullptr, "SELF", 0, {}, "INIT");
-        //http_res* response = new http_res();
-        //write(request, response);
+        // have to do a dummy write, otherwise snapshot will not trigger
+        if(create_init_db_snapshot) {
+            http_req* request = new http_req(nullptr, "PRIVATE", 0, {}, "INIT_SNAPSHOT");
+            http_res* response = new http_res();
+            write(request, response);
+        }
 
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
@@ -201,10 +193,6 @@ private:
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
-        if(!has_initialized.load()) {
-            has_initialized.store(true, butil::memory_order_release);
-            ready->set_value(true);
-        }
         LOG(INFO) << "Node start following " << ctx;
     }
 
