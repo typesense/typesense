@@ -136,6 +136,8 @@ public:
 
     int init_db();
 
+    void reset_db();
+
     rocksdb::DB *get_db() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";

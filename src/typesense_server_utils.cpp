@@ -176,7 +176,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     StringUtils::split(peer_ips_string, peer_ips, ",");
     std::string peers = StringUtils::join(peer_ips, ":0,");
 
-    if (replication_state.start(raft_port, 1000, 60, state_dir, peers) != 0) {
+    if (replication_state.start(raft_port, 1000, 600, state_dir, peers) != 0) {
         LOG(ERR) << "Failed to start raft state";
         return -1;
     }
