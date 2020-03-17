@@ -22,6 +22,7 @@ int main(int argc, char* argv[]) {
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, 4, "abcd", "123");
+    collectionManager.load();
 
     std::vector<field> fields_to_index = {
             field("lang", field_types::STRING, true),

@@ -47,6 +47,7 @@ void benchmark_hn_titles(char* file_path) {
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, 4, "abcd", "1234");
+    collectionManager.load();
 
     Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
@@ -116,6 +117,7 @@ void benchmark_reactjs_pages(char* file_path) {
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, 4, "abcd", "1234");
+    collectionManager.load();
 
     Collection *collection = collectionManager.get_collection("reactjs_pages");
     if(collection == nullptr) {
