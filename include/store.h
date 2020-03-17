@@ -54,7 +54,7 @@ public:
 
     Store(const std::string & state_dir_path,
           const size_t wal_ttl_secs = 24*60*60,
-          const size_t wal_size_mb = 1024): state_dir_path(state_dir_path) {
+          const size_t wal_size_mb = 1024, bool disable_wal = true): state_dir_path(state_dir_path) {
         // Optimize RocksDB
         options.IncreaseParallelism();
         options.OptimizeLevelStyleCompaction();
@@ -71,7 +71,7 @@ public:
 
         // Disable WAL for master writes (Raft's WAL is used)
         // The replica uses native WAL, though.
-        write_options.disableWAL = true;
+        write_options.disableWAL = disable_wal;
 
         // open DB
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);

@@ -10,7 +10,7 @@ TEST(StoreTest, GetUpdatesSince) {
 
     // add some records, get the updates and restore them in a new store
 
-    Store primary_store(primary_store_path);
+    Store primary_store(primary_store_path, 24*60*60, 1024, false);
 
     // on a fresh store, sequence number is 0
     Option<std::vector<std::string>*> updates_op = primary_store.get_updates_since(0, 10);
@@ -36,6 +36,7 @@ TEST(StoreTest, GetUpdatesSince) {
     primary_store.insert("foo1", "bar1");
     ASSERT_EQ(1, primary_store.get_latest_seq_number());
     updates_op = primary_store.get_updates_since(1, 10);
+    std::cout << updates_op.error() << std::endl;
     ASSERT_TRUE(updates_op.ok());
     ASSERT_EQ(1, updates_op.get()->size());
     delete updates_op.get();
@@ -66,7 +67,7 @@ TEST(StoreTest, GetUpdatesSince) {
     LOG(INFO) << "Truncating and creating: " << replica_store_path;
     system(("rm -rf "+replica_store_path+" && mkdir -p "+replica_store_path).c_str());
 
-    Store replica_store(replica_store_path);
+    Store replica_store(replica_store_path, 24*60*60, 1024, false);
     rocksdb::DB* replica_db = replica_store._get_db_unsafe();
 
     updates_op = primary_store.get_updates_since(0, 10);
@@ -124,7 +125,7 @@ TEST(StoreTest, GetUpdateSinceInvalidIterator) {
 
     // add some records, get the updates and restore them in a new store
 
-    Store primary_store(primary_store_path, 0, 0);  // disable WAL
+    Store primary_store(primary_store_path, 0, 0, true);  // disable WAL
     primary_store.insert("foo1", "bar1");
     primary_store.insert("foo2", "bar2");
     primary_store.insert("foo3", "bar3");
