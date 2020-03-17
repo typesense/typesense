@@ -45,4 +45,7 @@ TEST(StringUtilsTest, ShouldJoinString) {
 
     const std::string & joined_str2 = StringUtils::join(parts, "/", 2);
     ASSERT_STREQ("baz/bazinga", joined_str2.c_str());
+
+    const std::string & joined_str3 = StringUtils::join({}, "/");
+    ASSERT_STREQ("", joined_str3.c_str());
 }

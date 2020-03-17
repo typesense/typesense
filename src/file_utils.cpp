@@ -12,7 +12,7 @@ bool directory_exists(const std::string & dir_path) {
 
 bool file_exists(const std::string & file_path) {
     struct stat info;
-    return stat(file_path.c_str(), &info) == 0;
+    return stat(file_path.c_str(), &info) == 0 && !(info.st_mode & S_IFDIR);
 }
 
 // tries to hard link first

@@ -144,25 +144,23 @@ bool on_send_response(void *data) {
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir,
                       const std::string& path_to_peers, uint32_t raft_port) {
-    // TODO: early returns must quit parent process as well
 
-    const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
-    std::string peer_ips_string = "::";
+    std::string peer_ips_string;
 
-    if(!peers_op.ok()) {
-        if(peers_op.code() == 404) {
-            LOG(INFO) << "Since no --peers argument is provided, starting a single node Typesense cluster.";
-        } else {
-            LOG(ERR) << peers_op.error();
-            return -1;
-        }
+    if(path_to_peers.empty()) {
+        LOG(INFO) << "Since no --peers argument is provided, starting a single node Typesense cluster.";
     } else {
-        peer_ips_string = peers_op.get();
-    }
+        const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
 
-    if(peer_ips_string.empty()) {
-        LOG(ERR) << "File containing raft peers is empty.";
-        return -1;
+        if(!peers_op.ok()) {
+            LOG(ERR) << peers_op.error();
+            exit(-1);
+        } else if(peer_ips_string.empty()) {
+            LOG(ERR) << "File containing raft peers is empty.";
+            exit(-1);
+        } else {
+            peer_ips_string = peers_op.get();
+        }
     }
 
     // start raft server
@@ -170,12 +168,12 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     if (braft::add_service(&raft_server, raft_port) != 0) {
         LOG(ERR) << "Failed to add raft service";
-        return -1;
+        exit(-1);
     }
 
     if (raft_server.Start(raft_port, nullptr) != 0) {
         LOG(ERR) << "Failed to start raft server";
-        return -1;
+        exit(-1);
     }
 
     std::vector<std::string> peer_ips;
@@ -184,7 +182,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     if (replication_state.start(raft_port, 1000, 600, state_dir, peers) != 0) {
         LOG(ERR) << "Failed to start raft state";
-        return -1;
+        exit(-1);
     }
 
     LOG(INFO) << "Typesense raft service is running on " << raft_server.listen_address();
@@ -195,7 +193,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         if(++raft_counter % 10 == 0 && !path_to_peers.empty()) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_peers_op = fetch_file_contents(path_to_peers);
-            if(!peers_op.ok()) {
+            if(!refreshed_peers_op.ok()) {
                 LOG(ERR) << "Error while refreshing peer configuration: " << refreshed_peers_op.error();
                 continue;
             }
