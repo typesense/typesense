@@ -48,7 +48,7 @@ struct StringUtils {
 
     static std::string join(std::vector<std::string> vec, std::string delimiter, size_t start_index = 0) {
         std::stringstream ss;
-        for(size_t i = start_index; i <= vec.size()-1; i++) {
+        for(size_t i = start_index; i < vec.size(); i++) {
             if(i != start_index) {
                 ss << delimiter;
             }
