@@ -42,30 +42,29 @@ RUN make -C /opt/openssl-1.1.1d install
 ADD https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz /opt/curl-7.65.3.tar.gz
 RUN tar -C /opt -xf /opt/curl-7.65.3.tar.gz
 RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
---without-ca-bundle --without-ca-path && make -j8 && make install
+--without-ca-bundle --without-ca-path && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/gflags/gflags/archive/v2.2.2.tar.gz /opt/gflags-2.2.2.tar.gz
 RUN tar -C /opt -xf /opt/gflags-2.2.2.tar.gz
-RUN cd /opt/gflags-2.2.2 && cmake . -DBUILD_SHARED_LIBS=OFF && make -j8 && make install
+RUN cd /opt/gflags-2.2.2 && cmake . -DBUILD_SHARED_LIBS=OFF && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 RUN apt-get install -y autoconf automake libtool unzip
+RUN rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protobuf-cpp-3.11.4.tar.gz /opt/protobuf-cpp-3.11.4.tar.gz
 RUN tar -C /opt -xf /opt/protobuf-cpp-3.11.4.tar.gz
-RUN cd /opt/protobuf-3.11.4 && ./configure --disable-shared && make -j8 && make check && make install
+RUN cd /opt/protobuf-3.11.4 && ./configure --disable-shared && make -j8 && make check && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/google/leveldb/archive/1.22.tar.gz /opt/leveldb-1.22.tar.gz.tar.gz
 RUN tar -C /opt -xf /opt/leveldb-1.22.tar.gz.tar.gz
 RUN mkdir -p /opt/leveldb-1.22/build && cd /opt/leveldb-1.22/build && cmake -DCMAKE_BUILD_TYPE=Release .. && \
-    cmake --build . && make install
-
-# Remove dynamic libraries
-RUN rm -rf /usr/local/lib/*.so*
+    cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
-RUN cd /opt/incubator-brpc-0.9.7-rc03 && sh config_brpc.sh --nodebugsymbols --headers=/usr/local/include --libs=/usr/local/lib
-RUN cd /opt/incubator-brpc-0.9.7-rc03 && LINK_SO=0 make -j8 && make install
+COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
+RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/build && cd /opt/incubator-brpc-0.9.7-rc03/build && \
+    cmake -DWITH_DEBUG_SYMBOLS=OFF .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++
