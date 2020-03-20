@@ -66,6 +66,11 @@ struct http_res {
         body = "{\"message\": \"Not Found\"}";
     }
 
+    void send_405(const std::string & message) {
+        status_code = 405;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
     void send_409(const std::string & message) {
         status_code = 409;
         body = "{\"message\": \"" + message + "\"}";
@@ -85,6 +90,11 @@ struct http_res {
         status_code = code;
         body = "{\"message\": \"" + message + "\"}";
     }
+};
+
+enum class ROUTE_CODES {
+    NOT_FOUND = -1,
+    RETURN_EARLY = -2,
 };
 
 struct http_req {
