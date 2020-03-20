@@ -107,7 +107,7 @@ public:
     // Generic write method for synchronizing all writes
     void write(http_req* request, http_res* response);
 
-    // Generic read method for consistent reads
+    // Generic read method for consistent reads, not used for now
     void read(http_res* response);
 
     // updates cluster membership
@@ -141,9 +141,6 @@ private:
 
     friend class ReplicationClosure;
 
-    // redirecting request to leader
-    void redirect(http_res* response);
-
     // actual application of writes onto the WAL
     void on_apply(braft::Iterator& iter);
 
@@ -164,7 +161,7 @@ private:
 
         // have to do a dummy write, otherwise snapshot will not trigger
         if(create_init_db_snapshot) {
-            http_req* request = new http_req(nullptr, "PRIVATE", 0, {}, "INIT_SNAPSHOT");
+            http_req* request = new http_req(nullptr, "", 0, {}, "INIT_SNAPSHOT");
             http_res* response = new http_res();
             write(request, response);
         }

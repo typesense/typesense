@@ -232,7 +232,7 @@ int HttpServer::find_route(const std::vector<std::string> & path_parts, const st
         }
     }
 
-    return -1;
+    return static_cast<int>(ROUTE_CODES::NOT_FOUND);
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {

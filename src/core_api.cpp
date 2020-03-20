@@ -610,11 +610,17 @@ bool get_replication_updates(http_req & req, http_res & res) {
 
 bool async_write_request(void *data) {
     LOG(INFO) << "async_write_request called";
+
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
-    if(index_arg->req->route_index == -1) {
+    if(index_arg->req->route_index == static_cast<int>(ROUTE_CODES::NOT_FOUND)) {
+        // route not found
         return false;
+    } else if(index_arg->req->route_index == static_cast<int>(ROUTE_CODES::RETURN_EARLY)) {
+        // respond without calling internal route
+        server->send_response(index_arg->req, index_arg->res);
+        return true;
     }
 
     route_path* found_rpath;
@@ -628,6 +634,9 @@ bool async_write_request(void *data) {
         server->send_response(index_arg->req, index_arg->res);
     }
 
-    index_arg->promise->set_value(true);  // returns control back to caller
+    if(index_arg->promise != nullptr) {
+        index_arg->promise->set_value(true);  // returns control back to caller
+    }
+
     return true;
 }

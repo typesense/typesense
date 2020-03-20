@@ -44,7 +44,6 @@ Option<std::string> fetch_file_contents(const std::string & file_path) {
         return Option<std::string>(404, "Error reading file containing raft peers.");
     }
 
-    std::string contents;
     std::ifstream infile(file_path);
     std::string content((std::istreambuf_iterator<char>(infile)), (std::istreambuf_iterator<char>()));
     infile.close();
@@ -182,11 +181,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         if(!peers_op.ok()) {
             LOG(ERROR) << peers_op.error();
             exit(-1);
-        } else if(peer_ips_string.empty()) {
-            LOG(ERROR) << "File containing raft peers is empty.";
-            exit(-1);
         } else {
             peer_ips_string = peers_op.get();
+            if(peer_ips_string.empty()) {
+                LOG(ERROR) << "File containing raft peers is empty.";
+                exit(-1);
+            } else {
+                peer_ips_string = peers_op.get();
+            }
         }
     }
 

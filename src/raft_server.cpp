@@ -9,16 +9,9 @@
 
 
 void ReplicationClosure::Run() {
+    // nothing much to do here since responding to client is handled upstream
     // Auto delete `this` after Run()
     std::unique_ptr<ReplicationClosure> self_guard(this);
-
-    // Respond to this RPC.
-    if (status().ok()) {
-        return;
-    }
-
-    // Try redirect if this request failed.
-    // TODO: searchStore->redirect(response);
 }
 
 // State machine implementation
@@ -96,8 +89,13 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
 
 void ReplicationState::write(http_req* request, http_res* response) {
     if (!is_leader()) {
-        LOG(INFO) << "Write called on a follower.";
-        // TODO: return redirect(response);
+        LOG(INFO) << "Rejecting write sent to follower.";
+
+        response->send_405("Not the leader.");
+        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
+        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        return ;
     }
 
     // Serialize request to replicated WAL so that all the peers in the group receive it as well.
@@ -121,25 +119,9 @@ void ReplicationState::write(http_req* request, http_res* response) {
 }
 
 void ReplicationState::read(http_res* response) {
-    // For consistency, reads to follower must be rejected.
-    if (!is_leader()) {
-        // This node is a follower or it's not up-to-date. Redirect to
-        // the leader if possible.
-        return redirect(response);
-    }
-
-    // This is the leader and is up-to-date. It's safe to respond client
-    // TODO:
-    // response->set_value(_value.load(butil::memory_order_relaxed));
-}
-
-void ReplicationState::redirect(http_res* response) {
-    if (node) {
-        braft::PeerId leader = node->leader_id();
-        if (!leader.is_empty()) {
-            // TODO: response->set_redirect(leader.to_string());
-        }
-    }
+    // NOT USED:
+    // For consistency, reads to followers could be rejected.
+    // Currently, we don't do implement reads via raft.
 }
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
@@ -167,7 +149,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             request = remote_request;
         }
 
-        if(request->http_method == "PRIVATE" && request->body == "INIT_SNAPSHOT") {
+        if(request->_req == nullptr && request->body == "INIT_SNAPSHOT") {
             // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
             InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(this);
             node->snapshot(init_snapshot_closure);
