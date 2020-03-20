@@ -61,7 +61,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     int nid = NID_X9_62_prime256v1;
     EC_KEY *key = EC_KEY_new_by_curve_name(nid);
     if (key == NULL) {
-        LOG(ERR) << "Failed to create DH/ECDH.";
+        LOG(ERROR) << "Failed to create DH/ECDH.";
         return -1;
     }
 
@@ -73,11 +73,11 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
     if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
-        LOG(ERR) << "An error occurred while trying to load server certificate file:" << cert_file;
+        LOG(ERROR) << "An error occurred while trying to load server certificate file:" << cert_file;
         return -1;
     }
     if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        LOG(ERR) << "An error occurred while trying to load private key file: " << key_file;
+        LOG(ERROR) << "An error occurred while trying to load private key file: " << key_file;
         return -1;
     }
 
@@ -124,7 +124,7 @@ int HttpServer::run(ReplicationState* replication_state) {
     this->replication_state = replication_state;
 
     if (create_listener() != 0) {
-        LOG(ERR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
+        LOG(ERROR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
         return 1;
     } else {
         LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;

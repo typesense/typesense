@@ -137,7 +137,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             try {
                 document = nlohmann::json::parse(iter->value().ToString());
             } catch(const std::exception& e) {
-                LOG(ERR) << "JSON error: " << e.what();
+                LOG(ERROR) << "JSON error: " << e.what();
                 return Option<bool>(false, "Bad JSON.");
             }
 
@@ -203,6 +203,7 @@ void CollectionManager::dispose() {
     }
 
     collections.clear();
+    store->close();
 }
 
 bool CollectionManager::auth_key_matches(std::string auth_key_sent) {

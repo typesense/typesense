@@ -64,7 +64,13 @@ ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
 COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
 RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/build && cd /opt/incubator-brpc-0.9.7-rc03/build && \
-    cmake -DWITH_DEBUG_SYMBOLS=OFF .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
+    cmake -DWITH_DEBUG_SYMBOLS=ON .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
+
+ADD https://github.com/baidu/braft/archive/v1.1.0.tar.gz /opt/braft-v1.1.0.tar.gz
+RUN tar -C /opt -xf /opt/braft-v1.1.0.tar.gz
+COPY patches/braft_cmakelists.txt /opt/braft-1.1.0/src/CMakeLists.txt
+RUN mkdir -p /opt/braft-1.1.0/build && cd /opt/braft-1.1.0/build && \
+    cmake -DWITH_DEBUG_SYMBOLS=ON .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++

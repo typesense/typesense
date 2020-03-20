@@ -65,8 +65,8 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
         reset_db();
-        if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
-            LOG(WARNING) << "rm " << db_path << " failed";
+        if (!butil::DeleteFile(butil::FilePath(store->get_state_dir_path()), true)) {
+            LOG(WARNING) << "rm " << store->get_state_dir_path() << " failed";
             return -1;
         }
 
@@ -225,7 +225,7 @@ void* ReplicationState::save_snapshot(void* arg) {
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
     // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
     SnapshotArg* arg = new SnapshotArg;
-    arg->db = db;
+    arg->db = store->_get_db_unsafe();
     arg->writer = writer;
     arg->done = done;
     bthread_t tid;
@@ -233,15 +233,14 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 }
 
 int ReplicationState::init_db() {
-    if (!butil::CreateDirectory(butil::FilePath(db_path))) {
-        LOG(WARNING) << "CreateDirectory " << db_path << " failed";
+    if (!butil::CreateDirectory(butil::FilePath(store->get_state_dir_path()))) {
+        LOG(WARNING) << "CreateDirectory " << store->get_state_dir_path() << " failed";
         return -1;
     }
 
-    db_options.create_if_missing = true;
-    rocksdb::Status status = rocksdb::DB::Open(db_options, db_path, &db);
+    const rocksdb::Status& status = store->init_db();
     if (!status.ok()) {
-        LOG(WARNING) << "Open DB " << db_path << " failed, msg: " << status.ToString();
+        LOG(WARNING) << "Open DB " << store->get_state_dir_path() << " failed, msg: " << status.ToString();
         return -1;
     }
 
@@ -273,23 +272,23 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     // Load snapshot from reader, replacing the running StateMachine
 
     reset_db();
-    if (!butil::DeleteFile(butil::FilePath(db_path), true)) {
-        LOG(WARNING) << "rm " << db_path << " failed";
+    if (!butil::DeleteFile(butil::FilePath(store->get_state_dir_path()), true)) {
+        LOG(WARNING) << "rm " << store->get_state_dir_path() << " failed";
         return -1;
     }
 
-    LOG(TRACE) << "rm " << db_path << " success";
+    LOG(TRACE) << "rm " << store->get_state_dir_path() << " success";
 
     std::string snapshot_path = reader->get_path();
     snapshot_path.append(std::string("/") + db_snapshot_name);
 
     // tries to use link if possible, or else copies
-    if (!copy_dir(snapshot_path, db_path)) {
-        LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << db_path << " failed";
+    if (!copy_dir(snapshot_path, store->get_state_dir_path())) {
+        LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " failed";
         return -1;
     }
 
-    LOG(TRACE) << "copy snapshot " << snapshot_path << " to " << db_path << " success";
+    LOG(TRACE) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " success";
 
     return init_db();
 }
@@ -306,22 +305,15 @@ void ReplicationState::refresh_peers(const std::string & peers) {
     }
 }
 
-rocksdb::DB *ReplicationState::get_db() const {
-    return db;
-}
-
 ReplicationState::ReplicationState(Store *store, http_message_dispatcher *message_dispatcher,
                                    std::promise<bool> *ready, bool create_init_db_snapshot):
-        node(nullptr), leader_term(-1), message_dispatcher(message_dispatcher),
+        node(nullptr), leader_term(-1), store(store), message_dispatcher(message_dispatcher),
         has_initialized(false), ready(ready), create_init_db_snapshot(create_init_db_snapshot) {
-    db = store->_get_db_unsafe();
-    db_path = store->get_state_dir_path();
-    db_options = store->get_db_options();
+
 }
 
 void ReplicationState::reset_db() {
-    delete db;
-    db = nullptr;
+    store->close();
 }
 
 void InitSnapshotClosure::Run() {

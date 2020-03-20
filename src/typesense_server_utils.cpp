@@ -7,17 +7,36 @@
 #include <braft/raft.h>
 #include <raft_server.h>
 #include <fstream>
+#include <execinfo.h>
 
 #include "core_api.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 
 HttpServer* server;
+std::atomic<bool> quit_raft_service;
 
 void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
+    quit_raft_service = true;
     server->stop();
+}
+
+void catch_crash(int sig) {
+    void *bt[1024];
+    char **bt_syms;
+    size_t bt_size;
+
+    bt_size = backtrace(bt, 1024);
+    bt_syms = backtrace_symbols(bt, bt_size);
+
+    LOG(ERROR) << "Typesense crashed...";
+    for (size_t i = 0; i < bt_size; i++) {
+        LOG(ERROR) << bt_syms[i];
+    }
+
+    exit(-1);
 }
 
 Option<std::string> fetch_file_contents(const std::string & file_path) {
@@ -103,33 +122,41 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 }
 
-int init_logger(Config & config, const std::string & server_version, std::unique_ptr<g3::LogWorker> & log_worker) {
+int init_logger(Config & config, const std::string & server_version) {
     // remove SIGTERM since we handle it on our own
-    g3::overrideSetupSignals({{SIGABRT, "SIGABRT"}, {SIGFPE, "SIGFPE"},{SIGILL, "SIGILL"}, {SIGSEGV, "SIGSEGV"},});
+    signal(SIGABRT, catch_crash);
+    signal(SIGFPE, catch_crash);
+    signal(SIGILL, catch_crash);
+    signal(SIGSEGV, catch_crash);
+
+    logging::LoggingSettings log_settings;
 
     // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
 
     std::string log_dir = config.get_log_dir();
+    std::string log_path;
 
     if(log_dir.empty()) {
         // use console logger if log dir is not specified
-        log_worker->addSink(std2::make_unique<ConsoleLoggingSink>(),
-                            &ConsoleLoggingSink::ReceiveLogMessage);
+        log_settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
     } else {
         if(!directory_exists(log_dir)) {
             std::cerr << "Typesense failed to start. " << "Log directory " << log_dir << " does not exist.";
             return 1;
         }
 
-        log_worker->addDefaultLogger("typesense", log_dir, "");
+        log_settings.logging_dest = logging::LOG_TO_FILE;
+        log_path = log_dir + "/" + "typesense.log";
+        log_settings.log_file = log_path.c_str();
 
-        std::cout << "Starting Typesense " << server_version << ". Log directory is configured as: "
+        LOG(INFO) << "Starting Typesense " << server_version << ". Log directory is configured as: "
                   << log_dir << std::endl;
     }
 
-    g3::initializeLogging(log_worker.get());
+    logging::InitLogging(log_settings);
+    logging::SetMinLogLevel(0);
 
     return 0;
 }
@@ -153,10 +180,10 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
 
         if(!peers_op.ok()) {
-            LOG(ERR) << peers_op.error();
+            LOG(ERROR) << peers_op.error();
             exit(-1);
         } else if(peer_ips_string.empty()) {
-            LOG(ERR) << "File containing raft peers is empty.";
+            LOG(ERROR) << "File containing raft peers is empty.";
             exit(-1);
         } else {
             peer_ips_string = peers_op.get();
@@ -167,12 +194,12 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     brpc::Server raft_server;
 
     if (braft::add_service(&raft_server, raft_port) != 0) {
-        LOG(ERR) << "Failed to add raft service";
+        LOG(ERROR) << "Failed to add raft service";
         exit(-1);
     }
 
     if (raft_server.Start(raft_port, nullptr) != 0) {
-        LOG(ERR) << "Failed to start raft server";
+        LOG(ERROR) << "Failed to start raft server";
         exit(-1);
     }
 
@@ -181,7 +208,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     std::string peers = StringUtils::join(peer_ips, ":0,");
 
     if (replication_state.start(raft_port, 1000, 600, state_dir, peers) != 0) {
-        LOG(ERR) << "Failed to start raft state";
+        LOG(ERROR) << "Failed to start raft state";
         exit(-1);
     }
 
@@ -189,12 +216,12 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
-    while (!brpc::IsAskedToQuit()) {
+    while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
         if(++raft_counter % 10 == 0 && !path_to_peers.empty()) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_peers_op = fetch_file_contents(path_to_peers);
             if(!refreshed_peers_op.ok()) {
-                LOG(ERR) << "Error while refreshing peer configuration: " << refreshed_peers_op.error();
+                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_peers_op.error();
                 continue;
             }
 
@@ -221,9 +248,10 @@ int run_server(const Config & config, const std::string & version,
                void (*master_server_routes)(), void (*replica_server_routes)()) {
 
     LOG(INFO) << "Starting Typesense " << version << std::flush;
+    quit_raft_service = false;
 
     if(!directory_exists(config.get_data_dir())) {
-        LOG(ERR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
+        LOG(ERROR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
                  << " does not exist.";
         return 1;
     }
@@ -236,16 +264,16 @@ int run_server(const Config & config, const std::string & version,
 
     if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
         if(!config.get_raft_peers().empty()) {
-            LOG(ERR) << "Your data directory needs to be migrated to the new format.";
-            LOG(ERR) << "To do that, please start the Typesense server without the --peers argument.";
+            LOG(ERROR) << "Your data directory needs to be migrated to the new format.";
+            LOG(ERROR) << "To do that, please start the Typesense server without the --peers argument.";
             return 1;
         }
 
         LOG(INFO) << "Migrating contents of data directory in a `db` sub-directory, as per the new data layout.";
         bool moved = mv_dir(data_dir, db_dir);
         if(!moved) {
-            LOG(ERR) << "CRITICAL ERROR! Failed to migrate all files in the data directory into a `db` sub-directory.";
-            LOG(ERR) << "NOTE: Please move remaining files manually. Failure to do so **WILL** lead to **DATA LOSS**.";
+            LOG(ERROR) << "CRITICAL ERROR! Failed to migrate all files in the data directory into a `db` sub-directory.";
+            LOG(ERROR) << "NOTE: Please move remaining files manually. Failure to do so **WILL** lead to **DATA LOSS**.";
             return 1;
         }
 
@@ -285,8 +313,6 @@ int run_server(const Config & config, const std::string & version,
         start_raft_server(replication_state, state_dir, path_to_peers, config.get_raft_port());
     });
 
-    raft_thread.detach();
-
     // wait for raft service to be ready before starting http
     ready_future.get();
 
@@ -299,7 +325,7 @@ int run_server(const Config & config, const std::string & version,
         std::vector<std::string> parts;
         StringUtils::split(master_host_port, parts, ":");
         if(parts.size() != 3) {
-            LOG(ERR) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
+            LOG(ERROR) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
             return 1;
         }
 
@@ -316,6 +342,8 @@ int run_server(const Config & config, const std::string & version,
     int ret_code = server->run(&replication_state);
 
     // we are out of the event loop here
+
+    raft_thread.join();
 
     curl_global_cleanup();
 

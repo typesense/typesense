@@ -53,7 +53,7 @@ public:
         if(!ca_cert_path.empty()) {
             curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
         } else {
-            LOG(ERR) << "Unable to locate system SSL certificates.";
+            LOG(ERROR) << "Unable to locate system SSL certificates.";
             return 0;
         }
 
