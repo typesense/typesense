@@ -74,24 +74,27 @@ public:
         write_options.disableWAL = disable_wal;
 
         // open DB
-        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
-
-        if(!s.ok()) {
-            LOG(ERR) << "Error while initializing store: " << s.ToString();
-            if(s.code() == rocksdb::Status::Code::kIOError) {
-                LOG(ERR) << "It seems like the data directory " << state_dir_path << " is already being used by "
-                         << "another Typesense server. ";
-                LOG(ERR) << "If you are SURE that this is not the case, delete the LOCK file "
-                         << "in the data directory and try again.";
-                exit(1);
-            }
-        }
-
+        const rocksdb::Status& s = init_db();
         assert(s.ok());
     }
 
     ~Store() {
         close();
+    }
+
+    rocksdb::Status init_db() {
+        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+        if(!s.ok()) {
+            LOG(ERROR) << "Error while initializing store: " << s.ToString();
+            if(s.code() == rocksdb::Status::Code::kIOError) {
+                LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
+                           << "another Typesense server. ";
+                LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
+                           << "in the data directory and try again.";
+            }
+        }
+
+        return s;
     }
 
     bool insert(const std::string& key, const std::string& value) {
@@ -121,7 +124,7 @@ public:
             return StoreStatus::NOT_FOUND;
         }
 
-        LOG(ERR) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
+        LOG(ERROR) << "Error while fetching the key: " << key << " - status is: " << status.ToString();
         return StoreStatus::ERROR;
     }
 
@@ -174,12 +177,12 @@ public:
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
 
         if(!status.ok()) {
-            LOG(ERR) << "Error while fetching updates for replication: " << status.ToString();
+            LOG(ERROR) << "Error while fetching updates for replication: " << status.ToString();
 
             std::ostringstream error;
             error << "Unable to fetch updates. " << "Master's latest sequence number is " << local_latest_seq_num
                   << " but requested sequence number is " << seq_number;
-            LOG(ERR) << error.str();
+            LOG(ERROR) << error.str();
 
             return Option<std::vector<std::string>*>(400, error.str());
         }
@@ -189,7 +192,7 @@ public:
             error << "Invalid iterator. Master's latest sequence number is " << local_latest_seq_num << " but "
                   << "updates are requested from sequence number " << seq_number << ". "
                   << "The master's WAL entries might have expired (they are kept only for 24 hours).";
-            LOG(ERR) << error.str();
+            LOG(ERROR) << error.str();
             return Option<std::vector<std::string>*>(400, error.str());
         }
 
@@ -207,7 +210,7 @@ public:
                     error << "Invalid iterator. Requested sequence number is " << seq_number << " but "
                           << "updates are available only from sequence number " << batch.sequence << ". "
                           << "The master's WAL entries might have expired (they are kept only for 24 hours).";
-                    LOG(ERR) << error.str();
+                    LOG(ERROR) << error.str();
                     return Option<std::vector<std::string>*>(400, error.str());
                 }
             }

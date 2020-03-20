@@ -120,11 +120,11 @@ void Replicator::start(http_message_dispatcher* message_dispatcher, const std::s
             }
 
         } else {
-            LOG(ERR) << "Replication error while fetching records from master, status_code=" << status_code
+            LOG(ERROR) << "Replication error while fetching records from master, status_code=" << status_code
                      << ", replica's latest sequence number: " << latest_seq_num;
 
             if(status_code != 0) {
-                LOG(ERR) << json_response;
+                LOG(ERROR) << json_response;
             }
         }
 
@@ -145,8 +145,8 @@ bool Replicator::on_replication_event(void *data) {
         try {
             collection_meta = nlohmann::json::parse(replication_event->value);
         } catch(...) {
-            LOG(ERR) << "Failed to parse collection meta JSON.";
-            LOG(ERR) << "Replication event value: " << replication_event->value;
+            LOG(ERROR) << "Failed to parse collection meta JSON.";
+            LOG(ERROR) << "Replication event value: " << replication_event->value;
             delete replication_event;
             exit(1);
         }

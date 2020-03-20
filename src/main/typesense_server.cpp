@@ -67,8 +67,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    std::unique_ptr<g3::LogWorker> log_worker = g3::LogWorker::createLogWorker();
-    int ret_code = init_logger(config, TYPESENSE_VERSION, log_worker);
+    int ret_code = init_logger(config, TYPESENSE_VERSION);
     if(ret_code != 0) {
         return ret_code;
     }

@@ -93,7 +93,7 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
-        LOG(ERR) << "JSON error: " << e.what();
+        LOG(ERROR) << "JSON error: " << e.what();
         return Option<uint32_t>(400, "Bad JSON.");
     }
 
@@ -717,7 +717,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
 
         if(!document_op.ok()) {
-            LOG(ERR) << "Document fetch error. " << document_op.error();
+            LOG(ERROR) << "Document fetch error. " << document_op.error();
             continue;
         }
 
@@ -819,7 +819,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
 
             if(!document_op.ok()) {
-                LOG(ERR) << "Facet fetch error. " << document_op.error();
+                LOG(ERROR) << "Facet fetch error. " << document_op.error();
                 continue;
             }
 
@@ -1084,7 +1084,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
 
     if(doc_status == StoreStatus::NOT_FOUND) {
-        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
+        LOG(ERROR) << "Sequence ID exists, but document is missing for id: " << id;
         return Option<nlohmann::json>(404, "Could not find a document with id: " + id);
     }
 
@@ -1133,7 +1133,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
 
     if(doc_status == StoreStatus::NOT_FOUND) {
-        LOG(ERR) << "Sequence ID exists, but document is missing for id: " << id;
+        LOG(ERROR) << "Sequence ID exists, but document is missing for id: " << id;
         return Option<std::string>(404, "Could not find a document with id: " + id);
     }
 

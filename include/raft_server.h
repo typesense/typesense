@@ -80,10 +80,7 @@ private:
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
 
-    rocksdb::DB* db;
-    std::string db_path;
-    rocksdb::Options db_options;
-
+    Store *store;
     http_message_dispatcher* message_dispatcher;
 
     butil::atomic<bool> has_initialized;
@@ -137,8 +134,6 @@ public:
     int init_db();
 
     void reset_db();
-
-    rocksdb::DB *get_db() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
