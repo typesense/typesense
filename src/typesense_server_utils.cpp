@@ -345,6 +345,8 @@ int run_server(const Config & config, const std::string & version,
 
     // we are out of the event loop here
 
+    LOG(INFO) << "Typesense API service has quit. Stopping raft service...";
+    quit_raft_service = true;
     raft_thread.join();
 
     curl_global_cleanup();
