@@ -52,7 +52,7 @@ RUN apt-get install -y autoconf automake libtool unzip
 RUN rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/protocolbuffers/protobuf/releases/download/v3.11.4/protobuf-cpp-3.11.4.tar.gz /opt/protobuf-cpp-3.11.4.tar.gz
-RUN tar -C /opt -xf /opt/protobuf-cpp-3.11.4.tar.gz
+RUN tar -C /opt -xf /opt/protobuf-cpp-3.11.4.tar.gz && chown -R root:root /opt/protobuf-3.11.4
 RUN cd /opt/protobuf-3.11.4 && ./configure --disable-shared && make -j8 && make check && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/google/leveldb/archive/1.22.tar.gz /opt/leveldb-1.22.tar.gz.tar.gz
@@ -63,12 +63,15 @@ RUN mkdir -p /opt/leveldb-1.22/build && cd /opt/leveldb-1.22/build && cmake -DCM
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
 COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
+RUN chown root:root /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
 RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/build && cd /opt/incubator-brpc-0.9.7-rc03/build && \
-    cmake -DWITH_DEBUG_SYMBOLS=ON .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
+    cmake -DWITH_DEBUG_SYMBOLS=OFF .. && make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
+    rm -rf /opt/incubator-brpc-0.9.7-rc03/build/output/bin
 
 ADD https://github.com/baidu/braft/archive/v1.1.0.tar.gz /opt/braft-v1.1.0.tar.gz
 RUN tar -C /opt -xf /opt/braft-v1.1.0.tar.gz
 COPY patches/braft_cmakelists.txt /opt/braft-1.1.0/src/CMakeLists.txt
+RUN chown root:root /opt/braft-1.1.0/src/CMakeLists.txt
 RUN mkdir -p /opt/braft-1.1.0/build && cd /opt/braft-1.1.0/build && \
     cmake -DWITH_DEBUG_SYMBOLS=ON .. && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
