@@ -28,7 +28,9 @@ struct http_res {
             case 201: return "Created";
             case 400: return "Bad Request";
             case 401: return "Unauthorized";
+            case 403: return "Forbidden";
             case 404: return "Not Found";
+            case 405: return "Not Allowed";
             case 409: return "Conflict";
             case 422: return "Unprocessable Entity";
             case 500: return "Internal Server Error";
@@ -81,9 +83,9 @@ struct http_res {
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_500(const std::string & res_body) {
+    void send_500(const std::string & message) {
         status_code = 500;
-        body = res_body;
+        body = "{\"message\": \"" + message + "\"}";
     }
 
     void send(uint32_t code, const std::string & message) {

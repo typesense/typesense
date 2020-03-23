@@ -91,26 +91,41 @@ int ReplicationState::start(const int api_port, int raft_port, int election_time
 
 void ReplicationState::write(http_req* request, http_res* response) {
     if (!is_leader()) {
-        LOG(INFO) << "Redirecting write to leader.";
+        if(node->leader_id().is_empty()) {
+            // Handle no leader scenario
+            LOG(ERROR) << "Rejecting write: could not find a leader.";
+            response->send_500("Could not find a leader.");
+            auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+            replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
+            return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        }
 
-        thread_pool->enqueue([](http_req* request, http_res* response,
-                                http_message_dispatcher* message_dispatcher, braft::Node* node) {
+        const std::string & leader_addr = node->leader_id().to_string();
+        LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
+
+        thread_pool->enqueue([leader_addr, request, response, this]() {
             auto raw_req = request->_req;
             std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
             std::vector<std::string> addr_parts;
-            StringUtils::split(node->leader_id().to_string(), addr_parts, ":");
+            StringUtils::split(leader_addr, addr_parts, ":");
             std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
             const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
             std::string url = scheme + "://" + leader_host_port + path;
 
-            std::string api_res;
-            long status = HttpClient::post_response(url, request->body, api_res);
-            response->send(status, api_res);
+            if(request->http_method == "POST") {
+                std::string api_res;
+                long status = HttpClient::post_response(url, request->body, api_res);
+                response->send(status, api_res);
+            } else {
+                const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
+                LOG(ERROR) << err;
+                response->send_500(err);
+            }
 
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
             replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
             message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
-        }, request, response, message_dispatcher, node);
+        });
 
         return ;
     }
