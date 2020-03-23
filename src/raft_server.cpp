@@ -53,7 +53,7 @@ int ReplicationState::start(const int api_port, int raft_port, int election_time
     bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
 
     if(snapshot_exists) {
-        // we will be assured of on_snapshot() firing and we will wait for that to return the promise
+        // we will be assured of on_snapshot() firing and we will wait for that to init_db()
     } else if(!create_init_db_snapshot) {
         // `create_init_db_snapshot` will be handled only after leader starts, otherwise:
 
@@ -65,7 +65,11 @@ int ReplicationState::start(const int api_port, int raft_port, int election_time
             return -1;
         }
 
-        init_db(); // TODO: handle error
+        int init_db_status = init_db();
+        if(init_db_status != 0) {
+            LOG(ERROR) << "Failed to initialize DB.";
+            return init_db_status;
+        }
     }
 
     if (node->init(node_options) != 0) {
