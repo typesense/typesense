@@ -91,10 +91,9 @@ void Replicator::start(http_message_dispatcher* message_dispatcher, const std::s
         }
 
         std::string url = master_host_port+"/replication/updates?seq_number="+std::to_string(latest_seq_num+1);
-        HttpClient client(url, api_key);
 
         std::string json_response;
-        long status_code = client.get_reponse(json_response);
+        long status_code = HttpClient::get_response(url, json_response);
 
         if(status_code == 200) {
             nlohmann::json json_content = nlohmann::json::parse(json_response);
