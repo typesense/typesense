@@ -8,10 +8,12 @@
 #include <raft_server.h>
 #include <fstream>
 #include <execinfo.h>
+#include <http_client.h>
 
 #include "core_api.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
+#include "threadpool.h"
 
 HttpServer* server;
 std::atomic<bool> quit_raft_service;
@@ -169,9 +171,9 @@ bool on_send_response(void *data) {
 }
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir,
-                      const std::string& path_to_peers, uint32_t raft_port) {
+                      const std::string& path_to_peers, uint32_t api_port, uint32_t raft_port) {
 
-    std::string peer_ips_string;
+    std::string peer_ips;
 
     if(path_to_peers.empty()) {
         LOG(INFO) << "Since no --peers argument is provided, starting a single node Typesense cluster.";
@@ -182,12 +184,12 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             LOG(ERROR) << peers_op.error();
             exit(-1);
         } else {
-            peer_ips_string = peers_op.get();
-            if(peer_ips_string.empty()) {
+            peer_ips = peers_op.get();
+            if(peer_ips.empty()) {
                 LOG(ERROR) << "File containing raft peers is empty.";
                 exit(-1);
             } else {
-                peer_ips_string = peers_op.get();
+                peer_ips = peers_op.get();
             }
         }
     }
@@ -205,11 +207,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         exit(-1);
     }
 
-    std::vector<std::string> peer_ips;
-    StringUtils::split(peer_ips_string, peer_ips, ",");
-    std::string peers = StringUtils::join(peer_ips, ":0,");
-
-    if (replication_state.start(raft_port, 1000, 600, state_dir, peers) != 0) {
+    if (replication_state.start(api_port, raft_port, 1000, 600, state_dir, peer_ips) != 0) {
         LOG(ERROR) << "Failed to start raft state";
         exit(-1);
     }
@@ -288,6 +286,8 @@ int run_server(const Config & config, const std::string & version,
                            config.get_api_key(), config.get_search_only_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
+    HttpClient & httpClient = HttpClient::get_instance();
+    httpClient.init(config.get_api_key());
 
     server = new HttpServer(
         version,
@@ -308,11 +308,13 @@ int run_server(const Config & config, const std::string & version,
     std::promise<bool> ready_promise;
     std::future<bool> ready_future = ready_promise.get_future();
 
-    ReplicationState replication_state(&store, server->get_message_dispatcher(), &ready_promise, create_init_db_snapshot);
+    ThreadPool thread_pool(4);
+    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), &ready_promise,
+                                       create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
         std::string path_to_peers = config.get_raft_peers();
-        start_raft_server(replication_state, state_dir, path_to_peers, config.get_raft_port());
+        start_raft_server(replication_state, state_dir, path_to_peers, config.get_listen_port(), config.get_raft_port());
     });
 
     // wait for raft service to be ready before starting http

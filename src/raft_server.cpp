@@ -5,6 +5,7 @@
 #include <string_utils.h>
 #include <file_utils.h>
 #include <collection_manager.h>
+#include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
 
 
@@ -16,10 +17,10 @@ void ReplicationClosure::Run() {
 
 // State machine implementation
 
-int ReplicationState::start(int port, int election_timeout_ms, int snapshot_interval_s,
+int ReplicationState::start(const int api_port, int raft_port, int election_timeout_ms, int snapshot_interval_s,
                             const std::string & raft_dir, const std::string & peers) {
 
-    butil::EndPoint addr(butil::my_ip(), port);
+    butil::EndPoint addr(butil::my_ip(), raft_port);
     braft::NodeOptions node_options;
 
     std::string actual_peers = peers;
@@ -27,7 +28,7 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
     if(actual_peers.empty()) {
         char str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(addr.ip.s_addr), str, INET_ADDRSTRLEN);
-        actual_peers = std::string(str) + ":" + std::to_string(port) + ":0";
+        actual_peers = std::string(str) + ":" + std::to_string(raft_port) + ":" + std::to_string(api_port);
     }
 
     if(node_options.initial_conf.parse_from(actual_peers) != 0) {
@@ -45,7 +46,8 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
     node_options.snapshot_uri = prefix + "/" + snapshot_dir_name;
     node_options.disable_cli = true;
 
-    braft::Node* node = new braft::Node("default_group", braft::PeerId(addr));
+    // api_port is used as the node identifier
+    braft::Node* node = new braft::Node("default_group", braft::PeerId(addr, api_port));
 
     std::string snapshot_dir = raft_dir + "/" + snapshot_dir_name;
     bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
@@ -89,12 +91,27 @@ int ReplicationState::start(int port, int election_timeout_ms, int snapshot_inte
 
 void ReplicationState::write(http_req* request, http_res* response) {
     if (!is_leader()) {
-        LOG(INFO) << "Rejecting write sent to follower.";
+        LOG(INFO) << "Redirecting write to leader.";
 
-        response->send_405("Not the leader.");
-        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-        replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
-        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        thread_pool->enqueue([](http_req* request, http_res* response,
+                                http_message_dispatcher* message_dispatcher, braft::Node* node) {
+            auto raw_req = request->_req;
+            std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
+            std::vector<std::string> addr_parts;
+            StringUtils::split(node->leader_id().to_string(), addr_parts, ":");
+            std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
+            const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
+            std::string url = scheme + "://" + leader_host_port + path;
+
+            std::string api_res;
+            long status = HttpClient::post_response(url, request->body, api_res);
+            response->send(status, api_res);
+
+            auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+            replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
+            message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        }, request, response, message_dispatcher, node);
+
         return ;
     }
 
@@ -287,10 +304,11 @@ void ReplicationState::refresh_peers(const std::string & peers) {
     }
 }
 
-ReplicationState::ReplicationState(Store *store, http_message_dispatcher *message_dispatcher,
+ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
                                    std::promise<bool> *ready, bool create_init_db_snapshot):
-        node(nullptr), leader_term(-1), store(store), message_dispatcher(message_dispatcher),
-        has_initialized(false), ready(ready), create_init_db_snapshot(create_init_db_snapshot) {
+        node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
+        message_dispatcher(message_dispatcher),has_initialized(false), ready(ready),
+        create_init_db_snapshot(create_init_db_snapshot) {
 
 }
 

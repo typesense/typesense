@@ -10,6 +10,7 @@
 #include <future>
 
 #include "http_data.h"
+#include "threadpool.h"
 
 class Store;
 class ReplicationState;
@@ -81,6 +82,7 @@ private:
     butil::atomic<int64_t> leader_term;
 
     Store *store;
+    ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
     butil::atomic<bool> has_initialized;
@@ -93,7 +95,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(Store* store, http_message_dispatcher* message_dispatcher,
+    ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      std::promise<bool>* ready, bool create_init_db_snapshot);
 
     ~ReplicationState() {
@@ -101,7 +103,7 @@ public:
     }
 
     // Starts this node
-    int start(int port, int election_timeout_ms, int snapshot_interval_s,
+    int start(int api_port, int raft_port, int election_timeout_ms, int snapshot_interval_s,
               const std::string & raft_dir, const std::string & peers);
 
     // Generic write method for synchronizing all writes
