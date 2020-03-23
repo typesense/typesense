@@ -32,7 +32,8 @@ public:
 
     void init(const std::string & api_key);
 
-    static long get_response(const std::string & url, std::string & response);
+    static long get_response(const std::string & url, std::string & response, long timeout_ms=4000);
 
-    static long post_response(const std::string & url, const std::string & body, std::string & response);
+    static long post_response(const std::string & url, const std::string & body, std::string & response,
+                              long timeout_ms=4000);
 };

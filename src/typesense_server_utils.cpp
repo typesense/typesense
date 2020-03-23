@@ -318,6 +318,7 @@ int run_server(const Config & config, const std::string & version,
     });
 
     // wait for raft service to be ready before starting http
+    // TODO: should not return until either follower or leader has started
     ready_future.get();
 
     if(config.get_master().empty()) {
