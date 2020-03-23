@@ -305,21 +305,21 @@ int run_server(const Config & config, const std::string & version,
     server->on(ReplicationState::REPLICATION_MSG, async_write_request);
 
     // first we start the raft service
-    std::promise<bool> ready_promise;
-    std::future<bool> ready_future = ready_promise.get_future();
 
     ThreadPool thread_pool(4);
-    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), &ready_promise,
-                                       create_init_db_snapshot);
+    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
         std::string path_to_peers = config.get_raft_peers();
         start_raft_server(replication_state, state_dir, path_to_peers, config.get_listen_port(), config.get_raft_port());
     });
 
-    // wait for raft service to be ready before starting http
-    // TODO: should not return until either follower or leader has started
-    ready_future.get();
+    // Wait for raft service to be ready before starting http
+    // Follower or leader must have started AND data must also have been loaded
+    LOG(INFO) << "Waiting for peering service to be ready before starting API service...";
+    while(replication_state.get_init_readiness_count() >= 2) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
 
     if(config.get_master().empty()) {
         master_server_routes();

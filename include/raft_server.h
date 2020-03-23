@@ -85,8 +85,8 @@ private:
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
-    butil::atomic<bool> has_initialized;
-    std::promise<bool>* ready;
+    std::atomic<size_t> init_readiness_count;
+
     bool create_init_db_snapshot;
 
 public:
@@ -96,7 +96,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     std::promise<bool>* ready, bool create_init_db_snapshot);
+                     bool create_init_db_snapshot);
 
     ~ReplicationState() {
         delete node;
@@ -119,6 +119,12 @@ public:
         return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
+    bool is_active() const {
+        braft::NodeStatus node_status;
+        node->get_status(&node_status);
+        return node_status.state == braft::State::STATE_CANDIDATE || node_status.state == braft::State::STATE_LEADER;
+    }
+
     // Shut this node down.
     void shutdown() {
         if (node) {
@@ -136,6 +142,8 @@ public:
     int init_db();
 
     void reset_db();
+
+    size_t get_init_readiness_count() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
@@ -168,6 +176,8 @@ private:
             write(request, response);
         }
 
+        init_readiness_count++;
+
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
@@ -190,6 +200,7 @@ private:
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node start following " << ctx;
+        init_readiness_count++;
     }
 
     void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
