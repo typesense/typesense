@@ -270,10 +270,7 @@ int ReplicationState::init_db() {
         return 1;
     }
 
-    if(!has_initialized.load()) {
-        has_initialized.store(true, butil::memory_order_release);
-        ready->set_value(true);
-    }
+    init_readiness_count++;
 
     return 0;
 }
@@ -320,15 +317,19 @@ void ReplicationState::refresh_peers(const std::string & peers) {
 }
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
-                                   std::promise<bool> *ready, bool create_init_db_snapshot):
+                                   bool create_init_db_snapshot):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
-        message_dispatcher(message_dispatcher),has_initialized(false), ready(ready),
+        message_dispatcher(message_dispatcher), init_readiness_count(0),
         create_init_db_snapshot(create_init_db_snapshot) {
 
 }
 
 void ReplicationState::reset_db() {
     store->close();
+}
+
+size_t ReplicationState::get_init_readiness_count() const {
+    return init_readiness_count.load();
 }
 
 void InitSnapshotClosure::Run() {
