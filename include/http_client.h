@@ -34,6 +34,8 @@ public:
 
     static long get_response(const std::string & url, std::string & response, long timeout_ms=4000);
 
+    static long delete_response(const std::string & url, std::string & response, long timeout_ms=120000);
+
     static long post_response(const std::string & url, const std::string & body, std::string & response,
                               long timeout_ms=4000);
 };

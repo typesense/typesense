@@ -13,6 +13,18 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl);
 }
 
+long HttpClient::delete_response(const std::string &url, std::string &response, long timeout_ms) {
+    CURL *curl = init_curl(url, response);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+
+    if(curl == nullptr) {
+        return 0;
+    }
+
+    return perform_curl(curl);
+}
+
 long HttpClient::get_response(const std::string &url, std::string &response, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
