@@ -217,9 +217,9 @@ int HttpServer::find_route(const std::vector<std::string> & path_parts, const st
 
         bool found = true;
 
-        for(size_t i = 0; i < rpath.path_parts.size(); i++) {
-            const std::string & rpart = rpath.path_parts[i];
-            const std::string & given_part = path_parts[i];
+        for(size_t j = 0; j < rpath.path_parts.size(); j++) {
+            const std::string & rpart = rpath.path_parts[j];
+            const std::string & given_part = path_parts[j];
             if(rpart != given_part && rpart[0] != ':') {
                 found = false;
                 break;

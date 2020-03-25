@@ -34,7 +34,7 @@ private:
 
     std::string version;
 
-    std::vector<route_path> routes;
+    std::vector<route_path> routes;  // TODO: must be a hashmap?
 
     const std::string listen_address;
 
