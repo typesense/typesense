@@ -609,8 +609,7 @@ bool get_replication_updates(http_req & req, http_res & res) {
 }
 
 bool async_write_request(void *data) {
-    LOG(INFO) << "async_write_request called";
-
+    //LOG(INFO) << "async_write_request called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 

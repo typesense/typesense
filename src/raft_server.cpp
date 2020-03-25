@@ -105,7 +105,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
         }
 
         const std::string & leader_addr = node->leader_id().to_string();
-        LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
+        //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
         thread_pool->enqueue([leader_addr, request, response, this]() {
             auto raw_req = request->_req;
@@ -119,6 +119,10 @@ void ReplicationState::write(http_req* request, http_res* response) {
             if(request->http_method == "POST") {
                 std::string api_res;
                 long status = HttpClient::post_response(url, request->body, api_res);
+                response->send(status, api_res);
+            } else if(request->http_method == "DELETE") {
+                std::string api_res;
+                long status = HttpClient::delete_response(url, api_res);
                 response->send(status, api_res);
             } else {
                 const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
