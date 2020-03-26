@@ -167,6 +167,8 @@ private:
         return a.count > b.count;
     }
 
+    void free_leaf_indices(spp::sparse_hash_map<const art_leaf *, uint32_t *>& leaf_to_indices) const;
+
 public:
     Collection() = delete;
 

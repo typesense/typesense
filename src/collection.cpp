@@ -951,6 +951,7 @@ void Collection::highlight_result(const field &search_field,
 
     if(query_suggestion.empty()) {
         // none of the tokens from the query were found on this field
+        free_leaf_indices(leaf_to_indices);
         return ;
     }
 
@@ -969,11 +970,12 @@ void Collection::highlight_result(const field &search_field,
 
         const Match & this_match = Match::match(field_order_kv.key, token_positions);
         uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
-        match_indices.push_back(match_index_t(this_match, this_match_score, array_index));
+        match_indices.emplace_back(this_match, this_match_score, array_index);
     }
 
     if(match_indices.empty()) {
         // none of the tokens from the query were found on this field
+        free_leaf_indices(leaf_to_indices);
         return ;
     }
 
@@ -1060,6 +1062,10 @@ void Collection::highlight_result(const field &search_field,
     highlight.field = search_field.name;
     highlight.match_score = match_indices[0].match_score;
 
+    free_leaf_indices(leaf_to_indices);
+}
+
+void Collection::free_leaf_indices(spp::sparse_hash_map<const art_leaf *, uint32_t *>& leaf_to_indices) const {
     for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
         delete [] it->second;
         it->second = nullptr;
