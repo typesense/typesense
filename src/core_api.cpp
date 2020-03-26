@@ -613,20 +613,15 @@ bool async_write_request(void *data) {
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
-    if(index_arg->req->route_index == static_cast<int>(ROUTE_CODES::NOT_FOUND)) {
+    if(index_arg->req->route_hash == static_cast<int>(ROUTE_CODES::NOT_FOUND)) {
         // route not found
-        return false;
-    } else if(index_arg->req->route_index == static_cast<int>(ROUTE_CODES::RETURN_EARLY)) {
-        // respond without calling internal route
-        server->send_response(index_arg->req, index_arg->res);
-        return true;
+        index_arg->res->send_400("Not found.");
+    } else if(index_arg->req->route_hash != static_cast<int>(ROUTE_CODES::ALREADY_HANDLED)) {
+        // call the underlying http handler
+        route_path* found_rpath = nullptr;
+        server->get_route(index_arg->req->route_hash, &found_rpath);
+        found_rpath->handler(*index_arg->req, *index_arg->res);
     }
-
-    route_path* found_rpath;
-    server->get_route(index_arg->req->route_index, &found_rpath);
-
-    // call the underlying http handler
-    found_rpath->handler(*index_arg->req, *index_arg->res);
 
     if(index_arg->req->_req != nullptr) {
         // we have to return a response to the client

@@ -24,6 +24,8 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
     register_handler(hostconf, "/", catch_all_handler);
 
+    listener_socket = nullptr; // initialized later
+
     signal(SIGPIPE, SIG_IGN);
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
@@ -161,8 +163,10 @@ void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts) {
 }
 
 void HttpServer::stop() {
-    h2o_socket_read_stop(listener_socket);
-    h2o_socket_close(listener_socket);
+    if(listener_socket != nullptr) {
+        h2o_socket_read_stop(listener_socket);
+        h2o_socket_close(listener_socket);
+    }
 
     // this will break the event loop
     exit_loop = true;
@@ -209,8 +213,9 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
 }
 
 int HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
-    for(size_t i = 0; i < routes.size(); i++) {
-        const route_path & rpath = routes[i];
+    for (const auto& index_route : routes) {
+        const route_path & rpath = index_route.second;
+
         if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
             continue;
         }
@@ -228,7 +233,7 @@ int HttpServer::find_route(const std::vector<std::string> & path_parts, const st
 
         if(found) {
             *found_rpath = const_cast<route_path *>(&rpath);
-            return i;
+            return index_route.first;
         }
     }
 
@@ -304,9 +309,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     }
 
     route_path *rpath = nullptr;
-    int route_index = self->http_server->find_route(path_parts, http_method, &rpath);
+    int route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
 
-    if(route_index != -1) {
+    if(route_hash != -1) {
         bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
         if(!authenticated) {
             return send_401_unauthorized(req);
@@ -320,7 +325,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
             }
         }
 
-        http_req* request = new http_req(req, http_method, route_index, query_map, req_body);
+        http_req* request = new http_req(req, http_method, route_hash, query_map, req_body);
         http_res* response = new http_res();
 
         // for writes, we defer to replication_state
@@ -391,28 +396,28 @@ void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"GET", path_parts, handler, async};
-    routes.push_back(rpath);
+    routes.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"POST", path_parts, handler, async};
-    routes.push_back(rpath);
+    routes.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"PUT", path_parts, handler, async};
-    routes.push_back(rpath);
+    routes.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"DELETE", path_parts, handler, async};
-    routes.push_back(rpath);
+    routes.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
@@ -456,7 +461,7 @@ ReplicationState* HttpServer::get_replication_state() const {
 }
 
 void HttpServer::get_route(size_t index, route_path** found_rpath) {
-    if(index >= 0 && index < routes.size()) {
+    if(routes.count(index) > 0) {
         *found_rpath = &routes[index];
     }
 }

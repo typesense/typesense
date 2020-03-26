@@ -6,6 +6,7 @@
 #include <vector>
 #include <future>
 #include "json.hpp"
+#include "string_utils.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -96,26 +97,25 @@ struct http_res {
 
 enum class ROUTE_CODES {
     NOT_FOUND = -1,
-    RETURN_EARLY = -2,
+    ALREADY_HANDLED = -2,
 };
 
 struct http_req {
     h2o_req_t* _req;
     std::string http_method;
-    int route_index;
+    int route_hash;
     std::map<std::string, std::string> params;
     std::string body;
 
-    http_req(): route_index(-1) {}
+    http_req(): route_hash(-1) {}
 
-    http_req(h2o_req_t* _req, const std::string & http_method, size_t route_index,
-            const std::map<std::string, std::string> & params,
-            std::string body): _req(_req), http_method(http_method), route_index(route_index),
-            params(params), body(body) {}
+    http_req(h2o_req_t* _req, const std::string & http_method, size_t route_hash,
+            const std::map<std::string, std::string> & params, std::string body):
+            _req(_req), http_method(http_method), route_hash(route_hash), params(params), body(body) {}
 
     void deserialize(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
-        route_index = content["route_index"];
+        route_hash = content["route_hash"];
         body = content["body"];
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
@@ -127,7 +127,7 @@ struct http_req {
 
     std::string serialize() const {
         nlohmann::json content;
-        content["route_index"] = route_index;
+        content["route_hash"] = route_hash;
         content["params"] = params;
         content["body"] = body;
 
@@ -148,6 +148,12 @@ struct route_path {
 
     inline bool operator< (const route_path& rhs) const {
         return true;
+    }
+
+    uint64_t route_hash() {
+        std::string path = StringUtils::join(path_parts, "/");
+        std::string method_path = http_method + path;
+        return StringUtils::hash_wy(method_path.c_str(), method_path.size());
     }
 };
 
