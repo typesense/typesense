@@ -396,28 +396,28 @@ void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"GET", path_parts, handler, async};
-    routes.emplace(rpath.route_hash(), rpath);
+    routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"POST", path_parts, handler, async};
-    routes.emplace(rpath.route_hash(), rpath);
+    routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"PUT", path_parts, handler, async};
-    routes.emplace(rpath.route_hash(), rpath);
+    routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath = {"DELETE", path_parts, handler, async};
-    routes.emplace(rpath.route_hash(), rpath);
+    routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
@@ -460,8 +460,13 @@ ReplicationState* HttpServer::get_replication_state() const {
     return replication_state;
 }
 
-void HttpServer::get_route(size_t index, route_path** found_rpath) {
-    if(routes.count(index) > 0) {
-        *found_rpath = &routes[index];
+bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
+    for (auto& hash_route : routes) {
+        if(hash_route.first == hash) {
+            *found_rpath = &hash_route.second;
+            return true;
+        }
     }
+
+    return false;
 }

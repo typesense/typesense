@@ -34,7 +34,7 @@ private:
 
     std::string version;
 
-    std::unordered_map<uint32_t, route_path> routes;
+    std::vector<std::pair<uint32_t, route_path>> routes;
 
     const std::string listen_address;
 
@@ -93,7 +93,7 @@ public:
     int find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
 
-    void get_route(size_t index, route_path** found_rpath);
+    bool get_route(uint64_t hash, route_path** found_rpath);
 
     int run(ReplicationState* replication_state);
 

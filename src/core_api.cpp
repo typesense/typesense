@@ -619,8 +619,12 @@ bool async_write_request(void *data) {
     } else if(index_arg->req->route_hash != static_cast<int>(ROUTE_CODES::ALREADY_HANDLED)) {
         // call the underlying http handler
         route_path* found_rpath = nullptr;
-        server->get_route(index_arg->req->route_hash, &found_rpath);
-        found_rpath->handler(*index_arg->req, *index_arg->res);
+        bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
+        if(route_found) {
+            found_rpath->handler(*index_arg->req, *index_arg->res);
+        } else {
+            index_arg->res->send_404();
+        }
     }
 
     if(index_arg->req->_req != nullptr) {
