@@ -100,7 +100,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
             LOG(ERROR) << "Rejecting write: could not find a leader.";
             response->send_500("Could not find a leader.");
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
+            replication_arg->req->route_hash = static_cast<int>(ROUTE_CODES::ALREADY_HANDLED);
             return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         }
 
@@ -131,7 +131,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
             }
 
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_index = static_cast<int>(ROUTE_CODES::RETURN_EARLY);
+            replication_arg->req->route_hash = static_cast<int>(ROUTE_CODES::ALREADY_HANDLED);
             message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         });
 
