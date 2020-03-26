@@ -72,5 +72,5 @@ int main(int argc, char **argv) {
         return ret_code;
     }
 
-    return run_server(config, TYPESENSE_VERSION, &master_server_routes, &replica_server_routes);
+    return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }
