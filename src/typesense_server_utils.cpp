@@ -244,8 +244,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     return 0;
 }
 
-int run_server(const Config & config, const std::string & version,
-               void (*master_server_routes)(), void (*replica_server_routes)()) {
+int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
 
     LOG(INFO) << "Starting Typesense " << version << std::flush;
     quit_raft_service = false;
@@ -253,6 +252,12 @@ int run_server(const Config & config, const std::string & version,
     if(!directory_exists(config.get_data_dir())) {
         LOG(ERROR) << "Typesense failed to start. " << "Data directory " << config.get_data_dir()
                  << " does not exist.";
+        return 1;
+    }
+
+    if(!config.get_master().empty()) {
+        LOG(ERROR) << "The --master option has been deprecated. Please use clustering for high availability. "
+                   << "Look for the --peers configuration in the documentation.";
         return 1;
     }
 
@@ -301,7 +306,6 @@ int run_server(const Config & config, const std::string & version,
     server->set_auth_handler(handle_authentication);
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
-    server->on(REPLICATION_EVENT_MSG, Replicator::on_replication_event);
     server->on(ReplicationState::REPLICATION_MSG, async_write_request);
 
     // first we start the raft service
@@ -321,28 +325,7 @@ int run_server(const Config & config, const std::string & version,
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
-    if(config.get_master().empty()) {
-        master_server_routes();
-    } else {
-        replica_server_routes();
-
-        const std::string & master_host_port = config.get_master();
-        std::vector<std::string> parts;
-        StringUtils::split(master_host_port, parts, ":");
-        if(parts.size() != 3) {
-            LOG(ERROR) << "Invalid value for --master option. Usage: http(s)://<master_address>:<master_port>";
-            return 1;
-        }
-
-        LOG(INFO) << "Typesense is starting as a read-only replica... Master URL is: " << master_host_port;
-        LOG(INFO) << "Spawning replication thread...";
-
-        std::thread replication_thread([&store, &config]() {
-            Replicator::start(server->get_message_dispatcher(), config.get_master(), config.get_api_key(), store);
-        });
-
-        replication_thread.detach();
-    }
+    master_server_routes();
 
     int ret_code = server->run(&replication_state);
 
