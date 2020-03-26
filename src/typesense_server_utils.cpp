@@ -43,7 +43,7 @@ void catch_crash(int sig) {
 
 Option<std::string> fetch_file_contents(const std::string & file_path) {
     if(!file_exists(file_path)) {
-        return Option<std::string>(404, "Error reading file containing raft peers.");
+        return Option<std::string>(404, "Error reading file containing peers.");
     }
 
     std::ifstream infile(file_path);
@@ -103,15 +103,12 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
     options.add<std::string>("search-only-api-key", 's', "API key that allows only searches.", false);
 
-    options.add<std::string>("listen-address", 'h', "Address to which Typesense server binds.", false, "0.0.0.0");
-    options.add<uint32_t>("listen-port", 'p', "Port on which Typesense server listens.", false, 8108);
+    options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
+    options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
 
+    options.add<std::string>("peering-address", '\0', "Internal IP address to which Typesense peering service binds.", false, "");
     options.add<uint32_t>("peering-port", '\0', "Port on which Typesense peering service listens.", false, 8107);
     options.add<std::string>("peers", '\0', "Path to file with comma separated string of peer node IPs.", false);
-
-    options.add<std::string>("master", 'm', "To start the server as read-only replica, "
-                             "provide the master's address in http(s)://<master_address>:<master_port> format.",
-                             false, "");
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
@@ -121,6 +118,12 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
+
+    // DEPRECATED
+    options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
+    options.add<uint32_t>("listen-port", 'p', "[DEPRECATED: use `api-port`] Port on which Typesense API service listens.", false, 8108);
+    options.add<std::string>("master", 'm', "[DEPRECATED: use clustering via --peers] Master's address in http(s)://<master_address>:<master_port> format "
+                                            "to start as read-only replica.", false, "");
 }
 
 int init_logger(Config & config, const std::string & server_version) {
@@ -170,8 +173,8 @@ bool on_send_response(void *data) {
     return true;
 }
 
-int start_raft_server(ReplicationState& replication_state, const std::string& state_dir,
-                      const std::string& path_to_peers, uint32_t api_port, uint32_t raft_port) {
+int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_peers,
+                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port) {
 
     std::string peer_ips;
 
@@ -186,7 +189,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         } else {
             peer_ips = peers_op.get();
             if(peer_ips.empty()) {
-                LOG(ERROR) << "File containing raft peers is empty.";
+                LOG(ERROR) << "File containing peers is empty.";
                 exit(-1);
             } else {
                 peer_ips = peers_op.get();
@@ -194,25 +197,25 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         }
     }
 
-    // start raft server
+    // start peering server
     brpc::Server raft_server;
 
-    if (braft::add_service(&raft_server, raft_port) != 0) {
-        LOG(ERROR) << "Failed to add raft service";
+    if (braft::add_service(&raft_server, peering_port) != 0) {
+        LOG(ERROR) << "Failed to add peering service";
         exit(-1);
     }
 
-    if (raft_server.Start(raft_port, nullptr) != 0) {
-        LOG(ERROR) << "Failed to start raft server";
+    if (raft_server.Start(peering_port, nullptr) != 0) {
+        LOG(ERROR) << "Failed to start peering service";
         exit(-1);
     }
 
-    if (replication_state.start(api_port, raft_port, 1000, 600, state_dir, peer_ips) != 0) {
-        LOG(ERROR) << "Failed to start raft state";
+    if (replication_state.start(peering_address, peering_port, api_port, 1000, 600, state_dir, peer_ips) != 0) {
+        LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
 
-    LOG(INFO) << "Typesense raft service is running on " << raft_server.listen_address();
+    LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
@@ -232,7 +235,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         sleep(1);
     }
 
-    LOG(INFO) << "Typesense raft service is going to quit";
+    LOG(INFO) << "Typesense peering service is going to quit";
 
     // Stop counter before server
     replication_state.shutdown();
@@ -268,7 +271,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
 
     if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
-        if(!config.get_raft_peers().empty()) {
+        if(!config.get_peers().empty()) {
             LOG(ERROR) << "Your data directory needs to be migrated to the new format.";
             LOG(ERROR) << "To do that, please start the Typesense server without the --peers argument.";
             return 1;
@@ -296,8 +299,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     server = new HttpServer(
         version,
-        config.get_listen_address(),
-        config.get_listen_port(),
+        config.get_api_address(),
+        config.get_api_port(),
         config.get_ssl_cert(),
         config.get_ssl_cert_key(),
         config.get_enable_cors()
@@ -308,17 +311,18 @@ int run_server(const Config & config, const std::string & version, void (*master
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(ReplicationState::REPLICATION_MSG, async_write_request);
 
-    // first we start the raft service
+    // first we start the peering service
 
     ThreadPool thread_pool(4);
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
-        std::string path_to_peers = config.get_raft_peers();
-        start_raft_server(replication_state, state_dir, path_to_peers, config.get_listen_port(), config.get_raft_port());
+        std::string path_to_peers = config.get_peers();
+        start_raft_server(replication_state, state_dir, path_to_peers,
+                          config.get_peering_address(), config.get_peering_port(), config.get_api_port());
     });
 
-    // Wait for raft service to be ready before starting http
+    // Wait for peering service to be ready before starting http
     // Follower or leader must have started AND data must also have been loaded
     LOG(INFO) << "Waiting for peering service to be ready before starting API service...";
     while(replication_state.get_init_readiness_count() < 2) {
@@ -331,7 +335,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // we are out of the event loop here
 
-    LOG(INFO) << "Typesense API service has quit. Stopping raft service...";
+    LOG(INFO) << "Typesense API service has quit. Stopping peering service...";
     quit_raft_service = true;
     raft_thread.join();
 

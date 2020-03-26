@@ -103,7 +103,8 @@ public:
     }
 
     // Starts this node
-    int start(int api_port, int raft_port, int election_timeout_ms, int snapshot_interval_s,
+    int start(const std::string & peering_address,  int peering_port, int api_port,
+              int election_timeout_ms, int snapshot_interval_s,
               const std::string & raft_dir, const std::string & peers);
 
     // Generic write method for synchronizing all writes
@@ -191,7 +192,7 @@ private:
     }
 
     void on_error(const ::braft::Error& e) {
-        LOG(ERROR) << "Met raft error " << e;
+        LOG(ERROR) << "Met peering error " << e;
     }
 
     void on_configuration_committed(const ::braft::Configuration& conf) {

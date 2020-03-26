@@ -17,10 +17,21 @@ void ReplicationClosure::Run() {
 
 // State machine implementation
 
-int ReplicationState::start(const int api_port, int raft_port, int election_timeout_ms, int snapshot_interval_s,
+int ReplicationState::start(const std::string & peering_address, int peering_port, const int api_port, 
+                            int election_timeout_ms, int snapshot_interval_s,
                             const std::string & raft_dir, const std::string & peers) {
+    butil::ip_t peering_ip;
+    if(!peering_address.empty()) {
+        int ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
+        if(ip_conv_status != 0) {
+            LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
+            return -1;
+        }
+    } else {
+        peering_ip = butil::my_ip();
+    }
 
-    butil::EndPoint addr(butil::my_ip(), raft_port);
+    butil::EndPoint addr(peering_ip, peering_port);
     braft::NodeOptions node_options;
 
     std::string actual_peers = peers;
@@ -28,11 +39,11 @@ int ReplicationState::start(const int api_port, int raft_port, int election_time
     if(actual_peers.empty()) {
         char str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(addr.ip.s_addr), str, INET_ADDRSTRLEN);
-        actual_peers = std::string(str) + ":" + std::to_string(raft_port) + ":" + std::to_string(api_port);
+        actual_peers = std::string(str) + ":" + std::to_string(peering_port) + ":" + std::to_string(api_port);
     }
 
     if(node_options.initial_conf.parse_from(actual_peers) != 0) {
-        LOG(ERROR) << "Fail to parse peer configuration `" << peers << "`";
+        LOG(ERROR) << "Failed to parse peer configuration `" << peers << "`";
         return -1;
     }
 
@@ -73,7 +84,7 @@ int ReplicationState::start(const int api_port, int raft_port, int election_time
     }
 
     if (node->init(node_options) != 0) {
-        LOG(ERROR) << "Fail to init raft node";
+        LOG(ERROR) << "Fail to init peering node";
         delete node;
         return -1;
     }
