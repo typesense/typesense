@@ -34,7 +34,7 @@ TEST(ConfigTest, LoadCmdLineArguments) {
     config.load_config_cmd_args(options);
 
     ASSERT_EQ("abcd", config.get_api_key());
-    ASSERT_EQ(8080, config.get_listen_port());
+    ASSERT_EQ(8080, config.get_api_port());
     ASSERT_EQ("/tmp/data", config.get_data_dir());
 }
 
@@ -46,7 +46,7 @@ TEST(ConfigTest, LoadEnvVars) {
     config.load_config_env();
 
     ASSERT_EQ("/tmp/ts", config.get_data_dir());
-    ASSERT_EQ(9090, config.get_listen_port());
+    ASSERT_EQ(9090, config.get_api_port());
 }
 
 TEST(ConfigTest, BadConfigurationReturnsError) {
@@ -85,7 +85,7 @@ TEST(ConfigTest, LoadConfigFile) {
     ASSERT_EQ("/tmp/ts", config.get_data_dir());
     ASSERT_EQ("1234", config.get_api_key());
     ASSERT_EQ("/tmp/logs", config.get_log_dir());
-    ASSERT_EQ(9090, config.get_listen_port());
+    ASSERT_EQ(9090, config.get_api_port());
     ASSERT_EQ(false, config.get_enable_cors());
 }
 
@@ -157,8 +157,8 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     ASSERT_EQ("abcd", config.get_api_key());
     ASSERT_EQ("/tmp/data", config.get_data_dir());
     ASSERT_EQ("/tmp/ts_log", config.get_log_dir());
-    ASSERT_EQ(9090, config.get_listen_port());
+    ASSERT_EQ(9090, config.get_api_port());
     ASSERT_EQ(true, config.get_enable_cors());
-    ASSERT_EQ("192.168.10.10", config.get_listen_address());
+    ASSERT_EQ("192.168.10.10", config.get_api_address());
     ASSERT_EQ("supersecret", config.get_search_only_api_key());
 }

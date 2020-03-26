@@ -90,7 +90,7 @@ public:
                 LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
                            << "another Typesense server. ";
                 LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
-                           << "in the data directory and try again.";
+                           << "in the data db directory and try again.";
             }
         }
 

@@ -13,11 +13,12 @@ private:
     std::string api_key;
     std::string search_only_api_key;
 
-    std::string listen_address;
-    uint32_t listen_port;
+    std::string api_address;
+    uint32_t api_port;
 
-    uint32_t raft_port;
-    std::string raft_peers;
+    std::string peering_address;
+    uint32_t peering_port;
+    std::string peers;
 
     std::string master;
 
@@ -34,9 +35,9 @@ private:
 public:
 
     Config() {
-        this->listen_address = "0.0.0.0";
-        this->listen_port = 8108;
-        this->raft_port = 8107;
+        this->api_address = "0.0.0.0";
+        this->api_port = 8108;
+        this->peering_port = 8107;
         this->enable_cors = false;
         this->indices_per_collection = 4;
     }
@@ -60,11 +61,11 @@ public:
     }
 
     void set_listen_address(const std::string & listen_address) {
-        this->listen_address = listen_address;
+        this->api_address = listen_address;
     }
 
     void set_listen_port(int listen_port) {
-        this->listen_port = listen_port;
+        this->api_port = listen_port;
     }
 
     void set_master(const std::string & master) {
@@ -88,11 +89,11 @@ public:
     }
 
     void set_raft_port(int raft_port) {
-        this->raft_port = raft_port;
+        this->peering_port = raft_port;
     }
 
     void set_raft_peers(const std::string & raft_peers) {
-        this->raft_peers = raft_peers;
+        this->peers = raft_peers;
     }
     
     // getters
@@ -113,12 +114,12 @@ public:
         return this->search_only_api_key;
     }
 
-    std::string get_listen_address() const {
-        return this->listen_address;
+    std::string get_api_address() const {
+        return this->api_address;
     }
 
-    int get_listen_port() const {
-        return this->listen_port;
+    int get_api_port() const {
+        return this->api_port;
     }
 
     std::string get_master() const {
@@ -145,12 +146,16 @@ public:
         return indices_per_collection;
     }
 
-    int get_raft_port() const {
-        return this->raft_port;
+    std::string get_peering_address() const {
+        return this->peering_address;
     }
 
-    std::string get_raft_peers() const {
-        return this->raft_peers;
+    int get_peering_port() const {
+        return this->peering_port;
+    }
+
+    std::string get_peers() const {
+        return this->peers;
     }
 
     // loaders
@@ -171,18 +176,30 @@ public:
         this->search_only_api_key = get_env("TYPESENSE_SEARCH_ONLY_API_KEY");
 
         if(!get_env("TYPESENSE_LISTEN_ADDRESS").empty()) {
-            this->listen_address = get_env("TYPESENSE_LISTEN_ADDRESS");
+            this->api_address = get_env("TYPESENSE_LISTEN_ADDRESS");
         }
 
         if(!get_env("TYPESENSE_LISTEN_PORT").empty()) {
-            this->listen_port = std::stoi(get_env("TYPESENSE_LISTEN_PORT"));
+            this->api_port = std::stoi(get_env("TYPESENSE_LISTEN_PORT"));
         }
 
-        if(!get_env("TYPESENSE_RAFT_PORT").empty()) {
-            this->raft_port = std::stoi(get_env("TYPESENSE_RAFT_PORT"));
+        if(!get_env("TYPESENSE_API_ADDRESS").empty()) {
+            this->api_address = get_env("TYPESENSE_LISTEN_ADDRESS");
         }
 
-        this->raft_peers = get_env("TYPESENSE_RAFT_PEERS");
+        if(!get_env("TYPESENSE_API_PORT").empty()) {
+            this->api_port = std::stoi(get_env("TYPESENSE_API_PORT"));
+        }
+
+        if(!get_env("TYPESENSE_PEERING_ADDRESS").empty()) {
+            this->api_address = get_env("TYPESENSE_PEERING_ADDRESS");
+        }
+
+        if(!get_env("TYPESENSE_PEERING_PORT").empty()) {
+            this->peering_port = std::stoi(get_env("TYPESENSE_PEERING_PORT"));
+        }
+
+        this->peers = get_env("TYPESENSE_PEERS");
 
         this->master = get_env("TYPESENSE_MASTER");
         this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
@@ -229,7 +246,11 @@ public:
         }
 
         if(reader.Exists("server", "listen-address")) {
-            this->listen_address = reader.Get("server", "listen-address", "");
+            this->api_address = reader.Get("server", "listen-address", "");
+        }
+
+        if(reader.Exists("server", "api-address")) {
+            this->api_address = reader.Get("server", "api-address", "");
         }
 
         if(reader.Exists("server", "master")) {
@@ -245,19 +266,27 @@ public:
         }
 
         if(reader.Exists("server", "listen-port")) {
-            this->listen_port = reader.GetInteger("server", "listen-port", 8108);
+            this->api_port = reader.GetInteger("server", "listen-port", 8108);
+        }
+
+        if(reader.Exists("server", "api-port")) {
+            this->api_port = reader.GetInteger("server", "api-port", 8108);
         }
 
         if(reader.Exists("server", "enable-cors")) {
             this->enable_cors = reader.GetBoolean("server", "enable-cors", false);
         }
 
+        if(reader.Exists("server", "peering-address")) {
+            this->peering_address = reader.Get("server", "peering-address", "");
+        }
+
         if(reader.Exists("server", "peering-port")) {
-            this->raft_port = reader.GetInteger("server", "raft-port", 8107);
+            this->peering_port = reader.GetInteger("server", "peering-port", 8107);
         }
 
         if(reader.Exists("server", "peers")) {
-            this->raft_peers = reader.Get("server", "peers", "");
+            this->peers = reader.Get("server", "peers", "");
         }
     }
 
@@ -279,7 +308,11 @@ public:
         }
 
         if(options.exist("listen-address")) {
-            this->listen_address = options.get<std::string>("listen-address");
+            this->api_address = options.get<std::string>("listen-address");
+        }
+
+        if(options.exist("api-address")) {
+            this->api_address = options.get<std::string>("api-address");
         }
 
         if(options.exist("master")) {
@@ -295,19 +328,27 @@ public:
         }
 
         if(options.exist("listen-port")) {
-            this->listen_port = options.get<uint32_t>("listen-port");
+            this->api_port = options.get<uint32_t>("listen-port");
+        }
+
+        if(options.exist("api-port")) {
+            this->api_port = options.get<uint32_t>("api-port");
         }
 
         if(options.exist("enable-cors")) {
             this->enable_cors = options.exist("enable-cors");
         }
 
+        if(options.exist("peering-address")) {
+            this->peering_address = options.get<std::string>("peering-address");
+        }
+
         if(options.exist("peering-port")) {
-            this->raft_port = options.get<uint32_t>("peering-port");
+            this->peering_port = options.get<uint32_t>("peering-port");
         }
 
         if(options.exist("peers")) {
-            this->raft_peers = options.get<std::string>("peers");
+            this->peers = options.get<std::string>("peers");
         }
     }
 
