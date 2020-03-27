@@ -29,7 +29,6 @@ protected:
     }
 
     virtual void TearDown() {
-        collectionManager.drop_collection("collection");
         delete store;
     }
 };
