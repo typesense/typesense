@@ -28,8 +28,6 @@ bool get_fetch_document(http_req & req, http_res & res);
 
 bool del_remove_document(http_req & req, http_res & res);
 
-bool get_replication_updates(http_req &req, http_res &res);
-
 bool collection_export_handler(http_req* req, http_res* res, void* data);
 
 bool async_write_request(void *data);
