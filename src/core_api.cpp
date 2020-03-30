@@ -568,46 +568,6 @@ bool del_remove_document(http_req & req, http_res & res) {
     return true;
 }
 
-bool get_replication_updates(http_req & req, http_res & res) {
-    // Could be heavy - spawn a new thread so we don't block the main thread
-    std::thread response_thread([&]() {
-        if(!StringUtils::is_uint64_t(req.params["seq_number"])) {
-            res.send_400("The value of the parameter `seq_number` must be an unsigned integer.");
-            return false;
-        }
-
-        const uint64_t MAX_UPDATES_TO_SEND = 10000;
-        uint64_t seq_number = std::stoull(req.params["seq_number"]);
-
-        CollectionManager & collectionManager = CollectionManager::get_instance();
-        Store* store = collectionManager.get_store();
-        Option<std::vector<std::string>*> updates_op = store->get_updates_since(seq_number, MAX_UPDATES_TO_SEND);
-        if(!updates_op.ok()) {
-            res.send(updates_op.code(), updates_op.error());
-            server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
-            return false;
-        }
-
-        nlohmann::json json_response;
-        json_response["updates"] = nlohmann::json::array();
-
-        std::vector<std::string> *updates = updates_op.get();
-        for(const std::string & update: *updates) {
-            json_response["updates"].push_back(StringUtils::base64_encode(update));
-        }
-
-        uint64_t latest_seq_num = store->get_latest_seq_number();
-        json_response["latest_seq_num"] = latest_seq_num;
-
-        res.send_200(json_response.dump());
-        server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
-        delete updates;
-    });
-
-    response_thread.detach();
-    return true;
-}
-
 bool async_write_request(void *data) {
     //LOG(INFO) << "async_write_request called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);

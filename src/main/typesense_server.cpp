@@ -22,9 +22,6 @@ void master_server_routes() {
     // meta
     server->get("/debug", get_debug);
     server->get("/health", get_health);
-
-    // replication
-    server->get("/replication/updates", get_replication_updates, true);
 }
 
 void replica_server_routes() {
@@ -40,9 +37,6 @@ void replica_server_routes() {
     // meta
     server->get("/debug", get_debug);
     server->get("/health", get_health);
-
-    // replication
-    server->get("/replication/updates", get_replication_updates, true);
 }
 
 int main(int argc, char **argv) {
