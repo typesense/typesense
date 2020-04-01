@@ -98,6 +98,7 @@ int ReplicationState::start(const std::string & peering_address, int peering_por
         if(!status.ok()) {
             LOG(ERROR) << status.error_str();
         }
+        init_readiness_count++;  // sometimes, single node on_leader event does not fire
     }
 
     this->node = node;
@@ -111,7 +112,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
             LOG(ERROR) << "Rejecting write: could not find a leader.";
             response->send_500("Could not find a leader.");
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_hash = static_cast<int>(ROUTE_CODES::ALREADY_HANDLED);
+            replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
             return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         }
 
@@ -142,7 +143,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
             }
 
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_hash = static_cast<int>(ROUTE_CODES::ALREADY_HANDLED);
+            replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
             message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         });
 

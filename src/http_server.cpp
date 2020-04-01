@@ -212,7 +212,7 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
     return query_map;
 }
 
-int HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
+uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
     for (const auto& index_route : routes) {
         const route_path & rpath = index_route.second;
 
@@ -237,7 +237,7 @@ int HttpServer::find_route(const std::vector<std::string> & path_parts, const st
         }
     }
 
-    return static_cast<int>(ROUTE_CODES::NOT_FOUND);
+    return static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND);
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
@@ -309,9 +309,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     }
 
     route_path *rpath = nullptr;
-    int route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
+    uint64_t route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
 
-    if(route_hash != -1) {
+    if(route_hash != static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
         if(!authenticated) {
             return send_401_unauthorized(req);
