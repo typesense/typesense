@@ -235,7 +235,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         sleep(1);
     }
 
-    LOG(INFO) << "Typesense peering service is going to quit";
+    LOG(INFO) << "Typesense peering service is going to quit.";
 
     // Stop counter before server
     replication_state.shutdown();
@@ -244,6 +244,8 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Wait until all the processing tasks are over.
     replication_state.join();
     raft_server.Join();
+
+    LOG(INFO) << "Typesense peering service has quit.";
     return 0;
 }
 
@@ -325,7 +327,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     // Wait for peering service to be ready before starting http
     // Follower or leader must have started AND data must also have been loaded
     LOG(INFO) << "Waiting for peering service to be ready before starting API service...";
-    while(replication_state.get_init_readiness_count() < 2) {
+    while(replication_state.get_init_readiness_count() < 2 && !quit_raft_service) {
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
 
