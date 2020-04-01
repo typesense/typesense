@@ -34,7 +34,7 @@ private:
 
     std::string version;
 
-    std::vector<std::pair<uint32_t, route_path>> routes;
+    std::vector<std::pair<uint64_t, route_path>> routes;
 
     const std::string listen_address;
 
@@ -90,7 +90,7 @@ public:
 
     void send_response(http_req* request, const http_res* response);
 
-    int find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
+    uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
 
     bool get_route(uint64_t hash, route_path** found_rpath);

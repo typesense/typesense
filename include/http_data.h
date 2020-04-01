@@ -96,20 +96,20 @@ struct http_res {
 };
 
 enum class ROUTE_CODES {
-    NOT_FOUND = -1,
-    ALREADY_HANDLED = -2,
+    NOT_FOUND = 1,
+    ALREADY_HANDLED = 2,
 };
 
 struct http_req {
     h2o_req_t* _req;
     std::string http_method;
-    int route_hash;
+    uint64_t route_hash;
     std::map<std::string, std::string> params;
     std::string body;
 
-    http_req(): route_hash(-1) {}
+    http_req(): route_hash(1) {}
 
-    http_req(h2o_req_t* _req, const std::string & http_method, size_t route_hash,
+    http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, std::string body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params), body(body) {}
 
@@ -153,7 +153,8 @@ struct route_path {
     uint64_t route_hash() {
         std::string path = StringUtils::join(path_parts, "/");
         std::string method_path = http_method + path;
-        return StringUtils::hash_wy(method_path.c_str(), method_path.size());
+        uint64_t hash = StringUtils::hash_wy(method_path.c_str(), method_path.size());
+        return (hash > 100) ? hash : (hash + 100);  // [0-99] reserved for special codes
     }
 };
 

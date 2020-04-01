@@ -573,10 +573,10 @@ bool async_write_request(void *data) {
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
-    if(index_arg->req->route_hash == static_cast<int>(ROUTE_CODES::NOT_FOUND)) {
+    if(index_arg->req->route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         // route not found
         index_arg->res->send_400("Not found.");
-    } else if(index_arg->req->route_hash != static_cast<int>(ROUTE_CODES::ALREADY_HANDLED)) {
+    } else if(index_arg->req->route_hash != static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED)) {
         // call the underlying http handler
         route_path* found_rpath = nullptr;
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
