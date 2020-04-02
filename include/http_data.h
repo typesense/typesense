@@ -93,6 +93,11 @@ struct http_res {
         status_code = code;
         body = "{\"message\": \"" + message + "\"}";
     }
+
+    void send_body(uint32_t code, const std::string & message) {
+        status_code = code;
+        body = message;
+    }
 };
 
 enum class ROUTE_CODES {

@@ -131,11 +131,15 @@ void ReplicationState::write(http_req* request, http_res* response) {
             if(request->http_method == "POST") {
                 std::string api_res;
                 long status = HttpClient::post_response(url, request->body, api_res);
-                response->send(status, api_res);
+                response->send_body(status, api_res);
+            } else if(request->http_method == "PUT") {
+                std::string api_res;
+                long status = HttpClient::put_response(url, request->body, api_res);
+                response->send_body(status, api_res);
             } else if(request->http_method == "DELETE") {
                 std::string api_res;
                 long status = HttpClient::delete_response(url, api_res);
-                response->send(status, api_res);
+                response->send_body(status, api_res);
             } else {
                 const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
                 LOG(ERROR) << err;
@@ -179,6 +183,7 @@ void ReplicationState::read(http_res* response) {
 void ReplicationState::on_apply(braft::Iterator& iter) {
     // A batch of tasks are committed, which must be processed through
     // |iter|
+    LOG(INFO) << "on_apply called";
     for (; iter.valid(); iter.next()) {
         http_res* response;
         http_req* request;
