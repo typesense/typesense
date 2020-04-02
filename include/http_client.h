@@ -38,4 +38,7 @@ public:
 
     static long post_response(const std::string & url, const std::string & body, std::string & response,
                               long timeout_ms=4000);
+
+    static long put_response(const std::string & url, const std::string & body, std::string & response,
+                             long timeout_ms=4000);
 };
