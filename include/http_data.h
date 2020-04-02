@@ -39,67 +39,67 @@ struct http_res {
         }
     }
 
-    void send_200(const std::string & res_body) {
+    void set_200(const std::string & res_body) {
         status_code = 200;
         body = res_body;
     }
 
-    void send_201(const std::string & res_body) {
+    void set_201(const std::string & res_body) {
         status_code = 201;
         body = res_body;
     }
 
-    void send_400(const std::string & message) {
+    void set_400(const std::string & message) {
         status_code = 400;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_401(const std::string & message) {
+    void set_401(const std::string & message) {
         status_code = 400;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_403() {
+    void set_403() {
         status_code = 403;
         body = "{\"message\": \"Forbidden\"}";
     }
 
-    void send_404() {
+    void set_404() {
         status_code = 404;
         body = "{\"message\": \"Not Found\"}";
     }
 
-    void send_405(const std::string & message) {
+    void set_405(const std::string & message) {
         status_code = 405;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_409(const std::string & message) {
+    void set_409(const std::string & message) {
         status_code = 409;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_422(const std::string & message) {
+    void set_422(const std::string & message) {
         status_code = 422;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_500(const std::string & message) {
+    void set_500(const std::string & message) {
         status_code = 500;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_503(const std::string & message) {
+    void set_503(const std::string & message) {
         status_code = 503;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send(uint32_t code, const std::string & message) {
+    void set(uint32_t code, const std::string & message) {
         status_code = code;
         body = "{\"message\": \"" + message + "\"}";
     }
 
-    void send_body(uint32_t code, const std::string & message) {
+    void set_body(uint32_t code, const std::string & message) {
         status_code = code;
         body = message;
     }

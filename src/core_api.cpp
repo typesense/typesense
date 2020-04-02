@@ -48,7 +48,7 @@ bool get_collections(http_req & req, http_res & res) {
         json_response.push_back(collection_json);
     }
 
-    res.send_200(json_response.dump());
+    res.set_200(json_response.dump());
     return true;
 }
 
@@ -59,7 +59,7 @@ bool post_create_collection(http_req & req, http_res & res) {
         req_json = nlohmann::json::parse(req.body);
     } catch(const std::exception& e) {
         //LOG(ERROR) << "JSON error: " << e.what();
-        res.send_400("Bad JSON.");
+        res.set_400("Bad JSON.");
         return false;
     }
 
@@ -68,30 +68,30 @@ bool post_create_collection(http_req & req, http_res & res) {
     // validate presence of mandatory fields
 
     if(req_json.count("name") == 0) {
-        res.send_400("Parameter `name` is required.");
+        res.set_400("Parameter `name` is required.");
         return false;
     }
 
     if(req_json.count("fields") == 0) {
-        res.send_400("Parameter `fields` is required.");
+        res.set_400("Parameter `fields` is required.");
         return false;
     }
 
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
-        res.send_400("Parameter `default_sorting_field` is required.");
+        res.set_400("Parameter `default_sorting_field` is required.");
         return false;
     }
 
     if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
-        res.send_400(std::string("`") + DEFAULT_SORTING_FIELD +
-                            "` should be a string. It should be the name of an int32/float field.");
+        res.set_400(std::string("`") + DEFAULT_SORTING_FIELD +
+                    "` should be a string. It should be the name of an int32/float field.");
         return false;
     }
 
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
-        res.send_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
+        res.set_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
         return false;
     }
 
@@ -100,8 +100,8 @@ bool post_create_collection(http_req & req, http_res & res) {
     std::vector<field> fields;
 
     if(!req_json["fields"].is_array() || req_json["fields"].size() == 0) {
-        res.send_400("Wrong format for `fields`. It should be an array like: "
-                            "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+        res.set_400("Wrong format for `fields`. It should be an array like: "
+                    "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
         return false;
     }
 
@@ -110,14 +110,14 @@ bool post_create_collection(http_req & req, http_res & res) {
             field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
             !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
 
-            res.send_400("Wrong format for `fields`. It should be an array of objects containing "
-                                "`name`, `type` and optionally, `facet` properties.");
+            res.set_400("Wrong format for `fields`. It should be an array of objects containing "
+                        "`name`, `type` and optionally, `facet` properties.");
             return false;
         }
 
         if(field_json.count("facet") != 0 && !field_json.at(fields::facet).is_boolean()) {
-            res.send_400(std::string("The `facet` property of the field `") +
-                                field_json.at(fields::name).get<std::string>() + "` should be a boolean.");
+            res.set_400(std::string("The `facet` property of the field `") +
+                        field_json.at(fields::name).get<std::string>() + "` should be a boolean.");
             return false;
         }
 
@@ -140,11 +140,11 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_summary_json(collection_op.get());
-        res.send_201(json_response.dump());
+        res.set_201(json_response.dump());
         return true;
     }
 
-    res.send(collection_op.code(), collection_op.error());
+    res.set(collection_op.code(), collection_op.error());
     return false;
 }
 
@@ -154,7 +154,7 @@ bool del_drop_collection(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(!collection) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
@@ -162,18 +162,18 @@ bool del_drop_collection(http_req & req, http_res & res) {
     Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
 
     if(!drop_result.ok()) {
-        res.send(drop_result.code(), drop_result.error());
+        res.set(drop_result.code(), drop_result.error());
         return false;
     }
 
-    res.send_200(collection_json.dump());
+    res.set_200(collection_json.dump());
     return true;
 }
 
 bool get_debug(http_req & req, http_res & res) {
     nlohmann::json result;
     result["version"] = server->get_version();
-    res.send_200(result.dump());
+    res.set_200(result.dump());
 
     return true;
 }
@@ -183,9 +183,9 @@ bool get_health(http_req & req, http_res & res) {
     bool alive = server->is_alive();
     result["ok"] = alive;
     if(alive) {
-        res.send_body(200, result.dump());
+        res.set_body(200, result.dump());
     } else {
-        res.send_body(503, result.dump());
+        res.set_body(503, result.dump());
     }
 
     return alive;
@@ -238,12 +238,12 @@ bool get_search(http_req & req, http_res & res) {
     }
 
     if(req.params.count(QUERY) == 0) {
-        res.send_400(std::string("Parameter `") + QUERY + "` is required.");
+        res.set_400(std::string("Parameter `") + QUERY + "` is required.");
         return false;
     }
 
     if(req.params.count(QUERY_BY) == 0) {
-        res.send_400(std::string("Parameter `") + QUERY_BY + "` is required.");
+        res.set_400(std::string("Parameter `") + QUERY_BY + "` is required.");
         return false;
     }
 
@@ -289,27 +289,27 @@ bool get_search(http_req & req, http_res & res) {
     }
 
     if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
-        res.send_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
     if(!StringUtils::is_uint64_t(req.params[TYPO_TOKENS_THRESHOLD])) {
-        res.send_400("Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
     if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
-        res.send_400("Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
         return false;
     }
 
     if(!StringUtils::is_uint64_t(req.params[PER_PAGE])) {
-        res.send_400("Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
         return false;
     }
 
     if(!StringUtils::is_uint64_t(req.params[PAGE])) {
-        res.send_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -336,7 +336,7 @@ bool get_search(http_req & req, http_res & res) {
         StringUtils::split(req.params[SORT_BY], sort_field_strs, ",");
 
         if(sort_field_strs.size() > 2) {
-            res.send_400("Only upto 2 sort fields are allowed.");
+            res.set_400("Only upto 2 sort fields are allowed.");
             return false;
         }
 
@@ -345,7 +345,7 @@ bool get_search(http_req & req, http_res & res) {
             StringUtils::split(sort_field_str, expression_parts, ":");
 
             if(expression_parts.size() != 2) {
-                res.send_400(std::string("Parameter `") + SORT_BY + "` is malformed.");
+                res.set_400(std::string("Parameter `") + SORT_BY + "` is malformed.");
                 return false;
             }
 
@@ -358,7 +358,7 @@ bool get_search(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
@@ -394,7 +394,7 @@ bool get_search(http_req & req, http_res & res) {
     if(!result_op.ok()) {
         const std::string & json_res_body = (req.params.count(CALLBACK) == 0) ? result_op.error() :
                                             (req.params[CALLBACK] + "(" + result_op.error() + ");");
-        res.send(result_op.code(), json_res_body);
+        res.set(result_op.code(), json_res_body);
         return false;
     }
 
@@ -408,9 +408,9 @@ bool get_search(http_req & req, http_res & res) {
     //LOG(INFO) << "Memory usage: " << r_usage.ru_maxrss;
 
     if(req.params.count(CALLBACK) == 0) {
-        res.send_200(results_json_str);
+        res.set_200(results_json_str);
     } else {
-        res.send_200(req.params[CALLBACK] + "(" + results_json_str + ");");
+        res.set_200(req.params[CALLBACK] + "(" + results_json_str + ");");
     }
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
@@ -422,12 +422,12 @@ bool get_collection_summary(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
     nlohmann::json json_response = collection_summary_json(collection);
-    res.send_200(json_response.dump());
+    res.set_200(json_response.dump());
 
     return true;
 }
@@ -437,7 +437,7 @@ bool collection_export_handler(http_req* req, http_res* res, void* data) {
     Collection* collection = collectionManager.get_collection(req->params["collection"]);
 
     if(!collection) {
-        res->send_404();
+        res->set_404();
         return false;
     }
 
@@ -468,7 +468,7 @@ bool get_export_documents(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
         return false;
     }
@@ -489,18 +489,18 @@ bool post_add_document(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
     Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
 
     if(!inserted_doc_op.ok()) {
-        res.send(inserted_doc_op.code(), inserted_doc_op.error());
+        res.set(inserted_doc_op.code(), inserted_doc_op.error());
         return false;
     }
 
-    res.send_201(inserted_doc_op.get().dump());
+    res.set_201(inserted_doc_op.get().dump());
     return true;
 }
 
@@ -509,18 +509,18 @@ bool post_import_documents(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
     Option<nlohmann::json> result = collection->add_many(req.body);
 
     if(!result.ok()) {
-        res.send(result.code(), result.error());
+        res.set(result.code(), result.error());
         return false;
     }
 
-    res.send_200(result.get().dump());
+    res.set_200(result.get().dump());
     return true;
 }
 
@@ -530,18 +530,18 @@ bool get_fetch_document(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
     if(!doc_option.ok()) {
-        res.send(doc_option.code(), doc_option.error());
+        res.set(doc_option.code(), doc_option.error());
         return false;
     }
 
-    res.send_200(doc_option.get().dump());
+    res.set_200(doc_option.get().dump());
     return true;
 }
 
@@ -551,26 +551,26 @@ bool del_remove_document(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
     if(collection == nullptr) {
-        res.send_404();
+        res.set_404();
         return false;
     }
 
     Option<nlohmann::json> doc_option = collection->get(doc_id);
 
     if(!doc_option.ok()) {
-        res.send(doc_option.code(), doc_option.error());
+        res.set(doc_option.code(), doc_option.error());
         return false;
     }
 
     Option<std::string> deleted_id_op = collection->remove(doc_id);
 
     if(!deleted_id_op.ok()) {
-        res.send(deleted_id_op.code(), deleted_id_op.error());
+        res.set(deleted_id_op.code(), deleted_id_op.error());
         return false;
     }
 
     nlohmann::json doc = doc_option.get();
-    res.send_200(doc.dump());
+    res.set_200(doc.dump());
     return true;
 }
 
@@ -581,7 +581,7 @@ bool async_write_request(void *data) {
 
     if(index_arg->req->route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         // route not found
-        index_arg->res->send_400("Not found.");
+        index_arg->res->set_400("Not found.");
     } else if(index_arg->req->route_hash != static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED)) {
         // call the underlying http handler
         route_path* found_rpath = nullptr;
@@ -589,7 +589,7 @@ bool async_write_request(void *data) {
         if(route_found) {
             found_rpath->handler(*index_arg->req, *index_arg->res);
         } else {
-            index_arg->res->send_404();
+            index_arg->res->set_404();
         }
     }
 

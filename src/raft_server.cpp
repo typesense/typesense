@@ -108,7 +108,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
         if(node->leader_id().is_empty()) {
             // Handle no leader scenario
             LOG(ERROR) << "Rejecting write: could not find a leader.";
-            response->send_500("Could not find a leader.");
+            response->set_500("Could not find a leader.");
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
             replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
             return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
@@ -129,19 +129,19 @@ void ReplicationState::write(http_req* request, http_res* response) {
             if(request->http_method == "POST") {
                 std::string api_res;
                 long status = HttpClient::post_response(url, request->body, api_res);
-                response->send_body(status, api_res);
+                response->set_body(status, api_res);
             } else if(request->http_method == "PUT") {
                 std::string api_res;
                 long status = HttpClient::put_response(url, request->body, api_res);
-                response->send_body(status, api_res);
+                response->set_body(status, api_res);
             } else if(request->http_method == "DELETE") {
                 std::string api_res;
                 long status = HttpClient::delete_response(url, api_res);
-                response->send_body(status, api_res);
+                response->set_body(status, api_res);
             } else {
                 const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
                 LOG(ERROR) << err;
-                response->send_500(err);
+                response->set_500(err);
             }
 
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
