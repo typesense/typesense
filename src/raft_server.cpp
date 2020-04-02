@@ -64,10 +64,9 @@ int ReplicationState::start(const std::string & peering_address, int peering_por
     bool snapshot_exists = dir_enum_count(snapshot_dir) > 0;
 
     if(snapshot_exists) {
-        // we will be assured of on_snapshot() firing and we will wait for that to init_db()
+        // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
     } else if(!create_init_db_snapshot) {
-        // `create_init_db_snapshot` will be handled only after leader starts, otherwise:
-
+        // `create_init_db_snapshot` can be handled separately only after leader starts
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
         reset_db();
@@ -98,7 +97,6 @@ int ReplicationState::start(const std::string & peering_address, int peering_por
         if(!status.ok()) {
             LOG(ERROR) << status.error_str();
         }
-        init_readiness_count++;  // sometimes, single node on_leader event does not fire
     }
 
     this->node = node;
@@ -183,7 +181,6 @@ void ReplicationState::read(http_res* response) {
 void ReplicationState::on_apply(braft::Iterator& iter) {
     // A batch of tasks are committed, which must be processed through
     // |iter|
-    LOG(INFO) << "on_apply called";
     for (; iter.valid(); iter.next()) {
         http_res* response;
         http_req* request;

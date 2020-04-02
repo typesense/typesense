@@ -89,6 +89,11 @@ struct http_res {
         body = "{\"message\": \"" + message + "\"}";
     }
 
+    void send_503(const std::string & message) {
+        status_code = 503;
+        body = "{\"message\": \"" + message + "\"}";
+    }
+
     void send(uint32_t code, const std::string & message) {
         status_code = code;
         body = "{\"message\": \"" + message + "\"}";

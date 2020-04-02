@@ -324,15 +324,9 @@ int run_server(const Config & config, const std::string & version, void (*master
                           config.get_peering_address(), config.get_peering_port(), config.get_api_port());
     });
 
-    // Wait for peering service to be ready before starting http
-    // Follower or leader must have started AND data must also have been loaded
-    LOG(INFO) << "Waiting for peering service to be ready before starting API service...";
-    while(replication_state.get_init_readiness_count() < 2 && !quit_raft_service) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    }
+    LOG(INFO) << "Starting API service...";
 
     master_server_routes();
-
     int ret_code = server->run(&replication_state);
 
     // we are out of the event loop here
