@@ -180,9 +180,15 @@ bool get_debug(http_req & req, http_res & res) {
 
 bool get_health(http_req & req, http_res & res) {
     nlohmann::json result;
-    result["ok"] = true;
-    res.send_200(result.dump());
-    return true;
+    bool alive = server->is_alive();
+    result["ok"] = alive;
+    if(alive) {
+        res.send_body(200, result.dump());
+    } else {
+        res.send_body(503, result.dump());
+    }
+
+    return alive;
 }
 
 bool get_search(http_req & req, http_res & res) {

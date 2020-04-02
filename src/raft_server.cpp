@@ -354,6 +354,20 @@ size_t ReplicationState::get_init_readiness_count() const {
     return init_readiness_count.load();
 }
 
+bool ReplicationState::is_alive() const {
+    if(node == nullptr) {
+        return false;
+    }
+
+    if(!is_ready()) {
+        return false;
+    }
+
+    braft::NodeStatus node_status;
+    node->get_status(&node_status);
+    return node_status.state == braft::State::STATE_CANDIDATE || node_status.state == braft::State::STATE_LEADER;
+}
+
 void InitSnapshotClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<InitSnapshotClosure> self_guard(this);

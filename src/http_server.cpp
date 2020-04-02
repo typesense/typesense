@@ -243,19 +243,19 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     h2o_custom_req_handler_t *self = (h2o_custom_req_handler_t *)_self;
 
-    // Wait for replicating state to be ready before starting http
-    // Follower or leader must have started AND data must also have been loaded
-    if(!self->http_server->get_replication_state()->is_ready()) {
-        std::string message = "{ \"message\": \"Not Ready\"}";
-        return send_response(req, 503, message);
-    }
-
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
 
     std::vector<std::string> path_with_query_parts;
     StringUtils::split(path, path_with_query_parts, "?");
     const std::string & path_without_query = path_with_query_parts[0];
+
+    // Except for health check, wait for replicating state to be ready before allowing requests
+    // Follower or leader must have started AND data must also have been loaded
+    if(path_without_query != "/health" && !self->http_server->get_replication_state()->is_ready()) {
+        std::string message = "{ \"message\": \"Not Ready\"}";
+        return send_response(req, 503, message);
+    }
 
     std::vector<std::string> path_parts;
     StringUtils::split(path_without_query, path_parts, "/");
@@ -458,6 +458,10 @@ http_message_dispatcher* HttpServer::get_message_dispatcher() const {
 
 ReplicationState* HttpServer::get_replication_state() const {
     return replication_state;
+}
+
+bool HttpServer::is_alive() const {
+    return replication_state->is_alive();
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {

@@ -123,6 +123,8 @@ struct http_req {
             const std::map<std::string, std::string> & params, std::string body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params), body(body) {}
 
+    // NOTE: we don't ser/de all fields, only ones needed for write forwarding
+
     void deserialize(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];

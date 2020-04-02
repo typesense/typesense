@@ -124,6 +124,8 @@ public:
         return init_readiness_count >= 2;
     }
 
+    bool is_alive() const;
+
     // Shut this node down.
     void shutdown() {
         if (node) {
