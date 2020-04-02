@@ -74,6 +74,8 @@ public:
 
     ReplicationState* get_replication_state() const;
 
+    bool is_alive() const;
+
     void set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key));
 
     void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
