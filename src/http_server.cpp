@@ -243,6 +243,13 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     h2o_custom_req_handler_t *self = (h2o_custom_req_handler_t *)_self;
 
+    // Wait for replicating state to be ready before starting http
+    // Follower or leader must have started AND data must also have been loaded
+    if(!self->http_server->get_replication_state()->is_ready()) {
+        std::string message = "{ \"message\": \"Not Ready\"}";
+        return send_response(req, 503, message);
+    }
+
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
 
@@ -314,7 +321,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     if(route_hash != static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
         if(!authenticated) {
-            return send_401_unauthorized(req);
+            std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
+                                   "` header must be sent.\"}";
+            return send_response(req, 401, message);
         }
 
         // routes match and is an authenticated request - iterate and extract path params
@@ -345,15 +354,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         return 0;
     }
 
-    h2o_generator_t generator = {NULL, NULL};
-    h2o_iovec_t res_body = h2o_strdup(&req->pool, "{ \"message\": \"Not Found\"}", SIZE_MAX);
-    req->res.status = 404;
-    req->res.reason = http_res::get_status_reason(404);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
-    h2o_start_response(req, &generator);
-    h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
-
-    return 0;
+    std::string message = "{ \"message\": \"Not Found\"}";
+    return send_response(req, 404, message);
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
@@ -375,12 +377,10 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     delete response;
 }
 
-int HttpServer::send_401_unauthorized(h2o_req_t *req) {
+int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string & message) {
     h2o_generator_t generator = {NULL, NULL};
-    std::string res_body = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
-                                       "` header must be sent.\"}";
-    h2o_iovec_t body = h2o_strdup(&req->pool, res_body.c_str(), SIZE_MAX);
-    req->res.status = 401;
+    h2o_iovec_t body = h2o_strdup(&req->pool, message.c_str(), SIZE_MAX);
+    req->res.status = status_code;
     req->res.reason = http_res::get_status_reason(req->res.status);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);

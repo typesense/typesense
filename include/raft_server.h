@@ -120,10 +120,8 @@ public:
         return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
-    bool is_active() const {
-        braft::NodeStatus node_status;
-        node->get_status(&node_status);
-        return node_status.state == braft::State::STATE_CANDIDATE || node_status.state == braft::State::STATE_LEADER;
+    bool is_ready() const {
+        return init_readiness_count >= 2;
     }
 
     // Shut this node down.
@@ -172,7 +170,7 @@ private:
 
         // have to do a dummy write, otherwise snapshot will not trigger
         if(create_init_db_snapshot) {
-            http_req* request = new http_req(nullptr, "", 0, {}, "INIT_SNAPSHOT");
+            http_req* request = new http_req(nullptr, "POST", 0, {}, "INIT_SNAPSHOT");
             http_res* response = new http_res();
             write(request, response);
         }

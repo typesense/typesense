@@ -61,7 +61,7 @@ private:
 
     static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
 
-    static int send_401_unauthorized(h2o_req_t *req);
+    static int send_response(h2o_req_t *req, int status_code, const std::string & message);
 
 public:
     HttpServer(const std::string & version,
