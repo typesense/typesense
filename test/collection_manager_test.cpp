@@ -290,11 +290,16 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     ASSERT_EQ(0, cmanager.get_symlinks().size());
 
-    // insert a symlink
-    bool inserted = cmanager.upsert_symlink("collection", "collection_2018");
-    ASSERT_TRUE(inserted);
+    // symlink name cannot be the same as an existing collection
+    Option<bool> inserted = cmanager.upsert_symlink("collection1", "collection_2018");
+    ASSERT_FALSE(inserted.ok());
+    ASSERT_STREQ("Name `collection1` conflicts with an existing collection name.", inserted.error().c_str());
 
-    collection_option = cmanager.resolve_symlink("collection");
+    // insert a symlink
+    inserted = cmanager.upsert_symlink("collection_link", "collection_2018");
+    ASSERT_TRUE(inserted.ok());
+
+    collection_option = cmanager.resolve_symlink("collection_link");
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("collection_2018", collection_option.get());
 
@@ -308,13 +313,27 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     // update existing symlink
     inserted = cmanager.upsert_symlink("company", "company_2019");
-    ASSERT_TRUE(inserted);
+    ASSERT_TRUE(inserted.ok());
     collection_option = cmanager.resolve_symlink("company");
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2019", collection_option.get());
 
+    // add and update a symlink against an existing collection
+    inserted = cmanager.upsert_symlink("collection1_link", "collection1");
+    ASSERT_TRUE(inserted.ok());
+    collection_option = cmanager.resolve_symlink("collection1_link");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("collection1", collection_option.get());
+
+    inserted = cmanager.upsert_symlink("collection1_link", "collection2");
+    ASSERT_TRUE(inserted.ok());
+    collection_option = cmanager.resolve_symlink("collection1_link");
+    ASSERT_TRUE(collection_option.ok());
+    ASSERT_EQ("collection2", collection_option.get());
+
     // remove link
-    cmanager.delete_symlink("collection");
+    Option<bool> deleted = cmanager.delete_symlink("collection");
+    ASSERT_TRUE(deleted.ok());
     collection_option = cmanager.resolve_symlink("collection");
     ASSERT_FALSE(collection_option.ok());
     ASSERT_EQ(404, collection_option.code());

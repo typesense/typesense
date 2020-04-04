@@ -71,9 +71,15 @@ Collection::~Collection() {
         index->terminate = true;
         index->cv.notify_one();
         t->join();
+
         delete t;
         delete indices[i];
+        t = nullptr;
+        indices[i] = nullptr;
     }
+
+    indices.clear();
+    index_threads.clear();
 }
 
 uint32_t Collection::get_next_seq_id() {
