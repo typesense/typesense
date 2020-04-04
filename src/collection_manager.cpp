@@ -372,22 +372,28 @@ Option<std::string> CollectionManager::resolve_symlink(const std::string & symli
     return Option<std::string>(404, "Not found.");
 }
 
-bool CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
+Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
+    if(collections.count(symlink_name) != 0) {
+        return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
+    }
+
     bool inserted = store->insert(get_symlink_key(symlink_name), collection_name);
     if(!inserted) {
-        return false;
+        return Option<bool>(500, "Unable to insert into store.");
     }
-    collection_symlinks[symlink_name] =  collection_name;
-    return true;
+
+    collection_symlinks[symlink_name] = collection_name;
+    return Option<bool>(true);
 }
 
-bool CollectionManager::delete_symlink(const std::string & symlink_name) {
+Option<bool> CollectionManager::delete_symlink(const std::string & symlink_name) {
     bool removed = store->remove(get_symlink_key(symlink_name));
     if(!removed) {
-        return false;
+        return Option<bool>(500, "Unable to delete from store.");
     }
+
     collection_symlinks.erase(symlink_name);
-    return true;
+    return Option<bool>(true);
 }
 
 Store* CollectionManager::get_store() {

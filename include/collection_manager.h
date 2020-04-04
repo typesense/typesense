@@ -100,9 +100,9 @@ public:
 
     spp::sparse_hash_map<std::string, std::string> & get_symlinks();
 
-    bool upsert_symlink(const std::string & symlink_name, const std::string & collection_name);
+    Option<bool> upsert_symlink(const std::string & symlink_name, const std::string & collection_name);
 
-    bool delete_symlink(const std::string & symlink_name);
+    Option<bool> delete_symlink(const std::string & symlink_name);
 
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
