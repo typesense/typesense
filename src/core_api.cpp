@@ -513,15 +513,16 @@ bool post_import_documents(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> result = collection->add_many(req.body);
+    Option<nlohmann::json> res_op = collection->add_many(req.body);
 
-    if(!result.ok()) {
-        res.set(result.code(), result.error());
+    if(!res_op.ok()) {
+        res.set(res_op.code(), res_op.error());
         return false;
     }
 
-    res.set_200(result.get().dump());
-    return true;
+    const nlohmann::json& result = res_op.get();
+    res.set_200(result.dump());
+    return result["success"].get<bool>();
 }
 
 bool get_fetch_document(http_req & req, http_res & res) {
