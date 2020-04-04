@@ -155,7 +155,7 @@ Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) 
     std::vector<std::string> json_lines;
     StringUtils::split(json_lines_str, json_lines, "\n");
 
-    if(json_lines.size() == 0) {
+    if(json_lines.empty()) {
         return Option<nlohmann::json>(400, "The request body was empty. So, no records were imported.");
     }
 
