@@ -1454,7 +1454,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             sort_order[i] = -1;
         }
 
-        field_values[i] = (sort_fields[i].name != sort_field_const::match_score) ?
+        field_values[i] = (sort_fields[i].name != sort_field_const::text_match) ?
                           sort_index.at(sort_fields[i].name) :
                           nullptr;
     }

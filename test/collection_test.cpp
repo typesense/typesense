@@ -30,7 +30,7 @@ protected:
         };
 
         query_fields = {"title"};
-        sort_fields = { sort_by("_match_score", "DESC"), sort_by("points", "DESC") };
+        sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
 
         collection = collectionManager.get_collection("collection");
         if(collection == nullptr) {
@@ -152,7 +152,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
                  "What is the power requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
 
     // Check ASC sort order
-    std::vector<sort_by> sort_fields_asc = { sort_by("_match_score", "DESC"), sort_by("points", "ASC") };
+    std::vector<sort_by> sort_fields_asc = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "ASC") };
     results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, 0, 10).get();
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
@@ -1980,7 +1980,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
                                  field("age", field_types::INT32, false),
     };
 
-    std::vector<sort_by> sort_fields = { sort_by("_match_score", "DESC"), sort_by("age", "DESC") };
+    std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("age", "DESC") };
 
     coll_large_text = collectionManager.get_collection("coll_large_text");
     if(coll_large_text == nullptr) {
