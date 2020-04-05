@@ -121,7 +121,7 @@ namespace sort_field_const {
     static const std::string order = "order";
     static const std::string asc = "ASC";
     static const std::string desc = "DESC";
-    static const std::string match_score = "_match_score";
+    static const std::string text_match = "_text_match";
 }
 
 struct sort_by {

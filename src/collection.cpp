@@ -515,7 +515,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::vector<sort_by> sort_fields_std;
 
     for(const sort_by & _sort_field: sort_fields) {
-        if(_sort_field.name != sort_field_const::match_score && sort_schema.count(_sort_field.name) == 0) {
+        if(_sort_field.name != sort_field_const::text_match && sort_schema.count(_sort_field.name) == 0) {
             std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema for sorting.";
             return Option<nlohmann::json>(404, error);
         }
@@ -543,20 +543,20 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
       4. THREE: do nothing
     */
     if(sort_fields_std.empty()) {
-        sort_fields_std.emplace_back(sort_field_const::match_score, sort_field_const::desc);
+        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
         sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
     }
 
     bool found_match_score = false;
     for(const auto & sort_field : sort_fields) {
-        if(sort_field.name == sort_field_const::match_score) {
+        if(sort_field.name == sort_field_const::text_match) {
             found_match_score = true;
             break;
         }
     }
 
     if(!found_match_score && sort_fields.size() < 3) {
-        sort_fields_std.emplace_back(sort_field_const::match_score, sort_field_const::desc);
+        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
     }
 
     if(sort_fields_std.size() > 3) {
