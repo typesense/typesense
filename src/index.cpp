@@ -1463,16 +1463,34 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     char empty_offset_diffs[16];
     std::fill_n(empty_offset_diffs, 16, 0);
-    Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
+    Match single_token_match = Match(1, 0, 0, 0, empty_offset_diffs);
     const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost, field_id);
 
     for(size_t i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
+        /*if(seq_id == 1 || seq_id == 8) {
+            LOG(INFO) << "seq_id = " << seq_id << ", query_suggestion size: " << query_suggestion.size();
+        }*/
+
         uint64_t match_score = 0;
 
-        if(query_suggestion.size() <= 1) {
-            match_score = single_token_match_score;
+        if(query_suggestion.empty()) {
+            match_score = 0;
+        } else if(query_suggestion.size() == 1) {
+            //match_score = single_token_match_score;
+            art_leaf* token_leaf = query_suggestion[0];
+            uint32_t doc_index = leaf_to_indices.at(token_leaf)[i];
+            if(doc_index != token_leaf->values->ids.getLength()) {
+                uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
+                uint16_t first_pos = token_leaf->values->offsets.at(start_offset);
+
+                if(seq_id == 1 || seq_id == 8) {
+                    LOG(INFO) << "seq_id = " << seq_id << ", first_pos: " << first_pos;
+                }
+
+                match_score = (uint64_t) (MAX_DISPLACEMENT - first_pos);
+            }
         } else {
             std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
@@ -1481,8 +1499,22 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 if(token_positions.empty()) {
                     continue;
                 }
+
+                LOG(INFO) << "seq_id = " << seq_id;
+
                 const Match & match = Match::match(seq_id, token_positions);
+
+                /*LOG(INFO) << "seq_id = " << seq_id
+                          << ", words_present: " << (uint32_t)match.words_present
+                          << ", total_cost: " << (uint32_t)(255 - total_cost)
+                          << ", match.distance: " << (uint32_t)(match.distance)
+                          << ", match.offset: " << (uint32_t)(match.min_token_offset);*/
+
                 uint64_t this_match_score = match.get_match_score(total_cost, field_id);
+
+                /*if(seq_id == 1 || seq_id == 8) {
+                    LOG(INFO) << "seq_id = " << seq_id << ", match_score: " << this_match_score;
+                }*/
 
                 if(this_match_score > match_score) {
                     match_score = this_match_score;

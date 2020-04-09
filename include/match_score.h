@@ -33,22 +33,25 @@ struct Match {
   uint8_t words_present;
   uint8_t distance;
   uint16_t start_offset;
+  uint16_t min_token_offset;
   char offset_diffs[16];
 
-  Match(): words_present(0), distance(0), start_offset(0) {
+  Match(): words_present(0), distance(0), start_offset(0), min_token_offset(0) {
 
   }
 
-  Match(uint8_t words_present, uint8_t distance, uint16_t start_offset, char *offset_diffs_stacked):
-          words_present(words_present), distance(distance), start_offset(start_offset) {
+  Match(uint8_t words_present, uint8_t distance, uint16_t start_offset, uint16_t min_token_offset,
+        char *offset_diffs_stacked): words_present(words_present), distance(distance), start_offset(start_offset),
+        min_token_offset(min_token_offset){
     memcpy(offset_diffs, offset_diffs_stacked, 16);
   }
 
   // Construct a single match score from individual components (for multi-field sort)
   inline uint64_t get_match_score(const uint32_t total_cost, const uint8_t field_id) const {
-    uint64_t match_score =  ((int64_t)(words_present) << 24) |
-                            ((int64_t)(255 - total_cost) << 16) |
-                            ((int64_t)(distance) << 8) |
+    uint64_t match_score =  ((int64_t)(words_present) << 40) |
+                            ((int64_t)(255 - total_cost) << 32) |
+                            ((int64_t)(distance) << 24) |
+                            ((int64_t)(MAX_DISPLACEMENT - min_token_offset) << 8) |
                             ((int64_t)(field_id));
     return match_score;
   }
@@ -77,19 +80,26 @@ struct Match {
     }
   }
 
-  static void pack_token_offsets(const uint16_t* min_token_offset, const size_t num_tokens,
+  static uint16_t pack_token_offsets(const uint16_t* best_token_offsets, const size_t num_tokens,
                                  const uint16_t token_start_offset, char *offset_diffs) {
       offset_diffs[0] = (char) num_tokens;
+      uint16_t min_token_offset_index = 0;
       size_t j = 1;
 
       for(size_t i = 0; i < num_tokens; i++) {
-        if(min_token_offset[i] != MAX_DISPLACEMENT) {
-          offset_diffs[j] = (int8_t)(min_token_offset[i] - token_start_offset);
+        if(best_token_offsets[i] != MAX_DISPLACEMENT) {
+          offset_diffs[j] = (int8_t)(best_token_offsets[i] - token_start_offset);
+          if(best_token_offsets[i] < best_token_offsets[min_token_offset_index] ) {
+              min_token_offset_index = i;
+          }
         } else {
           offset_diffs[j] = std::numeric_limits<int8_t>::max();
         }
         j++;
       }
+
+      //LOG(INFO) << "min_token_offset: " << (int)(best_token_offsets[min_token_offset_index]);
+      return best_token_offsets[min_token_offset_index];
   }
 
   /*
@@ -115,26 +125,26 @@ struct Match {
     uint16_t min_displacement = MAX_DISPLACEMENT;
 
     std::queue<TokenOffset> window;
-    uint16_t token_offset[WINDOW_SIZE] = { };
-    std::fill_n(token_offset, WINDOW_SIZE, MAX_DISPLACEMENT);
+    uint16_t token_offsets_window[WINDOW_SIZE] = { };
+    std::fill_n(token_offsets_window, WINDOW_SIZE, MAX_DISPLACEMENT);
 
     // used to store token offsets of the best-matched window
-    uint16_t min_token_offset[WINDOW_SIZE];
-    std::fill_n(min_token_offset, WINDOW_SIZE, MAX_DISPLACEMENT);
+    uint16_t best_token_offsets[WINDOW_SIZE];
+    std::fill_n(best_token_offsets, WINDOW_SIZE, MAX_DISPLACEMENT);
 
     do {
       if(window.empty()) {
-        addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
+        addTopOfHeapToWindow(heap, window, token_offsets, token_offsets_window);
       }
 
       D(LOG(INFO) << "Loop till window fills... doc_id: " << doc_id;)
 
       // Fill the queue with tokens within a given window frame size of the start offset
       // At the same time, we also record the *last* occurrence of each token within the window
-      // For e.g. if `cat` appeared at offsets 1,3 and 5, we will record `token_offset[cat] = 5`
+      // For e.g. if `cat` appeared at offsets 1,3 and 5, we will record `token_offsets_window[cat] = 5`
       const uint16_t start_offset = window.front().offset;
       while(!heap.empty() && heap.top().offset < start_offset+WINDOW_SIZE) {
-        addTopOfHeapToWindow(heap, window, token_offsets, token_offset);
+        addTopOfHeapToWindow(heap, window, token_offsets, token_offsets_window);
       }
 
       D(LOG(INFO) << "----");
@@ -145,17 +155,17 @@ struct Match {
 
       for(size_t token_id=0; token_id<tokens_size; token_id++) {
         // If a token appeared within the window, we would have recorded its offset
-        if(token_offset[token_id] != MAX_DISPLACEMENT) {
+        if(token_offsets_window[token_id] != MAX_DISPLACEMENT) {
           num_match++;
           if(prev_pos == MAX_DISPLACEMENT) { // for the first word
-            prev_pos = token_offset[token_id];
+            prev_pos = token_offsets_window[token_id];
             displacement = 0;
           } else {
             // Calculate the distance between the tokens within the window
             // Ideally, this should be (NUM_TOKENS - 1) when all the tokens are adjacent to each other
-            D(LOG(INFO) << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id]);
-            displacement += abs(token_offset[token_id]-prev_pos);
-            prev_pos = token_offset[token_id];
+            D(LOG(INFO) << "prev_pos: " << prev_pos << " , curr_pos: " << token_offsets_window[token_id]);
+            displacement += abs(token_offsets_window[token_id] - prev_pos);
+            prev_pos = token_offsets_window[token_id];
           }
         }
       }
@@ -167,12 +177,12 @@ struct Match {
       if(num_match > max_match || (num_match == max_match && displacement < min_displacement)) {
         min_displacement = displacement;
         // record the token positions (for highlighting)
-        memcpy(min_token_offset, token_offset, tokens_size*sizeof(uint16_t));
+        memcpy(best_token_offsets, token_offsets_window, tokens_size * sizeof(uint16_t));
         max_match = num_match;
       }
 
       // As we slide the window, drop the first token of the window from the computation
-      token_offset[window.front().token_id] = MAX_DISPLACEMENT;
+      token_offsets_window[window.front().token_id] = MAX_DISPLACEMENT;
       window.pop();
     } while(!heap.empty());
 
@@ -184,15 +194,16 @@ struct Match {
     // identify the first token which is actually present and use that as the base for run-length encoding
     size_t token_index = 0;
     while(token_index < tokens_size) {
-      if(min_token_offset[token_index] != MAX_DISPLACEMENT) {
-        token_start_offset = min_token_offset[token_index];
+      if(best_token_offsets[token_index] != MAX_DISPLACEMENT) {
+        token_start_offset = best_token_offsets[token_index];
         break;
       }
       token_index++;
     }
 
     const uint8_t distance = MAX_TOKENS_DISTANCE - min_displacement;
-    pack_token_offsets(min_token_offset, tokens_size, token_start_offset, packed_offset_diffs);
-    return Match(max_match, distance, token_start_offset, packed_offset_diffs);
+    uint16_t min_token_offset = pack_token_offsets(best_token_offsets, tokens_size, token_start_offset,
+                                                    packed_offset_diffs);
+    return Match(max_match, distance, token_start_offset, min_token_offset, packed_offset_diffs);
   }
 };

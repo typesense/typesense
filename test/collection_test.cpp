@@ -30,7 +30,7 @@ protected:
         };
 
         query_fields = {"title"};
-        sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+        sort_fields = { sort_by("points", "DESC"), sort_by(sort_field_const::text_match, "DESC") };
 
         collection = collectionManager.get_collection("collection");
         if(collection == nullptr) {
@@ -124,7 +124,8 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 
 TEST_F(CollectionTest, ExactPhraseSearch) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 10).get();
+    std::vector<sort_by> sort_fields_desc = {sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+    nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields_desc, 0, 10).get();
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
@@ -167,7 +168,7 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     }
 
     // Check pagination
-    results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 3).get();
+    results = collection->search("rocket launch", query_fields, "", facets, sort_fields_desc, 0, 3).get();
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
