@@ -108,7 +108,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("peering-address", '\0', "Internal IP address to which Typesense peering service binds.", false, "");
     options.add<uint32_t>("peering-port", '\0', "Port on which Typesense peering service listens.", false, 8107);
-    options.add<std::string>("peers", '\0', "Path to file with comma separated string of peer node IPs.", false);
+    options.add<std::string>("peers", '\0', "Path to file containing comma separated string of all nodes in the cluster.", false);
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
