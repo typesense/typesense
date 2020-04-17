@@ -103,7 +103,7 @@ public:
     }
 
     // Starts this node
-    int start(const std::string & peering_address,  int peering_port, int api_port,
+    int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_interval_s,
               const std::string & raft_dir, const std::string & peers);
 
