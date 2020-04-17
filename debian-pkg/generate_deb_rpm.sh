@@ -16,7 +16,7 @@ cp -r $CURR_DIR/typesense-server /tmp/typesense-deb-build
 
 # Download Typesense, extract and make it executable
 
-curl -o /tmp/typesense-server-$TS_VERSION.tar.gz https://dl.typesense.org/releases/typesense-server-$TS_VERSION-linux-amd64.tar.gz
+curl -o /tmp/typesense-server-$TS_VERSION.tar.gz https://dl.typesense.org/releases/$TS_VERSION/typesense-server-$TS_VERSION-linux-amd64.tar.gz
 rm -rf /tmp/typesense-server-$TS_VERSION && mkdir /tmp/typesense-server-$TS_VERSION
 tar -xzf /tmp/typesense-server-$TS_VERSION.tar.gz -C /tmp/typesense-server-$TS_VERSION
 
