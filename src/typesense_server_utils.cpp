@@ -197,20 +197,35 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         }
     }
 
+    butil::ip_t peering_ip;
+    if(!peering_address.empty()) {
+        int ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
+        if(ip_conv_status != 0) {
+            LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
+            return -1;
+        }
+    } else {
+        peering_ip = butil::my_ip();
+        std::string ip_str = butil::my_ip_cstr();
+        LOG(INFO) << "ip_str: " << ip_str;
+    }
+
+    butil::EndPoint peering_endpoint(peering_ip, peering_port);
+
     // start peering server
     brpc::Server raft_server;
 
-    if (braft::add_service(&raft_server, peering_port) != 0) {
+    if (braft::add_service(&raft_server, peering_endpoint) != 0) {
         LOG(ERROR) << "Failed to add peering service";
         exit(-1);
     }
 
-    if (raft_server.Start(peering_port, nullptr) != 0) {
+    if (raft_server.Start(peering_endpoint, nullptr) != 0) {
         LOG(ERROR) << "Failed to start peering service";
         exit(-1);
     }
 
-    if (replication_state.start(peering_address, peering_port, api_port, 1000, 600, state_dir, peer_ips) != 0) {
+    if (replication_state.start(peering_endpoint, api_port, 1000, 600, state_dir, peer_ips) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
