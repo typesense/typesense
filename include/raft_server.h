@@ -39,17 +39,17 @@ public:
     void Run();
 };
 
-// Closure that fires when refresh peers operation finishes
-class RefreshPeersClosure : public braft::Closure {
+// Closure that fires when refresh nodes operation finishes
+class RefreshNodesClosure : public braft::Closure {
 public:
 
-    RefreshPeersClosure() {}
+    RefreshNodesClosure() {}
 
-    ~RefreshPeersClosure() {}
+    ~RefreshNodesClosure() {}
 
     void Run() {
         // Auto delete this after Run()
-        std::unique_ptr<RefreshPeersClosure> self_guard(this);
+        std::unique_ptr<RefreshNodesClosure> self_guard(this);
 
         if(status().ok()) {
             LOG(INFO) << "Peer refresh succeeded!";
@@ -105,7 +105,7 @@ public:
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_interval_s,
-              const std::string & raft_dir, const std::string & peers);
+              const std::string & raft_dir, const std::string & nodes);
 
     // Generic write method for synchronizing all writes
     void write(http_req* request, http_res* response);
@@ -114,7 +114,7 @@ public:
     void read(http_res* response);
 
     // updates cluster membership
-    void refresh_peers(const std::string & peers);
+    void refresh_nodes(const std::string & nodes);
 
     bool is_leader() const {
         return leader_term.load(butil::memory_order_acquire) > 0;

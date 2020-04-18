@@ -43,7 +43,7 @@ void catch_crash(int sig) {
 
 Option<std::string> fetch_file_contents(const std::string & file_path) {
     if(!file_exists(file_path)) {
-        return Option<std::string>(404, "Error reading file containing peers.");
+        return Option<std::string>(404, "File does not exist.");
     }
 
     std::ifstream infile(file_path);
@@ -108,7 +108,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("peering-address", '\0', "Internal IP address to which Typesense peering service binds.", false, "");
     options.add<uint32_t>("peering-port", '\0', "Port on which Typesense peering service listens.", false, 8107);
-    options.add<std::string>("peers", '\0', "Path to file containing comma separated string of all nodes in the cluster.", false);
+    options.add<std::string>("nodes", '\0', "Path to file containing comma separated string of all nodes in the cluster.", false);
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
@@ -122,7 +122,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "[DEPRECATED: use `api-port`] Port on which Typesense API service listens.", false, 8108);
-    options.add<std::string>("master", 'm', "[DEPRECATED: use clustering via --peers] Master's address in http(s)://<master_address>:<master_port> format "
+    options.add<std::string>("master", 'm', "[DEPRECATED: use clustering via --nodes] Master's address in http(s)://<master_address>:<master_port> format "
                                             "to start as read-only replica.", false, "");
 }
 
@@ -173,26 +173,26 @@ bool on_send_response(void *data) {
     return true;
 }
 
-int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_peers,
+int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, uint32_t api_port) {
 
     std::string peer_ips;
 
-    if(path_to_peers.empty()) {
-        LOG(INFO) << "Since no --peers argument is provided, starting a single node Typesense cluster.";
+    if(path_to_nodes.empty()) {
+        LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
     } else {
-        const Option<std::string> & peers_op = fetch_file_contents(path_to_peers);
+        const Option<std::string> & nodes_op = fetch_file_contents(path_to_nodes);
 
-        if(!peers_op.ok()) {
-            LOG(ERROR) << peers_op.error();
+        if(!nodes_op.ok()) {
+            LOG(ERROR) << "Error reading file containing nodes configuration: " << nodes_op.error();
             exit(-1);
         } else {
-            peer_ips = peers_op.get();
+            peer_ips = nodes_op.get();
             if(peer_ips.empty()) {
-                LOG(ERROR) << "File containing peers is empty.";
+                LOG(ERROR) << "File containing nodes configuration is empty.";
                 exit(-1);
             } else {
-                peer_ips = peers_op.get();
+                peer_ips = nodes_op.get();
             }
         }
     }
@@ -235,16 +235,16 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
     while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
-        if(++raft_counter % 10 == 0 && !path_to_peers.empty()) {
+        if(++raft_counter % 10 == 0 && !path_to_nodes.empty()) {
             // reset peer configuration periodically to identify change in cluster membership
-            const Option<std::string> & refreshed_peers_op = fetch_file_contents(path_to_peers);
-            if(!refreshed_peers_op.ok()) {
-                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_peers_op.error();
+            const Option<std::string> & refreshed_node_op = fetch_file_contents(path_to_nodes);
+            if(!refreshed_node_op.ok()) {
+                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_node_op.error();
                 continue;
             }
 
-            const std::string & refreshed_peer_ips_string = refreshed_peers_op.get();
-            replication_state.refresh_peers(refreshed_peer_ips_string);
+            const std::string & refreshed_node_ips_string = refreshed_node_op.get();
+            replication_state.refresh_nodes(refreshed_node_ips_string);
         }
 
         sleep(1);
@@ -277,7 +277,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     if(!config.get_master().empty()) {
         LOG(ERROR) << "The --master option has been deprecated. Please use clustering for high availability. "
-                   << "Look for the --peers configuration in the documentation.";
+                   << "Look for the --nodes configuration in the documentation.";
         return 1;
     }
 
@@ -288,9 +288,9 @@ int run_server(const Config & config, const std::string & version, void (*master
     bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
 
     if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
-        if(!config.get_peers().empty()) {
+        if(!config.get_nodes().empty()) {
             LOG(ERROR) << "Your data directory needs to be migrated to the new format.";
-            LOG(ERROR) << "To do that, please start the Typesense server without the --peers argument.";
+            LOG(ERROR) << "To do that, please start Typesense server without the --nodes argument.";
             return 1;
         }
 
@@ -334,8 +334,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
-        std::string path_to_peers = config.get_peers();
-        start_raft_server(replication_state, state_dir, path_to_peers,
+        std::string path_to_nodes = config.get_nodes();
+        start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(), config.get_peering_port(), config.get_api_port());
     });
 
