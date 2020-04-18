@@ -19,19 +19,19 @@ void ReplicationClosure::Run() {
 
 int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int api_port,
                             int election_timeout_ms, int snapshot_interval_s,
-                            const std::string & raft_dir, const std::string & peers) {
+                            const std::string & raft_dir, const std::string & nodes) {
 
     braft::NodeOptions node_options;
 
-    std::string actual_peers = peers;
+    std::string actual_nodes = nodes;
 
-    if(actual_peers.empty()) {
+    if(actual_nodes.empty()) {
         std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
-        actual_peers = ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+        actual_nodes = ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
     }
 
-    if(node_options.initial_conf.parse_from(actual_peers) != 0) {
-        LOG(ERROR) << "Failed to parse peer configuration `" << peers << "`";
+    if(node_options.initial_conf.parse_from(actual_nodes) != 0) {
+        LOG(ERROR) << "Failed to parse peer configuration `" << nodes << "`";
         return -1;
     }
 
@@ -77,7 +77,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     }
 
     std::vector<std::string> peer_vec;
-    StringUtils::split(actual_peers, peer_vec, ",");
+    StringUtils::split(actual_nodes, peer_vec, ",");
 
     if(peer_vec.size() == 1) {
         // NOTE: `reset_peers` is NOT safe to run on a cluster of nodes, but okay for standalone
@@ -140,16 +140,16 @@ void ReplicationState::write(http_req* request, http_res* response) {
         return ;
     }
 
-    // Serialize request to replicated WAL so that all the peers in the group receive it as well.
+    // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 
     butil::IOBufBuilder bufBuilder;
     bufBuilder << request->serialize();
-    butil::IOBuf log = bufBuilder.buf();
 
     // Apply this log as a braft::Task
+
     braft::Task task;
-    task.data = &log;
+    task.data = &bufBuilder.buf();
     // This callback would be invoked when the task actually executes or fails
     task.done = new ReplicationClosure(request, response);
 
@@ -314,15 +314,15 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
     return init_db();
 }
 
-void ReplicationState::refresh_peers(const std::string & peers) {
+void ReplicationState::refresh_nodes(const std::string & nodes) {
     if(node && is_leader()) {
-        LOG(INFO) << "Refreshing peer config";
+        LOG(INFO) << "Refreshing node config";
 
         braft::Configuration conf;
-        conf.parse_from(peers);
+        conf.parse_from(nodes);
 
-        RefreshPeersClosure* refresh_peers_done = new RefreshPeersClosure;
-        node->change_peers(conf, refresh_peers_done);
+        RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
+        node->change_peers(conf, refresh_nodes_done);
     }
 }
 

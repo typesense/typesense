@@ -18,7 +18,7 @@ private:
 
     std::string peering_address;
     uint32_t peering_port;
-    std::string peers;
+    std::string nodes;
 
     std::string master;
 
@@ -88,14 +88,6 @@ public:
         this->indices_per_collection  = indices_per_collection;
     }
 
-    void set_raft_port(int raft_port) {
-        this->peering_port = raft_port;
-    }
-
-    void set_raft_peers(const std::string & raft_peers) {
-        this->peers = raft_peers;
-    }
-    
     // getters
 
     std::string get_data_dir() const {
@@ -154,8 +146,8 @@ public:
         return this->peering_port;
     }
 
-    std::string get_peers() const {
-        return this->peers;
+    std::string get_nodes() const {
+        return this->nodes;
     }
 
     // loaders
@@ -199,7 +191,7 @@ public:
             this->peering_port = std::stoi(get_env("TYPESENSE_PEERING_PORT"));
         }
 
-        this->peers = get_env("TYPESENSE_PEERS");
+        this->nodes = get_env("TYPESENSE_NODES");
 
         this->master = get_env("TYPESENSE_MASTER");
         this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
@@ -285,8 +277,8 @@ public:
             this->peering_port = reader.GetInteger("server", "peering-port", 8107);
         }
 
-        if(reader.Exists("server", "peers")) {
-            this->peers = reader.Get("server", "peers", "");
+        if(reader.Exists("server", "nodes")) {
+            this->nodes = reader.Get("server", "nodes", "");
         }
     }
 
@@ -347,8 +339,8 @@ public:
             this->peering_port = options.get<uint32_t>("peering-port");
         }
 
-        if(options.exist("peers")) {
-            this->peers = options.get<std::string>("peers");
+        if(options.exist("nodes")) {
+            this->nodes = options.get<std::string>("nodes");
         }
     }
 
