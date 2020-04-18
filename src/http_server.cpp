@@ -48,7 +48,35 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
     h2o_accept(http_server->accept_ctx, sock);
 }
 
+void HttpServer::on_ssl_refresh_timeout(h2o_timeout_entry_t *entry) {
+    h2o_custom_timeout_entry_t* custom_timeout_entry = reinterpret_cast<h2o_custom_timeout_entry_t*>(entry);
+
+    LOG(INFO) << "Refreshing SSL certs from disk.";
+
+    HttpServer *hs = custom_timeout_entry->server;
+    SSL_CTX *ssl_ctx = hs->accept_ctx->ssl_ctx;
+
+    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, hs->ssl_cert_path.c_str()) != 1) {
+        LOG(ERROR) << "Error while refreshing SSL certificate file:" << hs->ssl_cert_path;
+    } else if (SSL_CTX_use_PrivateKey_file(ssl_ctx, hs->ssl_cert_key_path.c_str(), SSL_FILETYPE_PEM) != 1) {
+        LOG(ERROR) << "Error while refreshing SSL private key file: " << hs->ssl_cert_key_path;
+    }
+
+    // link the timer for the next cycle
+    h2o_timeout_link(
+        hs->ctx.loop,
+        &hs->ssl_refresh_timeout,
+        &custom_timeout_entry->timeout_entry
+    );
+}
+
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
+    // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
+    h2o_timeout_init(ctx.loop, &ssl_refresh_timeout, 8*60*60*1000);  // every 8 hours
+    custom_timeout_entry = h2o_custom_timeout_entry_t(this);
+    custom_timeout_entry.timeout_entry.cb = on_ssl_refresh_timeout;
+    h2o_timeout_link(ctx.loop, &ssl_refresh_timeout, &custom_timeout_entry.timeout_entry);
+
     accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 
     // As recommended by:
@@ -75,7 +103,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
 
     if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
-        LOG(ERROR) << "An error occurred while trying to load server certificate file:" << cert_file;
+        LOG(ERROR) << "An error occurred while trying to load server certificate file: " << cert_file;
         return -1;
     }
     if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
@@ -87,7 +115,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     return 0;
 }
 
-int HttpServer::create_listener(void) {
+int HttpServer::create_listener() {
     struct sockaddr_in addr;
     int fd, reuseaddr_flag = 1;
 
@@ -150,13 +178,17 @@ std::string HttpServer::get_version() {
     return version;
 }
 
-void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts) {
+void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts, bool trigger_callback) {
     for(h2o_timeout_t* timeout: timeouts) {
         while (!h2o_linklist_is_empty(&timeout->_entries)) {
             h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
             h2o_linklist_unlink(&entry->_link);
             entry->registered_at = 0;
-            entry->cb(entry);
+
+            if(trigger_callback) {
+                entry->cb(entry);
+            }
+
             h2o_timeout__do_post_callback(ctx.loop);
         }
     }
@@ -440,10 +472,15 @@ HttpServer::~HttpServer() {
     };
 
     clear_timeouts(timeouts);
-    clear_timeouts({&ctx.zero_timeout});  // needed to clear a deferred timeout that crops up
+    clear_timeouts({&ssl_refresh_timeout}, false); // avoid callback since it recreates timeout
+    h2o_timeout_dispose(ctx.loop, &ssl_refresh_timeout);
 
     h2o_context_dispose(&ctx);
-    free(ctx.globalconf->server_name.base);
+
+    if(h2o_lookup_token(ctx.globalconf->server_name.base, ctx.globalconf->server_name.len) != nullptr) {
+        free(ctx.globalconf->server_name.base);
+    }
+
     free(ctx.queue);
     h2o_evloop_destroy(ctx.loop);
     h2o_config_dispose(&config);

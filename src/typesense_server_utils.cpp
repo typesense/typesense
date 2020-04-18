@@ -206,8 +206,6 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         }
     } else {
         peering_ip = butil::my_ip();
-        std::string ip_str = butil::my_ip_cstr();
-        LOG(INFO) << "ip_str: " << ip_str;
     }
 
     butil::EndPoint peering_endpoint(peering_ip, peering_port);
