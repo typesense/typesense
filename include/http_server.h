@@ -16,6 +16,18 @@ extern "C" {
 #include "option.h"
 
 class ReplicationState;
+class HttpServer;
+
+struct h2o_custom_timeout_entry_t {
+    h2o_timeout_entry_t timeout_entry{};
+    HttpServer *server;
+
+    h2o_custom_timeout_entry_t(): server(nullptr) {}
+
+    explicit h2o_custom_timeout_entry_t(HttpServer *server): server(server) {
+
+    }
+};
 
 class HttpServer {
 private:
@@ -25,6 +37,9 @@ private:
     h2o_accept_ctx_t* accept_ctx;
     h2o_hostconf_t *hostconf;
     h2o_socket_t* listener_socket;
+
+    h2o_timeout_t ssl_refresh_timeout;
+    h2o_custom_timeout_entry_t custom_timeout_entry;
 
     http_message_dispatcher* message_dispatcher;
 
@@ -51,6 +66,8 @@ private:
     static void on_accept(h2o_socket_t *listener, const char *err);
 
     int setup_ssl(const char *cert_file, const char *key_file);
+
+    static void on_ssl_refresh_timeout(h2o_timeout_entry_t *entry);
 
     int create_listener();
 
@@ -101,7 +118,7 @@ public:
 
     void stop();
 
-    void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts);
+    void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts, bool trigger_callback = true);
 
     static bool on_stop_server(void *data);
 
