@@ -74,8 +74,7 @@ public:
         write_options.disableWAL = disable_wal;
 
         // open DB
-        const rocksdb::Status& s = init_db();
-        assert(s.ok());
+        init_db();
     }
 
     ~Store() {
@@ -94,6 +93,7 @@ public:
             }
         }
 
+        assert(s.ok());
         return s;
     }
 

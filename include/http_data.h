@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <future>
+#include <chrono>
 #include "json.hpp"
 #include "string_utils.h"
 
@@ -116,12 +117,18 @@ struct http_req {
     uint64_t route_hash;
     std::map<std::string, std::string> params;
     std::string body;
+    uint64_t seed;
 
-    http_req(): route_hash(1) {}
+    http_req(): route_hash(1), seed(random_uint64_t()) {
+
+    }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, std::string body):
-            _req(_req), http_method(http_method), route_hash(route_hash), params(params), body(body) {}
+            _req(_req), http_method(http_method), route_hash(route_hash), params(params),
+            body(body), seed(random_uint64_t()) {
+
+    }
 
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
 
@@ -129,6 +136,7 @@ struct http_req {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
         body = content["body"];
+        seed = content["seed"];
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
@@ -142,8 +150,15 @@ struct http_req {
         content["route_hash"] = route_hash;
         content["params"] = params;
         content["body"] = body;
+        content["seed"] = seed;
 
         return content.dump();
+    }
+
+    uint64_t random_uint64_t() {
+        thread_local std::mt19937 rg(std::random_device{}());
+        thread_local std::uniform_int_distribution<uint64_t> pick(0, std::numeric_limits<uint64_t>::max());
+        return pick(rg);
     }
 };
 
@@ -157,6 +172,13 @@ struct route_path {
     std::vector<std::string> path_parts;
     bool (*handler)(http_req &, http_res &);
     bool async;
+    std::string action;
+
+    route_path(const std::string &httpMethod, const std::vector<std::string> &pathParts,
+               bool (*handler)(http_req &, http_res &), bool async) :
+               http_method(httpMethod), path_parts(pathParts), handler(handler), async(async) {
+        action = _get_action();
+    }
 
     inline bool operator< (const route_path& rhs) const {
         return true;
@@ -167,6 +189,56 @@ struct route_path {
         std::string method_path = http_method + path;
         uint64_t hash = StringUtils::hash_wy(method_path.c_str(), method_path.size());
         return (hash > 100) ? hash : (hash + 100);  // [0-99] reserved for special codes
+    }
+
+    std::string _get_action() {
+        // `resource:operation` forms an action
+        // operations: create, get, list, delete, search, import, export
+
+        std::string resource;
+        std::string operation;
+
+        size_t resource_index = 0;
+        size_t identifier_index = 0;
+
+        for(size_t i = 0; i < path_parts.size(); i++) {
+            if(path_parts[i][0] == ':') {
+                identifier_index = i;
+            }
+        }
+
+        if(identifier_index == 0) {
+            // means that no identifier found, so set the last part as resource
+            resource_index = path_parts.size() - 1;
+        } else if(identifier_index == (path_parts.size() - 1)) {
+            // is already last position
+            resource_index = identifier_index - 1;
+        } else {
+            resource_index = identifier_index + 1;
+        }
+
+        resource = path_parts[resource_index];
+
+        if(resource_index != path_parts.size() - 1 && path_parts[resource_index+1][0] != ':') {
+            // e.g. /collections/:collection/documents/search
+            operation = path_parts[resource_index+1];
+        } else {
+            // e.g /collections or /collections/:collection/documents or /collections/:collection
+            // get will be a list, post would be a create, etc.
+            if(http_method == "GET") {
+                operation = "list";
+            } else if(http_method == "POST") {
+                operation = "create";
+            } else if(http_method == "PUT") {
+                operation = "upsert";
+            } else if(http_method == "DELETE") {
+                operation = "delete";
+            } else {
+                operation = "unknown";
+            }
+        }
+
+        return resource + ":" + operation;
     }
 };
 

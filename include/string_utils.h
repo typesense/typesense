@@ -7,6 +7,7 @@
 #include <unicode/translit.h>
 #include <iconv.h>
 #include <vector>
+#include <random>
 #include "wyhash_v5.h"
 
 struct StringUtils {
@@ -225,4 +226,6 @@ struct StringUtils {
         // reserve max() for use as a delimiter
         return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
+
+    static std::string randstring(size_t length, uint64_t seed);
 };

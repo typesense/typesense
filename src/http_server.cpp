@@ -301,14 +301,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.
-    std::string auth_key_from_header = "";
+    std::string api_auth_key_sent = "";
 
     ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER, strlen(AUTH_HEADER), -1);
     if(auth_header_cursor != -1) {
         h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
-        auth_key_from_header = std::string(slot.base, slot.len);
+        api_auth_key_sent = std::string(slot.base, slot.len);
     } else if(query_map.count(AUTH_HEADER) != 0) {
-        auth_key_from_header = query_map[AUTH_HEADER];
+        api_auth_key_sent = query_map[AUTH_HEADER];
     }
 
     // Handle CORS
@@ -351,14 +351,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     uint64_t route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
 
     if(route_hash != static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
-        bool authenticated = self->http_server->auth_handler(*rpath, auth_key_from_header);
-        if(!authenticated) {
-            std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
-                                   "` header must be sent.\"}";
-            return send_response(req, 401, message);
-        }
-
-        // routes match and is an authenticated request - iterate and extract path params
+        // iterate and extract path params
         for(size_t i = 0; i < rpath->path_parts.size(); i++) {
             const std::string & path_part = rpath->path_parts[i];
             if(path_part[0] == ':') {
@@ -369,6 +362,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         http_req* request = new http_req(req, http_method, route_hash, query_map, req_body);
         http_res* response = new http_res();
 
+        bool authenticated = self->http_server->auth_handler(*request, *rpath, api_auth_key_sent);
+        if(!authenticated) {
+            std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
+                                   "` header must be sent.\"}";
+            return send_response(req, 401, message);
+        }
+
+        // routes match and is an authenticated request
         // for writes, we defer to replication_state
         if(http_method != "GET") {
             self->http_server->get_replication_state()->write(request, response);
@@ -420,35 +421,36 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(const route_path & rpath, const std::string & auth_key)) {
+void HttpServer::set_auth_handler(bool (*handler)(const http_req& req, const route_path& rpath,
+                                                  const std::string& auth_key)) {
     auth_handler = handler;
 }
 
 void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"GET", path_parts, handler, async};
+    route_path rpath("GET", path_parts, handler, async);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"POST", path_parts, handler, async};
+    route_path rpath("POST", path_parts, handler, async);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"PUT", path_parts, handler, async};
+    route_path rpath("PUT", path_parts, handler, async);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
 void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath = {"DELETE", path_parts, handler, async};
+    route_path rpath("DELETE", path_parts, handler, async);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 

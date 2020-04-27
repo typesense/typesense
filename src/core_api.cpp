@@ -32,10 +32,21 @@ nlohmann::json collection_summary_json(Collection *collection) {
     return json_response;
 }
 
-bool handle_authentication(const route_path & rpath, const std::string & auth_key) {
+bool handle_authentication(const http_req& req, const route_path& rpath, const std::string& auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    return rpath.handler == get_health || collectionManager.auth_key_matches(auth_key) ||
-           (rpath.handler == get_search && collectionManager.search_only_auth_key_matches(auth_key));
+
+    std::string collection = "*";
+
+    if(req.params.count("collection") != 0) {
+        collection = req.params.at("collection");
+    }
+
+    if(rpath.handler == get_health) {
+        // health endpoint requires no authentication
+        return true;
+    }
+
+    return collectionManager.auth_key_matches(auth_key, rpath.action, collection);
 }
 
 bool get_collections(http_req & req, http_res & res) {
