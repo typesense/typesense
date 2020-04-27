@@ -53,9 +53,11 @@ void CollectionManager::init(Store *store,
                              const std::string & auth_key,
                              const std::string & search_only_auth_key) {
     this->store = store;
-    this->auth_key = auth_key;
-    this->search_only_auth_key = search_only_auth_key;
+    this->bootstrap_auth_key = auth_key;
+    this->bootstrap_search_only_auth_key = search_only_auth_key;
     this->default_num_indices = default_num_indices;
+
+    auth_manager.init(store);
 }
 
 Option<bool> CollectionManager::load(const size_t init_batch_size) {
@@ -206,12 +208,24 @@ void CollectionManager::dispose() {
     store->close();
 }
 
-bool CollectionManager::auth_key_matches(std::string auth_key_sent) {
-    return (auth_key == auth_key_sent);
-}
+bool CollectionManager::auth_key_matches(const std::string& auth_key_sent, const std::string& action,
+                                         const std::string& collection) {
+    if(auth_key_sent.empty()) {
+        return false;
+    }
 
-bool CollectionManager::search_only_auth_key_matches(const std::string & auth_key_sent) {
-    return !auth_key_sent.empty() && (search_only_auth_key == auth_key_sent);
+    // check with bootstrap search only auth key
+    if(action == "documents:search" && bootstrap_search_only_auth_key == auth_key_sent) {
+        return true;
+    }
+
+    // check with bootstrap auth key
+    if(bootstrap_auth_key == auth_key_sent) {
+        return true;
+    }
+
+    // finally, check managed auth keys
+    return auth_manager.authenticate(auth_key_sent, action, collection);
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,
@@ -398,4 +412,8 @@ Option<bool> CollectionManager::delete_symlink(const std::string & symlink_name)
 
 Store* CollectionManager::get_store() {
     return store;
+}
+
+AuthManager& CollectionManager::getAuthManager() {
+    return auth_manager;
 }

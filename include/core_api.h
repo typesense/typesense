@@ -2,7 +2,7 @@
 
 #include "http_server.h"
 
-bool handle_authentication(const route_path & rpath, const std::string & auth_key);
+bool handle_authentication(const http_req& req, const route_path& rpath, const std::string& auth_key);
 
 bool get_collections(http_req & req, http_res & res);
 

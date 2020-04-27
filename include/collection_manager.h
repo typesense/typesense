@@ -6,11 +6,13 @@
 #include "store.h"
 #include "field.h"
 #include "collection.h"
+#include "auth_manager.h"
 
 // Singleton, for managing meta information of all collections and house keeping
 class CollectionManager {
 private:
     Store *store;
+    AuthManager auth_manager;
 
     spp::sparse_hash_map<std::string, Collection*> collections;
 
@@ -28,8 +30,8 @@ private:
     static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
     static constexpr const char* COLLECTION_CREATED = "created_at";
 
-    std::string auth_key;
-    std::string search_only_auth_key;
+    std::string bootstrap_auth_key;
+    std::string bootstrap_search_only_auth_key;
 
     size_t default_num_indices;
 
@@ -71,9 +73,7 @@ public:
 
     void add_to_collections(Collection* collection);
 
-    bool auth_key_matches(std::string auth_key_sent);
-
-    bool search_only_auth_key_matches(const std::string & auth_key_sent);
+    bool auth_key_matches(const std::string& auth_key_sent, const std::string& action, const std::string& collection);
 
     Option<Collection*> create_collection(const std::string name, const std::vector<field> & fields,
                                           const std::string & default_sorting_field,
@@ -94,6 +94,8 @@ public:
     void set_next_collection_id(uint32_t next_id);
 
     Store* get_store();
+
+    AuthManager& getAuthManager();
 
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name);
