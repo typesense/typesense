@@ -61,7 +61,7 @@ private:
 
     bool cors_enabled;
 
-    bool (*auth_handler)(const http_req& req, const route_path& rpath, const std::string& auth_key);
+    bool (*auth_handler)(http_req& req, const route_path& rpath, const std::string& auth_key);
 
     static void on_accept(h2o_socket_t *listener, const char *err);
 
@@ -93,7 +93,7 @@ public:
 
     bool is_alive() const;
 
-    void set_auth_handler(bool (*handler)(const http_req & req, const route_path & rpath,
+    void set_auth_handler(bool (*handler)(http_req & req, const route_path & rpath,
                           const std::string & auth_key));
 
     void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);

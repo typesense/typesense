@@ -129,8 +129,10 @@ private:
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
+    // seq_id => (facet => values)
     spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
 
+    // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
     StringUtils string_utils;

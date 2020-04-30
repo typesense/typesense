@@ -223,10 +223,11 @@ struct route_path {
             // e.g. /collections/:collection/documents/search
             operation = path_parts[resource_index+1];
         } else {
-            // e.g /collections or /collections/:collection/documents or /collections/:collection
-            // get will be a list, post would be a create, etc.
+            // e.g /collections or /collections/:collection/foo or /collections/:collection
+
             if(http_method == "GET") {
-                operation = "list";
+                // GET can be a `get` or `list`
+                operation = (resource_index == path_parts.size()-1) ? "list" : "get";
             } else if(http_method == "POST") {
                 operation = "create";
             } else if(http_method == "PUT") {

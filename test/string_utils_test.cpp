@@ -49,3 +49,8 @@ TEST(StringUtilsTest, ShouldJoinString) {
     const std::string & joined_str3 = StringUtils::join({}, "/");
     ASSERT_STREQ("", joined_str3.c_str());
 }
+
+TEST(StringUtilsTest, HMAC) {
+    std::string digest1 = StringUtils::hmac("KeyVal", "{\"filter_by\": \"user_id:1080\"}");
+    ASSERT_STREQ("IvjqWNZ5M5ElcvbMoXj45BxkQrZG4ZKEaNQoRioCx2s=", digest1.c_str());
+}

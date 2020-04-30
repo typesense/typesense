@@ -1,4 +1,8 @@
 #include "auth_manager.h"
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+
+constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 
 Option<std::vector<api_key_t>> AuthManager::list_keys() {
     std::vector<std::string> api_key_json_strs;
@@ -119,7 +123,44 @@ Option<bool> AuthManager::init(Store *store) {
 }
 
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
-                               const std::string& collection) {
+                               const std::string& collection, std::map<std::string, std::string> & params) {
+
+    if(req_api_key.size() > KEY_LEN) {
+        // scoped API key
+        Option<std::string> params_op = params_from_scoped_key(req_api_key, action, collection);
+        if(!params_op.ok()) {
+            return false;
+        }
+
+        const std::string& embedded_params_str = params_op.get();
+        nlohmann::json embedded_params;
+
+        try {
+            embedded_params = nlohmann::json::parse(embedded_params_str);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            return false;
+        }
+
+        if(!embedded_params.is_object()) {
+            LOG(ERROR) << "Scoped API key contains invalid search parameters.";
+            return false;
+        }
+
+        // enrich params with values from embedded_params
+        for (const auto& it: embedded_params.items()){
+            if(params.count(it.key()) == 0) {
+                params[it.key()] = it.value();
+            } else if(it.key() == "filter_by") {
+                params[it.key()] = params[it.key()] + "&&" + it.value().get<std::string>();
+            } else {
+                params[it.key()] = it.value();
+            }
+        }
+
+        return true;
+    }
+
     if(api_keys.count(req_api_key) == 0) {
         return false;
     }
@@ -151,3 +192,55 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
     return false;
 }
 
+Option<std::string> AuthManager::params_from_scoped_key(const std::string &scoped_api_key, const std::string& action,
+                                                        const std::string& collection) {
+    // allow only searches from scoped keys
+    if(action != DOCUMENTS_SEARCH_ACTION) {
+        LOG(ERROR) << "Scoped API keys can only be used for searches.";
+        return Option<std::string>(403, "Forbidden.");
+    }
+
+    const std::string& key_payload = StringUtils::base64_decode(scoped_api_key);
+
+    // FORMAT:
+    // <DIGEST><PARENT_KEY_PREFIX><PARAMS>
+    const std::string& hmacSHA256 = key_payload.substr(0, HMAC_BASE64_LEN);
+    const std::string& key_prefix = key_payload.substr(HMAC_BASE64_LEN, api_key_t::PREFIX_LEN);
+    const std::string& custom_params = key_payload.substr(HMAC_BASE64_LEN + api_key_t::PREFIX_LEN);
+
+    // calculate and verify hmac against matching api key
+    for (const auto &kv : api_keys) {
+        if(kv.first.substr(0, api_key_t::PREFIX_LEN) == key_prefix) {
+            const api_key_t& api_key = kv.second;
+
+            // ensure that parent key has only search scope
+            if(api_key.actions.size() != 1 || api_key.actions[0] != DOCUMENTS_SEARCH_ACTION) {
+                LOG(ERROR) << "Parent API key must allow only `" << DOCUMENTS_SEARCH_ACTION << "` action.";
+                return Option<std::string>(403, "Forbidden.");
+            }
+
+            // ensure that parent key collection filter matches queried collection
+            bool collection_allowed = false;
+            for(const std::string& allowed_collection: api_key.collections) {
+                if(allowed_collection == "*" || (collection != "*" && allowed_collection == collection)) {
+                    collection_allowed = true;
+                    break;
+                }
+            }
+
+            if(!collection_allowed) {
+                LOG(ERROR) << "Parent key does not allow queries against queried collection.";
+                return Option<std::string>(403, "Forbidden.");
+            }
+
+            // finally verify hmac
+            std::string digest = StringUtils::hmac(kv.first, custom_params);
+
+            if(digest == hmacSHA256) {
+                return Option<std::string>(custom_params);
+            }
+        }
+    }
+
+    return Option<std::string>(403, "Forbidden.");
+}
