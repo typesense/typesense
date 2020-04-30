@@ -208,8 +208,10 @@ void CollectionManager::dispose() {
     store->close();
 }
 
-bool CollectionManager::auth_key_matches(const std::string& auth_key_sent, const std::string& action,
-                                         const std::string& collection) {
+bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
+                                         const std::string& action,
+                                         const std::string& collection,
+                                         std::map<std::string, std::string> & params) {
     if(auth_key_sent.empty()) {
         return false;
     }
@@ -225,7 +227,7 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent, const
     }
 
     // finally, check managed auth keys
-    return auth_manager.authenticate(auth_key_sent, action, collection);
+    return auth_manager.authenticate(auth_key_sent, action, collection, params);
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,

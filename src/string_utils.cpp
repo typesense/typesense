@@ -1,5 +1,8 @@
 #include "string_utils.h"
 #include <iostream>
+#include <openssl/evp.h>
+#include <iomanip>
+#include <openssl/hmac.h>
 
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
@@ -65,4 +68,27 @@ std::string StringUtils::randstring(size_t length, uint64_t seed) {
     }
 
     return s;
+}
+
+std::string StringUtils::hmac(const std::string& key, const std::string& msg) {
+    unsigned int hmac_len;
+    unsigned char hmac[EVP_MAX_MD_SIZE];
+    HMAC(EVP_sha256(), key.c_str(), key.size(),
+         reinterpret_cast<const unsigned char *>(msg.c_str()), msg.size(),
+         hmac, &hmac_len);
+
+    std::string digest_raw(reinterpret_cast<char*>(&hmac), hmac_len);
+    return StringUtils::base64_encode(digest_raw);
+}
+
+std::string StringUtils::str2hex(const std::string &str, bool capital) {
+    std::string hexstr;
+    hexstr.resize(str.size() * 2);
+    const size_t a = capital ? 'A' - 1 : 'a' - 1;
+    for (size_t i = 0, c = str[0] & 0xFF; i < hexstr.size(); c = str[i / 2] & 0xFF) {
+        hexstr[i++] = c > 0x9F ? (c / 16 - 9) | a : c / 16 | '0';
+        hexstr[i++] = (c & 0xF) > 9 ? (c % 16 - 9) | a : c % 16 | '0';
+    }
+
+    return hexstr;
 }

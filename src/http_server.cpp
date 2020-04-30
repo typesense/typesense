@@ -236,8 +236,10 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
         std::string value = StringUtils::url_decode(raw_value);
         if(query_map.count(key) == 0) {
             query_map[key] = value;
-        } else {
+        } else if(key == "filter_by") {
             query_map[key] = query_map[key] + "&&" + value;
+        } else {
+            query_map[key] = value;
         }
     }
 
@@ -421,7 +423,7 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(const http_req& req, const route_path& rpath,
+void HttpServer::set_auth_handler(bool (*handler)(http_req& req, const route_path& rpath,
                                                   const std::string& auth_key)) {
     auth_handler = handler;
 }

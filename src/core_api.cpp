@@ -32,7 +32,7 @@ nlohmann::json collection_summary_json(Collection *collection) {
     return json_response;
 }
 
-bool handle_authentication(const http_req& req, const route_path& rpath, const std::string& auth_key) {
+bool handle_authentication(http_req& req, const route_path& rpath, const std::string& auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     std::string collection = "*";
@@ -46,7 +46,7 @@ bool handle_authentication(const http_req& req, const route_path& rpath, const s
         return true;
     }
 
-    return collectionManager.auth_key_matches(auth_key, rpath.action, collection);
+    return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req.params);
 }
 
 bool get_collections(http_req & req, http_res & res) {

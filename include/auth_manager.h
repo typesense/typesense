@@ -14,6 +14,8 @@ struct api_key_t {
     std::vector<std::string> actions;
     std::vector<std::string> collections;
 
+    static const size_t PREFIX_LEN = 4;
+
     api_key_t() {
 
     }
@@ -68,7 +70,7 @@ struct api_key_t {
     }
 
     api_key_t& truncate_value() {
-        value = value.substr(0, 4);  // return only first 4 chars
+        value = value.substr(0, PREFIX_LEN);  // return only first 4 chars
         return (*this);
     }
 };
@@ -89,6 +91,8 @@ private:
 
     uint32_t get_next_api_key_id();
 
+    static constexpr const char* DOCUMENTS_SEARCH_ACTION = "documents:search";
+
 public:
 
     AuthManager() = default;
@@ -106,6 +110,16 @@ public:
     bool authenticate(
         const std::string& req_api_key,
         const std::string& action,
+        const std::string& collection,
+        std::map<std::string, std::string> & params
+    );
+
+    Option<std::string> params_from_scoped_key(
+        const std::string& scoped_api_key,
+        const std::string& action,
         const std::string& collection
     );
+
+    static const size_t KEY_LEN = 32;
+    static const size_t HMAC_BASE64_LEN = 44;
 };

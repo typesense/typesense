@@ -80,6 +80,9 @@ struct StringUtils {
         return isdigit(ch) ? ch - '0' : tolower(ch) - 'a' + 10;
     }
 
+    // Convert string of chars to its representative string of hex numbers
+    static std::string str2hex(const std::string& str, bool capital = false);
+
     static std::string url_decode(std::string text) {
         char h;
         std::ostringstream escaped;
@@ -228,4 +231,6 @@ struct StringUtils {
     }
 
     static std::string randstring(size_t length, uint64_t seed);
+
+    static std::string hmac(const std::string& key, const std::string& msg);
 };
