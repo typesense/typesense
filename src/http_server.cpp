@@ -31,6 +31,8 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
 
     message_dispatcher = new http_message_dispatcher;
     message_dispatcher->init(ctx.loop);
+
+    ssl_refresh_timeout.timeout = 0;  // used during destructor
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -476,8 +478,12 @@ HttpServer::~HttpServer() {
     };
 
     clear_timeouts(timeouts);
-    clear_timeouts({&ssl_refresh_timeout}, false); // avoid callback since it recreates timeout
-    h2o_timeout_dispose(ctx.loop, &ssl_refresh_timeout);
+
+    if(ssl_refresh_timeout.timeout != 0) {
+        // avoid callback since it recreates timeout
+        clear_timeouts({&ssl_refresh_timeout}, false);
+        h2o_timeout_dispose(ctx.loop, &ssl_refresh_timeout);
+    }
 
     h2o_context_dispose(&ctx);
 
