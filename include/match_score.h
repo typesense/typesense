@@ -151,8 +151,8 @@ struct Match {
             prev_pos = token_offset[token_id];
             displacement = 0;
           } else {
-            // Calculate the distance between the tokens within the window
-            // Ideally, this should be (NUM_TOKENS - 1) when all the tokens are adjacent to each other
+            // Calculate the distance between the tokens.
+            // This will be 0 when all the tokens are adjacent to each other
             D(LOG(INFO) << "prev_pos: " << prev_pos << " , curr_pos: " << token_offset[token_id]);
             displacement += abs(token_offset[token_id]-prev_pos);
             prev_pos = token_offset[token_id];
@@ -160,10 +160,13 @@ struct Match {
         }
       }
 
+      // Normalize displacement such that matches of same length always have the same displacement
+      // Ensure that displacement is > 0 -- happens if tokens repeat (displacement will be 0 but num_match > 1)
+      displacement = std::max(0, int16_t(displacement) - num_match + 1);
+
       D(LOG(INFO) << std::endl << "!!!displacement: " << displacement << " | num_match: " << num_match);
 
-      // Track the best `displacement` and `num_match` seen so far across all the windows
-      // for a single token, displacement will be 0, while for 2 tokens minimum dispacement would be 1
+      // Track the best `num_match` and `displacement` (in that order) seen so far across all the windows
       if(num_match > max_match || (num_match == max_match && displacement < min_displacement)) {
         min_displacement = displacement;
         // record the token positions (for highlighting)
