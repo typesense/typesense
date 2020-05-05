@@ -126,6 +126,8 @@ public:
 
     bool is_alive() const;
 
+    uint64_t node_state() const;
+
     // Shut this node down.
     void shutdown() {
         if (node) {

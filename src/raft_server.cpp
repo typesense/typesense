@@ -360,12 +360,21 @@ bool ReplicationState::is_alive() const {
     braft::NodeStatus node_status;
     node->get_status(&node_status);
 
-    LOG(INFO) << "Status is: " << node_status.state;
-
     return (node_status.state == braft::State::STATE_LEADER ||
             node_status.state == braft::State::STATE_TRANSFERRING ||
             node_status.state == braft::State::STATE_CANDIDATE ||
             node_status.state == braft::State::STATE_FOLLOWER);
+}
+
+uint64_t ReplicationState::node_state() const {
+    if(node == nullptr) {
+        return 0;
+    }
+
+    braft::NodeStatus node_status;
+    node->get_status(&node_status);
+
+    return node_status.state;
 }
 
 void InitSnapshotClosure::Run() {

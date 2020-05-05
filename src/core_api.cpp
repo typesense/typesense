@@ -184,8 +184,11 @@ bool del_drop_collection(http_req & req, http_res & res) {
 bool get_debug(http_req & req, http_res & res) {
     nlohmann::json result;
     result["version"] = server->get_version();
-    res.set_200(result.dump());
 
+    uint64_t state = server->node_state();
+    result["state"] = state;
+    
+    res.set_200(result.dump());
     return true;
 }
 
