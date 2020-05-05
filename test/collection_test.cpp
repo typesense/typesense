@@ -2175,6 +2175,23 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     ASSERT_EQ(1, res["hits"][0]["highlights"][1]["values"][0].size());
     ASSERT_STREQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["values"][0].get<std::string>().c_str());
 
+    // excluded fields should not be returned in highlights section
+    spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
+    res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        excluded_fields, 10, 500, "", 5, "title, tags").get();
+
+    ASSERT_EQ(1, res["hits"][0]["highlights"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["highlights"][0]["value"].get<std::string>().c_str());
+
+    // when all fields are excluded
+    excluded_fields = {"tags", "title"};
+    res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        excluded_fields, 10, 500, "", 5, "title, tags").get();
+    ASSERT_EQ(0, res["hits"][0]["highlights"].size());
+
     collectionManager.drop_collection("coll1");
 }
 
