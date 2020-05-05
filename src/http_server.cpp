@@ -521,3 +521,7 @@ bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
 
     return false;
 }
+
+uint64_t HttpServer::node_state() const {
+    return replication_state->node_state();
+}

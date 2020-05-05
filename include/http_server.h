@@ -93,6 +93,8 @@ public:
 
     bool is_alive() const;
 
+    uint64_t node_state() const;
+
     void set_auth_handler(bool (*handler)(http_req & req, const route_path & rpath,
                           const std::string & auth_key));
 
