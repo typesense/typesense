@@ -743,6 +743,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
 
         for(const std::string & field_name: search_fields) {
+            // should not pick excluded field for highlighting
+            if(exclude_fields.count(field_name) > 0) {
+                continue;
+            }
+
             field search_field = search_schema.at(field_name);
             if(query != "*" && (search_field.type == field_types::STRING ||
                                 search_field.type == field_types::STRING_ARRAY)) {
