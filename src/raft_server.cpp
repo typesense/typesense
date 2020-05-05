@@ -81,10 +81,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     if(peer_vec.size() == 1) {
         // NOTE: `reset_peers` is NOT safe to run on a cluster of nodes, but okay for standalone
-        auto status = node->reset_peers(node_options.initial_conf);
-        if(!status.ok()) {
-            LOG(ERROR) << status.error_str();
-        }
+        // This is handy to reset local state if the instance is started on a different IP
+        node->reset_peers(node_options.initial_conf);
     }
 
     this->node = node;
@@ -315,14 +313,22 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes) {
-    if(node && is_leader()) {
-        LOG(INFO) << "Refreshing node config";
+    if(!node) {
+        return ;
+    }
 
-        braft::Configuration conf;
-        conf.parse_from(nodes);
+    braft::Configuration conf;
+    conf.parse_from(nodes);
 
+    if(is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(conf, refresh_nodes_done);
+    } else {
+        // if the node is not a leader and is also not able to find a leader, we have to forcefully reset the peers
+        if(node->leader_id().is_empty()) {
+            LOG(WARNING) << "No leader: resetting peers.";
+            node->reset_peers(conf);
+        }
     }
 }
 
@@ -353,6 +359,8 @@ bool ReplicationState::is_alive() const {
 
     braft::NodeStatus node_status;
     node->get_status(&node_status);
+
+    LOG(INFO) << "Status is: " << node_status.state;
 
     return (node_status.state == braft::State::STATE_LEADER ||
             node_status.state == braft::State::STATE_TRANSFERRING ||
