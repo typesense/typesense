@@ -49,12 +49,12 @@ void HttpClient::init(const std::string &api_key) {
 
     // try to locate ca cert file (from: https://serverfault.com/a/722646/117601)
     std::vector<std::string> locations = {
-            "/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.
-            "/etc/pki/tls/certs/ca-bundle.crt",                  // Fedora/RHEL 6
-            "/etc/ssl/ca-bundle.pem",                            // OpenSUSE
-            "/etc/pki/tls/cacert.pem",                           // OpenELEC
-            "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
-            "/usr/local/etc/openssl/cert.pem",                   // OSX
+        "/etc/ssl/certs/ca-certificates.crt",                // Debian/Ubuntu/Gentoo etc.
+        "/etc/pki/tls/certs/ca-bundle.crt",                  // Fedora/RHEL 6
+        "/etc/ssl/ca-bundle.pem",                            // OpenSUSE
+        "/etc/pki/tls/cacert.pem",                           // OpenELEC
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
+        "/usr/local/etc/openssl/cert.pem",                   // OSX
     };
 
     HttpClient::ca_cert_path = "";

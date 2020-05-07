@@ -14,6 +14,8 @@ bool get_debug(http_req & req, http_res & res);
 
 bool get_health(http_req & req, http_res & res);
 
+bool get_metrics_json(http_req & req, http_res & res);
+
 bool get_search(http_req & req, http_res & res);
 
 bool get_collection_summary(http_req & req, http_res & res);
