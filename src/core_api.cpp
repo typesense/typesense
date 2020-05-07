@@ -1,12 +1,12 @@
 #include <regex>
 #include <chrono>
 #include <thread>
-#include <sys/resource.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
 #include "collection.h"
 #include "collection_manager.h"
+#include "system_metrics.h"
 #include "logger.h"
 
 nlohmann::json collection_summary_json(Collection *collection) {
@@ -187,7 +187,7 @@ bool get_debug(http_req & req, http_res & res) {
 
     uint64_t state = server->node_state();
     result["state"] = state;
-    
+
     res.set_200(result.dump());
     return true;
 }
@@ -203,6 +203,20 @@ bool get_health(http_req & req, http_res & res) {
     }
 
     return alive;
+}
+
+
+bool get_metrics_json(http_req &req, http_res &res) {
+    nlohmann::json result;
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const std::string & data_dir_path = collectionManager.get_store()->get_state_dir_path();
+
+    SystemMetrics sys_metrics;
+    sys_metrics.get(data_dir_path, result);
+
+    res.set_body(200, result.dump(2));
+    return true;
 }
 
 bool get_search(http_req & req, http_res & res) {

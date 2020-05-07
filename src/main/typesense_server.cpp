@@ -20,6 +20,7 @@ void master_server_routes() {
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
     // meta
+    server->get("/metrics.json", get_metrics_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);
 }
