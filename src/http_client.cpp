@@ -2,12 +2,17 @@
 #include "file_utils.h"
 #include "logger.h"
 #include <vector>
+#include <json.hpp>
 
 std::string HttpClient::api_key = "";
 std::string HttpClient::ca_cert_path = "";
 
 long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response, long timeout_ms) {
     CURL *curl = init_curl(url, response);
+    if(curl == nullptr) {
+        return 500;
+    }
+
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     return perform_curl(curl);
@@ -15,6 +20,10 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 
 long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response, long timeout_ms) {
     CURL *curl = init_curl(url, response);
+    if(curl == nullptr) {
+        return 500;
+    }
+
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
@@ -23,24 +32,22 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
 
 long HttpClient::delete_response(const std::string &url, std::string &response, long timeout_ms) {
     CURL *curl = init_curl(url, response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-
     if(curl == nullptr) {
-        return 0;
+        return 500;
     }
 
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
     return perform_curl(curl);
 }
 
 long HttpClient::get_response(const std::string &url, std::string &response, long timeout_ms) {
     CURL *curl = init_curl(url, response);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-
     if(curl == nullptr) {
-        return 0;
+        return 500;
     }
 
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     return perform_curl(curl);
 }
 
@@ -73,7 +80,7 @@ long HttpClient::perform_curl(CURL *curl) {
     chunk = curl_slist_append(chunk, api_key_header.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
     curl_easy_perform(curl);
-    long http_code = 0;
+    long http_code = 500;
     curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
     return http_code;
@@ -82,11 +89,17 @@ long HttpClient::perform_curl(CURL *curl) {
 CURL *HttpClient::init_curl(const std::string &url, std::string &buffer) {
     CURL *curl = curl_easy_init();
 
+    if(curl == nullptr) {
+        nlohmann::json res;
+        res["message"] = "Failed to initialize HTTP client.";
+        buffer = res.dump();
+        return nullptr;
+    }
+
     if(!ca_cert_path.empty()) {
         curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
     } else {
-        LOG(ERROR) << "Unable to locate system SSL certificates.";
-        return nullptr;
+        LOG(WARNING) << "Unable to locate system SSL certificates.";
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
