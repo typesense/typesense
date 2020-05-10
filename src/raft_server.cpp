@@ -2,6 +2,7 @@
 #include "raft_server.h"
 #include <butil/files/file_enumerator.h>
 #include <thread>
+#include <algorithm>
 #include <string_utils.h>
 #include <file_utils.h>
 #include <collection_manager.h>
@@ -22,16 +23,10 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
                             const std::string & raft_dir, const std::string & nodes) {
 
     braft::NodeOptions node_options;
+    std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
 
-    std::string actual_nodes = nodes;
-
-    if(actual_nodes.empty()) {
-        std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
-        actual_nodes = ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
-    }
-
-    if(node_options.initial_conf.parse_from(actual_nodes) != 0) {
-        LOG(ERROR) << "Failed to parse peer configuration `" << nodes << "`";
+    if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+        LOG(ERROR) << "Failed to parse nodes configuration `" << nodes << "`";
         return -1;
     }
 
@@ -77,16 +72,22 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     }
 
     std::vector<std::string> peer_vec;
-    StringUtils::split(actual_nodes, peer_vec, ",");
-
-    if(peer_vec.size() == 1) {
-        // NOTE: `reset_peers` is NOT safe to run on a cluster of nodes, but okay for standalone
-        // This is handy to reset local state if the instance is started on a different IP
-        node->reset_peers(node_options.initial_conf);
-    }
+    StringUtils::split(actual_nodes_config, peer_vec, ",");
 
     this->node = node;
     return 0;
+}
+
+std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
+                                              const std::string& nodes_config) {
+    std::string actual_nodes_config = nodes_config;
+
+    if(nodes_config.empty()) {
+        std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
+        actual_nodes_config = ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+    }
+
+    return actual_nodes_config;
 }
 
 void ReplicationState::write(http_req* request, http_res* response) {
@@ -317,17 +318,29 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
         return ;
     }
 
-    braft::Configuration conf;
-    conf.parse_from(nodes);
+    braft::Configuration new_conf;
+    new_conf.parse_from(nodes);
 
     if(is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
-        node->change_peers(conf, refresh_nodes_done);
-    } else {
-        // if the node is not a leader and is also not able to find a leader, we have to forcefully reset the peers
-        if(node->leader_id().is_empty()) {
-            LOG(WARNING) << "No leader: resetting peers.";
-            node->reset_peers(conf);
+        node->change_peers(new_conf, refresh_nodes_done);
+    } else if(node->leader_id().is_empty()) {
+        // Reset the peers of a node that:
+        // a) is NOT a leader
+        // b) does NOT have a leader
+        // c) every node except self has changed
+
+        std::set<braft::PeerId> new_peers;
+        new_conf.list_peers(&new_peers);
+
+        std::set<braft::PeerId> intersect;
+        std::set_intersection(peers.begin(), peers.end(), new_peers.begin(), new_peers.end(),
+                              std::inserter(intersect, intersect.end()));
+
+        if(intersect.empty() ||
+          (intersect.size() == 1 && (*intersect.begin()).to_string() == node->node_id().peer_id.to_string())) {
+            LOG(WARNING) << "Quorum change: resetting peers.";
+            node->reset_peers(new_conf);
         }
     }
 }
