@@ -79,11 +79,19 @@ long HttpClient::perform_curl(CURL *curl) {
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-    curl_easy_perform(curl);
+    CURLcode res = curl_easy_perform(curl);
+
+    if (res != CURLE_OK) {
+        LOG(ERROR) << "CURL failed: " << curl_easy_strerror(res);
+        curl_easy_cleanup(curl);
+        return 500;
+    }
+
     long http_code = 500;
     curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
     curl_easy_cleanup(curl);
-    return http_code;
+
+    return http_code == 0 ? 500 : http_code;
 }
 
 CURL *HttpClient::init_curl(const std::string &url, std::string &buffer) {
@@ -105,7 +113,10 @@ CURL *HttpClient::init_curl(const std::string &url, std::string &buffer) {
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 300);
 
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // to allow self-signed certs
+    // to allow self-signed certs
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
 
