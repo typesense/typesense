@@ -83,7 +83,7 @@ void stream_response(bool (*handler)(http_req* req, http_res* res, void* data),
                      http_req & request, http_res & response, void* data) {
     h2o_req_t* req = request._req;
     h2o_custom_generator_t* custom_generator = new h2o_custom_generator_t {
-            h2o_generator_t {response_proceed, response_stop}, handler, &request, &response, data
+        h2o_generator_t {response_proceed, response_stop}, handler, &request, &response, data
     };
 
     req->res.status = response.status_code;
@@ -173,28 +173,39 @@ bool on_send_response(void *data) {
     return true;
 }
 
-int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
-                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port) {
+Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
+    std::string nodes_config;
 
-    std::string peer_ips;
-
-    if(path_to_nodes.empty()) {
-        LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
-    } else {
+    if(!path_to_nodes.empty()) {
         const Option<std::string> & nodes_op = fetch_file_contents(path_to_nodes);
 
         if(!nodes_op.ok()) {
-            LOG(ERROR) << "Error reading file containing nodes configuration: " << nodes_op.error();
-            exit(-1);
+            return Option<std::string>(500, "Error reading file containing nodes configuration: " + nodes_op.error());
         } else {
-            peer_ips = nodes_op.get();
-            if(peer_ips.empty()) {
-                LOG(ERROR) << "File containing nodes configuration is empty.";
-                exit(-1);
+            nodes_config = nodes_op.get();
+            if(nodes_config.empty()) {
+                return Option<std::string>(500, "File containing nodes configuration is empty.");
             } else {
-                peer_ips = nodes_op.get();
+                nodes_config = nodes_op.get();
             }
         }
+    }
+
+    return Option<std::string>(nodes_config);
+}
+
+int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
+                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port) {
+
+    if(path_to_nodes.empty()) {
+        LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
+    }
+
+    const Option<std::string>& nodes_config_op = fetch_nodes_config(path_to_nodes);
+
+    if(!nodes_config_op.ok()) {
+        LOG(ERROR) << nodes_config_op.error();
+        exit(-1);
     }
 
     butil::ip_t peering_ip;
@@ -223,7 +234,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
         exit(-1);
     }
 
-    if (replication_state.start(peering_endpoint, api_port, 1000, 600, state_dir, peer_ips) != 0) {
+    if (replication_state.start(peering_endpoint, api_port, 1000, 600, state_dir, nodes_config_op.get()) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
@@ -233,16 +244,17 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
     while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
-        if(++raft_counter % 10 == 0 && !path_to_nodes.empty()) {
+        // pre-increment to ensure that we don't refresh right away on a fresh boot
+        if(++raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
-            const Option<std::string> & refreshed_node_op = fetch_file_contents(path_to_nodes);
-            if(!refreshed_node_op.ok()) {
-                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_node_op.error();
+            const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
+            if(!refreshed_nodes_op.ok()) {
+                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
                 continue;
             }
-
-            const std::string & refreshed_node_ips_string = refreshed_node_op.get();
-            replication_state.refresh_nodes(refreshed_node_ips_string);
+            const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
+                    refreshed_nodes_op.get());
+            replication_state.refresh_nodes(nodes_config);
         }
 
         sleep(1);

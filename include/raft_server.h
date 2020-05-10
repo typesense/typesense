@@ -80,6 +80,7 @@ private:
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
+    std::set<braft::PeerId> peers;
 
     Store *store;
     ThreadPool* thread_pool;
@@ -148,6 +149,9 @@ public:
 
     size_t get_init_readiness_count() const;
 
+    static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
+                                       const std::string &nodes_config);
+
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
 private:
@@ -199,6 +203,7 @@ private:
 
     void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
+        conf.list_peers(&peers);
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
