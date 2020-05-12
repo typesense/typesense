@@ -267,7 +267,7 @@ int ReplicationState::init_db() {
         return -1;
     }
 
-    LOG(NOTICE) << "DB open success!";
+    LOG(INFO) << "DB open success!";
     LOG(INFO) << "Loading collections from disk...";
 
     Option<bool> init_op = CollectionManager::get_instance().load();
@@ -362,21 +362,12 @@ size_t ReplicationState::get_init_readiness_count() const {
 }
 
 bool ReplicationState::is_alive() const {
-    if(node == nullptr) {
+    if(node == nullptr || !is_ready()) {
         return false;
     }
 
-    if(!is_ready()) {
-        return false;
-    }
-
-    braft::NodeStatus node_status;
-    node->get_status(&node_status);
-
-    return (node_status.state == braft::State::STATE_LEADER ||
-            node_status.state == braft::State::STATE_TRANSFERRING ||
-            node_status.state == braft::State::STATE_CANDIDATE ||
-            node_status.state == braft::State::STATE_FOLLOWER);
+    // node should either be a leader or have a leader
+    return (is_leader() || !node->leader_id().is_empty());
 }
 
 uint64_t ReplicationState::node_state() const {
