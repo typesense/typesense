@@ -603,6 +603,313 @@ bool del_remove_document(http_req & req, http_res & res) {
     return true;
 }
 
+
+bool get_aliases(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const spp::sparse_hash_map<std::string, std::string> & symlinks = collectionManager.get_symlinks();
+    nlohmann::json res_json = nlohmann::json::object();
+    res_json["aliases"] = nlohmann::json::array();
+
+    for(const auto & symlink_collection: symlinks) {
+        nlohmann::json symlink;
+        symlink["name"] = symlink_collection.first;
+        symlink["collection_name"] = symlink_collection.second;
+        res_json["aliases"].push_back(symlink);
+    }
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool get_alias(http_req & req, http_res & res) {
+    const std::string & alias = req.params["alias"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Option<std::string> collection_name_op = collectionManager.resolve_symlink(alias);
+
+    if(!collection_name_op.ok()) {
+        res.set_404();
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = alias;
+    res_json["collection_name"] = collection_name_op.get();
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool put_upsert_alias(http_req & req, http_res & res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const std::string & alias = req.params["alias"];
+
+    const char* COLLECTION_NAME = "collection_name";
+
+    if(req_json.count(COLLECTION_NAME) == 0) {
+        res.set_400(std::string("Parameter `") + COLLECTION_NAME + "` is required.");
+        return false;
+    }
+
+    Option<bool> success_op = collectionManager.upsert_symlink(alias, req_json[COLLECTION_NAME]);
+    if(!success_op.ok()) {
+        res.set_500(success_op.error());
+        return false;
+    }
+
+    req_json["name"] = alias;
+    res.set_200(req_json.dump());
+    return true;
+}
+
+bool del_alias(http_req & req, http_res & res) {
+    const std::string & alias = req.params["alias"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+
+    Option<std::string> collection_name_op = collectionManager.resolve_symlink(alias);
+    if(!collection_name_op.ok()) {
+        res.set_404();
+        return false;
+    }
+
+    Option<bool> delete_op = collectionManager.delete_symlink(alias);
+
+    if(!delete_op.ok()) {
+        res.set_500(delete_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = alias;
+    res_json["collection_name"] = collection_name_op.get();
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool get_overrides(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["overrides"] = nlohmann::json::array();
+
+    std::map<std::string, override_t> overrides = collection->get_overrides();
+    for(const auto & kv: overrides) {
+        nlohmann::json override = kv.second.to_json();
+        res_json["overrides"].push_back(override);
+    }
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool get_override(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    std::string override_id = req.params["id"];
+
+    std::map<std::string, override_t> overrides = collection->get_overrides();
+
+    if(overrides.count(override_id) != 0) {
+        nlohmann::json override = overrides[override_id].to_json();
+        res.set_200(override.dump());
+        return false;
+    }
+
+    res.set_404();
+    return true;
+}
+
+bool put_override(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    std::string override_id = req.params["id"];
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+    // validate format of req_json
+    if(
+            !req_json.is_object() ||
+            (req_json.count("rule") == 0) ||
+            (req_json["rule"].count("query") == 0 || req_json["rule"].count("match") == 0) ||
+            (req_json.count("includes") == 0 && req_json.count("excludes") == 0)
+            ) {
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+    req_json["id"] = override_id;
+
+    override_t override(req_json);
+    Option<uint32_t> add_op = collection->add_override(override);
+
+    if(!add_op.ok()) {
+        res.set(add_op.code(), add_op.error());
+        return false;
+    }
+
+    res.set_200(req_json.dump());
+    return true;
+}
+
+bool del_override(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    Option<uint32_t> rem_op = collection->remove_override(req.params["id"]);
+    if(!rem_op.ok()) {
+        res.set(rem_op.code(), rem_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = req.params["id"];
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool get_keys(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    const Option<std::vector<api_key_t>>& keys_op = auth_manager.list_keys();
+    if(!keys_op.ok()) {
+        res.set(keys_op.code(), keys_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["keys"] = nlohmann::json::array();
+
+    for(const auto & key: keys_op.get()) {
+        nlohmann::json key_obj = key.to_json();
+        res_json["keys"].push_back(key_obj);
+    }
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool post_create_key(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+
+    const Option<uint32_t>& validate_op = api_key_t::validate(req_json);
+    if(!validate_op.ok()) {
+        res.set(validate_op.code(), validate_op.error());
+        return false;
+    }
+
+    const std::string &rand_key = StringUtils::randstring(AuthManager::KEY_LEN, req.seed);
+
+    api_key_t api_key(
+            rand_key,
+            req_json["description"].get<std::string>(),
+            req_json["actions"].get<std::vector<std::string>>(),
+            req_json["collections"].get<std::vector<std::string>>()
+    );
+
+    const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);
+    if(!api_key_op.ok()) {
+        res.set(api_key_op.code(), api_key_op.error());
+        return false;
+    }
+
+    res.set(201, api_key_op.get().to_json().dump());
+    return true;
+}
+
+bool get_key(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    const std::string& key_id_str = req.params["id"];
+    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+
+    const Option<api_key_t>& key_op = auth_manager.get_key(key_id);
+
+    if(!key_op.ok()) {
+        res.set(key_op.code(), key_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json = key_op.get().to_json();
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool del_key(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    AuthManager &auth_manager = collectionManager.getAuthManager();
+
+    const std::string& key_id_str = req.params["id"];
+    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+
+    const Option<api_key_t> &del_op = auth_manager.remove_key(key_id);
+
+    if(!del_op.ok()) {
+        res.set(del_op.code(), del_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = req.params["id"];
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
 bool async_write_request(void *data) {
     //LOG(INFO) << "async_write_request called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);

@@ -19,6 +19,21 @@ void master_server_routes() {
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);
 
+    server->get("/collections/:collection/overrides", get_overrides);
+    server->get("/collections/:collection/overrides/:id", get_override);
+    server->put("/collections/:collection/overrides/:id", put_override);
+    server->del("/collections/:collection/overrides/:id", del_override);
+
+    server->get("/aliases", get_aliases);
+    server->get("/aliases/:alias", get_alias);
+    server->put("/aliases/:alias", put_upsert_alias);
+    server->del("/aliases/:alias", del_alias);
+
+    server->get("/keys", get_keys);
+    server->get("/keys/:id", get_key);
+    server->post("/keys", post_create_key);
+    server->del("/keys/:id", del_key);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/debug", get_debug);
