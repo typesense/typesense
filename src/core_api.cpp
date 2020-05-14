@@ -915,6 +915,8 @@ bool async_write_request(void *data) {
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
+    bool async_call = false;
+
     if(index_arg->req->route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         // route not found
         index_arg->res->set_400("Not found.");
@@ -924,12 +926,13 @@ bool async_write_request(void *data) {
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
             found_rpath->handler(*index_arg->req, *index_arg->res);
+            async_call = found_rpath->async;
         } else {
             index_arg->res->set_404();
         }
     }
 
-    if(index_arg->req->_req != nullptr) {
+    if(!async_call && index_arg->req->_req != nullptr) {
         // we have to return a response to the client
         server->send_response(index_arg->req, index_arg->res);
     }
