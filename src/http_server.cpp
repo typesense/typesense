@@ -32,7 +32,7 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     message_dispatcher = new http_message_dispatcher;
     message_dispatcher->init(ctx.loop);
 
-    ssl_refresh_timeout.timeout = 0;  // used during destructor
+    ssl_refresh_timer.timer.expire_at = 0;  // used during destructor
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -50,12 +50,12 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
     h2o_accept(http_server->accept_ctx, sock);
 }
 
-void HttpServer::on_ssl_refresh_timeout(h2o_timeout_entry_t *entry) {
-    h2o_custom_timeout_entry_t* custom_timeout_entry = reinterpret_cast<h2o_custom_timeout_entry_t*>(entry);
+void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
+    h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
 
     LOG(INFO) << "Refreshing SSL certs from disk.";
 
-    HttpServer *hs = custom_timeout_entry->server;
+    HttpServer *hs = custom_timer->server;
     SSL_CTX *ssl_ctx = hs->accept_ctx->ssl_ctx;
 
     if (SSL_CTX_use_certificate_chain_file(ssl_ctx, hs->ssl_cert_path.c_str()) != 1) {
@@ -65,19 +65,19 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timeout_entry_t *entry) {
     }
 
     // link the timer for the next cycle
-    h2o_timeout_link(
+    h2o_timer_link(
         hs->ctx.loop,
-        &hs->ssl_refresh_timeout,
-        &custom_timeout_entry->timeout_entry
+        SSL_REFRESH_INTERVAL_MS,
+        &hs->ssl_refresh_timer.timer
     );
 }
 
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
-    h2o_timeout_init(ctx.loop, &ssl_refresh_timeout, 8*60*60*1000);  // every 8 hours
-    custom_timeout_entry = h2o_custom_timeout_entry_t(this);
-    custom_timeout_entry.timeout_entry.cb = on_ssl_refresh_timeout;
-    h2o_timeout_link(ctx.loop, &ssl_refresh_timeout, &custom_timeout_entry.timeout_entry);
+    ssl_refresh_timer = h2o_custom_timer_t(this);
+    ssl_refresh_timer.timer.expire_at = 10000000;
+    h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);  // every 8 hours
+    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);
 
     accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 
@@ -131,7 +131,7 @@ int HttpServer::create_listener() {
         }
     }
 
-    ctx.globalconf->server_name = h2o_strdup(NULL, "", SIZE_MAX);
+    ctx.globalconf->server_name = h2o_strdup(nullptr, "", SIZE_MAX);
 
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;
@@ -183,19 +183,23 @@ std::string HttpServer::get_version() {
     return version;
 }
 
-void HttpServer::clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts, bool trigger_callback) {
-    for(h2o_timeout_t* timeout: timeouts) {
-        while (!h2o_linklist_is_empty(&timeout->_entries)) {
-            h2o_timeout_entry_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timeout_entry_t, _link, timeout->_entries.next);
-            h2o_linklist_unlink(&entry->_link);
-            entry->registered_at = 0;
+void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback) {
+    for(h2o_timer_t* timer: timers) {
+        h2o_timer_unlink(timer);
+        /*while (!h2o_linklist_is_empty(&timer->_link)) {
+            h2o_timer_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timer_t, _link, timer->_link.next);
+            if(entry == nullptr) {
+                continue;
+            }
 
             if(trigger_callback) {
                 entry->cb(entry);
             }
 
-            h2o_timeout__do_post_callback(ctx.loop);
-        }
+            //entry->expire_at = 0;
+            h2o_linklist_unlink(&entry->_link);
+            h2o_timer_unlink(timer);
+        }*/
     }
 }
 
@@ -289,6 +293,42 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     StringUtils::split(path, path_with_query_parts, "?");
     const std::string & path_without_query = path_with_query_parts[0];
 
+    // Handle CORS
+    if(self->http_server->cors_enabled) {
+        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
+                              0, NULL, H2O_STRLIT("*"));
+
+        if(http_method == "OPTIONS") {
+            // locate request access control headers
+            const char* ACL_REQ_HEADERS = "access-control-request-headers";
+            ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS,
+                                                               strlen(ACL_REQ_HEADERS), -1);
+
+            if(acl_header_cursor != -1) {
+                h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
+
+                h2o_generator_t generator = {NULL, NULL};
+                h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
+                req->res.status = 200;
+                req->res.reason = http_res::get_status_reason(200);
+
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-allow-methods"),
+                                      0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-allow-headers"),
+                                      0, NULL, acl_req_headers.base, acl_req_headers.len);
+                h2o_add_header_by_str(&req->pool, &req->res.headers,
+                                      H2O_STRLIT("access-control-max-age"),
+                                      0, NULL, H2O_STRLIT("86400"));
+
+                h2o_start_response(req, &generator);
+                h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
+                return 0;
+            }
+        }
+    }
+
     // Except for health check, wait for replicating state to be ready before allowing requests
     // Follower or leader must have started AND data must also have been loaded
     if(path_without_query != "/health" && !self->http_server->get_replication_state()->is_ready()) {
@@ -318,42 +358,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         api_auth_key_sent = query_map[AUTH_HEADER];
     }
 
-    // Handle CORS
-    if(self->http_server->cors_enabled) {
-        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
-                              0, NULL, H2O_STRLIT("*"));
-        
-        if(http_method == "OPTIONS") {
-            // locate request access control headers
-            const char* ACL_REQ_HEADERS = "access-control-request-headers";
-            ssize_t acl_header_cursor = h2o_find_header_by_str(&req->headers, ACL_REQ_HEADERS, 
-                                                               strlen(ACL_REQ_HEADERS), -1);
-
-            if(acl_header_cursor != -1) {
-                h2o_iovec_t &acl_req_headers = req->headers.entries[acl_header_cursor].value;
-
-                h2o_generator_t generator = {NULL, NULL};
-                h2o_iovec_t res_body = h2o_strdup(&req->pool, "", SIZE_MAX);
-                req->res.status = 200;
-                req->res.reason = http_res::get_status_reason(200);
-
-                h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("access-control-allow-methods"),
-                                      0, NULL, H2O_STRLIT("POST, GET, DELETE, PUT, PATCH, OPTIONS"));
-                h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("access-control-allow-headers"),
-                                      0, NULL, acl_req_headers.base, acl_req_headers.len);
-                h2o_add_header_by_str(&req->pool, &req->res.headers,
-                                      H2O_STRLIT("access-control-max-age"),
-                                      0, NULL, H2O_STRLIT("86400"));
-
-                h2o_start_response(req, &generator);
-                h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
-                return 0;
-            }
-        }
-    }
-
     route_path *rpath = nullptr;
     uint64_t route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
 
@@ -373,6 +377,10 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         if(!authenticated) {
             std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
                                    "` header must be sent.\"}";
+
+            delete request;
+            delete response;
+
             return send_response(req, 401, message);
         }
 
@@ -409,7 +417,7 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     req->res.status = response->status_code;
     req->res.reason = http_res::get_status_reason(response->status_code);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, nullptr, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 
@@ -418,11 +426,11 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
 }
 
 int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string & message) {
-    h2o_generator_t generator = {NULL, NULL};
+    h2o_generator_t generator = {nullptr, nullptr};
     h2o_iovec_t body = h2o_strdup(&req->pool, message.c_str(), SIZE_MAX);
     req->res.status = status_code;
     req->res.reason = http_res::get_status_reason(req->res.status);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, nullptr, H2O_STRLIT("application/json; charset=utf-8"));
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
     return 0;
@@ -469,7 +477,7 @@ HttpServer::~HttpServer() {
     delete message_dispatcher;
 
     // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
-    std::vector<h2o_timeout_t*> timeouts = {
+    /*std::vector<h2o_timeout_t*> timeouts = {
         &ctx.zero_timeout,
         &ctx.one_sec_timeout,
         &ctx.hundred_ms_timeout,
@@ -481,20 +489,18 @@ HttpServer::~HttpServer() {
     };
 
     clear_timeouts(timeouts);
+    */
 
-    if(ssl_refresh_timeout.timeout != 0) {
+    if(ssl_refresh_timer.timer.expire_at != 0) {
         // avoid callback since it recreates timeout
-        clear_timeouts({&ssl_refresh_timeout}, false);
-        h2o_timeout_dispose(ctx.loop, &ssl_refresh_timeout);
+        clear_timeouts({&ssl_refresh_timer.timer}, false);
     }
 
     h2o_context_dispose(&ctx);
 
-    if(h2o_lookup_token(ctx.globalconf->server_name.base, ctx.globalconf->server_name.len) != nullptr) {
-        free(ctx.globalconf->server_name.base);
-    }
+    free(ctx.globalconf->server_name.base);
+    ctx.globalconf->server_name.base = nullptr;
 
-    free(ctx.queue);
     h2o_evloop_destroy(ctx.loop);
     h2o_config_dispose(&config);
 

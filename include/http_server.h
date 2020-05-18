@@ -18,13 +18,13 @@ extern "C" {
 class ReplicationState;
 class HttpServer;
 
-struct h2o_custom_timeout_entry_t {
-    h2o_timeout_entry_t timeout_entry{};
+struct h2o_custom_timer_t {
+    h2o_timer_t timer{};
     HttpServer *server;
 
-    h2o_custom_timeout_entry_t(): server(nullptr) {}
+    h2o_custom_timer_t(): server(nullptr) {}
 
-    explicit h2o_custom_timeout_entry_t(HttpServer *server): server(server) {
+    explicit h2o_custom_timer_t(HttpServer *server): server(server) {
 
     }
 };
@@ -38,8 +38,8 @@ private:
     h2o_hostconf_t *hostconf;
     h2o_socket_t* listener_socket;
 
-    h2o_timeout_t ssl_refresh_timeout;
-    h2o_custom_timeout_entry_t custom_timeout_entry;
+    static const uint64_t SSL_REFRESH_INTERVAL_MS = 8 * 60 * 60 * 1000;
+    h2o_custom_timer_t ssl_refresh_timer;
 
     http_message_dispatcher* message_dispatcher;
 
@@ -67,7 +67,7 @@ private:
 
     int setup_ssl(const char *cert_file, const char *key_file);
 
-    static void on_ssl_refresh_timeout(h2o_timeout_entry_t *entry);
+    static void on_ssl_refresh_timeout(h2o_timer_t *entry);
 
     int create_listener();
 
@@ -121,7 +121,7 @@ public:
 
     void stop();
 
-    void clear_timeouts(const std::vector<h2o_timeout_t*> & timeouts, bool trigger_callback = true);
+    void clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback = true);
 
     static bool on_stop_server(void *data);
 
