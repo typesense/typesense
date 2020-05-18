@@ -1,6 +1,6 @@
 # Download and build H2O
 
-set(H2O_VERSION 2.2.6)
+set(H2O_VERSION 2.3.0-beta2)
 set(H2O_NAME h2o-${H2O_VERSION})
 set(H2O_TAR_PATH ${DEP_ROOT_DIR}/${H2O_NAME}.tar.gz)
 
@@ -18,7 +18,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/h2o)
     message("Configuring ${H2O_NAME}...")
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME}/build)
     execute_process(COMMAND ${CMAKE_COMMAND}
-            "-DWITH_BUNDLED_SSL=off"
+            "-DCMAKE_FIND_LIBRARY_SUFFIXES=.a"
             "-DWITH_MRUBY=off"
             "-H${DEP_ROOT_DIR}/${H2O_NAME}"
             "-B${DEP_ROOT_DIR}/${H2O_NAME}/build"

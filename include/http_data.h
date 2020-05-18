@@ -275,7 +275,7 @@ struct http_message_dispatcher {
 
         h2o_multithread_unregister_receiver(message_queue, message_receiver);
         h2o_multithread_destroy_queue(message_queue);
-        free(message_queue);
+
         delete message_receiver;
     }
 
