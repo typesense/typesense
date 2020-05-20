@@ -1148,23 +1148,22 @@ static inline int levenshtein_dist(const int depth, const unsigned char p, const
                                    const unsigned char* term, const int term_len,
                                    const int* irow, const int* jrow, int* krow) {
     int row_min = std::numeric_limits<int>::max();
-    const int columns = term_len+1;
     krow[0] = jrow[0] + 1;
 
-    // Calculate levenshtein distance incrementally (j => column, b => term):
+    // Calculate levenshtein distance incrementally (term => b, column => j, c => a[i], p => a[i-1], irow => d[i-1]):
     // https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance
 
-    for(int column=1; column<columns; column++) {
+    for(int column=1; column<=term_len; column++) {
+        int cost = (c == term[column-1]) ? 0 : 1;  // column-1 used because of zero-based char array
+
         int delete_cost = jrow[column] + 1;
         int insert_cost = krow[column - 1] + 1;
+        int substitution_cost = jrow[column - 1] + cost;
 
-        int cost = (c != term[column-1]) ? 1 : 0;
-        int replace_cost = jrow[column - 1] + cost;
+        krow[column] = min(min(insert_cost, delete_cost), substitution_cost);
 
-        krow[column] = min(min(insert_cost, delete_cost), replace_cost);
-
-        if(depth > 1 && column > 1 && c == term[column-2] && p == term[column-1]) {
-            krow[column] = std::min(krow[column], irow[column-2] + cost);
+        if(depth > 1 && column > 1 && c == term[column-1-1] && p == term[column-1]) {
+            krow[column] = std::min(krow[column], irow[column-2] + 1);
         }
 
         if(krow[column] < row_min) {
@@ -1175,7 +1174,7 @@ static inline int levenshtein_dist(const int depth, const unsigned char p, const
     return row_min;
 }
 
-static inline void art_fuzzy_children(char p, const art_node *n, int depth, const unsigned char *term, const int term_len,
+static inline void art_fuzzy_children(unsigned char p, const art_node *n, int depth, const unsigned char *term, const int term_len,
                                       const int* irow, const int* jrow, const int min_cost, const int max_cost,
                                       const bool prefix, std::vector<const art_node *> &results) {
     char child_char;
@@ -1238,6 +1237,8 @@ static inline void rotate(int &i, int &j, int &k) {
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int min_cost,
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results) {
+    if (!n) return ;
+
     const int columns = term_len+1;
     int i=0, j=1, k=2;
     int row0[columns];
@@ -1248,7 +1249,15 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
     copyIntArray2(irow, rows[i], columns);
     copyIntArray2(jrow, rows[j], columns);
 
-    int cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+    int temp_cost = 0;
+
+    if(depth == -1) {
+        depth = 0;
+        goto PARTIAL_CALC;
+    }
+
+    // First calculate cost with node char `c` and then leaf/partial related costs
+    temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
     rotate(i, j, k);
     p = c;
 
@@ -1256,12 +1265,12 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
     printf("Recurse char: %c, cost: %d, depth: %d\n", c, cost, depth);
 
-    if(cost > max_cost) {
-        // We do this to speed up things drastically, but at the cost of missing out on some genuine typos
+    if(temp_cost > max_cost) {
+        // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
         return;
     }
 
-    if (!n) return ;
+    // Cost is under control, let's check to see if we should proceed further
 
     if(IS_LEAF(n)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
@@ -1276,10 +1285,10 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
          */
         const int end_index = prefix ? min(l->key_len, term_len) : l->key_len;
 
-        // If at any point, `cost > 2*max_cost` we can terminate immediately as we can never recover from that
-        while(depth < end_index && cost <= 2*max_cost) {
+        // If at any point, `temp_cost > 2*max_cost` we can terminate immediately as we can never recover from that
+        while(depth < end_index && temp_cost <= 2*max_cost) {
             c = l->key[depth];
-            cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+            temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             printf("leaf char: %c\n", l->key[depth]);
             printf("cost: %d, depth: %d, term_len: %d\n", cost, depth, term_len);
             rotate(i, j, k);
@@ -1287,20 +1296,24 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             depth++;
         }
 
-        /* `rows[j][columns-1]` holds the final cost, `cost` holds the intermediate cost.
-            We will use the intermediate cost if the term is shorter than the key.
+        /* `rows[j][columns-1]` holds the final cost, `temp_cost` holds the temporary cost.
+            We will use the intermediate cost if the term is shorter than the key and if it's a prefix search.
+            For non-prefix, we will only use final cost.
          */
-        if(prefix && term_len < (int) l->key_len && cost >= min_cost && cost <= max_cost) {
+
+        int final_cost = rows[j][columns-1];
+
+        if(prefix && term_len < (int) l->key_len && temp_cost >= min_cost && temp_cost <= max_cost) {
             results.push_back(n);
             return;
         }
 
-        if(prefix && term_len >= (int) l->key_len && rows[j][columns-1] >= min_cost && rows[j][columns-1] <= max_cost) {
+        if(prefix && term_len >= (int) l->key_len && final_cost >= min_cost && final_cost <= max_cost) {
             results.push_back(n);
             return;
         }
 
-        if(!prefix && rows[j][columns-1] >= min_cost && rows[j][columns-1] <= max_cost) {
+        if(!prefix && final_cost >= min_cost && final_cost <= max_cost) {
             results.push_back(n);
             return;
         }
@@ -1308,11 +1321,15 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         return ;
     }
 
-    if(prefix && depth >= term_len && rows[j][columns-1] <= max_cost) {
-        // For a prefix search, we store the node and not recurse further right now
+    // For a prefix search whose depth has reached term length, we need not recurse further
+    if(prefix && depth >= term_len) {
         results.push_back(n);
         return ;
     }
+
+    PARTIAL_CALC:
+
+    // For non-prefix search or if we have not reached term length, we will recurse further
 
     const int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
     const int end_index = min(partial_len, term_len+max_cost);
@@ -1322,12 +1339,11 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
     for(int idx=0; idx<end_index; idx++) {
         c = n->partial[idx];
         printf("partial: %c\n", c);
-        rows[k][0] = rows[j][0] + 1;
-        cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+        temp_cost = levenshtein_dist(depth+idx, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
         p = c;
-        
-        if(prefix && depth+idx+1 >= term_len && rows[j][columns-1] <= max_cost) {
+
+        if(prefix && depth+idx+1 >= term_len && temp_cost <= max_cost) {
             // For a prefix search, we store the node and not recurse further right now
             results.push_back(n);
             return ;
@@ -1351,8 +1367,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     int irow[term_len + 1];
     int jrow[term_len + 1];
     for (int i = 0; i <= term_len; i++){
-        jrow[i] = i;
-        irow[i] = i;
+        irow[i] = jrow[i] = i;
     }
 
     //auto begin = std::chrono::high_resolution_clock::now();
@@ -1361,11 +1376,15 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         art_leaf *l = (art_leaf *) LEAF_RAW(t->root);
         art_fuzzy_recurse(0, l->key[0], t->root, 0, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
     } else {
-        if(t->root == NULL) {
+        if(t->root == nullptr) {
             return 0;
         }
-        art_fuzzy_children(0, t->root, 0, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
+
+        // send depth as -1 to indicate that this is a root node
+        art_fuzzy_recurse(0, 0, t->root, -1, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
     }
+
+    PROCESS_NODES:
 
     if(token_order == FREQUENCY) {
         std::sort(nodes.begin(), nodes.end(), compare_art_node_frequency);

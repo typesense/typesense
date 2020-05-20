@@ -8,6 +8,7 @@
 
 #define words_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/words.txt").c_str()
 #define uuid_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/uuid.txt").c_str()
+#define skus_file_path std::string(std::string(ROOT_DIR)+"/test/skus.txt").c_str()
 
 art_document get_document(uint32_t id) {
     art_document document;
@@ -717,7 +718,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, leaves);
-    ASSERT_EQ(8, leaves.size());
+    ASSERT_EQ(10, leaves.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
@@ -742,8 +743,57 @@ TEST(ArtTest, test_art_fuzzy_search_unicode_chars) {
         EXPECT_EQ(1, l->values->ids.at(0));
 
         std::vector<art_leaf*> leaves;
-        art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 1, 10, FREQUENCY, true, leaves);
+        art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 0, 10, FREQUENCY, true, leaves);
         ASSERT_EQ(1, leaves.size());
+    }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_search_sku_like_tokens) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+
+    std::vector<std::string> keys;
+    int len;
+    char buf[512];
+    FILE *f = fopen(skus_file_path, "r");
+
+    uintptr_t line = 1;
+    while (fgets(buf, sizeof buf, f)) {
+        len = strlen(buf);
+        buf[len - 1] = '\0';
+        art_document doc = get_document((uint32_t) line);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc, 1));
+        keys.push_back(std::string(buf, len-1));
+        line++;
+    }
+
+    const char* key1 = "abc12345678217521";
+
+    // exact search
+    art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key1, strlen(key1)+1);
+    EXPECT_EQ(1, l->values->ids.getLength());
+
+    // exact search all tokens via fuzzy API
+
+    for (const auto &key : keys) {
+        std::vector<art_leaf *> leaves;
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, true, leaves);
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+
+        leaves.clear();
+
+        // non prefix
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, false, leaves);
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
     }
 
     res = art_tree_destroy(&t);
