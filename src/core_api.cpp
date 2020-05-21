@@ -290,6 +290,9 @@ bool get_search(http_req & req, http_res & res) {
         } else {
             req.params[MAX_HITS] = "0";
         }
+    } else if(req.params[MAX_HITS] == "all") {
+        // engine will default to size of collection
+        req.params[MAX_HITS] = "-1";
     }
 
     if(req.params.count(SNIPPET_THRESHOLD) == 0) {
