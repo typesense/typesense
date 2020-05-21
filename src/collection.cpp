@@ -281,9 +281,38 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
     }
 }
 
-void Collection::populate_overrides(std::string query, std::map<uint32_t, size_t> & id_pos_map,
-                                    std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids) {
+void Collection::populate_overrides(std::string query,
+                                    const std::map<std::string, size_t>& pinned_hits,
+                                    const std::vector<std::string>& hidden_hits,
+                                    std::map<uint32_t, size_t> & id_pos_map,
+                                    std::vector<uint32_t> & included_ids,
+                                    std::vector<uint32_t> & excluded_ids) {
     StringUtils::tolowercase(query);
+
+    // NOTE: if pinned or hidden hits are provided, then overrides will be just ignored
+
+    if(!pinned_hits.empty()) {
+        for(const auto & hit: pinned_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.first);
+            if(seq_id_op.ok()) {
+                included_ids.push_back(seq_id_op.get());
+                id_pos_map[seq_id_op.get()] = hit.second;
+            }
+        }
+    }
+
+    if(!hidden_hits.empty()) {
+        for(const auto & hit: hidden_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit);
+            if(seq_id_op.ok()) {
+                excluded_ids.push_back(seq_id_op.get());
+            }
+        }
+    }
+
+    if(!hidden_hits.empty() || !pinned_hits.empty()) {
+        return ;
+    }
 
     for(const auto & override_kv: overrides) {
         const auto & override = override_kv.second;
@@ -320,12 +349,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
                                   const std::string & highlight_full_fields,
-                                  size_t typo_tokens_threshold ) {
+                                  size_t typo_tokens_threshold,
+                                  const std::map<std::string, size_t>& pinned_hits,
+                                  const std::vector<std::string>& hidden_hits) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
     std::map<uint32_t, size_t> id_pos_map;
-    populate_overrides(query, id_pos_map, included_ids, excluded_ids);
+    populate_overrides(query, pinned_hits, hidden_hits, id_pos_map, included_ids, excluded_ids);
 
     std::map<uint32_t, std::vector<uint32_t>> index_to_included_ids;
     std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
