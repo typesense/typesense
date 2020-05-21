@@ -347,8 +347,18 @@ bool get_search(http_req & req, http_res & res) {
         return false;
     }
 
+    if(!StringUtils::is_uint64_t(req.params[MAX_FACET_VALUES])) {
+        res.set_400("Parameter `" + std::string(MAX_FACET_VALUES) + "` must be an unsigned integer.");
+        return false;
+    }
+
     if(!StringUtils::is_uint64_t(req.params[MAX_HITS])) {
         res.set_400("Parameter `" + std::string(MAX_HITS) + "` must be an unsigned integer.");
+        return false;
+    }
+
+    if(!StringUtils::is_uint64_t(req.params[SNIPPET_THRESHOLD])) {
+        res.set_400("Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -389,7 +399,7 @@ bool get_search(http_req & req, http_res & res) {
             }
 
             StringUtils::toupper(expression_parts[1]);
-            sort_fields.push_back(sort_by(expression_parts[0], expression_parts[1]));
+            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
         }
     }
 
