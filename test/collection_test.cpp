@@ -2265,3 +2265,41 @@ TEST_F(CollectionTest, OptionalFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, ReturnsResultsBasedOnMaxHitsParam) {
+    std::vector<std::string> facets;
+    spp::sparse_hash_set<std::string> empty;
+    nlohmann::json results = collection->search("*", query_fields, "", facets, sort_fields, 0, 100, 1,
+            FREQUENCY, false, 1000, empty, empty, 10, 12).get();
+
+    ASSERT_EQ(12, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+
+    // should match collection size
+
+    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 100, 1,
+                                 FREQUENCY, false, 1000, empty, empty, 10, -1).get();
+
+    ASSERT_EQ(25, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+
+    // should still respect pagination
+
+    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 10, 1,
+                                 FREQUENCY, false, 1000, empty, empty, 10, -1).get();
+
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+
+    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 10, 2,
+                                 FREQUENCY, false, 1000, empty, empty, 10, -1).get();
+
+    ASSERT_EQ(10, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+
+    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 10, 3,
+                                 FREQUENCY, false, 1000, empty, empty, 10, -1).get();
+
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<int>());
+}

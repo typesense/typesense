@@ -316,7 +316,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
-                                  const size_t max_facet_values, const size_t max_hits,
+                                  const size_t max_facet_values, const int _max_hits,
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
                                   const std::string & highlight_full_fields,
@@ -570,11 +570,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    const size_t results_per_page = std::min(per_page, max_hits);
+    const size_t maximum_hits = (_max_hits < 0) ? std::max((size_t)100, get_num_documents()) : size_t(_max_hits);
+
+    const size_t results_per_page = std::min(per_page, maximum_hits);
     const size_t num_results = (page * results_per_page);
 
-    if(num_results > max_hits) {
-        std::string message = "Only the first " + std::to_string(max_hits) + " results are available.";
+    if(num_results > maximum_hits) {
+        std::string message = "Only the first " + std::to_string(maximum_hits) + " results are available.";
         return Option<nlohmann::json>(422, message);
     }
 
@@ -589,7 +591,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
-                                           sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                           sort_fields_std, facet_query, num_typos, max_facet_values, maximum_hits,
                                            results_per_page, page, token_order, prefix,
                                            drop_tokens_threshold, typo_tokens_threshold);
         {
