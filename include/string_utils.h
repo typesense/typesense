@@ -140,6 +140,10 @@ struct StringUtils {
         return (*p == 0);
     }
 
+    static bool is_positive_integer(const std::string& s) {
+        return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
+    }
+
     // Adapted from: http://stackoverflow.com/a/2845275/131050
     static bool is_uint64_t(const std::string &s) {
         if(s.empty()) {

@@ -252,3 +252,73 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 
     coll_mul_fields->remove_override("include-rule");
 }
+
+TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
+    std::map<std::string, size_t> pinned_hits;
+    std::vector<std::string> hidden_hits;
+    pinned_hits["13"] = 1;
+    pinned_hits["4"] = 2;
+
+    // basic pinning
+
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_STREQ("13", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("16", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("6", results["hits"][4]["document"]["id"].get<std::string>().c_str());
+
+    // both pinning and hiding
+
+    hidden_hits = {"11", "16"};
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                      "", 10,
+                                      pinned_hits, hidden_hits).get();
+
+    ASSERT_STREQ("13", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("6", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // take precedence over override rules
+
+    nlohmann::json override_json_include = {
+            {"id", "include-rule"},
+            {
+             "rule", {
+                           {"query", "the"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    // trying to include an ID that is also being hidden via `hidden_hits` query param will not work
+    // as if pinned or hidden hits are provided, overrides will be entirely skipped
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "11";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_t override_include(override_json_include);
+    coll_mul_fields->add_override(override_include);
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                      "", 10,
+                                      {}, {hidden_hits}).get();
+
+    ASSERT_EQ(8, results["found"].get<size_t>());
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+}

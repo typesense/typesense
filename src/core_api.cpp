@@ -243,6 +243,9 @@ bool get_search(http_req & req, http_res & res) {
     const char *INCLUDE_FIELDS = "include_fields";
     const char *EXCLUDE_FIELDS = "exclude_fields";
 
+    const char *PINNED_HITS = "pinned_hits";
+    const char *HIDDEN_HITS = "hidden_hits";
+
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
 
@@ -385,6 +388,40 @@ bool get_search(http_req & req, http_res & res) {
         }
     }
 
+    std::map<std::string, size_t> pinned_hits;
+    if(req.params.count(PINNED_HITS) != 0) {
+        std::vector<std::string> pinned_hits_strs;
+        StringUtils::split(req.params[PINNED_HITS], pinned_hits_strs, ",");
+
+        for(const std::string & pinned_hits_str: pinned_hits_strs) {
+            std::vector<std::string> expression_parts;
+            StringUtils::split(pinned_hits_str, expression_parts, ":");
+
+            if(expression_parts.size() != 2) {
+                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
+                return false;
+            }
+            
+            if(!StringUtils::is_positive_integer(expression_parts[1])) {
+                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
+                return false;
+            }
+
+            int position = std::stoi(expression_parts[1]);
+            if(position == 0) {
+                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
+                return false;
+            }
+
+            pinned_hits.emplace(expression_parts[0], position);
+        }
+    }
+
+    std::vector<std::string> hidden_hits;
+    if(req.params.count(HIDDEN_HITS) != 0) {
+        StringUtils::split(req.params[HIDDEN_HITS], hidden_hits, ",");
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
@@ -415,7 +452,9 @@ bool get_search(http_req & req, http_res & res) {
                                                           req.params[FACET_QUERY],
                                                           static_cast<size_t>(std::stoi(req.params[SNIPPET_THRESHOLD])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
-                                                          typo_tokens_threshold
+                                                          typo_tokens_threshold,
+                                                          pinned_hits,
+                                                          hidden_hits
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
