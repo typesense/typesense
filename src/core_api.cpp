@@ -347,6 +347,11 @@ bool get_search(http_req & req, http_res & res) {
         return false;
     }
 
+    if(!StringUtils::is_uint64_t(req.params[MAX_HITS])) {
+        res.set_400("Parameter `" + std::string(MAX_HITS) + "` must be an unsigned integer.");
+        return false;
+    }
+
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
 
     std::vector<std::string> search_fields;
