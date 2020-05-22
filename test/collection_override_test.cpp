@@ -261,7 +261,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 
     // basic pinning
 
-    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
@@ -278,7 +278,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     // both pinning and hiding
 
     hidden_hits = {"11", "16"};
-    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
@@ -302,16 +302,20 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     };
 
     // trying to include an ID that is also being hidden via `hidden_hits` query param will not work
-    // as if pinned or hidden hits are provided, overrides will be entirely skipped
+    // as pinned and hidden hits will take precedence over override rules
     override_json_include["includes"] = nlohmann::json::array();
     override_json_include["includes"][0] = nlohmann::json::object();
     override_json_include["includes"][0]["id"] = "11";
-    override_json_include["includes"][0]["position"] = 1;
+    override_json_include["includes"][0]["position"] = 2;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "8";
+    override_json_include["includes"][1]["position"] = 1;
 
     override_t override_include(override_json_include);
     coll_mul_fields->add_override(override_include);
 
-    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
@@ -319,6 +323,6 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
                                       {}, {hidden_hits}).get();
 
     ASSERT_EQ(8, results["found"].get<size_t>());
-    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("8", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("6", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 }
