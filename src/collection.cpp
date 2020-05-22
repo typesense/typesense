@@ -289,31 +289,6 @@ void Collection::populate_overrides(std::string query,
                                     std::vector<uint32_t> & excluded_ids) {
     StringUtils::tolowercase(query);
 
-    // NOTE: if pinned or hidden hits are provided, then overrides will be just ignored
-
-    if(!pinned_hits.empty()) {
-        for(const auto & hit: pinned_hits) {
-            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.first);
-            if(seq_id_op.ok()) {
-                included_ids.push_back(seq_id_op.get());
-                id_pos_map[seq_id_op.get()] = hit.second;
-            }
-        }
-    }
-
-    if(!hidden_hits.empty()) {
-        for(const auto & hit: hidden_hits) {
-            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit);
-            if(seq_id_op.ok()) {
-                excluded_ids.push_back(seq_id_op.get());
-            }
-        }
-    }
-
-    if(!hidden_hits.empty() || !pinned_hits.empty()) {
-        return ;
-    }
-
     for(const auto & override_kv: overrides) {
         const auto & override = override_kv.second;
 
@@ -332,6 +307,29 @@ void Collection::populate_overrides(std::string query,
                 if(seq_id_op.ok()) {
                     excluded_ids.push_back(seq_id_op.get());
                 }
+            }
+        }
+    }
+
+    // If pinned or hidden hits are provided, they take precedence over overrides
+
+    if(!pinned_hits.empty()) {
+        for(const auto & hit: pinned_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.first);
+            if(seq_id_op.ok()) {
+                included_ids.push_back(seq_id_op.get());
+                id_pos_map[seq_id_op.get()] = hit.second;
+            }
+        }
+    }
+
+    if(!hidden_hits.empty()) {
+        for(const auto & hit: hidden_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit);
+            if(seq_id_op.ok()) {
+                included_ids.erase(std::remove(included_ids.begin(), included_ids.end(), seq_id_op.get()), included_ids.end());
+                id_pos_map.erase(seq_id_op.get());
+                excluded_ids.push_back(seq_id_op.get());
             }
         }
     }
