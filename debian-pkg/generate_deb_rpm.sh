@@ -16,9 +16,9 @@ cp -r $CURR_DIR/typesense-server /tmp/typesense-deb-build
 
 # Download Typesense, extract and make it executable
 
-curl -o /tmp/typesense-server-$TS_VERSION.tar.gz https://dl.typesense.org/releases/$TS_VERSION/typesense-server-$TS_VERSION-linux-amd64.tar.gz
+#curl -o /tmp/typesense-server-$TS_VERSION.tar.gz https://dl.typesense.org/releases/$TS_VERSION/typesense-server-$TS_VERSION-linux-amd64.tar.gz
 rm -rf /tmp/typesense-server-$TS_VERSION && mkdir /tmp/typesense-server-$TS_VERSION
-tar -xzf /tmp/typesense-server-$TS_VERSION.tar.gz -C /tmp/typesense-server-$TS_VERSION
+tar -xzf /typesense-core/build-Linux/typesense-server-$TS_VERSION-linux-amd64.tar.gz -C /tmp/typesense-server-$TS_VERSION
 
 downloaded_hash=`md5sum /tmp/typesense-server-$TS_VERSION/typesense-server | cut -d' ' -f1`
 original_hash=`cat /tmp/typesense-server-$TS_VERSION/typesense-server.md5.txt`
@@ -33,11 +33,7 @@ fi
 
 rm -rf /tmp/typesense-server-$TS_VERSION /tmp/typesense-server-$TS_VERSION.tar.gz
 
-# generate a random API key to be used
-API_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1)
-
 sed -i "s/\$VERSION/$TS_VERSION/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
-sed -i "s/\$API_KEY/$API_KEY/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
 
 dpkg -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TS_VERSION}-amd64.deb"
 
@@ -54,4 +50,5 @@ cd /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} && \
   rpmbuild --target=x86_64 --buildroot /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} -bb \
   /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-1.spec
 
-cd /tmp/typesense-rpm-build
+cp "/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-amd64.deb" /typesense-core
+cp "/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-1.x86_64.rpm" /typesense-core

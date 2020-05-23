@@ -28,7 +28,7 @@ echo "Building Typesense $TYPESENSE_VERSION..."
 docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
 
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make typesense-server typesense-core -C/typesense/$BUILD_DIR
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development make typesense-server -C/typesense/$BUILD_DIR
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
@@ -58,5 +58,10 @@ if [[ "$@" == *"--package-libs"* ]]; then
     TAR_PATHS="$TAR_PATHS -C $PROJECT_DIR/$BUILD_DIR `ls $PROJECT_DIR/$BUILD_DIR/*.a | xargs basename`"
     tar -cvzf $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz $TAR_PATHS
 fi
+#
+#if [[ "$@" == *"--create-deb-upload"* ]]; then
+#    docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
+#    -DCMAKE_BUILD_TYPE=Debug -H/typesense -B/typesense/$BUILD_DIR
+#fi
 
 echo "Done... quitting."
