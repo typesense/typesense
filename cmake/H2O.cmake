@@ -4,8 +4,6 @@ set(H2O_VERSION 2.3.0-beta2)
 set(H2O_NAME h2o-${H2O_VERSION})
 set(H2O_TAR_PATH ${DEP_ROOT_DIR}/v${H2O_NAME}.tar.gz)
 
-message("H2O_TAR_PATH: ${H2O_TAR_PATH}")
-
 if(NOT EXISTS ${H2O_TAR_PATH})
     message(STATUS "Downloading ${H2O_NAME}...")
     file(DOWNLOAD https://github.com/h2o/h2o/archive/${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
