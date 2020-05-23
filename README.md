@@ -37,7 +37,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.11.2 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.12.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
@@ -52,13 +52,13 @@ We can now initialize the client and create a `companies` collection:
 import typesense
 
 client = typesense.Client({
-  'master_node': {
+  'nodes': [{
     'host': 'localhost',
     'port': '8108',
     'protocol': 'http',
     'api_key': 'Hu52dwsas2AdxdE'
-  },
-  'timeout_seconds': 2
+  }],
+  'connection_timeout_seconds': 2
 })
 
 create_response = client.collections.create({
@@ -124,6 +124,8 @@ Typesense requires the following dependencies:
 * OpenSSL (>=1.0.2)
 * curl
 * ICU
+* brpc
+* braft
 
 ```
 ./build.sh --create-binary [--clean] [--depclean]
