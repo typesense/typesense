@@ -911,10 +911,10 @@ bool post_create_key(http_req &req, http_res &res) {
     const std::string &rand_key = StringUtils::randstring(AuthManager::KEY_LEN, req.seed);
 
     api_key_t api_key(
-            rand_key,
-            req_json["description"].get<std::string>(),
-            req_json["actions"].get<std::vector<std::string>>(),
-            req_json["collections"].get<std::vector<std::string>>()
+        rand_key,
+        req_json["description"].get<std::string>(),
+        req_json["actions"].get<std::vector<std::string>>(),
+        req_json["collections"].get<std::vector<std::string>>()
     );
 
     const Option<api_key_t>& api_key_op = auth_manager.create_key(api_key);

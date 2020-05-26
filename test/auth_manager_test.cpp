@@ -220,3 +220,26 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     );
     ASSERT_FALSE(auth_manager.authenticate(scoped_key2, "documents:search", "coll", empty_params));
 }
+
+TEST_F(AuthManagerTest, ValidateBadKeyProperties) {
+    nlohmann::json key_obj1;
+    key_obj1["description"] = "desc";
+    key_obj1["actions"].push_back("*");
+    key_obj1["collections"].push_back(1);
+
+    Option<uint32_t> validate_op = api_key_t::validate(key_obj1);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_STREQ("Wrong format for `collections`. It should be an array of string.", validate_op.error().c_str());
+
+    key_obj1["actions"].push_back(1);
+    key_obj1["collections"].push_back("*");
+    validate_op = api_key_t::validate(key_obj1);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_STREQ("Wrong format for `actions`. It should be an array of string.", validate_op.error().c_str());
+
+    key_obj1["actions"] = 1;
+    key_obj1["collections"].push_back("*");
+    validate_op = api_key_t::validate(key_obj1);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_STREQ("Wrong format for `actions`. It should be an array of string.", validate_op.error().c_str());
+}
