@@ -55,6 +55,26 @@ struct api_key_t {
             }
         }
 
+        if(!key_obj["actions"].is_array() || key_obj["actions"].empty()) {
+            return Option<uint32_t>(400,"Wrong format for `actions`. It should be an array of string.");
+        }
+
+        if(!key_obj["collections"].is_array() || key_obj["collections"].empty()) {
+            return Option<uint32_t>(400,"Wrong format for `collections`. It should be an array of string.");
+        }
+
+        for(const nlohmann::json & item: key_obj["actions"]) {
+            if(!item.is_string()) {
+                return Option<uint32_t>(400,"Wrong format for `actions`. It should be an array of string.");
+            }
+        }
+
+        for(const nlohmann::json & item: key_obj["collections"]) {
+            if(!item.is_string()) {
+                return Option<uint32_t>(400,"Wrong format for `collections`. It should be an array of string.");
+            }
+        }
+
         return Option<uint32_t>(200);
     }
 
