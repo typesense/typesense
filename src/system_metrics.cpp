@@ -27,7 +27,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     rusage r_usage;
     getrusage(RUSAGE_SELF, &r_usage);
-    result["memory_used_process_bytes"] = r_usage.ru_maxrss;
+    result["memory_used_process_bytes"] = r_usage.ru_maxrss * 1000;
 
     uint64_t memory_free_bytes = 0;
     uint64_t memory_total_bytes = 0;
