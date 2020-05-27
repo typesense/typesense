@@ -126,9 +126,10 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
                                const std::string& collection, std::map<std::string, std::string> & params) {
 
     if(req_api_key.size() > KEY_LEN) {
-        // scoped API key
+        // scoped API key: validate and if valid, extract params
         Option<std::string> params_op = params_from_scoped_key(req_api_key, action, collection);
         if(!params_op.ok()) {
+            // authentication failed
             return false;
         }
 
