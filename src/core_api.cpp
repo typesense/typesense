@@ -880,6 +880,8 @@ bool get_keys(http_req &req, http_res &res) {
 
     for(const auto & key: keys_op.get()) {
         nlohmann::json key_obj = key.to_json();
+        key_obj["value_prefix"] = key_obj["value"];
+        key_obj.erase("value");
         res_json["keys"].push_back(key_obj);
     }
 
@@ -923,7 +925,7 @@ bool post_create_key(http_req &req, http_res &res) {
         return false;
     }
 
-    res.set(201, api_key_op.get().to_json().dump());
+    res.set_201(api_key_op.get().to_json().dump());
     return true;
 }
 
@@ -941,8 +943,11 @@ bool get_key(http_req &req, http_res &res) {
         return false;
     }
 
-    nlohmann::json res_json = key_op.get().to_json();
-    res.set_200(res_json.dump());
+    nlohmann::json key_obj = key_op.get().to_json();
+    key_obj["value_prefix"] = key_obj["value"];
+    key_obj.erase("value");
+
+    res.set_200(key_obj.dump());
     return true;
 }
 
