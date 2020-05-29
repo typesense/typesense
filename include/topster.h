@@ -22,16 +22,18 @@ struct KV {
 */
 struct Topster {
     const uint32_t MAX_SIZE;
-    KV *data;
     uint32_t size;
+
+    KV *data;
+    KV* *kvs;
 
     spp::sparse_hash_map<uint64_t, KV*> keys;
 
-    KV* *kvs;
-
     explicit Topster(size_t capacity): MAX_SIZE(capacity), size(0) {
-        kvs = new KV*[capacity];
+        // we allocate data first to get contiguous memory block whose indices are then assigned to `kvs`
+        // we use separate **kvs for easier pointer swaps
         data = new KV[capacity];
+        kvs = new KV*[capacity];
 
         for(size_t i=0; i<capacity; i++) {
             data[i].field_id = 0;
@@ -57,6 +59,22 @@ struct Topster {
         (*b)->array_index = a_index;
     }
 
+    static inline void replace_key_values(const uint64_t &key, const uint8_t &field_id, const uint16_t &query_index,
+                                          const uint64_t &match_score, const int64_t *scores, uint32_t start,
+                                          KV* *kvs, spp::sparse_hash_map<uint64_t, KV*>& keys) {
+        kvs[start]->key = key;
+        kvs[start]->field_id = field_id;
+        kvs[start]->query_index = query_index;
+        kvs[start]->array_index = start;
+        kvs[start]->match_score = match_score;
+        kvs[start]->scores[0] = scores[0];
+        kvs[start]->scores[1] = scores[1];
+        kvs[start]->scores[2] = scores[2];
+
+        keys.erase(kvs[start]->key);
+        keys[key] = kvs[start];
+    }
+
     void add(const uint64_t &key, const uint8_t &field_id, const uint16_t &query_index, const uint64_t &match_score,
              const int64_t scores[3]) {
         if (size >= MAX_SIZE) {
@@ -79,21 +97,11 @@ struct Topster {
                 start = existing->array_index;
             }
 
-            keys.erase(kvs[start]->key);
-            keys[key] = kvs[start];
-
-            kvs[start]->key = key;
-            kvs[start]->field_id = field_id;
-            kvs[start]->query_index = query_index;
-            kvs[start]->array_index = start;
-            kvs[start]->match_score = match_score;
-            kvs[start]->scores[0] = scores[0];
-            kvs[start]->scores[1] = scores[1];
-            kvs[start]->scores[2] = scores[2];
+            replace_key_values(key, field_id, query_index, match_score, scores, start, kvs, keys);
 
             // sift down to maintain heap property
             while ((2*start+1) < MAX_SIZE) {
-                uint32_t next = (uint32_t) (2 * start + 1);
+                uint32_t next = (2 * start + 1);
                 if (next+1 < MAX_SIZE && is_greater_kv(kvs[next], kvs[next+1])) {
                     next++;
                 }
@@ -122,21 +130,12 @@ struct Topster {
                 key_found = true;
             }
 
-            kvs[start]->key = key;
-            kvs[start]->field_id = field_id;
-            kvs[start]->query_index = query_index;
-            kvs[start]->array_index = start;
-            kvs[start]->match_score = match_score;
-            kvs[start]->scores[0] = scores[0];
-            kvs[start]->scores[1] = scores[1];
-            kvs[start]->scores[2] = scores[2];
-
-            keys[key] = kvs[start];
+            replace_key_values(key, field_id, query_index, match_score, scores, start, kvs, keys);
 
             if(key_found) {
                 // need to sift down if it's a replace
                 while ((2*start+1) < size) {
-                    uint32_t next = (uint32_t) (2 * start + 1);
+                    uint32_t next = (2 * start + 1);
                     if (next+1 < size && is_greater_kv(kvs[next], kvs[next+1])) {
                         next++;
                     }
