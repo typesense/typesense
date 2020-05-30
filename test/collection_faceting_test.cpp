@@ -162,7 +162,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, " tags : sliver").get();
+                                        spp::sparse_hash_set<std::string>(), 10, " tags : sliver").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -174,7 +174,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "tags: fine pltinum").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fine pltinum").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -186,7 +186,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "tags: fine").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fine").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -198,7 +198,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "tags: pltinum").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: pltinum").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -210,7 +210,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", {"age"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "age: 2").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "age: 2").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -227,7 +227,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "").get();
     ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
     ASSERT_FLOAT_EQ(4.880199885368347, results["facet_counts"][0]["stats"]["avg"].get<double>());
     ASSERT_FLOAT_EQ(0.0, results["facet_counts"][0]["stats"]["min"].get<double>());
@@ -238,7 +238,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "rating: 7").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "rating: 7").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -258,7 +258,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", {"timestamps"}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, "timestamps: 142189002").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "timestamps: 142189002").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -278,7 +278,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", {facets}, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, 500, " tags : notfound").get();
+                                        spp::sparse_hash_set<std::string>(), 10, " tags : notfound").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -289,7 +289,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     auto res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                             false, Index::DROP_TOKENS_THRESHOLD,
                                             spp::sparse_hash_set<std::string>(),
-                                            spp::sparse_hash_set<std::string>(), 10, 500, "foobar");
+                                            spp::sparse_hash_set<std::string>(), 10, "foobar");
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Facet query must be in the `facet_field: value` format.", res_op.error().c_str());
@@ -298,7 +298,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     res_op = coll_array_fields->search("*", query_fields, "", {"foobar"}, sort_fields, 0, 10, 1, FREQUENCY,
                                        false, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
-                                       spp::sparse_hash_set<std::string>(), 10, 500, "foobar: baz");
+                                       spp::sparse_hash_set<std::string>(), 10, "foobar: baz");
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Could not find a facet field named `foobar` in the schema.", res_op.error().c_str());
@@ -307,7 +307,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     res_op = coll_array_fields->search("*", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY,
                                        false, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
-                                       spp::sparse_hash_set<std::string>(), 10, 500, "tags: foo");
+                                       spp::sparse_hash_set<std::string>(), 10, "tags: foo");
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("The `facet_query` parameter is supplied without a `facet_by` parameter.", res_op.error().c_str());
@@ -316,7 +316,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                        false, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
-                                       spp::sparse_hash_set<std::string>(), 10, 500, "name_facet: jeremy");
+                                       spp::sparse_hash_set<std::string>(), 10, "name_facet: jeremy");
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Facet query refers to a facet field `name_facet` that is not part of `facet_by` parameter.", res_op.error().c_str());
@@ -364,7 +364,7 @@ TEST_F(CollectionFacetingTest, FacetCountsBool) {
 
     nlohmann::json results = coll1->search("*", {"title"}, "in_stock:true", facets, sort_fields, 0, 10, 1,
                                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, 500, "in_stock:true").get();
+                                           spp::sparse_hash_set<std::string>(), 10, "in_stock:true").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
@@ -403,7 +403,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     nlohmann::json results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
                                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell").get();
+                                           spp::sparse_hash_set<std::string>(), 10, "categories:cell").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
@@ -428,7 +428,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell").get();
+                            spp::sparse_hash_set<std::string>(), 10, "categories:cell").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
@@ -450,7 +450,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:acces").get();
+                            spp::sparse_hash_set<std::string>(), 10, "categories:acces").get();
 
 
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -464,7 +464,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:ACCES").get();
+                            spp::sparse_hash_set<std::string>(), 10, "categories:ACCES").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
@@ -481,7 +481,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, 500, "categories:cell ph").get();
+                            spp::sparse_hash_set<std::string>(), 10, "categories:cell ph").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
@@ -547,7 +547,7 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
                                         spp::sparse_hash_set<std::string>(),
-                                        10, 500, "average: 11").get();
+                                        10, "average: 11").get();
 
     ASSERT_EQ(4, results["facet_counts"][0]["stats"].size());
     ASSERT_FLOAT_EQ(39.68800011036053, results["facet_counts"][0]["stats"]["avg"].get<double>());

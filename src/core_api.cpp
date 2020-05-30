@@ -235,7 +235,6 @@ bool get_search(http_req & req, http_res & res) {
     const char *FACET_QUERY = "facet_query";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
-    const char *MAX_HITS = "max_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
@@ -286,18 +285,6 @@ bool get_search(http_req & req, http_res & res) {
         req.params[FACET_QUERY] = "";
     }
 
-    if(req.params.count(MAX_HITS) == 0) {
-        // for facet query, let max hits be 0 if it is not explicitly set
-        if(req.params[FACET_QUERY].empty()) {
-            req.params[MAX_HITS] = "500";
-        } else {
-            req.params[MAX_HITS] = "0";
-        }
-    } else if(req.params[MAX_HITS] == "all") {
-        // engine will default to size of collection
-        req.params[MAX_HITS] = "-1";
-    }
-
     if(req.params.count(SNIPPET_THRESHOLD) == 0) {
         req.params[SNIPPET_THRESHOLD] = "30";
     }
@@ -307,7 +294,12 @@ bool get_search(http_req & req, http_res & res) {
     }
 
     if(req.params.count(PER_PAGE) == 0) {
-        req.params[PER_PAGE] = "10";
+        if(req.params[FACET_QUERY].empty()) {
+            req.params[PER_PAGE] = "10";
+        } else {
+            // for facet query we will set per_page to zero if it is not explicitly overridden
+            req.params[PER_PAGE] = "0";
+        }
     }
 
     if(req.params.count(PAGE) == 0) {
@@ -349,11 +341,6 @@ bool get_search(http_req & req, http_res & res) {
 
     if(!StringUtils::is_uint64_t(req.params[MAX_FACET_VALUES])) {
         res.set_400("Parameter `" + std::string(MAX_FACET_VALUES) + "` must be an unsigned integer.");
-        return false;
-    }
-
-    if(!StringUtils::is_uint64_t(req.params[MAX_HITS])) {
-        res.set_400("Parameter `" + std::string(MAX_HITS) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -463,7 +450,6 @@ bool get_search(http_req & req, http_res & res) {
                                                           token_order, prefix, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
                                                           static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
-                                                          static_cast<size_t>(std::stoi(req.params[MAX_HITS])),
                                                           req.params[FACET_QUERY],
                                                           static_cast<size_t>(std::stoi(req.params[SNIPPET_THRESHOLD])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
