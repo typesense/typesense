@@ -189,7 +189,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     auto results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, 500, "starring: will").get();
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
 
     ASSERT_EQ("<mark>Will</mark> Ferrell", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
     ASSERT_EQ("Will Ferrell", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
@@ -217,7 +217,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, 500, "starring: scott").get();
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
     // "count" would be `2` without exclusion
     ASSERT_EQ("<mark>Scott</mark> Glenn", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
@@ -226,25 +226,25 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     ASSERT_EQ("Kristin <mark>Scott</mark> Thomas", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
 
-    // ensure max_hits is respected
-    // first with max_hits = 0
-    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+    // ensure per_page is respected
+    // first with per_page = 0
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 0, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, 0, "starring: scott").get();
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
     ASSERT_EQ(10, results["found"].get<size_t>());
     ASSERT_EQ(0, results["hits"].size());
 
     coll_mul_fields->remove_override("exclude-rule");
 
-    // now with max_hits = 1, and an include query
+    // now with per_page = 1, and an include query
 
     coll_mul_fields->add_override(override_include);
-    results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+    results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, 0, 1, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, 1, "").get();
+                                      spp::sparse_hash_set<std::string>(), 10, "").get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -264,7 +264,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
                                            "", 10,
                                            pinned_hits, {}).get();
 
@@ -281,7 +281,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
                                       "", 10,
                                       pinned_hits, hidden_hits).get();
 
@@ -318,7 +318,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, 500, "starring: will", 30,
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
                                       "", 10,
                                       {}, {hidden_hits}).get();
 

@@ -343,7 +343,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
-                                  const size_t max_facet_values, const int _max_hits,
+                                  const size_t max_facet_values,
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
                                   const std::string & highlight_full_fields,
@@ -599,15 +599,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    const size_t maximum_hits = (_max_hits < 0) ? std::max((size_t)100, get_num_documents()) : size_t(_max_hits);
-
-    const size_t results_per_page = std::min(per_page, maximum_hits);
-    const size_t num_results = (page * results_per_page);
-
-    if(num_results > maximum_hits) {
-        std::string message = "Only the first " + std::to_string(maximum_hits) + " results are available.";
-        return Option<nlohmann::json>(422, message);
-    }
+    const size_t max_hits = (page * per_page);
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<KV> raw_result_kvs;
@@ -620,8 +612,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(Index* index: indices) {
         index->search_params = search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
-                                           sort_fields_std, facet_query, num_typos, max_facet_values, maximum_hits,
-                                           results_per_page, page, token_order, prefix,
+                                           sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                           per_page, page, token_order, prefix,
                                            drop_tokens_threshold, typo_tokens_threshold);
         {
             std::lock_guard<std::mutex> lk(index->m);
@@ -742,8 +734,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         raw_results_index++;
     }
 
-    const long start_result_index = (page - 1) * results_per_page;
-    const long end_result_index = std::min(num_results, result_kvs.size()) - 1;  // could be -1 when max_hits is 0
+    const long start_result_index = (page - 1) * per_page;
+    const long end_result_index = std::min(max_hits, result_kvs.size()) - 1;  // could be -1 when max_hits is 0
 
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
