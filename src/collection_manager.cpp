@@ -50,11 +50,9 @@ void CollectionManager::add_to_collections(Collection* collection) {
 
 void CollectionManager::init(Store *store,
                              const size_t default_num_indices,
-                             const std::string & auth_key,
-                             const std::string & search_only_auth_key) {
+                             const std::string & auth_key) {
     this->store = store;
     this->bootstrap_auth_key = auth_key;
-    this->bootstrap_search_only_auth_key = search_only_auth_key;
     this->default_num_indices = default_num_indices;
 
     auth_manager.init(store);
@@ -214,11 +212,6 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
                                          std::map<std::string, std::string> & params) {
     if(auth_key_sent.empty()) {
         return false;
-    }
-
-    // check with bootstrap search only auth key
-    if(action == "documents:search" && bootstrap_search_only_auth_key == auth_key_sent) {
-        return true;
     }
 
     // check with bootstrap auth key
