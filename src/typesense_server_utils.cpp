@@ -101,6 +101,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("data-dir", 'd', "Directory where data will be stored.", true);
     options.add<std::string>("api-key", 'a', "API key that allows all operations.", true);
+    options.add<std::string>("search-only-api-key", 's', "[DEPRECATED: use API key management end-point] API key that allows only searches.", false);
 
     options.add<std::string>("api-address", '\0', "Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("api-port", '\0', "Port on which Typesense API service listens.", false, 8108);
@@ -288,6 +289,12 @@ int run_server(const Config & config, const std::string & version, void (*master
         LOG(ERROR) << "The --master option has been deprecated. Please use clustering for high availability. "
                    << "Look for the --nodes configuration in the documentation.";
         return 1;
+    }
+
+    if(!config.get_search_only_api_key().empty()) {
+        LOG(WARNING) << "!!!! WARNING !!!!";
+        LOG(WARNING) << "The --search-only-api-key has been deprecated. "
+                        "The API key generation end-point should be used for generating keys with specific ACL.";
     }
 
     std::string data_dir = config.get_data_dir();
