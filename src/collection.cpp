@@ -338,7 +338,7 @@ void Collection::populate_overrides(std::string query,
 Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
-                                  const size_t per_page, const size_t page,
+                                  size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
@@ -599,7 +599,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    const size_t max_hits = (page * per_page);
+    // ensure that per_page is limited to PER_PAGE_MAX for sanity
+    per_page = std::min(per_page, PER_PAGE_MAX);
+
+    // ensure that (page * per_page) never exceeds number of documents in collection
+    const size_t max_hits = std::min((page * per_page), get_num_documents());
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<KV> raw_result_kvs;
