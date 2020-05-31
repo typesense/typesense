@@ -952,7 +952,7 @@ bool del_key(http_req &req, http_res &res) {
     }
 
     nlohmann::json res_json;
-    res_json["id"] = req.params["id"];
+    res_json["id"] = del_op.get().id;
 
     res.set_200(res_json.dump());
     return true;
