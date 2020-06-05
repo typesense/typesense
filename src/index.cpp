@@ -1135,7 +1135,8 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         scores[1] = int64_t(1);
         scores[2] = int64_t(1);
 
-        curated_topster.add(seq_id, field_id, searched_queries.size(), match_score, scores);
+        KV kv(field_id, searched_queries.size(), 0, seq_id, seq_id, match_score, scores);
+        curated_topster.add(&kv);
 
         searched_queries.push_back(override_query);
     }
@@ -1540,7 +1541,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             }
         }
 
-        topster.add(seq_id, field_id, query_index, match_score, scores);
+        KV kv(field_id, query_index, 0, seq_id, seq_id, match_score, scores);
+        topster.add(&kv);
     }
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
