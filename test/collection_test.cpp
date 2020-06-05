@@ -2276,12 +2276,25 @@ TEST_F(CollectionTest, ReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(25, results["found"].get<int>());
 
     // should match collection size
-
-    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 100000, 1,
+    results = collection->search("*", query_fields, "", facets, sort_fields, 0, 100, 1,
                                  FREQUENCY, false, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(25, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<int>());
+
+    // cannot fetch more than in-built limit of 250
+    auto res_op = collection->search("*", query_fields, "", facets, sort_fields, 0, 251, 1,
+                                 FREQUENCY, false, 1000, empty, empty, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(422, res_op.code());
+    ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
+
+    // when page number is not valid
+    res_op = collection->search("*", query_fields, "", facets, sort_fields, 0, 10, 0,
+                                     FREQUENCY, false, 1000, empty, empty, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(422, res_op.code());
+    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
 
     // do pagination
 

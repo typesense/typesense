@@ -12,6 +12,9 @@ private:
 
     std::string api_key;
 
+    // @deprecated
+    std::string search_only_api_key;
+
     std::string api_address;
     uint32_t api_port;
 
@@ -55,6 +58,11 @@ public:
         this->api_key = api_key;
     }
 
+    // @deprecated
+    void set_search_only_api_key(const std::string & search_only_api_key) {
+        this->search_only_api_key = search_only_api_key;
+    }
+
     void set_listen_address(const std::string & listen_address) {
         this->api_address = listen_address;
     }
@@ -95,6 +103,11 @@ public:
 
     std::string get_api_key() const {
         return this->api_key;
+    }
+
+    // @deprecated
+    std::string get_search_only_api_key() const {
+        return this->search_only_api_key;
     }
 
     std::string get_api_address() const {
@@ -155,6 +168,9 @@ public:
         this->data_dir = get_env("TYPESENSE_DATA_DIR");
         this->log_dir = get_env("TYPESENSE_LOG_DIR");
         this->api_key = get_env("TYPESENSE_API_KEY");
+
+        // @deprecated
+        this->search_only_api_key = get_env("TYPESENSE_SEARCH_ONLY_API_KEY");
 
         if(!get_env("TYPESENSE_LISTEN_ADDRESS").empty()) {
             this->api_address = get_env("TYPESENSE_LISTEN_ADDRESS");
@@ -222,6 +238,11 @@ public:
             this->api_key = reader.Get("server", "api-key", "");
         }
 
+        // @deprecated
+        if(reader.Exists("server", "search-only-api-key")) {
+            this->search_only_api_key = reader.Get("server", "search-only-api-key", "");
+        }
+
         if(reader.Exists("server", "listen-address")) {
             this->api_address = reader.Get("server", "listen-address", "");
         }
@@ -278,6 +299,11 @@ public:
 
         if(options.exist("api-key")) {
             this->api_key = options.get<std::string>("api-key");
+        }
+
+        // @deprecated
+        if(options.exist("search-only-api-key")) {
+            this->search_only_api_key = options.get<std::string>("search-only-api-key");
         }
 
         if(options.exist("listen-address")) {
