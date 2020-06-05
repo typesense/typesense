@@ -599,7 +599,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    const size_t max_hits = (page * per_page);
+    if(per_page > PER_PAGE_MAX) {
+        std::string message = "Only upto " + std::to_string(PER_PAGE_MAX) + " hits can be fetched per page.";
+        return Option<nlohmann::json>(422, message);
+    }
+
+    // ensure that (page * per_page) never exceeds number of documents in collection
+    const size_t max_hits = std::min((page * per_page), get_num_documents());
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<KV> raw_result_kvs;
