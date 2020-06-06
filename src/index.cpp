@@ -1135,7 +1135,7 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         scores[1] = int64_t(1);
         scores[2] = int64_t(1);
 
-        KV kv(field_id, searched_queries.size(), 0, seq_id, seq_id, match_score, scores);
+        KV kv(field_id, searched_queries.size(), seq_id, seq_id, match_score, scores);
         curated_topster.add(&kv);
 
         searched_queries.push_back(override_query);
@@ -1541,7 +1541,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             }
         }
 
-        KV kv(field_id, query_index, 0, seq_id, seq_id, match_score, scores);
+        KV kv(field_id, query_index, seq_id, seq_id, match_score, scores);
         topster.add(&kv);
     }
 

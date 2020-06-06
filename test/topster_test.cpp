@@ -36,7 +36,7 @@ TEST(TopsterTest, MaxIntValues) {
         scores[1] = data[i].primary_attr;
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].field_id, data[i].query_index, 0, data[i].key, data[i].key, data[i].match_score, scores);
+        KV kv(data[i].field_id, data[i].query_index, data[i].key, data[i].key, data[i].match_score, scores);
         topster.add(&kv);
     }
 
@@ -88,7 +88,7 @@ TEST(TopsterTest, MaxFloatValues) {
         scores[1] = Index::float_to_in64_t(data[i].primary_attr);
         scores[2] = data[i].secondary_attr;
 
-        KV kv(data[i].field_id, data[i].query_index, 0, data[i].key, data[i].key, data[i].match_score, scores);
+        KV kv(data[i].field_id, data[i].query_index, data[i].key, data[i].key, data[i].match_score, scores);
         topster.add(&kv);
     }
 
