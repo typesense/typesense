@@ -1110,7 +1110,11 @@ void Index::collate_curated_ids(const std::string & query, const std::string & f
         leaf_to_indices.emplace(token_leaf, indices);
     }
 
-    for(size_t j=0; j<included_ids.size(); j++) {
+    // curated_topster.MAX_SIZE is initialized based on max_hits.
+    // Even if override has more IDs, we should restrict to max hits.
+    size_t iter_size = std::min((size_t)curated_topster.MAX_SIZE, included_ids.size());
+
+    for(size_t j=0; j<iter_size; j++) {
         const uint32_t seq_id = included_ids[j];
 
         std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
