@@ -15,9 +15,9 @@ struct KV {
     uint64_t match_score;
     int64_t scores[3]{};  // match score + 2 custom attributes
 
-    KV(uint8_t fieldId, uint16_t queryIndex, uint16_t arrayIndex, uint64_t key, uint64_t distinct_key,
+    KV(uint8_t fieldId, uint16_t queryIndex, uint64_t key, uint64_t distinct_key,
        uint64_t match_score, const int64_t *scores):
-            field_id(fieldId), query_index(queryIndex), array_index(arrayIndex), key(key),
+            field_id(fieldId), query_index(queryIndex), array_index(0), key(key),
             distinct_key(distinct_key), match_score(match_score) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
@@ -36,9 +36,10 @@ struct Topster {
 
     KV *data;
     KV** kvs;
+
     spp::sparse_hash_map<uint64_t, KV*> kv_map;
 
-    KV* min_kv;
+    KV* group_min_kv;
     spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
 
@@ -61,13 +62,13 @@ struct Topster {
             kvs[i] = &data[i];
         }
 
-        min_kv = new KV();
+        group_min_kv = new KV();
     }
 
     ~Topster() {
         delete[] data;
         delete[] kvs;
-        delete min_kv;
+        delete group_min_kv;
         for(auto& kv: group_kv_map) {
             delete kv.second;
         }
@@ -95,13 +96,19 @@ struct Topster {
             LOG(INFO) << "kv key: " << kv.first << " => " << kv.second->match_score;
         }*/
 
+        /*if(kv->key == 5) {
+            LOG(INFO) << "Key is 5";
+        }*/
+
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller_equal(kv, kvs[0]);
-        size_t heap_down_index = 0;
+        size_t heap_op_index = 0;
 
         if(!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
             return false;
         }
+
+        bool SIFT_DOWN = true;
 
         if(distinct) {
             const auto& found_it = group_kv_map.find(kv->distinct_key);
@@ -115,34 +122,34 @@ struct Topster {
             if(is_duplicate_key) {
                 // if min heap (group_topster.kvs[0]) changes, we have to update kvs and sift down
                 Topster* group_topster = found_it->second;
-                uint16_t old_min_heap_array_index = group_topster->min_kv->array_index;
+                uint16_t old_min_heap_array_index = group_min_kv->array_index;
                 bool added = group_topster->add(kv);
                 if(!added) {
                     return false;
                 }
 
                 // if added, guaranteed to be larger than old_min_heap_ele
-                copyMe(kv, group_topster->min_kv);
-                heap_down_index = old_min_heap_array_index;
+                copyMe(kv, group_min_kv);
+                heap_op_index = old_min_heap_array_index;
             } else {
-                // we have to replace min heap element
                 // create fresh topster for this distinct group key since it does not exist
 
                 Topster* group_topster = new Topster(distinct, 0);
                 group_topster->add(kv);
-                copyMe(kv, group_topster->min_kv);
+                copyMe(kv, group_min_kv);
 
                 if(size < MAX_SIZE) {
                     // we just copy to end of array
-                    heap_down_index = size;
+                    heap_op_index = size;
                     size++;
                 } else {
                     // kv is guaranteed to be > current min heap (group_topster.kvs[0])
-                    heap_down_index = 0;
+                    // so we have to replace min heap element (kvs[0])
+                    heap_op_index = 0;
 
                     // remove current min heap group key from map
-                    delete group_kv_map[kvs[heap_down_index]->distinct_key];
-                    group_kv_map.erase(kvs[heap_down_index]->distinct_key);
+                    delete group_kv_map[kvs[heap_op_index]->distinct_key];
+                    group_kv_map.erase(kvs[heap_op_index]->distinct_key);
                 }
 
                 // add new group key to map
@@ -155,6 +162,13 @@ struct Topster {
             const auto& found_it = kv_map.find(kv->key);
             bool is_duplicate_key = (found_it != kv_map.end());
 
+            /*
+               is_duplicate_key: SIFT_DOWN regardless of `size`.
+               Else:
+                   Do SIFT_UP if size < max_size
+                   Else SIFT_DOWN
+            */
+
             if(is_duplicate_key) {
                 // Need to check if kv is greater than existing duplicate kv.
                 KV* existing_kv = found_it->second;
@@ -164,53 +178,67 @@ struct Topster {
                     return false;
                 }
 
+                SIFT_DOWN = true;
+
                 // replace existing kv and sift down
-                heap_down_index = existing_kv->array_index;
-                kv_map.erase(kvs[heap_down_index]->key);
+                heap_op_index = existing_kv->array_index;
+                kv_map.erase(kvs[heap_op_index]->key);
 
-                // kv will be swapped into heap_down_index
-                kv_map.emplace(kv->key, kvs[heap_down_index]);
-            }
+                // kv will be swapped into heap_op_index
+                kv_map.emplace(kv->key, kvs[heap_op_index]);
 
-            else {
+            } else {  // not duplicate
+                
                 if(size < MAX_SIZE) {
                     // we just copy to end of array
-                    heap_down_index = size;
+                    SIFT_DOWN = false;
+                    heap_op_index = size;
                     size++;
                 } else {
                     // kv is guaranteed to be > min heap.
                     // we have to replace min heap element since array is full
-                    heap_down_index = 0;
-                    kv_map.erase(kvs[heap_down_index]->key);
+                    SIFT_DOWN = true;
+                    heap_op_index = 0;
+                    kv_map.erase(kvs[heap_op_index]->key);
                 }
 
-                // kv will be swapped into heap_down_index pointer
-                kv_map.emplace(kv->key, kvs[heap_down_index]);
+                // kv will be swapped into heap_op_index pointer
+                kv_map.emplace(kv->key, kvs[heap_op_index]);
             }
         }
 
         // we have to replace the existing element in the heap and sift down
-        copyMe(kv, kvs[heap_down_index]);
+        copyMe(kv, kvs[heap_op_index]);
 
-        if(size < MAX_SIZE) {
-            heap_down_index = 0;
-        }
+        // sift up/down to maintain heap property
 
-        // sift down to maintain heap property
-        while ((2*heap_down_index+1) < size) {
-            uint32_t next = (2 * heap_down_index + 1);  // left child
-            if (next+1 < size && is_greater_kv(kvs[next], kvs[next+1])) {
-                // for min heap we compare with the minimum of children
-                next++;  // right child (2n + 2)
+        if(SIFT_DOWN) {
+            while ((2 * heap_op_index + 1) < size) {
+                uint32_t next = (2 * heap_op_index + 1);  // left child
+                if (next+1 < size && is_greater_kv(kvs[next], kvs[next+1])) {
+                    // for min heap we compare with the minimum of children
+                    next++;  // right child (2n + 2)
+                }
+
+                if (is_greater_kv(kvs[heap_op_index], kvs[next])) {
+                    swapMe(&kvs[heap_op_index], &kvs[next]);
+                } else {
+                    break;
+                }
+
+                heap_op_index = next;
             }
-
-            if (is_greater_kv(kvs[heap_down_index], kvs[next])) {
-                swapMe(&kvs[heap_down_index], &kvs[next]);
-            } else {
-                break;
+        } else {
+            // SIFT UP
+            while(heap_op_index > 0) {
+                uint32_t parent = (heap_op_index - 1) / 2;
+                if (is_greater_kv(kvs[parent], kvs[heap_op_index])) {
+                    swapMe(&kvs[heap_op_index], &kvs[parent]);
+                    heap_op_index = parent;
+                } else {
+                    break;
+                }
             }
-
-            heap_down_index = next;
         }
 
         return true;
