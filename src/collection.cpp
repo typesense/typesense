@@ -608,15 +608,15 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     const size_t max_hits = std::min((page * per_page), get_num_documents());
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
-    std::vector<KV> raw_result_kvs;
-    std::vector<KV> override_result_kvs;
+    std::vector<KV*> raw_result_kvs;
+    std::vector<KV*> override_result_kvs;
 
     size_t total_found = 0;
 
     // send data to individual index threads
     size_t index_id = 0;
     for(Index* index: indices) {
-        index->search_params = search_args(query, search_fields, filters, facets,
+        index->search_params = new search_args(query, search_fields, filters, facets,
                                            index_to_included_ids[index_id], index_to_excluded_ids[index_id],
                                            sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                            per_page, page, token_order, prefix,
@@ -639,9 +639,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             index->cv.wait(lk, [index]{return index->processed;});
         }
 
-        if(!index->search_params.outcome.ok()) {
-            index_search_op = Option<nlohmann::json>(index->search_params.outcome.code(),
-                                                    index->search_params.outcome.error());
+        if(!index->search_params->outcome.ok()) {
+            index_search_op = Option<nlohmann::json>(index->search_params->outcome.code(),
+                                                    index->search_params->outcome.error());
         }
 
         if(!index_search_op.ok()) {
@@ -649,21 +649,21 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             continue;
         }
 
-        for(auto & field_order_kv: index->search_params.raw_result_kvs) {
-            field_order_kv.query_index += searched_queries.size();
+        for(auto & field_order_kv: index->search_params->raw_result_kvs) {
+            field_order_kv->query_index += searched_queries.size();
             raw_result_kvs.push_back(field_order_kv);
         }
 
-        for(auto & field_order_kv: index->search_params.override_result_kvs) {
-            field_order_kv.query_index += searched_queries.size();
+        for(auto & field_order_kv: index->search_params->override_result_kvs) {
+            field_order_kv->query_index += searched_queries.size();
             override_result_kvs.push_back(field_order_kv);
         }
 
-        searched_queries.insert(searched_queries.end(), index->search_params.searched_queries.begin(),
-                                index->search_params.searched_queries.end());
+        searched_queries.insert(searched_queries.end(), index->search_params->searched_queries.begin(),
+                                index->search_params->searched_queries.end());
 
-        for(size_t fi = 0; fi < index->search_params.facets.size(); fi++) {
-            auto & this_facet = index->search_params.facets[fi];
+        for(size_t fi = 0; fi < index->search_params->facets.size(); fi++) {
+            auto & this_facet = index->search_params->facets[fi];
             auto & acc_facet = facets[fi];
 
             for(auto & facet_kv: this_facet.result_map) {
@@ -690,7 +690,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
         }
 
-        total_found += index->search_params.all_result_ids_len;
+        total_found += index->search_params->all_result_ids_len;
     }
 
     if(!index_search_op.ok()) {
@@ -698,13 +698,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // All fields are sorted descending
-    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_value);
+    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv);
 
-    // Sort based on position in overriden list
+    // Sort based on position in overridden list
     std::sort(
       override_result_kvs.begin(), override_result_kvs.end(),
-      [&id_pos_map](const KV & a, const KV & b) -> bool {
-          return id_pos_map[a.key] < id_pos_map[b.key];
+      [&id_pos_map](const KV* a, const KV* b) -> bool {
+          return id_pos_map[a->key] < id_pos_map[b->key];
       }
     );
 
@@ -713,15 +713,15 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     result["hits"] = nlohmann::json::array();
     result["found"] = total_found;
 
-    std::vector<KV> result_kvs;
+    std::vector<KV*> result_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
 
     // merge raw results and override results
     while(override_kv_index < override_result_kvs.size() && raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size() &&
-           id_pos_map.count(override_result_kvs[override_kv_index].key) != 0 &&
-           result_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index].key]) {
+           id_pos_map.count(override_result_kvs[override_kv_index]->key) != 0 &&
+           result_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index]->key]) {
              result_kvs.push_back(override_result_kvs[override_kv_index]);
              override_kv_index++;
         } else {
@@ -746,7 +746,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const auto & field_order_kv = result_kvs[result_kvs_index];
-        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv.key);
+        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
 
         nlohmann::json document;
         const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
@@ -818,8 +818,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         prune_document(document, include_fields, exclude_fields);
         wrapper_doc["document"] = document;
-        wrapper_doc["text_match"] = field_order_kv.match_score;
-        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv.key;
+        wrapper_doc["text_match"] = field_order_kv->match_score;
+        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
         result["hits"].push_back(wrapper_doc);
     }
@@ -918,6 +918,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         result["facet_counts"].push_back(facet_result);
     }
 
+    // free search params
+    for(Index* index: indices) {
+        delete index->search_params;
+    }
+
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = query;
@@ -966,7 +971,7 @@ void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
 
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
-                                  const KV & field_order_kv, const nlohmann::json & document,
+                                  const KV* field_order_kv, const nlohmann::json & document,
                                   StringUtils & string_utils, size_t snippet_threshold,
                                   bool highlighted_fully,
                                   highlight_t & highlight) {
@@ -974,15 +979,15 @@ void Collection::highlight_result(const field &search_field,
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
     std::vector<art_leaf *> query_suggestion;
 
-    for (const art_leaf *token_leaf : searched_queries[field_order_kv.query_index]) {
+    for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
         // is from the best matched field and need not be present in other fields of a document.
-        Index* index = indices[field_order_kv.key % num_indices];
+        Index* index = indices[field_order_kv->key % num_indices];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
         if(actual_leaf != nullptr) {
             query_suggestion.push_back(actual_leaf);
             std::vector<uint16_t> positions;
-            uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv.key);
+            uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
             auto doc_indices = new uint32_t[1];
             doc_indices[0] = doc_index;
             leaf_to_indices.emplace(actual_leaf, doc_indices);
@@ -1008,8 +1013,8 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        const Match & this_match = Match::match(field_order_kv.key, token_positions);
-        uint64_t this_match_score = this_match.get_match_score(1, field_order_kv.field_id);
+        const Match & this_match = Match::match(field_order_kv->key, token_positions);
+        uint64_t this_match_score = this_match.get_match_score(1, field_order_kv->field_id);
         match_indices.emplace_back(this_match, this_match_score, array_index);
     }
 
