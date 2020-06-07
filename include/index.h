@@ -32,17 +32,18 @@ struct search_args {
     facet_query_t facet_query;
     int num_typos;
     size_t max_facet_values;
-    size_t max_hits;
     size_t per_page;
     size_t page;
     token_ordering token_order;
     bool prefix;
     size_t drop_tokens_threshold;
     size_t typo_tokens_threshold;
-    std::vector<KV> raw_result_kvs;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
-    std::vector<KV> override_result_kvs;
+    Topster* topster;
+    Topster* curated_topster;
+    std::vector<KV*> raw_result_kvs;
+    std::vector<KV*> override_result_kvs;
     Option<uint32_t> outcome;
 
     search_args(): outcome(0) {
@@ -56,12 +57,20 @@ struct search_args {
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
-            max_facet_values(max_facet_values), max_hits(max_hits), per_page(per_page),
+            max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             all_result_ids_len(0), outcome(0) {
 
+        const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
+        topster = new Topster(topster_size);
+        curated_topster = new Topster(topster_size);
     }
+
+    ~search_args() {
+        delete topster;
+        delete curated_topster;
+    };
 };
 
 struct index_record {
@@ -155,7 +164,7 @@ private:
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
-                      Topster & topster, uint32_t** all_result_ids,
+                      Topster* topster, uint32_t** all_result_ids,
                       size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
                       const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
@@ -164,7 +173,7 @@ private:
     void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster & topster, uint32_t** all_result_ids,
+                           Topster* topster, uint32_t** all_result_ids,
                            size_t & all_result_ids_len,
                            const size_t typo_tokens_threshold);
 
@@ -198,7 +207,7 @@ private:
 
     void collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
                              const std::vector<uint32_t> & included_ids,
-                             Topster & curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+                             Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
 
     uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
@@ -220,10 +229,12 @@ public:
                           facet_query_t & facet_query,
                           const std::vector<uint32_t> & included_ids, const std::vector<uint32_t> & excluded_ids,
                           const std::vector<sort_by> & sort_fields_std, const int num_typos,
-                          const size_t max_hits, const size_t per_page, const size_t page, const token_ordering token_order,
-                          const bool prefix, const size_t drop_tokens_threshold, std::vector<KV> & raw_result_kvs,
+                          Topster* topster, Topster* curated_topster,
+                          const size_t per_page, const size_t page, const token_ordering token_order,
+                          const bool prefix, const size_t drop_tokens_threshold,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries,
-                          std::vector<KV> & override_result_kvs, const size_t typo_tokens_threshold);
+                          std::vector<KV*> & raw_result_kvs, std::vector<KV*> & override_result_kvs,
+                          const size_t typo_tokens_threshold);
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
 
@@ -235,7 +246,7 @@ public:
                                          std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions);
 
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
-                       const uint32_t total_cost, Topster &topster, const std::vector<art_leaf *> & query_suggestion,
+                       const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
                        const uint32_t *result_ids, const size_t result_size) const;
 
     static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
@@ -278,7 +289,7 @@ public:
     bool processed;   // prevents spurious wake up of the main thread
     bool terminate;   // used for interrupting the thread during tear down
 
-    search_args search_params;
+    search_args* search_params;
 
     static void populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
                                                const art_leaf *token_leaf, uint32_t doc_index);

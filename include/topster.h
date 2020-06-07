@@ -257,11 +257,6 @@ struct Topster {
                std::tie(j->scores[0], j->scores[1], j->scores[2]);
     }
 
-    static bool is_greater_kv_value(const struct KV & i, const struct KV & j) {
-        return std::tie(i.scores[0], i.scores[1], i.scores[2], i.key) >
-               std::tie(j.scores[0], j.scores[1], j.scores[2], j.key);
-    }
-
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
         std::stable_sort(kvs, kvs+size, is_greater_kv);
