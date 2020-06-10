@@ -2251,6 +2251,10 @@ TEST_F(CollectionTest, OptionalFields) {
     auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Cannot sort by `average` as it is defined as an optional field.", res_op.error().c_str());
+    
+    // try deleting a record having optional field
+    Option<std::string> remove_op = coll1->remove("1");
+    ASSERT_TRUE(remove_op.ok());
 
     // default sorting field should not be declared optional
     fields = {
