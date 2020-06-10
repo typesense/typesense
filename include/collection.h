@@ -235,7 +235,9 @@ public:
                           const std::string & highlight_full_fields = "",
                           size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
                           const std::map<std::string, size_t>& pinned_hits={},
-                          const std::vector<std::string>& hidden_hits={});
+                          const std::vector<std::string>& hidden_hits={},
+                          const std::vector<std::string>& group_by_fields={},
+                          const size_t group_limit = 0);
 
     Option<nlohmann::json> get(const std::string & id);
 

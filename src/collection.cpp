@@ -349,7 +349,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string & highlight_full_fields,
                                   size_t typo_tokens_threshold,
                                   const std::map<std::string, size_t>& pinned_hits,
-                                  const std::vector<std::string>& hidden_hits) {
+                                  const std::vector<std::string>& hidden_hits,
+                                  const std::vector<std::string>& group_by_fields,
+                                  const size_t group_limit) {
 
     std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
@@ -381,6 +383,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         field search_field = search_schema.at(field_name);
         if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
             std::string error = "Field `" + field_name + "` should be a string or a string array.";
+            return Option<nlohmann::json>(400, error);
+        }
+    }
+
+    // validate group by fields
+    for(const std::string & field_name: group_by_fields) {
+        if(search_schema.count(field_name) == 0) {
+            std::string error = "Could not find a field named `" + field_name + "` in the schema.";
+            return Option<nlohmann::json>(404, error);
+        }
+
+        field search_field = search_schema.at(field_name);
+
+        // if field is a string field then it must be a facet field as well
+        if(search_field.is_string() && !search_field.is_facet()) {
+            std::string error = "Field `" + field_name + "` should be a facet field.";
             return Option<nlohmann::json>(400, error);
         }
     }
@@ -492,7 +510,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // for a wildcard query, if filter is not specified, use default_sorting_field as a catch-all
-    if(query == "*" && filters.size() == 0) {
+    if(query == "*" && filters.empty()) {
         field f = search_schema.at(default_sorting_field);
         std::string max_value = f.is_float() ? std::to_string(std::numeric_limits<float>::max()) :
                                 std::to_string(std::numeric_limits<int32_t>::max());
@@ -608,7 +626,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     const size_t max_hits = std::min((page * per_page), get_num_documents());
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
-    std::vector<KV*> raw_result_kvs;
+    std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<KV*> override_result_kvs;
 
     size_t total_found = 0;
@@ -617,10 +635,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     size_t index_id = 0;
     for(Index* index: indices) {
         index->search_params = new search_args(query, search_fields, filters, facets,
-                                           index_to_included_ids[index_id], index_to_excluded_ids[index_id],
-                                           sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                           per_page, page, token_order, prefix,
-                                           drop_tokens_threshold, typo_tokens_threshold);
+                                               index_to_included_ids[index_id], index_to_excluded_ids[index_id],
+                                               sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                               per_page, page, token_order, prefix,
+                                               drop_tokens_threshold, typo_tokens_threshold,
+                                               group_by_fields, group_limit);
         {
             std::lock_guard<std::mutex> lk(index->m);
             index->ready = true;
@@ -649,9 +668,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             continue;
         }
 
-        for(auto & field_order_kv: index->search_params->raw_result_kvs) {
-            field_order_kv->query_index += searched_queries.size();
-            raw_result_kvs.push_back(field_order_kv);
+        for(const std::vector<KV*> & kv_group: index->search_params->raw_result_kvs) {
+            kv_group[0]->query_index += searched_queries.size();
+            raw_result_kvs.push_back(kv_group);
         }
 
         for(auto & field_order_kv: index->search_params->override_result_kvs) {
@@ -697,8 +716,35 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return index_search_op;
     }
 
+    Topster* aggr_topster = nullptr;
+
+    if(group_limit > 0) {
+        // group by query requires another round of topster-ing
+
+        // needs to be atleast 1 since scoring is mandatory
+        const size_t topster_size = std::max((size_t)1, max_hits);
+        aggr_topster = new Topster(topster_size, group_limit);
+
+        for(const auto& kv_group: raw_result_kvs) {
+            for(KV* kv: kv_group) {
+                aggr_topster->add(kv);
+            }
+        }
+
+        aggr_topster->sort();
+
+        raw_result_kvs.clear();
+        raw_result_kvs.shrink_to_fit();
+
+        for(auto &group_topster_entry: aggr_topster->group_kv_map) {
+            Topster* group_topster = group_topster_entry.second;
+            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
+            raw_result_kvs.emplace_back(group_kvs);
+        }
+    }
+
     // All fields are sorted descending
-    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv);
+    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
 
     // Sort based on position in overridden list
     std::sort(
@@ -708,12 +754,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
       }
     );
 
-    nlohmann::json result = nlohmann::json::object();
-
-    result["hits"] = nlohmann::json::array();
-    result["found"] = total_found;
-
-    std::vector<KV*> result_kvs;
+    std::vector<std::vector<KV*>> result_group_kvs;
     size_t override_kv_index = 0;
     size_t raw_results_index = 0;
 
@@ -721,107 +762,123 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     while(override_kv_index < override_result_kvs.size() && raw_results_index < raw_result_kvs.size()) {
         if(override_kv_index < override_result_kvs.size() &&
            id_pos_map.count(override_result_kvs[override_kv_index]->key) != 0 &&
-           result_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index]->key]) {
-             result_kvs.push_back(override_result_kvs[override_kv_index]);
+           result_group_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index]->key]) {
+             result_group_kvs.push_back({override_result_kvs[override_kv_index]});
              override_kv_index++;
         } else {
-            result_kvs.push_back(raw_result_kvs[raw_results_index]);
+            result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
             raw_results_index++;
         }
     }
 
     while(override_kv_index < override_result_kvs.size()) {
-        result_kvs.push_back(override_result_kvs[override_kv_index]);
+        result_group_kvs.push_back({override_result_kvs[override_kv_index]});
         override_kv_index++;
     }
 
     while(raw_results_index < raw_result_kvs.size()) {
-        result_kvs.push_back(raw_result_kvs[raw_results_index]);
+        result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
         raw_results_index++;
     }
 
     const long start_result_index = (page - 1) * per_page;
-    const long end_result_index = std::min(max_hits, result_kvs.size()) - 1;  // could be -1 when max_hits is 0
+    const long end_result_index = std::min(max_hits, result_group_kvs.size()) - 1;  // could be -1 when max_hits is 0
+
+    nlohmann::json result = nlohmann::json::object();
+
+    result["found"] = total_found;
+
+    std::string hits_key = (group_limit > 1) ? "grouped_hits" : "hits";
+    result[hits_key] = nlohmann::json::array();
 
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
-        const auto & field_order_kv = result_kvs[result_kvs_index];
-        const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
+        const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
 
-        nlohmann::json document;
-        const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
+        nlohmann::json group_hits_array = nlohmann::json::array();
+        nlohmann::json& hits_array = (group_limit > 1) ? group_hits_array : result["hits"];
 
-        if(!document_op.ok()) {
-            LOG(ERROR) << "Document fetch error. " << document_op.error();
-            continue;
-        }
+        for(const KV* field_order_kv: kv_group) {
+            const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
 
-        nlohmann::json wrapper_doc;
-        wrapper_doc["highlights"] = nlohmann::json::array();
-        std::vector<highlight_t> highlights;
-        StringUtils string_utils;
+            nlohmann::json document;
+            const Option<bool> & document_op = get_document_from_store(seq_id_key, document);
 
-        // find out if fields have to be highlighted fully
-        std::vector<std::string> fields_highlighted_fully_vec;
-        spp::sparse_hash_set<std::string> fields_highlighted_fully;
-        StringUtils::split(highlight_full_fields, fields_highlighted_fully_vec, ",");
-
-        for(std::string & highlight_full_field: fields_highlighted_fully_vec) {
-            StringUtils::trim(highlight_full_field);
-            fields_highlighted_fully.emplace(highlight_full_field);
-        }
-
-        for(const std::string & field_name: search_fields) {
-            // should not pick excluded field for highlighting
-            if(exclude_fields.count(field_name) > 0) {
+            if(!document_op.ok()) {
+                LOG(ERROR) << "Document fetch error. " << document_op.error();
                 continue;
             }
 
-            field search_field = search_schema.at(field_name);
-            if(query != "*" && (search_field.type == field_types::STRING ||
-                                search_field.type == field_types::STRING_ARRAY)) {
+            nlohmann::json wrapper_doc;
+            wrapper_doc["highlights"] = nlohmann::json::array();
+            std::vector<highlight_t> highlights;
+            StringUtils string_utils;
 
-                bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
-                highlight_t highlight;
-                highlight_result(search_field, searched_queries, field_order_kv, document,
-                                 string_utils, snippet_threshold, highlighted_fully, highlight);
+            // find out if fields have to be highlighted fully
+            std::vector<std::string> fields_highlighted_fully_vec;
+            spp::sparse_hash_set<std::string> fields_highlighted_fully;
+            StringUtils::split(highlight_full_fields, fields_highlighted_fully_vec, ",");
 
-                if(!highlight.snippets.empty()) {
-                    highlights.push_back(highlight);
-                }
-            }
-        }
-
-        std::sort(highlights.begin(), highlights.end());
-
-        for(const auto & highlight: highlights) {
-            nlohmann::json h_json = nlohmann::json::object();
-            h_json["field"] = highlight.field;
-            bool highlight_fully = (fields_highlighted_fully.find(highlight.field) != fields_highlighted_fully.end());
-
-            if(!highlight.indices.empty()) {
-                h_json["indices"] = highlight.indices;
-                h_json["snippets"] = highlight.snippets;
-                if(highlight_fully) {
-                    h_json["values"] = highlight.values;
-                }
-
-            } else {
-                h_json["snippet"] = highlight.snippets[0];
-                if(highlight_fully) {
-                    h_json["value"] = highlight.values[0];
-                }
+            for(std::string & highlight_full_field: fields_highlighted_fully_vec) {
+                StringUtils::trim(highlight_full_field);
+                fields_highlighted_fully.emplace(highlight_full_field);
             }
 
-            wrapper_doc["highlights"].push_back(h_json);
+            for(const std::string & field_name: search_fields) {
+                // should not pick excluded field for highlighting
+                if(exclude_fields.count(field_name) > 0) {
+                    continue;
+                }
+
+                field search_field = search_schema.at(field_name);
+                if(query != "*" && (search_field.type == field_types::STRING ||
+                                    search_field.type == field_types::STRING_ARRAY)) {
+
+                    bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
+                    highlight_t highlight;
+                    highlight_result(search_field, searched_queries, field_order_kv, document,
+                                     string_utils, snippet_threshold, highlighted_fully, highlight);
+
+                    if(!highlight.snippets.empty()) {
+                        highlights.push_back(highlight);
+                    }
+                }
+            }
+
+            std::sort(highlights.begin(), highlights.end());
+
+            for(const auto & highlight: highlights) {
+                nlohmann::json h_json = nlohmann::json::object();
+                h_json["field"] = highlight.field;
+                bool highlight_fully = (fields_highlighted_fully.find(highlight.field) != fields_highlighted_fully.end());
+
+                if(!highlight.indices.empty()) {
+                    h_json["indices"] = highlight.indices;
+                    h_json["snippets"] = highlight.snippets;
+                    if(highlight_fully) {
+                        h_json["values"] = highlight.values;
+                    }
+
+                } else {
+                    h_json["snippet"] = highlight.snippets[0];
+                    if(highlight_fully) {
+                        h_json["value"] = highlight.values[0];
+                    }
+                }
+
+                wrapper_doc["highlights"].push_back(h_json);
+            }
+
+            prune_document(document, include_fields, exclude_fields);
+            wrapper_doc["document"] = document;
+            wrapper_doc["text_match"] = field_order_kv->match_score;
+            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+            hits_array.push_back(wrapper_doc);
         }
 
-        prune_document(document, include_fields, exclude_fields);
-        wrapper_doc["document"] = document;
-        wrapper_doc["text_match"] = field_order_kv->match_score;
-        //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
-
-        result["hits"].push_back(wrapper_doc);
+        if(group_limit > 1) {
+            result["grouped_hits"].push_back(group_hits_array);
+        }
     }
 
     result["facet_counts"] = nlohmann::json::array();
@@ -922,6 +979,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(Index* index: indices) {
         delete index->search_params;
     }
+
+    delete aggr_topster;
 
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["per_page"] = per_page;

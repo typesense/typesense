@@ -117,7 +117,7 @@ struct Topster {
                 }
 
                 // if new kv score is greater than previous min heap score we sift dowm, otherwise sift up
-                SIFT_DOWN = is_greater_kv(kv, &old_min_heap_kv);
+                SIFT_DOWN = is_greater(kv, &old_min_heap_kv);
 
                 // new kv is different from old_min_heap_kv so we have to sift heap
                 heap_op_index = old_min_heap_kv.array_index;
@@ -218,12 +218,12 @@ struct Topster {
         if(SIFT_DOWN) {
             while ((2 * heap_op_index + 1) < size) {
                 uint32_t next = (2 * heap_op_index + 1);  // left child
-                if (next+1 < size && is_greater_kv(kvs[next], kvs[next+1])) {
+                if (next+1 < size && is_greater(kvs[next], kvs[next + 1])) {
                     // for min heap we compare with the minimum of children
                     next++;  // right child (2n + 2)
                 }
 
-                if (is_greater_kv(kvs[heap_op_index], kvs[next])) {
+                if (is_greater(kvs[heap_op_index], kvs[next])) {
                     swapMe(&kvs[heap_op_index], &kvs[next]);
                 } else {
                     break;
@@ -235,7 +235,7 @@ struct Topster {
             // SIFT UP
             while(heap_op_index > 0) {
                 uint32_t parent = (heap_op_index - 1) / 2;
-                if (is_greater_kv(kvs[parent], kvs[heap_op_index])) {
+                if (is_greater(kvs[parent], kvs[heap_op_index])) {
                     swapMe(&kvs[heap_op_index], &kvs[parent]);
                     heap_op_index = parent;
                 } else {
@@ -247,7 +247,7 @@ struct Topster {
         return true;
     }
 
-    static bool is_greater_kv(const struct KV* i, const struct KV* j) {
+    static bool is_greater(const struct KV* i, const struct KV* j) {
         return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) >
                std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
     }
@@ -257,9 +257,14 @@ struct Topster {
                std::tie(j->scores[0], j->scores[1], j->scores[2]);
     }
 
+    static bool is_greater_kv_group(const std::vector<KV*>& i, const std::vector<KV*>& j) {
+        return std::tie(i[0]->scores[0], i[0]->scores[1], i[0]->scores[2], i[0]->key) >
+               std::tie(j[0]->scores[0], j[0]->scores[1], j[0]->scores[2], j[0]->key);
+    }
+
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
-        std::stable_sort(kvs, kvs+size, is_greater_kv);
+        std::stable_sort(kvs, kvs + size, is_greater);
         for(auto &group_topster: group_kv_map) {
             group_topster.second->sort();
         }

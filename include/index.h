@@ -38,11 +38,13 @@ struct search_args {
     bool prefix;
     size_t drop_tokens_threshold;
     size_t typo_tokens_threshold;
+    std::vector<std::string> group_by_fields;
+    size_t group_limit;
     size_t all_result_ids_len;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Topster* topster;
     Topster* curated_topster;
-    std::vector<KV*> raw_result_kvs;
+    std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<KV*> override_result_kvs;
     Option<uint32_t> outcome;
 
@@ -54,16 +56,18 @@ struct search_args {
                 std::vector<facet> facets, std::vector<uint32_t> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
-                size_t drop_tokens_threshold, size_t typo_tokens_threshold):
+                size_t drop_tokens_threshold, size_t typo_tokens_threshold,
+                const std::vector<std::string>& group_by_fields, size_t group_limit):
             query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
+            group_by_fields(group_by_fields), group_limit(group_limit),
             all_result_ids_len(0), outcome(0) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
-        topster = new Topster(topster_size);
+        topster = new Topster(topster_size, group_limit);
         curated_topster = new Topster(topster_size);
     }
 
@@ -213,6 +217,11 @@ private:
 
     void compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type);
 
+    // reference: https://stackoverflow.com/a/27952689/131050
+    uint64_t hash_combine(uint64_t lhs, uint64_t rhs) const {
+        lhs ^= rhs + 0x517cc1b727220a95 + (lhs << 6) + (lhs >> 2);
+        return lhs;
+    }
 
 public:
     Index() = delete;
@@ -233,7 +242,7 @@ public:
                           const size_t per_page, const size_t page, const token_ordering token_order,
                           const bool prefix, const size_t drop_tokens_threshold,
                           size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries,
-                          std::vector<KV*> & raw_result_kvs, std::vector<KV*> & override_result_kvs,
+                          std::vector<std::vector<KV*>> & raw_result_kvs, std::vector<KV*> & override_result_kvs,
                           const size_t typo_tokens_threshold);
 
     Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
