@@ -235,6 +235,9 @@ bool get_search(http_req & req, http_res & res) {
     const char *FACET_QUERY = "facet_query";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
+    const char *GROUP_BY = "group_by";
+    const char *GROUP_LIMIT = "group_limit";
+
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
@@ -314,6 +317,18 @@ bool get_search(http_req & req, http_res & res) {
         req.params[EXCLUDE_FIELDS] = "";
     }
 
+    if(req.params.count(GROUP_BY) == 0) {
+        req.params[GROUP_BY] = "";
+    }
+
+    if(req.params.count(GROUP_LIMIT) == 0) {
+        if(req.params[GROUP_BY] != "") {
+            req.params[GROUP_LIMIT] = "3";
+        } else {
+            req.params[GROUP_LIMIT] = "0";
+        }
+    }
+
     if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
@@ -349,6 +364,11 @@ bool get_search(http_req & req, http_res & res) {
         return false;
     }
 
+    if(!StringUtils::is_uint64_t(req.params[GROUP_LIMIT])) {
+        res.set_400("Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
+        return false;
+    }
+
     std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
 
     std::vector<std::string> search_fields;
@@ -365,6 +385,9 @@ bool get_search(http_req & req, http_res & res) {
 
     spp::sparse_hash_set<std::string> include_fields(include_fields_vec.begin(), include_fields_vec.end());
     spp::sparse_hash_set<std::string> exclude_fields(exclude_fields_vec.begin(), exclude_fields_vec.end());
+
+    std::vector<std::string> group_by_fields;
+    StringUtils::split(req.params[GROUP_BY], group_by_fields, ",");
 
     std::vector<sort_by> sort_fields;
     if(req.params.count(SORT_BY) != 0) {
@@ -455,7 +478,9 @@ bool get_search(http_req & req, http_res & res) {
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
                                                           typo_tokens_threshold,
                                                           pinned_hits,
-                                                          hidden_hits
+                                                          hidden_hits,
+                                                          group_by_fields,
+                                                          static_cast<size_t>(std::stoi(req.params[GROUP_LIMIT]))
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

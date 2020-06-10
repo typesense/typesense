@@ -1162,11 +1162,9 @@ void Index::search(Option<uint32_t> & outcome,
                    const bool prefix, const size_t drop_tokens_threshold,
                    size_t & all_result_ids_len,
                    std::vector<std::vector<art_leaf*>> & searched_queries,
-                   std::vector<KV*> & raw_result_kvs,
+                   std::vector<std::vector<KV*>> & raw_result_kvs,
                    std::vector<KV*> & override_result_kvs,
                    const size_t typo_tokens_threshold) {
-
-    const size_t num_results = (page * per_page);
 
     // process the filters
 
@@ -1221,17 +1219,33 @@ void Index::search(Option<uint32_t> & outcome,
     std::vector<uint32_t> dropped_ids;
 
     // loop through topster and remove elements from included and excluded id lists
-    for(uint32_t t = 0; t < topster->size && t < num_results; t++) {
-        KV* kv = topster->getKV(t);
 
-        if(ids_to_remove.count(kv->key) != 0) {
-            dropped_ids.push_back((uint32_t)kv->key);
-        } else {
-            raw_result_kvs.push_back(kv);
+    if(topster->distinct) {
+        for(auto &group_topster_entry: topster->group_kv_map) {
+            Topster* group_topster = group_topster_entry.second;
+            for(uint32_t t = 0; t < group_topster->size; t++) {
+                KV* kv = group_topster->getKV(t);
+                if(ids_to_remove.count(kv->key) != 0) {
+                    dropped_ids.push_back((uint32_t)kv->key);
+                }
+            }
+
+            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
+            raw_result_kvs.emplace_back(group_kvs);
+        }
+    } else {
+        for(uint32_t t = 0; t < topster->size; t++) {
+            KV* kv = topster->getKV(t);
+
+            if(ids_to_remove.count(kv->key) != 0) {
+                dropped_ids.push_back((uint32_t)kv->key);
+            } else {
+                raw_result_kvs.push_back({kv});
+            }
         }
     }
 
-    for(uint32_t t = 0; t < curated_topster->size && t < num_results; t++) {
+    for(uint32_t t = 0; t < curated_topster->size; t++) {
         KV* kv = curated_topster->getKV(t);
         override_result_kvs.push_back(kv);
     }
@@ -1471,6 +1485,16 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
     const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost, field_id);
 
+    std::unordered_map<std::string, size_t> facet_to_id;
+
+    if(search_params->group_limit > 0) {
+        size_t i_facet = 0;
+        for(const auto & facet: facet_schema) {
+            facet_to_id[facet.first] = i_facet;
+            i_facet++;
+        }
+    }
+
     for(size_t i=0; i<result_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
@@ -1545,7 +1569,27 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             }
         }
 
-        KV kv(field_id, query_index, seq_id, seq_id, match_score, scores);
+        uint64_t distinct_id = seq_id;
+
+        if(search_params->group_limit != 0) {
+            distinct_id = 1; // some constant initial value
+
+            // calculate hash from group_by_fields
+            for(const auto& field: search_params->group_by_fields) {
+                if(facet_to_id.count(field) == 0 || facet_index_v2.count(seq_id) == 0) {
+                    continue;
+                }
+
+                size_t facet_id = facet_to_id[field];
+                const std::vector<uint64_t>& fhashes = facet_index_v2.at(seq_id)[facet_id];
+
+                for(const auto& hash: fhashes) {
+                    distinct_id = hash_combine(distinct_id, hash);
+                }
+            }
+        }
+
+        KV kv(field_id, query_index, seq_id, distinct_id, match_score, scores);
         topster->add(&kv);
     }
 
