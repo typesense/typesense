@@ -118,6 +118,23 @@ private:
         }
     }
 
+    static unsigned long linux_get_mem_available_bytes() {
+        std::string token;
+        std::ifstream file("/proc/meminfo");
+        while(file >> token) {
+            if(token == "MemAvailable:") {
+                unsigned long mem_kb;
+                if(file >> mem_kb) {
+                    return mem_kb * 1000;
+                } else {
+                    return 0;
+                }
+            }
+        }
+
+        return 0; // nothing found
+    }
+
 public:
     void get(const std::string & data_dir_path, nlohmann::json& result);
 
