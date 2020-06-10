@@ -1756,6 +1756,10 @@ void Index::remove_and_shift_offset_index(sorted_array &offset_index, const uint
 
 Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document) {
     for(auto & name_field: search_schema) {
+        if(name_field.second.optional && document.count(name_field.first) == 0) {
+            continue;
+        }
+
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> tokens;
         if(name_field.second.type == field_types::STRING) {
