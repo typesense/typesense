@@ -1122,7 +1122,8 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
-        coll_array_fields->add(json_line);
+        auto add_op = coll_array_fields->add(json_line);
+        ASSERT_TRUE(add_op.ok());
     }
 
     infile.close();
