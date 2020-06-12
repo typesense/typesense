@@ -217,6 +217,8 @@ public:
 
     Option<uint32_t> to_doc(const std::string & json_str, nlohmann::json & document);
 
+    nlohmann::json get_summary_json();
+
     Option<nlohmann::json> add(const std::string & json_str);
 
     Option<nlohmann::json> add_many(const std::string & json_str);

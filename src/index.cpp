@@ -295,7 +295,8 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
                 return Option<>(400, "Field `" + field_name  + "` must be a float array.");
             }
 
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number_float()) {
+            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
+                // allows integer to be passed to a float array field
                 return Option<>(400, "Field `" + field_name  + "` must be a float array.");
             }
         } else if(field_pair.second.type == field_types::BOOL_ARRAY) {

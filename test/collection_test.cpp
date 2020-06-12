@@ -1122,7 +1122,8 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     std::string json_line;
 
     while (std::getline(infile, json_line)) {
-        coll_array_fields->add(json_line);
+        auto add_op = coll_array_fields->add(json_line);
+        ASSERT_TRUE(add_op.ok());
     }
 
     infile.close();
@@ -2255,6 +2256,19 @@ TEST_F(CollectionTest, OptionalFields) {
     // try deleting a record having optional field
     Option<std::string> remove_op = coll1->remove("1");
     ASSERT_TRUE(remove_op.ok());
+
+    // try fetching the schema (should contain optional field)
+    nlohmann::json coll_summary = coll1->get_summary_json();
+    LOG(INFO) << coll_summary;
+    ASSERT_STREQ("title", coll_summary["fields"][0]["name"].get<std::string>().c_str());
+    ASSERT_STREQ("string", coll_summary["fields"][0]["type"].get<std::string>().c_str());
+    ASSERT_FALSE(coll_summary["fields"][0]["facet"].get<bool>());
+    ASSERT_FALSE(coll_summary["fields"][0]["optional"].get<bool>());
+
+    ASSERT_STREQ("description", coll_summary["fields"][1]["name"].get<std::string>().c_str());
+    ASSERT_STREQ("string", coll_summary["fields"][1]["type"].get<std::string>().c_str());
+    ASSERT_TRUE(coll_summary["fields"][1]["facet"].get<bool>());
+    ASSERT_TRUE(coll_summary["fields"][1]["optional"].get<bool>());
 
     // default sorting field should not be declared optional
     fields = {
