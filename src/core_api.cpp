@@ -9,29 +9,6 @@
 #include "system_metrics.h"
 #include "logger.h"
 
-nlohmann::json collection_summary_json(Collection *collection) {
-    nlohmann::json json_response;
-
-    json_response["name"] = collection->get_name();
-    json_response["num_documents"] = collection->get_num_documents();
-    json_response["created_at"] = collection->get_created_at();
-
-    const std::vector<field> & coll_fields = collection->get_fields();
-    nlohmann::json fields_arr;
-
-    for(const field & coll_field: coll_fields) {
-        nlohmann::json field_json;
-        field_json[fields::name] = coll_field.name;
-        field_json[fields::type] = coll_field.type;
-        field_json[fields::facet] = coll_field.facet;
-        fields_arr.push_back(field_json);
-    }
-
-    json_response["fields"] = fields_arr;
-    json_response["default_sorting_field"] = collection->get_default_sorting_field();
-    return json_response;
-}
-
 bool handle_authentication(http_req& req, const route_path& rpath, const std::string& auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
@@ -55,7 +32,7 @@ bool get_collections(http_req & req, http_res & res) {
     nlohmann::json json_response = nlohmann::json::array();
 
     for(Collection* collection: collections) {
-        nlohmann::json collection_json = collection_summary_json(collection);
+        nlohmann::json collection_json = collection->get_summary_json();
         json_response.push_back(collection_json);
     }
 
@@ -150,7 +127,7 @@ bool post_create_collection(http_req & req, http_res & res) {
             collectionManager.create_collection(req_json["name"], fields, default_sorting_field);
 
     if(collection_op.ok()) {
-        nlohmann::json json_response = collection_summary_json(collection_op.get());
+        nlohmann::json json_response = collection_op.get()->get_summary_json();
         res.set_201(json_response.dump());
         return true;
     }
@@ -169,7 +146,7 @@ bool del_drop_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    nlohmann::json collection_json = collection_summary_json(collection);
+    nlohmann::json collection_json = collection->get_summary_json();
     Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
 
     if(!drop_result.ok()) {
@@ -497,7 +474,7 @@ bool get_collection_summary(http_req & req, http_res & res) {
         return false;
     }
 
-    nlohmann::json json_response = collection_summary_json(collection);
+    nlohmann::json json_response = collection->get_summary_json();
     res.set_200(json_response.dump());
 
     return true;
