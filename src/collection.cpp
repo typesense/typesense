@@ -127,6 +127,29 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
     return Option<uint32_t>(seq_id);
 }
 
+nlohmann::json Collection::get_summary_json() {
+    nlohmann::json json_response;
+
+    json_response["name"] = name;
+    json_response["num_documents"] = num_documents;
+    json_response["created_at"] = created_at;
+
+    nlohmann::json fields_arr;
+
+    for(const field & coll_field: fields) {
+        nlohmann::json field_json;
+        field_json[fields::name] = coll_field.name;
+        field_json[fields::type] = coll_field.type;
+        field_json[fields::facet] = coll_field.facet;
+        field_json[fields::optional] = coll_field.optional;
+        fields_arr.push_back(field_json);
+    }
+
+    json_response["fields"] = fields_arr;
+    json_response["default_sorting_field"] = default_sorting_field;
+    return json_response;
+}
+
 Option<nlohmann::json> Collection::add(const std::string & json_str) {
     nlohmann::json document;
     Option<uint32_t> doc_seq_id_op = to_doc(json_str, document);
