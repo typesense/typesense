@@ -1095,7 +1095,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     }
 
     // when filters don't match any record, no results should be returned
-    results = coll_array_fields->search("Jeremy", query_fields, "timestamps:<1", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps:>1591091288061", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");

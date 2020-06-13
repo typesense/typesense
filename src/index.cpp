@@ -951,8 +951,8 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                     if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
                         int32_t value = (int32_t) std::stoi(filter_value);
                         art_int32_search(t, value, a_filter.compare_operator, leaves);
-                    } else {
-                        int64_t value = (int64_t) std::stoi(filter_value);
+                    } else { // int64
+                        int64_t value = (int64_t) std::stol(filter_value);
                         art_int64_search(t, value, a_filter.compare_operator, leaves);
                     }
 
