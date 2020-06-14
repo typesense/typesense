@@ -252,7 +252,7 @@ bool get_search(http_req & req, http_res & res) {
         return false;
     }
 
-    if(req.params.count(QUERY_BY) == 0) {
+    if(req.params.count(QUERY_BY) == 0 && req.params[QUERY] != "*") {
         res.set_400(std::string("Parameter `") + QUERY_BY + "` is required.");
         return false;
     }

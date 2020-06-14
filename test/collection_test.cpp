@@ -455,6 +455,12 @@ TEST_F(CollectionTest, WildcardQuery) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // wildcard query should not require a search field
+    results_op = collection->search("*", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false).get();
+    ASSERT_TRUE(results_op.ok());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<uint32_t>());
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
