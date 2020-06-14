@@ -107,10 +107,12 @@ size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
   size_t indexA = 0, indexB = 0, res_index = 0;
 
   if(A == nullptr && B == nullptr) {
-    return 0;
+      *out = nullptr;
+      return 0;
   }
 
   if(A == nullptr) {
+    *out = nullptr;
     return 0;
   }
 
