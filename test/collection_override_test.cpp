@@ -219,6 +219,8 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
+    ASSERT_EQ(9, results["found"].get<size_t>());
+
     // "count" would be `2` without exclusion
     ASSERT_EQ("<mark>Scott</mark> Glenn", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
@@ -233,7 +235,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
-    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(9, results["found"].get<size_t>());
     ASSERT_EQ(0, results["hits"].size());
 
     coll_mul_fields->remove_override("exclude-rule");

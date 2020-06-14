@@ -419,9 +419,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         field search_field = search_schema.at(field_name);
 
-        // if field is a string field then it must be a facet field as well
-        if(search_field.is_string() && !search_field.is_facet()) {
-            std::string error = "Field `" + field_name + "` should be a facet field.";
+        // must be a facet field
+        if(!search_field.is_facet()) {
+            std::string error = "Group by field `" + field_name + "` should be a facet field.";
             return Option<nlohmann::json>(400, error);
         }
     }
@@ -710,6 +710,18 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
             for(auto & facet_kv: this_facet.result_map) {
                 size_t count = 0;
+
+
+                // for grouping we have to aggregate group counts to a count value
+                /*if(search_params->group_limit) {
+                    // for every facet
+                    for(auto& a_facet: facets) {
+                        // for every facet value
+                        for(auto& fvalue: a_facet.result_map) {
+                            fvalue.second.count = fvalue.second.groups.size();
+                        }
+                    }
+                }*/
 
                 if(acc_facet.result_map.count(facet_kv.first) == 0) {
                     // not found, so set it
