@@ -186,20 +186,6 @@ std::string HttpServer::get_version() {
 void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback) {
     for(h2o_timer_t* timer: timers) {
         h2o_timer_unlink(timer);
-        /*while (!h2o_linklist_is_empty(&timer->_link)) {
-            h2o_timer_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timer_t, _link, timer->_link.next);
-            if(entry == nullptr) {
-                continue;
-            }
-
-            if(trigger_callback) {
-                entry->cb(entry);
-            }
-
-            //entry->expire_at = 0;
-            h2o_linklist_unlink(&entry->_link);
-            h2o_timer_unlink(timer);
-        }*/
     }
 }
 
@@ -476,25 +462,12 @@ void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
 HttpServer::~HttpServer() {
     delete message_dispatcher;
 
-    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
-    /*std::vector<h2o_timeout_t*> timeouts = {
-        &ctx.zero_timeout,
-        &ctx.one_sec_timeout,
-        &ctx.hundred_ms_timeout,
-        &ctx.handshake_timeout,
-        &ctx.http1.req_timeout,
-        &ctx.http2.idle_timeout,
-        &ctx.http2.graceful_shutdown_timeout,
-        &ctx.proxy.io_timeout
-    };
-
-    clear_timeouts(timeouts);
-    */
-
     if(ssl_refresh_timer.timer.expire_at != 0) {
         // avoid callback since it recreates timeout
         clear_timeouts({&ssl_refresh_timer.timer}, false);
     }
+
+    h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);
 
     h2o_context_dispose(&ctx);
 
