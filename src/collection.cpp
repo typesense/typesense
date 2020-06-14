@@ -653,6 +653,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::vector<KV*> override_result_kvs;
 
     size_t total_found = 0;
+    spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
     // send data to individual index threads
     size_t index_id = 0;
@@ -709,28 +710,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             auto & acc_facet = facets[fi];
 
             for(auto & facet_kv: this_facet.result_map) {
-                size_t count = 0;
-
-
-                // for grouping we have to aggregate group counts to a count value
-                /*if(search_params->group_limit) {
-                    // for every facet
-                    for(auto& a_facet: facets) {
-                        // for every facet value
-                        for(auto& fvalue: a_facet.result_map) {
-                            fvalue.second.count = fvalue.second.groups.size();
-                        }
-                    }
-                }*/
-
-                if(acc_facet.result_map.count(facet_kv.first) == 0) {
-                    // not found, so set it
-                    count = facet_kv.second.count;
+                if(index->search_params->group_limit) {
+                    // we have to add all group sets
+                    acc_facet.result_map[facet_kv.first].groups.insert(
+                        facet_kv.second.groups.begin(), facet_kv.second.groups.end()
+                    );
                 } else {
-                    count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                    size_t count = 0;
+                    if(acc_facet.result_map.count(facet_kv.first) == 0) {
+                        // not found, so set it
+                        count = facet_kv.second.count;
+                    } else {
+                        count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                    }
+                    acc_facet.result_map[facet_kv.first].count = count;
                 }
 
-                acc_facet.result_map[facet_kv.first].count = count;
                 acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                 acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
                 acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
@@ -744,7 +739,25 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
         }
 
-        total_found += index->search_params->all_result_ids_len;
+        if(group_limit) {
+            groups_processed.insert(
+                index->search_params->groups_processed.begin(),
+                index->search_params->groups_processed.end()
+            );
+        } else {
+            total_found += index->search_params->all_result_ids_len;
+        }
+    }
+
+    // for grouping we have to aggregate group set sizes to a count value
+    if(group_limit) {
+        for(auto& acc_facet: facets) {
+            for(auto& facet_kv: acc_facet.result_map) {
+                facet_kv.second.count = facet_kv.second.groups.size();
+            }
+        }
+
+        total_found = groups_processed.size();
     }
 
     if(!index_search_op.ok()) {
@@ -753,7 +766,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     Topster* aggr_topster = nullptr;
 
-    if(group_limit > 0) {
+    if(group_limit) {
         // group by query requires another round of topster-ing
 
         // needs to be atleast 1 since scoring is mandatory

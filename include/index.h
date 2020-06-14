@@ -42,6 +42,7 @@ struct search_args {
     std::vector<std::string> group_by_fields;
     size_t group_limit;
     size_t all_result_ids_len;
+    spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Topster* topster;
     Topster* curated_topster;
@@ -168,9 +169,9 @@ private:
                       const std::vector<uint32_t>& curated_ids,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
-                      Topster* topster, uint32_t** all_result_ids,
-                      size_t & all_result_ids_len, const token_ordering token_order = FREQUENCY,
-                      const bool prefix = false,
+                      Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
+                      uint32_t** all_result_ids, size_t & all_result_ids_len,
+                      const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
 
@@ -178,7 +179,8 @@ private:
                            const std::vector<uint32_t>& curated_ids,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            std::vector<std::vector<art_leaf*>> & searched_queries,
-                           Topster* topster, uint32_t** all_result_ids,
+                           Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
+                           uint32_t** all_result_ids,
                            size_t & all_result_ids_len,
                            const size_t typo_tokens_threshold);
 
@@ -210,9 +212,9 @@ private:
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);
 
-    void collate_curated_ids(const std::string & query, const std::string & field, const uint8_t field_id,
-                             const std::vector<uint32_t> & included_ids,
-                             Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+    void collate_included_ids(const std::string & query, const std::string & field, const uint8_t field_id,
+                              const std::vector<uint32_t> & included_ids,
+                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
 
     uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
@@ -242,7 +244,9 @@ public:
                           Topster* topster, Topster* curated_topster,
                           const size_t per_page, const size_t page, const token_ordering token_order,
                           const bool prefix, const size_t drop_tokens_threshold,
-                          size_t & all_result_ids_len, std::vector<std::vector<art_leaf*>> & searched_queries,
+                          size_t & all_result_ids_len,
+                          spp::sparse_hash_set<uint64_t>& groups_processed,
+                          std::vector<std::vector<art_leaf*>> & searched_queries,
                           std::vector<std::vector<KV*>> & raw_result_kvs, std::vector<KV*> & override_result_kvs,
                           const size_t typo_tokens_threshold);
 
@@ -257,6 +261,7 @@ public:
 
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
+                       spp::sparse_hash_set<uint64_t>& groups_processed,
                        const uint32_t *result_ids, const size_t result_size) const;
 
     static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
