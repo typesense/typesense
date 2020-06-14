@@ -13,6 +13,7 @@
 #include <json.hpp>
 #include <field.h>
 #include <option.h>
+#include <set>
 #include "string_utils.h"
 
 struct token_candidates {
@@ -162,10 +163,9 @@ private:
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    const uint32_t* result_ids, size_t results_size);
 
-    void drop_facets(std::vector<facet> & facets, const std::vector<uint32_t> & ids);
-
     void search_field(const uint8_t & field_id, const std::string & query,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
+                      const std::vector<uint32_t>& curated_ids,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
                       const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster* topster, uint32_t** all_result_ids,
@@ -175,8 +175,9 @@ private:
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
 
     void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
+                           const std::vector<uint32_t>& curated_ids,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
-                           const token_ordering token_order, std::vector<std::vector<art_leaf*>> & searched_queries,
+                           std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster* topster, uint32_t** all_result_ids,
                            size_t & all_result_ids_len,
                            const size_t typo_tokens_threshold);
@@ -306,5 +307,7 @@ public:
     int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
 
     static int64_t float_to_in64_t(float n);
+
+    uint64_t get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id, const uint32_t seq_id) const;
 };
 

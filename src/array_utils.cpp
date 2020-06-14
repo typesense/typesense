@@ -114,7 +114,7 @@ size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
     return 0;
   }
 
-  if(B == nullptr) {
+  if(lenB == 0 || B == nullptr) {
     *out = new uint32_t[lenA];
     memcpy(*out, A, lenA * sizeof(uint32_t));
     return lenA;

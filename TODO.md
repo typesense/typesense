@@ -98,6 +98,8 @@
 - ~~Handle SIGTERM which is sent when process is killed~~
 - ~~Use snappy compression for storage~~
 - Test for overriding result on second page
+- Fix exclude_scalar early returns
+- Fix result ids length during grouped overrides
 - atleast 1 token match for proceeding with drop tokens
 - support wildcard query with filters
 - API for optimizing on disk storage

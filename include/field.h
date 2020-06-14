@@ -146,6 +146,7 @@ struct token_pos_cost_t {
 
 struct facet_count_t {
     uint32_t count;
+    spp::sparse_hash_map<uint64_t, uint32_t> groups;  // used for faceting grouped results
 
     // used to fetch the actual document and value for representation
     uint32_t doc_id;
