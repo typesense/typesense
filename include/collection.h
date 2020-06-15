@@ -155,10 +155,10 @@ private:
     void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
     void populate_overrides(std::string query,
-                            const std::map<std::string, size_t>& pinned_hits,
+                            const std::map<size_t, std::vector<std::string>>& pinned_hits,
                             const std::vector<std::string>& hidden_hits,
-                            std::map<uint32_t, size_t> & id_pos_map,
-                            std::vector<uint32_t> & included_ids, std::vector<uint32_t> & excluded_ids);
+                            std::map<size_t, std::vector<uint32_t>>& include_ids,
+                            std::vector<uint32_t> & excluded_ids);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -236,7 +236,7 @@ public:
                           const size_t snippet_threshold = 30,
                           const std::string & highlight_full_fields = "",
                           size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                          const std::map<std::string, size_t>& pinned_hits={},
+                          const std::map<size_t, std::vector<std::string>>& pinned_hits={},
                           const std::vector<std::string>& hidden_hits={},
                           const std::vector<std::string>& group_by_fields={},
                           const size_t group_limit = 0);

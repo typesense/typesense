@@ -256,10 +256,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 }
 
 TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
-    std::map<std::string, size_t> pinned_hits;
-    std::vector<std::string> hidden_hits;
-    pinned_hits["13"] = 1;
-    pinned_hits["4"] = 2;
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"13"};
+    pinned_hits[2] = {"4"};
 
     // basic pinning
 
@@ -279,6 +278,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 
     // both pinning and hiding
 
+    std::vector<std::string> hidden_hits;
     hidden_hits = {"11", "16"};
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
@@ -290,6 +290,21 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_STREQ("13", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("6", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // paginating such that pinned hits appear on second page
+    pinned_hits.clear();
+    pinned_hits[4] = {"13"};
+    pinned_hits[5] = {"4"};
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 2, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                      "", 10,
+                                      pinned_hits, hidden_hits).get();
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("13", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // take precedence over override rules
 

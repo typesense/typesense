@@ -305,54 +305,70 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
 }
 
 void Collection::populate_overrides(std::string query,
-                                    const std::map<std::string, size_t>& pinned_hits,
+                                    const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                     const std::vector<std::string>& hidden_hits,
-                                    std::map<uint32_t, size_t> & id_pos_map,
-                                    std::vector<uint32_t> & included_ids,
+                                    std::map<size_t, std::vector<uint32_t>>& include_ids,
                                     std::vector<uint32_t> & excluded_ids) {
     StringUtils::tolowercase(query);
+    std::set<uint32_t> excluded_set;
+
+    // If pinned or hidden hits are provided, they take precedence over overrides
+
+    // have to ensure that hidden hits take precedence over included hits
+    if(!hidden_hits.empty()) {
+        for(const auto & hit: hidden_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit);
+            if(seq_id_op.ok()) {
+                excluded_ids.push_back(seq_id_op.get());
+                excluded_set.insert(seq_id_op.get());
+            }
+        }
+    }
 
     for(const auto & override_kv: overrides) {
         const auto & override = override_kv.second;
 
         if( (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
             (override.rule.match == override_t::MATCH_CONTAINS && query.find(override.rule.query) != std::string::npos) )  {
-            for(const auto & hit: override.add_hits) {
-                Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
-                if(seq_id_op.ok()) {
-                    included_ids.push_back(seq_id_op.get());
-                    id_pos_map[seq_id_op.get()] = hit.position;
-                }
-            }
 
+            // have to ensure that dropped hits take precedence over added hits
             for(const auto & hit: override.drop_hits) {
                 Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
                 if(seq_id_op.ok()) {
                     excluded_ids.push_back(seq_id_op.get());
+                    excluded_set.insert(seq_id_op.get());
                 }
             }
+
+            for(const auto & hit: override.add_hits) {
+                Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+                if(!seq_id_op.ok()) {
+                    continue;
+                }
+                uint32_t seq_id = seq_id_op.get();
+                bool excluded = (excluded_set.count(seq_id) != 0);
+                if(!excluded) {
+                    include_ids[hit.position].push_back(seq_id);
+                }
+            }
+
+            break;
         }
     }
-
-    // If pinned or hidden hits are provided, they take precedence over overrides
 
     if(!pinned_hits.empty()) {
-        for(const auto & hit: pinned_hits) {
-            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.first);
-            if(seq_id_op.ok()) {
-                included_ids.push_back(seq_id_op.get());
-                id_pos_map[seq_id_op.get()] = hit.second;
-            }
-        }
-    }
-
-    if(!hidden_hits.empty()) {
-        for(const auto & hit: hidden_hits) {
-            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit);
-            if(seq_id_op.ok()) {
-                included_ids.erase(std::remove(included_ids.begin(), included_ids.end(), seq_id_op.get()), included_ids.end());
-                id_pos_map.erase(seq_id_op.get());
-                excluded_ids.push_back(seq_id_op.get());
+        for(const auto& pos_ids: pinned_hits) {
+            size_t pos = pos_ids.first;
+            for(const std::string& id: pos_ids.second) {
+                Option<uint32_t> seq_id_op = doc_id_to_seq_id(id);
+                if(!seq_id_op.ok()) {
+                    continue;
+                }
+                uint32_t seq_id = seq_id_op.get();
+                bool excluded = (excluded_set.count(seq_id) != 0);
+                if(!excluded) {
+                    include_ids[pos].push_back(seq_id);
+                }
             }
         }
     }
@@ -371,22 +387,40 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t snippet_threshold,
                                   const std::string & highlight_full_fields,
                                   size_t typo_tokens_threshold,
-                                  const std::map<std::string, size_t>& pinned_hits,
+                                  const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                   const std::vector<std::string>& hidden_hits,
                                   const std::vector<std::string>& group_by_fields,
                                   const size_t group_limit) {
 
-    std::vector<uint32_t> included_ids;
     std::vector<uint32_t> excluded_ids;
-    std::map<uint32_t, size_t> id_pos_map;
-    populate_overrides(query, pinned_hits, hidden_hits, id_pos_map, included_ids, excluded_ids);
+    std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
+    populate_overrides(query, pinned_hits, hidden_hits, include_ids, excluded_ids);
 
-    std::map<uint32_t, std::vector<uint32_t>> index_to_included_ids;
+    /*for(auto kv: include_ids) {
+        LOG(INFO) << "key: " << kv.first;
+        for(auto val: kv.second) {
+            LOG(INFO) << val;
+        }
+    }
+
+    LOG(INFO) << "Excludes:";
+
+    for(auto id: excluded_ids) {
+        LOG(INFO) << id;
+    }*/
+
+    //LOG(INFO) << "include_ids size: " << include_ids.size();
+    //LOG(INFO) << "Pos 1: " << include_ids[1][0];
+
+    std::map<uint32_t, std::map<size_t, std::vector<uint32_t>>> index_to_included_ids;
     std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
 
-    for(auto seq_id: included_ids) {
-        auto index_id = (seq_id % num_indices);
-        index_to_included_ids[index_id].push_back(seq_id);
+    for(const auto& pos_ids: include_ids) {
+        size_t position = pos_ids.first;
+        for(auto seq_id: pos_ids.second) {
+            auto index_id = (seq_id % num_indices);
+            index_to_included_ids[index_id][position].push_back(seq_id);
+        }
     }
 
     for(auto seq_id: excluded_ids) {
@@ -650,7 +684,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<std::vector<KV*>> raw_result_kvs;
-    std::vector<KV*> override_result_kvs;
+    std::vector<std::vector<KV*>> override_result_kvs;
 
     size_t total_found = 0;
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
@@ -697,9 +731,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             raw_result_kvs.push_back(kv_group);
         }
 
-        for(auto & field_order_kv: index->search_params->override_result_kvs) {
-            field_order_kv->query_index += searched_queries.size();
-            override_result_kvs.push_back(field_order_kv);
+        for(const std::vector<KV*> & kv_group: index->search_params->override_result_kvs) {
+            kv_group[0]->query_index += searched_queries.size();
+            override_result_kvs.push_back(kv_group);
         }
 
         searched_queries.insert(searched_queries.end(), index->search_params->searched_queries.begin(),
@@ -797,8 +831,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     // Sort based on position in overridden list
     std::sort(
       override_result_kvs.begin(), override_result_kvs.end(),
-      [&id_pos_map](const KV* a, const KV* b) -> bool {
-          return id_pos_map[a->key] < id_pos_map[b->key];
+      [](const std::vector<KV*>& a, std::vector<KV*>& b) -> bool {
+          return a[0]->distinct_key < b[0]->distinct_key;
       }
     );
 
@@ -808,11 +842,12 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     // merge raw results and override results
     while(override_kv_index < override_result_kvs.size() && raw_results_index < raw_result_kvs.size()) {
-        if(override_kv_index < override_result_kvs.size() &&
-           id_pos_map.count(override_result_kvs[override_kv_index]->key) != 0 &&
-           result_group_kvs.size() + 1 == id_pos_map[override_result_kvs[override_kv_index]->key]) {
-             result_group_kvs.push_back({override_result_kvs[override_kv_index]});
-             override_kv_index++;
+        size_t result_position = result_group_kvs.size() + 1;
+        uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
+
+        if(result_position == override_position) {
+            result_group_kvs.push_back(override_result_kvs[override_kv_index]);
+            override_kv_index++;
         } else {
             result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
             raw_results_index++;
