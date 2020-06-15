@@ -390,7 +390,8 @@ bool get_search(http_req & req, http_res & res) {
         }
     }
 
-    std::map<std::string, size_t> pinned_hits;
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+
     if(req.params.count(PINNED_HITS) != 0) {
         std::vector<std::string> pinned_hits_strs;
         StringUtils::split(req.params[PINNED_HITS], pinned_hits_strs, ",");
@@ -415,7 +416,7 @@ bool get_search(http_req & req, http_res & res) {
                 return false;
             }
 
-            pinned_hits.emplace(expression_parts[0], position);
+            pinned_hits[position].emplace_back(expression_parts[0]);
         }
     }
 
