@@ -2265,7 +2265,6 @@ TEST_F(CollectionTest, OptionalFields) {
 
     // try fetching the schema (should contain optional field)
     nlohmann::json coll_summary = coll1->get_summary_json();
-    LOG(INFO) << coll_summary;
     ASSERT_STREQ("title", coll_summary["fields"][0]["name"].get<std::string>().c_str());
     ASSERT_STREQ("string", coll_summary["fields"][0]["type"].get<std::string>().c_str());
     ASSERT_FALSE(coll_summary["fields"][0]["facet"].get<bool>());

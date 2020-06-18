@@ -1181,34 +1181,6 @@ void Index::search(Option<uint32_t> & outcome,
     topster->sort();
     curated_topster->sort();
 
-    // loop through topster and remove elements from included and excluded id lists
-
-    if(topster->distinct) {
-        for(auto &group_topster_entry: topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            raw_result_kvs.emplace_back(group_kvs);
-        }
-
-        for(auto &curated_topster_entry: curated_topster->group_kv_map) {
-            Topster* group_topster = curated_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            override_result_kvs.emplace_back(group_kvs);
-        }
-
-    } else {
-        for(uint32_t t = 0; t < topster->size; t++) {
-            KV* kv = topster->getKV(t);
-            raw_result_kvs.push_back({kv});
-        }
-
-        for(uint32_t t = 0; t < curated_topster->size; t++) {
-            KV* kv = curated_topster->getKV(t);
-            override_result_kvs.push_back({kv});
-        }
-    }
-
-    // add curated IDs to result count
     all_result_ids_len += curated_topster->size;
 
     delete [] filter_ids;
