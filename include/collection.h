@@ -282,5 +282,9 @@ public:
 
     void facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value);
+
+    void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const;
+
+    void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const;
 };
 

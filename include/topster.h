@@ -69,6 +69,11 @@ struct Topster {
         for(auto& kv: group_kv_map) {
             delete kv.second;
         }
+
+        data = nullptr;
+        kvs = nullptr;
+
+        group_kv_map.clear();
     }
 
     static inline void swapMe(KV** a, KV** b) {

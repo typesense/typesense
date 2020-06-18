@@ -18,7 +18,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1, "auth_key");
+        collectionManager.init(store, 4, "auth_key");
         collectionManager.load();
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
@@ -248,7 +248,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "").get();
 
-    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
@@ -342,4 +342,38 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_EQ(8, results["found"].get<size_t>());
     ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("6", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"6", "8"};
+    pinned_hits[2] = {"1"};
+    pinned_hits[3] = {"13", "4"};
+
+    // without any grouping parameter, only the first ID in a position should be picked
+    // and other IDs should appear in their original positions
+
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    // with grouping
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
+                            false, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                            "", 10,
+                            pinned_hits, {}, {"cast"}, 2).get();
+
+    ASSERT_EQ(8, results["found"].get<size_t>());
 }

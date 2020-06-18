@@ -407,19 +407,30 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     for(auto id: excluded_ids) {
         LOG(INFO) << id;
-    }*/
+    }
 
-    //LOG(INFO) << "include_ids size: " << include_ids.size();
-    //LOG(INFO) << "Pos 1: " << include_ids[1][0];
+    LOG(INFO) << "include_ids size: " << include_ids.size();
+    for(auto& group: include_ids) {
+        for(uint32_t& seq_id: group.second) {
+            LOG(INFO) << "seq_id: " << seq_id;
+        }
+
+        LOG(INFO) << "----";
+    }
+    */
 
     std::map<uint32_t, std::map<size_t, std::vector<uint32_t>>> index_to_included_ids;
     std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
 
     for(const auto& pos_ids: include_ids) {
         size_t position = pos_ids.first;
-        for(auto seq_id: pos_ids.second) {
+        size_t ids_per_pos = std::max(size_t(1), group_limit);
+
+        for(size_t i = 0; i < std::min(ids_per_pos, pos_ids.second.size()); i++) {
+            auto seq_id = pos_ids.second[i];
             auto index_id = (seq_id % num_indices);
             index_to_included_ids[index_id][position].push_back(seq_id);
+            //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
         }
     }
 
@@ -709,6 +720,12 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
 
+    // for grouping we have re-aggregate
+
+    const size_t topster_size = std::max((size_t)1, max_hits);
+    Topster topster(topster_size, group_limit);
+    Topster curated_topster(topster_size, group_limit);
+
     for(Index* index: indices) {
         // wait for the worker
         {
@@ -726,15 +743,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             continue;
         }
 
-        for(const std::vector<KV*> & kv_group: index->search_params->raw_result_kvs) {
-            kv_group[0]->query_index += searched_queries.size();
-            raw_result_kvs.push_back(kv_group);
-        }
-
-        for(const std::vector<KV*> & kv_group: index->search_params->override_result_kvs) {
-            kv_group[0]->query_index += searched_queries.size();
-            override_result_kvs.push_back(kv_group);
-        }
+        aggregate_topster(searched_queries.size(), topster, index->search_params->topster);
+        aggregate_topster(searched_queries.size(), curated_topster, index->search_params->curated_topster);
 
         searched_queries.insert(searched_queries.end(), index->search_params->searched_queries.begin(),
                                 index->search_params->searched_queries.end());
@@ -783,46 +793,27 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
     }
 
+    if(!index_search_op.ok()) {
+        return index_search_op;
+    }
+
+    topster.sort();
+    curated_topster.sort();
+
+    populate_result_kvs(&topster, raw_result_kvs);
+    populate_result_kvs(&curated_topster, override_result_kvs);
+
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
+        LOG(INFO) << "override_result_kvs size: " << override_result_kvs.size();
+
         for(auto& acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
                 facet_kv.second.count = facet_kv.second.groups.size();
             }
         }
 
-        total_found = groups_processed.size();
-    }
-
-    if(!index_search_op.ok()) {
-        return index_search_op;
-    }
-
-    Topster* aggr_topster = nullptr;
-
-    if(group_limit) {
-        // group by query requires another round of topster-ing
-
-        // needs to be atleast 1 since scoring is mandatory
-        const size_t topster_size = std::max((size_t)1, max_hits);
-        aggr_topster = new Topster(topster_size, group_limit);
-
-        for(const auto& kv_group: raw_result_kvs) {
-            for(KV* kv: kv_group) {
-                aggr_topster->add(kv);
-            }
-        }
-
-        aggr_topster->sort();
-
-        raw_result_kvs.clear();
-        raw_result_kvs.shrink_to_fit();
-
-        for(auto &group_topster_entry: aggr_topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            raw_result_kvs.emplace_back(group_kvs);
-        }
+        total_found = groups_processed.size() + override_result_kvs.size();
     }
 
     // All fields are sorted descending
@@ -1063,8 +1054,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         delete index->search_params;
     }
 
-    delete aggr_topster;
-
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = query;
@@ -1073,6 +1062,43 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return result;
+}
+
+
+void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const {
+    if(topster->distinct) {
+        for(auto &group_topster_entry: topster->group_kv_map) {
+            Topster* group_topster = group_topster_entry.second;
+            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
+            result_kvs.emplace_back(group_kvs);
+        }
+
+    } else {
+        for(uint32_t t = 0; t < topster->size; t++) {
+            KV* kv = topster->getKV(t);
+            result_kvs.push_back({kv});
+        }
+    }
+}
+
+void Collection::aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const {
+    if(index_topster->distinct) {
+        for(auto &group_topster_entry: index_topster->group_kv_map) {
+            Topster* group_topster = group_topster_entry.second;
+            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
+            for(KV* kv: group_kvs) {
+                kv->query_index += query_index;
+                topster.add(kv);
+            }
+        }
+
+    } else {
+        for(uint32_t t = 0; t < index_topster->size; t++) {
+            KV* kv = index_topster->getKV(t);
+            kv->query_index += query_index;
+            topster.add(kv);
+        }
+    }
 }
 
 void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
