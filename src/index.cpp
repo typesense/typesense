@@ -1017,8 +1017,9 @@ void Index::run_search() {
 
         // after the wait, we own the lock.
         search(search_params->outcome, search_params->query, search_params->search_fields,
-               search_params->filters, search_params->facets, search_params->facet_query, search_params->included_ids,
-               search_params->excluded_ids, search_params->sort_fields_std, search_params->num_typos,
+               search_params->filters, search_params->facets, search_params->facet_query,
+               search_params->included_ids, search_params->excluded_ids,
+               search_params->sort_fields_std, search_params->num_typos,
                search_params->topster, search_params->curated_topster,
                search_params->per_page, search_params->page, search_params->token_order,
                search_params->prefix, search_params->drop_tokens_threshold,
@@ -1038,7 +1039,7 @@ void Index::run_search() {
 }
 
 void Index::collate_included_ids(const std::string & query, const std::string & field, const uint8_t field_id,
-                                 const std::map<size_t, std::vector<uint32_t>> & included_ids_map,
+                                 const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                                  Topster* curated_topster,
                                  std::vector<std::vector<art_leaf*>> & searched_queries) {
 
@@ -1067,13 +1068,16 @@ void Index::collate_included_ids(const std::string & query, const std::string & 
     }
 
     for(const auto& pos_ids: included_ids_map) {
-        const size_t pos = pos_ids.first;
+        const size_t outer_pos = pos_ids.first;
 
-        for(size_t i = 0; i < pos_ids.second.size(); i++) {
-            uint32_t seq_id = pos_ids.second[i];
+        for(const auto& index_seq_id: pos_ids.second) {
+            uint32_t inner_pos = index_seq_id.first;
+            uint32_t seq_id = index_seq_id.second;
 
-            uint64_t distinct_id = pos;          // position is the group distinct key
-            uint64_t match_score = (64000 - i);  // index within a group is the match score
+            uint64_t distinct_id = outer_pos;              // outer pos is the group distinct key
+            uint64_t match_score = (64000 - inner_pos);    // inner pos within a group is the match score
+
+            LOG(INFO) << "seq_id: " << seq_id << " - " << match_score;
 
             int64_t scores[3];
             scores[0] = match_score;
@@ -1093,7 +1097,7 @@ void Index::search(Option<uint32_t> & outcome,
                    const std::vector<std::string> & search_fields,
                    const std::vector<filter> & filters,
                    std::vector<facet> & facets, facet_query_t & facet_query,
-                   const std::map<size_t, std::vector<uint32_t>> & included_ids_map,
+                   const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                    const std::vector<uint32_t> & excluded_ids,
                    const std::vector<sort_by> & sort_fields_std, const int num_typos,
                    Topster* topster,
@@ -1122,10 +1126,10 @@ void Index::search(Option<uint32_t> & outcome,
     std::set<uint32_t> curated_ids;
     std::vector<uint32_t> included_ids;
 
-    for(const auto& pos_ids: included_ids_map) {
-        for(const uint32_t id: pos_ids.second) {
-            curated_ids.insert(id);
-            included_ids.push_back(id);
+    for(const auto& outer_pos_ids: included_ids_map) {
+        for(const auto& inner_pos_seq_id: outer_pos_ids.second) {
+            curated_ids.insert(inner_pos_seq_id.second);
+            included_ids.push_back(inner_pos_seq_id.second);
         }
     }
 

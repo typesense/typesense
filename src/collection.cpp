@@ -419,17 +419,17 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
     */
 
-    std::map<uint32_t, std::map<size_t, std::vector<uint32_t>>> index_to_included_ids;
+    std::map<uint32_t, std::map<size_t, std::map<size_t, uint32_t>>> index_to_included_ids;
     std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
 
     for(const auto& pos_ids: include_ids) {
-        size_t position = pos_ids.first;
+        size_t outer_pos = pos_ids.first;
         size_t ids_per_pos = std::max(size_t(1), group_limit);
 
-        for(size_t i = 0; i < std::min(ids_per_pos, pos_ids.second.size()); i++) {
-            auto seq_id = pos_ids.second[i];
+        for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
+            auto seq_id = pos_ids.second[inner_pos];
             auto index_id = (seq_id % num_indices);
-            index_to_included_ids[index_id][position].push_back(seq_id);
+            index_to_included_ids[index_id][outer_pos][inner_pos] = seq_id;
             //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
         }
     }
