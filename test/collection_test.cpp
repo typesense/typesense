@@ -56,6 +56,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.drop_collection("collection");
+        collectionManager.dispose();
         delete store;
     }
 };
