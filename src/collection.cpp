@@ -869,8 +869,18 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
 
-        nlohmann::json group_hits_array = nlohmann::json::array();
-        nlohmann::json& hits_array = (group_limit > 1) ? group_hits_array : result["hits"];
+        nlohmann::json group_hits;
+        if(group_limit > 1) {
+            group_hits["hits"] = nlohmann::json::array();
+            std::vector<std::string> group_keys;
+            for(const auto& group_key: group_by_fields) {
+                group_keys.push_back(group_key);
+            }
+
+            group_hits["group_key"] = StringUtils::join(group_keys, ":");
+        }
+
+        nlohmann::json& hits_array = (group_limit > 1) ? group_hits["hits"] : result["hits"];
 
         for(const KV* field_order_kv: kv_group) {
             const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
@@ -951,7 +961,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
 
         if(group_limit > 1) {
-            result["grouped_hits"].push_back(group_hits_array);
+            result["grouped_hits"].push_back(group_hits);
         }
     }
 
