@@ -49,6 +49,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.drop_collection("coll_mul_fields");
+        collectionManager.dispose();
         delete store;
     }
 };
