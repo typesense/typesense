@@ -351,8 +351,6 @@ void Collection::populate_overrides(std::string query,
                     include_ids[hit.position].push_back(seq_id);
                 }
             }
-
-            break;
         }
     }
 
@@ -805,8 +803,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     // for grouping we have to aggregate group set sizes to a count value
     if(group_limit) {
-        LOG(INFO) << "override_result_kvs size: " << override_result_kvs.size();
-
         for(auto& acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
                 facet_kv.second.count = facet_kv.second.groups.size();
@@ -877,7 +873,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 group_keys.push_back(group_key);
             }
 
-            group_hits["group_key"] = StringUtils::join(group_keys, ":");
+            group_hits["group_key"] = StringUtils::join(group_keys, ",");
         }
 
         nlohmann::json& hits_array = (group_limit > 1) ? group_hits["hits"] : result["hits"];
@@ -1391,7 +1387,7 @@ Option<uint32_t> Collection::add_override(const override_t & override) {
         return Option<uint32_t>(500, "Error while storing the override on disk.");
     }
 
-    overrides[override.id] = override;
+    overrides.emplace(override.id, override);
     return Option<uint32_t>(200);
 }
 

@@ -1077,7 +1077,7 @@ void Index::collate_included_ids(const std::string & query, const std::string & 
             uint64_t distinct_id = outer_pos;              // outer pos is the group distinct key
             uint64_t match_score = (64000 - inner_pos);    // inner pos within a group is the match score
 
-            LOG(INFO) << "seq_id: " << seq_id << " - " << match_score;
+            // LOG(INFO) << "seq_id: " << seq_id << " - " << match_score;
 
             int64_t scores[3];
             scores[0] = match_score;
