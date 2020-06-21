@@ -377,4 +377,16 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
                             pinned_hits, {}, {"cast"}, 2).get();
 
     ASSERT_EQ(8, results["found"].get<size_t>());
+
+    ASSERT_STREQ("cast", results["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_STREQ("6", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("1", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("13", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
 }
