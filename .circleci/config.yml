@@ -22,7 +22,7 @@ jobs:
           command: ls -latr /usr/local/lib/
       - run: 
           name: build
-          command: $PROJECT_DIR/build.sh --clean
+          command: $PROJECT_DIR/build.sh
       - save_cache:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
