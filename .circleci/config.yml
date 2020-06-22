@@ -16,10 +16,13 @@ jobs:
           keys:
             - external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
             - external-Linux-cache-{{ .Branch }}
-            - external-Linux-cache      
+            - external-Linux-cache
+      - run:
+          name: debug
+          command: ls -latr /usr/local/lib/
       - run: 
           name: build
-          command: $PROJECT_DIR/build.sh
+          command: $PROJECT_DIR/build.sh --clean
       - save_cache:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
