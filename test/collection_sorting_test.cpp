@@ -249,6 +249,7 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
         sort_by("min", "DESC"),
     };
 
+    query_fields = {"title"};
     auto res_op = coll1->search("the", query_fields, "", {}, sort_fields_desc, 0, 10, 1, FREQUENCY, false);
 
     ASSERT_FALSE(res_op.ok());

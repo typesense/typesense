@@ -458,10 +458,16 @@ TEST_F(CollectionTest, WildcardQuery) {
     }
 
     // wildcard query should not require a search field
-    results_op = collection->search("*", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false).get();
+    results_op = collection->search("*", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false);
     ASSERT_TRUE(results_op.ok());
+    results = results_op.get();
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<uint32_t>());
+
+    // non-wildcard query should require a search field
+    results_op = collection->search("the", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false);
+    ASSERT_FALSE(results_op.ok());
+    ASSERT_STREQ("No search fields specified for the query.", results_op.error().c_str());
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
