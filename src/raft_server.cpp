@@ -297,7 +297,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return -1;
     }
 
-    LOG(TRACE) << "rm " << store->get_state_dir_path() << " success";
+    LOG(INFO) << "rm " << store->get_state_dir_path() << " success";
 
     std::string snapshot_path = reader->get_path();
     snapshot_path.append(std::string("/") + db_snapshot_name);
@@ -308,7 +308,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return -1;
     }
 
-    LOG(TRACE) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " success";
+    LOG(INFO) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " success";
 
     return init_db();
 }

@@ -55,13 +55,7 @@ void replica_server_routes() {
     server->get("/health", get_health);
 }
 
-namespace logging {
-    DECLARE_bool(log_year);
-}
-
 int main(int argc, char **argv) {
-    logging::FLAGS_log_year = true;
-
     Config config;
 
     cmdline::parser options;

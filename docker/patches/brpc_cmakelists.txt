@@ -35,8 +35,8 @@ add_library(brpc-static STATIC $<TARGET_OBJECTS:BUTIL_LIB>
                                $<TARGET_OBJECTS:SOURCES_LIB>
                                $<TARGET_OBJECTS:PROTO_LIB>)
 
-if(BRPC_WITH_THRIFT)
-    target_link_libraries(brpc-static thrift)
+if(BRPC_WITH_GLOG)
+    target_link_libraries(brpc-static ${GLOG_LIB})
 endif()
 
 SET_TARGET_PROPERTIES(brpc-static PROPERTIES OUTPUT_NAME brpc CLEAN_DIRECT_OUTPUT 1)
