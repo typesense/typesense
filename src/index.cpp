@@ -1463,7 +1463,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         const int64_t default_score = 0;
-        int64_t scores[3];
+        int64_t scores[3] = {0};
 
         // avoiding loop
         if(sort_fields.size() > 0) {
