@@ -60,9 +60,10 @@ RUN tar -C /opt -xf /opt/leveldb-1.22.tar.gz
 RUN mkdir -p /opt/leveldb-1.22/build && cd /opt/leveldb-1.22/build && cmake -DCMAKE_BUILD_TYPE=Release .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
-ADD https://github.com/google/glog/archive/v0.4.0.tar.gz /opt/glog-0.4.0.tar.gz
-RUN tar -C /opt -xf /opt/glog-0.4.0.tar.gz
-RUN mkdir -p /opt/glog-0.4.0/build && cd /opt/glog-0.4.0/build && \
+ADD https://github.com/google/glog/archive/0a2e593.tar.gz /opt/glog-0a2e593.tar.gz
+RUN tar -C /opt -xf /opt/glog-0a2e593.tar.gz
+RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
+    cd /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
     cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_UNWIND=OFF .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
@@ -70,18 +71,18 @@ ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
 COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
 RUN chown root:root /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
-RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/build && cd /opt/incubator-brpc-0.9.7-rc03/build && \
+RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/bld && cd /opt/incubator-brpc-0.9.7-rc03/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=OFF -DWITH_GLOG=ON .. && \
     make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/incubator-brpc-0.9.7-rc03/build/output/bin
+    rm -rf /opt/incubator-brpc-0.9.7-rc03/bld/output/bin
 
 ADD https://github.com/baidu/braft/archive/v1.1.1.tar.gz /opt/braft-v1.1.1.tar.gz
 RUN tar -C /opt -xf /opt/braft-v1.1.1.tar.gz
 COPY patches/braft_cmakelists.txt /opt/braft-1.1.1/src/CMakeLists.txt
 RUN chown root:root /opt/braft-1.1.1/src/CMakeLists.txt
-RUN mkdir -p /opt/braft-1.1.1/build && cd /opt/braft-1.1.1/build && \
+RUN mkdir -p /opt/braft-1.1.1/bld && cd /opt/braft-1.1.1/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/braft-1.1.1/build/output/bin
+    rm -rf /opt/braft-1.1.1/bld/output/bin
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++
