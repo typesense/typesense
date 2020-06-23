@@ -150,12 +150,17 @@ int init_logger(Config & config, const std::string & server_version) {
             return 1;
         }
 
-        std::cout << "Log directory is configured as: " << log_dir << std::endl;
-        std::string log_path_prefix = log_dir + "/" + "typesense-log-";
-        google::SetLogDestination(google::INFO, log_path_prefix.c_str());
-
         // flush log levels above -1 immediately (INFO=0)
         FLAGS_logbuflevel = -1;
+
+        // available only on glog master (ensures that log file name is constant)
+        FLAGS_timestamp_in_logfile_name = false;
+
+        std::string log_path = log_dir + "/" + "typesense.log";
+        google::SetLogDestination(google::INFO, log_path.c_str());
+        google::SetLogSymlink(google::INFO, "");
+
+        std::cout << "Log directory is configured as: " << log_dir << std::endl;
     }
 
     return 0;
