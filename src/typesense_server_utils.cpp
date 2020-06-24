@@ -157,8 +157,14 @@ int init_logger(Config & config, const std::string & server_version) {
         FLAGS_timestamp_in_logfile_name = false;
 
         std::string log_path = log_dir + "/" + "typesense.log";
+
+        // will log level INFO and up to the given log file
         google::SetLogDestination(google::INFO, log_path.c_str());
-        google::SetLogSymlink(google::INFO, "");
+
+        // don't create separate log files for each level
+        google::SetLogDestination(google::WARNING, "");
+        google::SetLogDestination(google::ERROR, "");
+        google::SetLogDestination(google::FATAL, "");
 
         std::cout << "Log directory is configured as: " << log_dir << std::endl;
     }
