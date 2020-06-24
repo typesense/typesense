@@ -117,16 +117,16 @@ struct http_req {
     uint64_t route_hash;
     std::map<std::string, std::string> params;
     std::string body;
-    uint64_t seed;
+    std::string metadata;
 
-    http_req(): route_hash(1), seed(random_uint64_t()) {
+    http_req(): route_hash(1) {
 
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, std::string body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            body(body), seed(random_uint64_t()) {
+            body(body) {
 
     }
 
@@ -136,7 +136,7 @@ struct http_req {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
         body = content["body"];
-        seed = content["seed"];
+        metadata = content.count("metadata") != 0 ? content["metadata"] : "";
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
@@ -150,15 +150,9 @@ struct http_req {
         content["route_hash"] = route_hash;
         content["params"] = params;
         content["body"] = body;
-        content["seed"] = seed;
+        content["metadata"] = metadata;
 
         return content.dump();
-    }
-
-    uint64_t random_uint64_t() {
-        thread_local std::mt19937 rg(std::random_device{}());
-        thread_local std::uniform_int_distribution<uint64_t> pick(0, std::numeric_limits<uint64_t>::max());
-        return pick(rg);
     }
 };
 

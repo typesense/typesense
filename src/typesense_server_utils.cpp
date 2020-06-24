@@ -158,8 +158,11 @@ int init_logger(Config & config, const std::string & server_version) {
 
         std::string log_path = log_dir + "/" + "typesense.log";
 
-        // will log level INFO and up to the given log file
+        // will log levels INFO **and above** to the given log file
         google::SetLogDestination(google::INFO, log_path.c_str());
+
+        // don't create symlink for INFO log
+        google::SetLogSymlink(google::INFO, "");
 
         // don't create separate log files for each level
         google::SetLogDestination(google::WARNING, "");

@@ -894,7 +894,7 @@ bool post_create_key(http_req &req, http_res &res) {
         return false;
     }
 
-    const std::string &rand_key = StringUtils::randstring(AuthManager::KEY_LEN, req.seed);
+    const std::string &rand_key = req.metadata;
 
     api_key_t api_key(
         rand_key,
