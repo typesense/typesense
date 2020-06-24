@@ -52,19 +52,19 @@ void StringUtils::unicode_normalize(std::string & str) const {
     str.assign(lower_and_no_special_chars(out.str()));
 }
 
-std::string StringUtils::randstring(size_t length, uint64_t seed) {
+std::string StringUtils::randstring(size_t length) {
     static auto& chrs = "0123456789"
                         "abcdefghijklmnopqrstuvwxyz"
                         "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-    thread_local static std::mt19937_64 mt_rand(seed);
+    thread_local std::mt19937 rg(std::random_device{}());
+    thread_local std::uniform_int_distribution<uint32_t> pick(0, sizeof(chrs) - 2);
 
     std::string s;
     s.reserve(length);
 
     while(length--) {
-        size_t index = (mt_rand() % (sizeof(chrs) - 1));
-        s += chrs[index];
+        s += chrs[pick(rg)];
     }
 
     return s;

@@ -234,7 +234,7 @@ struct StringUtils {
         return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
 
-    static std::string randstring(size_t length, uint64_t seed);
+    static std::string randstring(size_t length);
 
     static std::string hmac(const std::string& key, const std::string& msg);
 };

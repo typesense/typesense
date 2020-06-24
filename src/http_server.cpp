@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <h2o.h>
 #include <iostream>
+#include <auth_manager.h>
 #include "raft_server.h"
 #include "logger.h"
 
@@ -371,6 +372,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         }
 
         // routes match and is an authenticated request
+        // do any additional pre-request middleware operations here
+        if(rpath->action == "keys:create") {
+            // we enrich incoming request with a random API key here so that leader and replicas will use the same key
+            request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
+        }
+
         // for writes, we defer to replication_state
         if(http_method != "GET") {
             self->http_server->get_replication_state()->write(request, response);
