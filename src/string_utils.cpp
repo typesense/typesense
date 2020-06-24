@@ -1,8 +1,8 @@
 #include "string_utils.h"
 #include <iostream>
 #include <openssl/evp.h>
-#include <iomanip>
 #include <openssl/hmac.h>
+#include <random>
 
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
@@ -57,14 +57,14 @@ std::string StringUtils::randstring(size_t length, uint64_t seed) {
                         "abcdefghijklmnopqrstuvwxyz"
                         "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-    thread_local static std::mt19937 rg(seed);
-    thread_local static std::uniform_int_distribution<std::string::size_type> pick(0, sizeof(chrs) - 2);
+    thread_local static std::mt19937_64 mt_rand(seed);
 
     std::string s;
     s.reserve(length);
 
     while(length--) {
-        s += chrs[pick(rg)];
+        size_t index = (mt_rand() % (sizeof(chrs) - 1));
+        s += chrs[index];
     }
 
     return s;
