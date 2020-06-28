@@ -70,9 +70,10 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
 
     ASSERT_EQ(3, res["found"].get<size_t>());
     ASSERT_EQ(3, res["grouped_hits"].size());
-    ASSERT_STREQ("size", res["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
 
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
+    ASSERT_EQ(11, res["grouped_hits"][0]["hits"][0]["document"]["size"].get<size_t>());
     ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_FLOAT_EQ(4.3, res["grouped_hits"][0]["hits"][1]["document"]["rating"].get<float>());
     ASSERT_STREQ("1", res["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
@@ -112,7 +113,7 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
     // 7 unique ratings
     ASSERT_EQ(7, res["found"].get<size_t>());
     ASSERT_EQ(7, res["grouped_hits"].size());
-    ASSERT_STREQ("rating", res["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_FLOAT_EQ(4.4, res["grouped_hits"][0]["group_key"][0].get<float>());
 
     ASSERT_EQ(12, res["grouped_hits"][0]["hits"][0]["document"]["size"].get<uint32_t>());
     ASSERT_STREQ("8", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -151,7 +152,14 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
 
     ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(10, res["grouped_hits"].size());
-    ASSERT_STREQ("size,brand", res["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+
+    ASSERT_STREQ("Beta", res["grouped_hits"][0]["group_key"][1].get<std::string>().c_str());
+
+    // optional field should have no value in the group key component
+    ASSERT_EQ(1, res["grouped_hits"][5]["group_key"].size());
+    ASSERT_STREQ("10", res["grouped_hits"][5]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", res["grouped_hits"][5]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_EQ(1, res["grouped_hits"][0]["hits"].size());
     ASSERT_FLOAT_EQ(4.8, res["grouped_hits"][0]["hits"][0]["document"]["rating"].get<float>());
@@ -199,7 +207,8 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     // total count and facet counts should be the same
     ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(2, res["grouped_hits"].size());
-    ASSERT_STREQ("size,brand", res["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_EQ(10, res["grouped_hits"][0]["group_key"][0].get<size_t>());
+    ASSERT_STREQ("Omega", res["grouped_hits"][0]["group_key"][1].get<std::string>().c_str());
 
     ASSERT_STREQ("brand", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) res["facet_counts"][0]["counts"][0]["count"]);
@@ -215,7 +224,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_STREQ("Zeta", res["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
 }
 
-TEST_F(CollectionGroupingTest, GroupingWithSingleDistinct) {
+TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, 0, 50, 1, FREQUENCY,
                                   false, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
@@ -224,13 +233,18 @@ TEST_F(CollectionGroupingTest, GroupingWithSingleDistinct) {
                                   {}, {}, {"brand"}, 1).get();
 
     ASSERT_EQ(5, res["found"].get<size_t>());
-    ASSERT_EQ(5, res["hits"].size());
+    ASSERT_EQ(5, res["grouped_hits"].size());
 
-    ASSERT_STREQ("4", res["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("2", res["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("8", res["hits"][2]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("10", res["hits"][3]["document"]["id"].get<std::string>().c_str()); // unbranded
-    ASSERT_STREQ("9", res["hits"][4]["document"]["id"].get<std::string>().c_str());
+    // all hits array must be of size 1
+    for(auto i=0; i<5; i++) {
+        ASSERT_EQ(1, res["grouped_hits"][i]["hits"].size());
+    }
+
+    ASSERT_STREQ("4", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("10", res["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str()); // unbranded
+    ASSERT_STREQ("9", res["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
 
     // facet counts should each be 1, including unbranded
     ASSERT_STREQ("brand", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
@@ -290,7 +304,9 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
 
     ASSERT_EQ(4, res["found"].get<size_t>());
     ASSERT_EQ(4, res["grouped_hits"].size());
-    ASSERT_STREQ("colors", res["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, res["grouped_hits"][0]["group_key"][0].size());
+    ASSERT_STREQ("white", res["grouped_hits"][0]["group_key"][0][0].get<std::string>().c_str());
 
     ASSERT_STREQ("11", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("10", res["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
