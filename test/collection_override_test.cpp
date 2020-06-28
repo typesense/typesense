@@ -122,6 +122,11 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    // curated results should be marked as such
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][1]["curated"].get<bool>());
+    ASSERT_EQ(0, results["hits"][2].count("curated"));
+
     coll_mul_fields->remove_override("exclude-rule");
     coll_mul_fields->remove_override("include-rule");
 
@@ -366,6 +371,12 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("11", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    // pinned hits should be marked as curated
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][1]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][2]["curated"].get<bool>());
+    ASSERT_EQ(0, results["hits"][3].count("curated"));
 
     // with grouping
 

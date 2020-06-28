@@ -837,6 +837,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
 
         if(result_position == override_position) {
+            override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
             result_group_kvs.push_back(override_result_kvs[override_kv_index]);
             override_kv_index++;
         } else {
@@ -846,6 +847,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     while(override_kv_index < override_result_kvs.size()) {
+        override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
         result_group_kvs.push_back({override_result_kvs[override_kv_index]});
         override_kv_index++;
     }
@@ -947,10 +949,16 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 wrapper_doc["highlights"].push_back(h_json);
             }
 
+            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+
             prune_document(document, include_fields, exclude_fields);
             wrapper_doc["document"] = document;
             wrapper_doc["text_match"] = field_order_kv->match_score;
-            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+
+            if(field_order_kv->match_score == 0) {
+                wrapper_doc["curated"] = true;
+            }
+
             hits_array.push_back(wrapper_doc);
         }
 
