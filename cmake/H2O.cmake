@@ -6,7 +6,7 @@ set(H2O_TAR_PATH ${DEP_ROOT_DIR}/v${H2O_NAME}.tar.gz)
 
 if(NOT EXISTS ${H2O_TAR_PATH})
     message(STATUS "Downloading ${H2O_NAME}...")
-    file(DOWNLOAD https://github.com/h2o/h2o/archive/${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
+    file(DOWNLOAD https://github.com/h2o/h2o/archive/v${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME})
