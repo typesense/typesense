@@ -1,6 +1,6 @@
+#include "typesense_server_utils.h"
 #include "core_api.h"
 #include "config.h"
-#include "typesense_server_utils.h"
 
 void master_server_routes() {
     // collection management

@@ -378,7 +378,11 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
 
     ASSERT_EQ(8, results["found"].get<size_t>());
 
-    ASSERT_STREQ("cast", results["grouped_hits"][0]["group_key"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["grouped_hits"][0]["group_key"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["group_key"][0].size());
+    ASSERT_STREQ("Chris Evans", results["grouped_hits"][0]["group_key"][0][0].get<std::string>().c_str());
+    ASSERT_STREQ("Scarlett Johansson", results["grouped_hits"][0]["group_key"][0][1].get<std::string>().c_str());
+
     ASSERT_STREQ("6", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("8", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 

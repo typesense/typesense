@@ -862,7 +862,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     result["found"] = total_found;
 
-    std::string hits_key = (group_limit > 1) ? "grouped_hits" : "hits";
+    std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
     // construct results array
@@ -870,17 +870,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
 
         nlohmann::json group_hits;
-        if(group_limit > 1) {
+        if(group_limit) {
             group_hits["hits"] = nlohmann::json::array();
-            std::vector<std::string> group_keys;
-            for(const auto& group_key: group_by_fields) {
-                group_keys.push_back(group_key);
-            }
-
-            group_hits["group_key"] = StringUtils::join(group_keys, ",");
         }
 
-        nlohmann::json& hits_array = (group_limit > 1) ? group_hits["hits"] : result["hits"];
+        nlohmann::json& hits_array = group_limit ? group_hits["hits"] : result["hits"];
 
         for(const KV* field_order_kv: kv_group) {
             const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
@@ -960,7 +954,16 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             hits_array.push_back(wrapper_doc);
         }
 
-        if(group_limit > 1) {
+        if(group_limit) {
+            const auto& document = group_hits["hits"][0]["document"];
+
+            group_hits["group_key"] = nlohmann::json::array();
+            for(const auto& field_name: group_by_fields) {
+                if(document.count(field_name) != 0) {
+                    group_hits["group_key"].push_back(document[field_name]);
+                }
+            }
+
             result["grouped_hits"].push_back(group_hits);
         }
     }
