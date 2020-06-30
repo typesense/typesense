@@ -301,42 +301,42 @@ bool get_search(http_req & req, http_res & res) {
         }
     }
 
-    if(!StringUtils::is_uint64_t(req.params[DROP_TOKENS_THRESHOLD])) {
+    if(!StringUtils::is_uint32_t(req.params[DROP_TOKENS_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[TYPO_TOKENS_THRESHOLD])) {
+    if(!StringUtils::is_uint32_t(req.params[TYPO_TOKENS_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[NUM_TYPOS])) {
+    if(!StringUtils::is_uint32_t(req.params[NUM_TYPOS])) {
         res.set_400("Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[PER_PAGE])) {
+    if(!StringUtils::is_uint32_t(req.params[PER_PAGE])) {
         res.set_400("Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[PAGE])) {
+    if(!StringUtils::is_uint32_t(req.params[PAGE])) {
         res.set_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[MAX_FACET_VALUES])) {
+    if(!StringUtils::is_uint32_t(req.params[MAX_FACET_VALUES])) {
         res.set_400("Parameter `" + std::string(MAX_FACET_VALUES) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[SNIPPET_THRESHOLD])) {
+    if(!StringUtils::is_uint32_t(req.params[SNIPPET_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint64_t(req.params[GROUP_LIMIT])) {
+    if(!StringUtils::is_uint32_t(req.params[GROUP_LIMIT])) {
         res.set_400("Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
         return false;
     }
@@ -441,19 +441,19 @@ bool get_search(http_req & req, http_res & res) {
 
     Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
                                                           sort_fields, std::stoi(req.params[NUM_TYPOS]),
-                                                          static_cast<size_t>(std::stoi(req.params[PER_PAGE])),
-                                                          static_cast<size_t>(std::stoi(req.params[PAGE])),
+                                                          static_cast<size_t>(std::stol(req.params[PER_PAGE])),
+                                                          static_cast<size_t>(std::stol(req.params[PAGE])),
                                                           token_order, prefix, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
-                                                          static_cast<size_t>(std::stoi(req.params[MAX_FACET_VALUES])),
+                                                          static_cast<size_t>(std::stol(req.params[MAX_FACET_VALUES])),
                                                           req.params[FACET_QUERY],
-                                                          static_cast<size_t>(std::stoi(req.params[SNIPPET_THRESHOLD])),
+                                                          static_cast<size_t>(std::stol(req.params[SNIPPET_THRESHOLD])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
                                                           typo_tokens_threshold,
                                                           pinned_hits,
                                                           hidden_hits,
                                                           group_by_fields,
-                                                          static_cast<size_t>(std::stoi(req.params[GROUP_LIMIT]))
+                                                          static_cast<size_t>(std::stol(req.params[GROUP_LIMIT]))
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -222,6 +222,27 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
 
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][3]["count"]);
     ASSERT_STREQ("Zeta", res["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+
+    // respect min and max grouping limit (greater than 0 and less than 99)
+    auto res_op = coll_group->search("*", {}, "", {"brand"}, {}, 0, 50, 1, FREQUENCY,
+                             false, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "brand: omeg", 30,
+                             "", 10,
+                             {}, {}, {"rating"}, 100);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Value of `group_limit` is invalid.", res_op.error().c_str());
+
+    res_op = coll_group->search("*", {}, "", {"brand"}, {}, 0, 50, 1, FREQUENCY,
+                                false, Index::DROP_TOKENS_THRESHOLD,
+                                spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "brand: omeg", 30,
+                                "", 10,
+                                {}, {}, {"rating"}, 0);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Value of `group_limit` is invalid.", res_op.error().c_str());
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {

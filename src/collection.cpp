@@ -394,6 +394,10 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
+    if(group_limit == 0 || group_limit >= 100) {
+        return Option<nlohmann::json>(400, "Value of `group_limit` is invalid.");
+    }
+
     std::vector<uint32_t> excluded_ids;
     std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
     populate_overrides(query, pinned_hits, hidden_hits, include_ids, excluded_ids);
