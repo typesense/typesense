@@ -232,7 +232,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
                              {}, {}, {"rating"}, 100);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Value of `group_limit` is invalid.", res_op.error().c_str());
+    ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
 
     res_op = coll_group->search("*", {}, "", {"brand"}, {}, 0, 50, 1, FREQUENCY,
                                 false, Index::DROP_TOKENS_THRESHOLD,
@@ -242,7 +242,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
                                 {}, {}, {"rating"}, 0);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Value of `group_limit` is invalid.", res_op.error().c_str());
+    ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
 }
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {

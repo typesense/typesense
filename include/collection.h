@@ -273,6 +273,8 @@ public:
 
     const size_t PER_PAGE_MAX = 250;
 
+    const size_t GROUP_LIMIT_MAX = 99;
+
     // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
