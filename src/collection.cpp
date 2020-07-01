@@ -394,8 +394,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
-    if(!group_by_fields.empty() && (group_limit == 0 || group_limit >= 100)) {
-        return Option<nlohmann::json>(400, "Value of `group_limit` is invalid.");
+    if(!group_by_fields.empty() && (group_limit == 0 || group_limit > GROUP_LIMIT_MAX)) {
+        return Option<nlohmann::json>(400, "Value of `group_limit` must be between 1 and " +
+                                      std::to_string(GROUP_LIMIT_MAX) + ".");
     }
 
     std::vector<uint32_t> excluded_ids;
