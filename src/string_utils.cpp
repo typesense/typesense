@@ -19,6 +19,10 @@ std::string lower_and_no_special_chars(const std::string & str) {
 }
 
 void StringUtils::unicode_normalize(std::string & str) const {
+    if(str.empty()) {
+        return ;
+    }
+
     std::stringstream out;
 
     for (char *s = &str[0]; *s;) {
@@ -49,7 +53,7 @@ void StringUtils::unicode_normalize(std::string & str) const {
         }
     }
 
-    str.assign(lower_and_no_special_chars(out.str()));
+    str = lower_and_no_special_chars(out.str());
 }
 
 std::string StringUtils::randstring(size_t length) {
