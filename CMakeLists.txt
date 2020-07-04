@@ -54,11 +54,6 @@ include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/Iconv.cmake)
 
-if (APPLE)
-    include(cmake/brpc.cmake)
-    include(cmake/braft.cmake)
-endif()
-
 FILE(GLOB SRC_FILES src/*.cpp)
 FILE(GLOB TEST_FILES test/*.cpp)
 
