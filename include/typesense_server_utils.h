@@ -1,10 +1,10 @@
 #pragma once
 
+#include "logger.h"
 #include <string>
 #include <iostream>
 #include <cmdline.h>
 #include "config.h"
-#include "logger.h"
 #include "store.h"
 #include "collection_manager.h"
 #include <csignal>

@@ -1384,8 +1384,6 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         art_fuzzy_recurse(0, 0, t->root, -1, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
     }
 
-    PROCESS_NODES:
-
     if(token_order == FREQUENCY) {
         std::sort(nodes.begin(), nodes.end(), compare_art_node_frequency);
     } else {

@@ -56,6 +56,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.drop_collection("collection");
+        collectionManager.dispose();
         delete store;
     }
 };
@@ -455,6 +456,18 @@ TEST_F(CollectionTest, WildcardQuery) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // wildcard query should not require a search field
+    results_op = collection->search("*", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false);
+    ASSERT_TRUE(results_op.ok());
+    results = results_op.get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(25, results["found"].get<uint32_t>());
+
+    // non-wildcard query should require a search field
+    results_op = collection->search("the", {}, "", {}, sort_fields, 0, 3, 1, FREQUENCY, false);
+    ASSERT_FALSE(results_op.ok());
+    ASSERT_STREQ("No search fields specified for the query.", results_op.error().c_str());
 }
 
 TEST_F(CollectionTest, PrefixSearching) {
@@ -2259,7 +2272,6 @@ TEST_F(CollectionTest, OptionalFields) {
 
     // try fetching the schema (should contain optional field)
     nlohmann::json coll_summary = coll1->get_summary_json();
-    LOG(INFO) << coll_summary;
     ASSERT_STREQ("title", coll_summary["fields"][0]["name"].get<std::string>().c_str());
     ASSERT_STREQ("string", coll_summary["fields"][0]["type"].get<std::string>().c_str());
     ASSERT_FALSE(coll_summary["fields"][0]["facet"].get<bool>());

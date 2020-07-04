@@ -133,34 +133,44 @@ int init_logger(Config & config, const std::string & server_version) {
     signal(SIGILL, catch_crash);
     signal(SIGSEGV, catch_crash);
 
-    logging::LoggingSettings log_settings;
-
     // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
     signal(SIGTERM, catch_interrupt);
 
+    google::InitGoogleLogging("typesense");
+
     std::string log_dir = config.get_log_dir();
-    std::string log_path;
 
     if(log_dir.empty()) {
         // use console logger if log dir is not specified
-        log_settings.logging_dest = logging::LOG_TO_SYSTEM_DEBUG_LOG;
+        FLAGS_logtostderr = true;
     } else {
         if(!directory_exists(log_dir)) {
             std::cerr << "Typesense failed to start. " << "Log directory " << log_dir << " does not exist.";
             return 1;
         }
 
-        log_settings.logging_dest = logging::LOG_TO_FILE;
-        log_path = log_dir + "/" + "typesense.log";
-        log_settings.log_file = log_path.c_str();
+        // flush log levels above -1 immediately (INFO=0)
+        FLAGS_logbuflevel = -1;
 
-        LOG(INFO) << "Starting Typesense " << server_version << ". Log directory is configured as: "
-                  << log_dir << std::endl;
+        // available only on glog master (ensures that log file name is constant)
+        FLAGS_timestamp_in_logfile_name = false;
+
+        std::string log_path = log_dir + "/" + "typesense.log";
+
+        // will log levels INFO **and above** to the given log file
+        google::SetLogDestination(google::INFO, log_path.c_str());
+
+        // don't create symlink for INFO log
+        google::SetLogSymlink(google::INFO, "");
+
+        // don't create separate log files for each level
+        google::SetLogDestination(google::WARNING, "");
+        google::SetLogDestination(google::ERROR, "");
+        google::SetLogDestination(google::FATAL, "");
+
+        std::cout << "Log directory is configured as: " << log_dir << std::endl;
     }
-
-    logging::InitLogging(log_settings);
-    logging::SetMinLogLevel(0);
 
     return 0;
 }
@@ -275,7 +285,6 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 }
 
 int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
-
     LOG(INFO) << "Starting Typesense " << version << std::flush;
     quit_raft_service = false;
 

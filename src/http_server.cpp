@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <h2o.h>
 #include <iostream>
+#include <auth_manager.h>
 #include "raft_server.h"
 #include "logger.h"
 
@@ -186,20 +187,6 @@ std::string HttpServer::get_version() {
 void HttpServer::clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback) {
     for(h2o_timer_t* timer: timers) {
         h2o_timer_unlink(timer);
-        /*while (!h2o_linklist_is_empty(&timer->_link)) {
-            h2o_timer_t *entry = H2O_STRUCT_FROM_MEMBER(h2o_timer_t, _link, timer->_link.next);
-            if(entry == nullptr) {
-                continue;
-            }
-
-            if(trigger_callback) {
-                entry->cb(entry);
-            }
-
-            //entry->expire_at = 0;
-            h2o_linklist_unlink(&entry->_link);
-            h2o_timer_unlink(timer);
-        }*/
     }
 }
 
@@ -385,6 +372,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         }
 
         // routes match and is an authenticated request
+        // do any additional pre-request middleware operations here
+        if(rpath->action == "keys:create") {
+            // we enrich incoming request with a random API key here so that leader and replicas will use the same key
+            request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
+        }
+
         // for writes, we defer to replication_state
         if(http_method != "GET") {
             self->http_server->get_replication_state()->write(request, response);
@@ -476,25 +469,12 @@ void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
 HttpServer::~HttpServer() {
     delete message_dispatcher;
 
-    // remove all timeouts defined in: https://github.com/h2o/h2o/blob/v2.2.2/lib/core/context.c#L142
-    /*std::vector<h2o_timeout_t*> timeouts = {
-        &ctx.zero_timeout,
-        &ctx.one_sec_timeout,
-        &ctx.hundred_ms_timeout,
-        &ctx.handshake_timeout,
-        &ctx.http1.req_timeout,
-        &ctx.http2.idle_timeout,
-        &ctx.http2.graceful_shutdown_timeout,
-        &ctx.proxy.io_timeout
-    };
-
-    clear_timeouts(timeouts);
-    */
-
     if(ssl_refresh_timer.timer.expire_at != 0) {
         // avoid callback since it recreates timeout
         clear_timeouts({&ssl_refresh_timer.timer}, false);
     }
+
+    h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);
 
     h2o_context_dispose(&ctx);
 

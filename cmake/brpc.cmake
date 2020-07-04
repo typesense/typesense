@@ -1,4 +1,4 @@
-set(BRPC_VERSION 23c66e3)
+set(BRPC_VERSION 2f8fc37d)
 set(BRPC_NAME brpc-${BRPC_VERSION})
 set(BRPC_TAR_PATH ${DEP_ROOT_DIR}/${BRPC_NAME}.tar.gz)
 

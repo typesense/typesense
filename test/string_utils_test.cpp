@@ -54,3 +54,8 @@ TEST(StringUtilsTest, HMAC) {
     std::string digest1 = StringUtils::hmac("KeyVal", "{\"filter_by\": \"user_id:1080\"}");
     ASSERT_STREQ("IvjqWNZ5M5ElcvbMoXj45BxkQrZG4ZKEaNQoRioCx2s=", digest1.c_str());
 }
+
+TEST(StringUtilsTest, UInt32Validation) {
+    std::string big_num = "99999999999999999999999999999999";
+    ASSERT_FALSE(StringUtils::is_uint32_t(big_num));
+}

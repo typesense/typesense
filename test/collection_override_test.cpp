@@ -18,7 +18,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1, "auth_key");
+        collectionManager.init(store, 4, "auth_key");
         collectionManager.load();
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
@@ -49,6 +49,7 @@ protected:
 
     virtual void TearDown() {
         collectionManager.drop_collection("coll_mul_fields");
+        collectionManager.dispose();
         delete store;
     }
 };
@@ -120,6 +121,11 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // curated results should be marked as such
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][1]["curated"].get<bool>());
+    ASSERT_EQ(0, results["hits"][2].count("curated"));
 
     coll_mul_fields->remove_override("exclude-rule");
     coll_mul_fields->remove_override("include-rule");
@@ -219,6 +225,8 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
+    ASSERT_EQ(9, results["found"].get<size_t>());
+
     // "count" would be `2` without exclusion
     ASSERT_EQ("<mark>Scott</mark> Glenn", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
@@ -233,7 +241,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
-    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(9, results["found"].get<size_t>());
     ASSERT_EQ(0, results["hits"].size());
 
     coll_mul_fields->remove_override("exclude-rule");
@@ -246,7 +254,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "").get();
 
-    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
@@ -254,10 +262,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 }
 
 TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
-    std::map<std::string, size_t> pinned_hits;
-    std::vector<std::string> hidden_hits;
-    pinned_hits["13"] = 1;
-    pinned_hits["4"] = 2;
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"13"};
+    pinned_hits[2] = {"4"};
 
     // basic pinning
 
@@ -277,6 +284,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 
     // both pinning and hiding
 
+    std::vector<std::string> hidden_hits;
     hidden_hits = {"11", "16"};
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
@@ -288,6 +296,21 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_STREQ("13", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("6", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // paginating such that pinned hits appear on second page
+    pinned_hits.clear();
+    pinned_hits[4] = {"13"};
+    pinned_hits[5] = {"4"};
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 2, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                      "", 10,
+                                      pinned_hits, hidden_hits).get();
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("13", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // take precedence over override rules
 
@@ -325,4 +348,60 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_EQ(8, results["found"].get<size_t>());
     ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("6", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"6", "8"};
+    pinned_hits[2] = {"1"};
+    pinned_hits[3] = {"13", "4"};
+
+    // without any grouping parameter, only the first ID in a position should be picked
+    // and other IDs should appear in their original positions
+
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("13", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    // pinned hits should be marked as curated
+    ASSERT_EQ(true, results["hits"][0]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][1]["curated"].get<bool>());
+    ASSERT_EQ(true, results["hits"][2]["curated"].get<bool>());
+    ASSERT_EQ(0, results["hits"][3].count("curated"));
+
+    // with grouping
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
+                            false, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                            "", 10,
+                            pinned_hits, {}, {"cast"}, 2).get();
+
+    ASSERT_EQ(8, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, results["grouped_hits"][0]["group_key"].size());
+    ASSERT_EQ(2, results["grouped_hits"][0]["group_key"][0].size());
+    ASSERT_STREQ("Chris Evans", results["grouped_hits"][0]["group_key"][0][0].get<std::string>().c_str());
+    ASSERT_STREQ("Scarlett Johansson", results["grouped_hits"][0]["group_key"][0][1].get<std::string>().c_str());
+
+    ASSERT_STREQ("6", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("1", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("13", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
 }
