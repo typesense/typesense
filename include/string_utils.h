@@ -151,8 +151,18 @@ struct StringUtils {
         }
 
         char * p ;
-        strtoull(s.c_str(), &p, 10);
-        return (*p == 0);
+        unsigned long long ull = strtoull(s.c_str(), &p, 10);
+        return (*p == 0) && ull <= std::numeric_limits<uint64_t>::max();
+    }
+
+    static bool is_uint32_t(const std::string &s) {
+        if(s.empty()) {
+            return false;
+        }
+
+        char * p ;
+        unsigned long ul = strtoul(s.c_str(), &p, 10);
+        return (*p == 0) && ul <= std::numeric_limits<uint32_t>::max();
     }
 
     static void toupper(std::string& str) {
@@ -234,7 +244,7 @@ struct StringUtils {
         return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
 
-    static std::string randstring(size_t length, uint64_t seed);
+    static std::string randstring(size_t length);
 
     static std::string hmac(const std::string& key, const std::string& msg);
 };

@@ -27,9 +27,9 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     rusage r_usage;
     getrusage(RUSAGE_SELF, &r_usage);
-    result["memory_used_process_bytes"] = r_usage.ru_maxrss * 1000;
+    result["typesense_memory_used_bytes"] = r_usage.ru_maxrss * 1000;
 
-    uint64_t memory_free_bytes = 0;
+    uint64_t memory_available_bytes = 0;
     uint64_t memory_total_bytes = 0;
 
 #ifdef __APPLE__
@@ -42,7 +42,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     if (KERN_SUCCESS == host_page_size(mach_port, &mach_page_size) &&
         KERN_SUCCESS == host_statistics64(mach_port, HOST_VM_INFO,
                                           (host_info64_t)&vm_stats, &count)) {
-        memory_free_bytes = (int64_t)(vm_stats.free_count) * (int64_t)mach_page_size;
+        memory_available_bytes = (int64_t)(vm_stats.free_count) * (int64_t)mach_page_size;
     }
 
     uint64_t pages = sysconf(_SC_PHYS_PAGES);
@@ -51,11 +51,11 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 #elif __linux__
     struct sysinfo sys_info;
     sysinfo(&sys_info);
-    memory_free_bytes = sys_info.freeram;
+    memory_available_bytes = linux_get_mem_available_bytes();
     memory_total_bytes = sys_info.totalram;
 #endif
 
-    result["memory_free_bytes"] = memory_free_bytes;
+    result["memory_available_bytes"] = memory_available_bytes;
     result["memory_total_bytes"] = memory_total_bytes;
 
     // CPU METRICS

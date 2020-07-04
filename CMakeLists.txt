@@ -43,6 +43,7 @@ FIND_PACKAGE(ICU REQUIRED)
 FIND_PACKAGE(Protobuf REQUIRED)
 FIND_PACKAGE(LevelDB REQUIRED)
 FIND_PACKAGE(gflags REQUIRED)
+FIND_PACKAGE(glog REQUIRED)
 
 message("OpenSSL library: ${OPENSSL_LIBRARIES}")
 
@@ -52,11 +53,6 @@ include(cmake/RocksDB.cmake)
 include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/Iconv.cmake)
-
-if (APPLE)
-    include(cmake/brpc.cmake)
-    include(cmake/braft.cmake)
-endif()
 
 FILE(GLOB SRC_FILES src/*.cpp)
 FILE(GLOB TEST_FILES test/*.cpp)
@@ -87,8 +83,10 @@ link_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
+if (APPLE)
 link_directories(${DEP_ROOT_DIR}/${BRPC_NAME}/lib)
 link_directories(${DEP_ROOT_DIR}/${BRAFT_NAME}/lib)
+endif()
 
 # Write dependency libraries to a file
 file(WRITE ${DEP_ROOT_DIR}/libs.txt "")
@@ -152,7 +150,7 @@ set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIE
 set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
               ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
 
-set(CORE_LIBS braft brpc ${LevelDB_LIBRARIES} ${CORE_LIBS} ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
+set(CORE_LIBS braft brpc ${LevelDB_LIBRARIES} glog ${CORE_LIBS} ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
 
 target_link_libraries(typesense-core ${CORE_LIBS})
 target_link_libraries(typesense-server ${CORE_LIBS})

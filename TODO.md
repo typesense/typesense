@@ -97,6 +97,10 @@
 - ~~Have a LOG(ERROR) level~~
 - ~~Handle SIGTERM which is sent when process is killed~~
 - ~~Use snappy compression for storage~~
+- ~~Fix exclude_scalar early returns~~
+- ~~Fix result ids length during grouped overrides~~
+- ~~Fix override grouping (collate_included_ids)~~
+- ~~Test for overriding result on second page~~
 - atleast 1 token match for proceeding with drop tokens
 - support wildcard query with filters
 - API for optimizing on disk storage

@@ -15,7 +15,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_sorting";
+        std::string state_dir_path = "/tmp/typesense_test/collection_faceting";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -29,6 +29,7 @@ protected:
     }
 
     virtual void TearDown() {
+        collectionManager.dispose();
         delete store;
     }
 };

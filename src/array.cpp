@@ -61,12 +61,12 @@ void array::remove_index(uint32_t start_index, uint32_t end_index) {
     }
 
     uint32_t size_required = (uint32_t) (unsorted_append_size_required(max, new_index) * FOR_GROWTH_FACTOR);
-    uint8_t *out = new uint8_t[size_required];
+    uint8_t *out = (uint8_t *) malloc(size_required * sizeof *out);
     uint32_t actual_size = for_compress_unsorted(new_array, out, new_index);
 
     delete[] curr_array;
     delete[] new_array;
-    delete[] in;
+    free(in);
 
     in = out;
     length = new_index;

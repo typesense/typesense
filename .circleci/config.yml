@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: typesense/typesense-development:22-MAR-2020-5
+      - image: typesense/typesense-development:23-JUNE-2020-1
     environment:
       - PROJECT_DIR: /typesense
       - TYPESENSE_VERSION: $CIRCLE_BRANCH-$CIRCLE_SHA1
@@ -16,7 +16,7 @@ jobs:
           keys:
             - external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
             - external-Linux-cache-{{ .Branch }}
-            - external-Linux-cache      
+            - external-Linux-cache
       - run: 
           name: build
           command: $PROJECT_DIR/build.sh

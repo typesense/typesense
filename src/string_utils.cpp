@@ -1,8 +1,8 @@
 #include "string_utils.h"
 #include <iostream>
 #include <openssl/evp.h>
-#include <iomanip>
 #include <openssl/hmac.h>
+#include <random>
 
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
@@ -19,6 +19,10 @@ std::string lower_and_no_special_chars(const std::string & str) {
 }
 
 void StringUtils::unicode_normalize(std::string & str) const {
+    if(str.empty()) {
+        return ;
+    }
+
     std::stringstream out;
 
     for (char *s = &str[0]; *s;) {
@@ -49,16 +53,16 @@ void StringUtils::unicode_normalize(std::string & str) const {
         }
     }
 
-    str.assign(lower_and_no_special_chars(out.str()));
+    str = lower_and_no_special_chars(out.str());
 }
 
-std::string StringUtils::randstring(size_t length, uint64_t seed) {
+std::string StringUtils::randstring(size_t length) {
     static auto& chrs = "0123456789"
                         "abcdefghijklmnopqrstuvwxyz"
                         "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-    thread_local static std::mt19937 rg(seed);
-    thread_local static std::uniform_int_distribution<std::string::size_type> pick(0, sizeof(chrs) - 2);
+    thread_local std::mt19937 rg(std::random_device{}());
+    thread_local std::uniform_int_distribution<uint32_t> pick(0, sizeof(chrs) - 2);
 
     std::string s;
     s.reserve(length);
