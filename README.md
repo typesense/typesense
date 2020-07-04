@@ -37,7 +37,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.13.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.14.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
@@ -146,7 +146,7 @@ works without turning many knobs.
 
 **Speed is great, but what about the memory footprint?**
 
-A fresh Typesense server will take less than 5 MB of memory. As you start indexing documents, the memory use will 
+A fresh Typesense server will consume about 30 MB of memory. As you start indexing documents, the memory use will 
 increase correspondingly. How much it increases depends on the number and type of fields you index. 
 
 We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million 
