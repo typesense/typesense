@@ -138,3 +138,31 @@ TEST(StoreTest, GetUpdateSinceInvalidIterator) {
     ASSERT_EQ("Invalid iterator. Master's latest sequence number is 4 but updates are requested from sequence number 2. "
                       "The master's WAL entries might have expired (they are kept only for 24 hours).", updates_op.error());
 }
+
+TEST(StoreTest, Contains) {
+    std::string primary_store_path = "/tmp/typesense_test/primary_store_test";
+    LOG(INFO) << "Truncating and creating: " << primary_store_path;
+    system(("rm -rf "+primary_store_path+" && mkdir -p "+primary_store_path).c_str());
+
+    // add some records, flush and try to query
+    Store primary_store(primary_store_path, 0, 0, true);  // disable WAL
+    primary_store.insert("foo1", "bar1");
+    primary_store.insert("foo2", "bar2");
+    primary_store.flush();
+
+    ASSERT_EQ(true, primary_store.contains("foo1"));
+    ASSERT_EQ(true, primary_store.contains("foo2"));
+    ASSERT_EQ(false, primary_store.contains("foo"));
+    ASSERT_EQ(false, primary_store.contains("foo3"));
+
+    // add more records without flushing and query again
+    primary_store.insert("foo3", "bar1");
+    primary_store.insert("foo4", "bar2");
+    primary_store.flush();
+
+    ASSERT_EQ(true, primary_store.contains("foo1"));
+    ASSERT_EQ(true, primary_store.contains("foo3"));
+    ASSERT_EQ(true, primary_store.contains("foo4"));
+    ASSERT_EQ(false, primary_store.contains("foo"));
+    ASSERT_EQ(false, primary_store.contains("foo5"));
+}

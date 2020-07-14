@@ -109,6 +109,19 @@ public:
 
     bool contains(const std::string& key) const {
         std::string value;
+        bool value_found;
+        bool key_may_exist = db->KeyMayExist(rocksdb::ReadOptions(), key, &value, &value_found);
+
+        // returns false when key definitely does not exist
+        if(!key_may_exist) {
+            return false;
+        }
+
+        if(value_found) {
+            return true;
+        }
+
+        // otherwise, we have try getting the value
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
         return status.ok() && !status.IsNotFound();
     }
