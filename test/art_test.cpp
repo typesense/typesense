@@ -194,7 +194,7 @@ TEST(ArtTest, test_art_insert_delete) {
         // Delete, should get lineno back
         art_values* values = (art_values*)art_delete(&t, (unsigned char*)buf, len);
         EXPECT_EQ(line, values->ids.at(0));
-        free(values);
+        delete values;
 
         // Check the size
         ASSERT_TRUE(art_size(&t) == nlines - line);

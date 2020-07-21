@@ -1,7 +1,6 @@
 #include <curl/curl.h>
-#include <sys/stat.h>
-
 #include <gflags/gflags.h>
+#include <dlfcn.h>
 #include <brpc/controller.h>
 #include <brpc/server.h>
 #include <braft/raft.h>
@@ -17,6 +16,21 @@
 
 HttpServer* server;
 std::atomic<bool> quit_raft_service;
+
+extern "C" {
+    typedef int (*mallctl_t)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+}
+
+bool using_jemalloc() {
+    // On OSX, jemalloc API is prefixed with "je_"
+    mallctl_t mallctl;
+#ifdef __APPLE__
+    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "je_mallctl");
+#else
+    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "mallctl");
+#endif
+    return (mallctl != nullptr);
+}
 
 void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
@@ -292,6 +306,13 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
 int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
     LOG(INFO) << "Starting Typesense " << version << std::flush;
+
+    if(using_jemalloc()) {
+        LOG(INFO) << "Typesense is using jemalloc.";
+    } else {
+        LOG(WARNING) << "Typesense is NOT using jemalloc.";
+    }
+
     quit_raft_service = false;
 
     if(!directory_exists(config.get_data_dir())) {
