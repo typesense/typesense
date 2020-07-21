@@ -2,6 +2,16 @@
 #include "core_api.h"
 #include "config.h"
 
+extern "C" {
+#include "jemalloc.h"
+}
+
+#ifdef __APPLE__
+extern "C" {
+    extern void je_zone_register();
+}
+#endif
+
 void master_server_routes() {
     // collection management
     server->post("/collections", post_create_collection);
@@ -56,6 +66,15 @@ void replica_server_routes() {
 }
 
 int main(int argc, char **argv) {
+    #ifdef __APPLE__
+    // On OS X, je_zone_register registers jemalloc with the system allocator.
+    // We have to force the presence of these symbols on macOS by explicitly calling this method.
+    // See these issues:
+    // - https://github.com/jemalloc/jemalloc/issues/708
+    // - https://github.com/ClickHouse/ClickHouse/pull/11897
+    je_zone_register();
+    #endif
+
     Config config;
 
     cmdline::parser options;

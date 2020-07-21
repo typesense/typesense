@@ -186,7 +186,7 @@ public:
             return Option<std::vector<std::string>*>(updates);
         }
 
-        rocksdb::unique_ptr<rocksdb::TransactionLogIterator> iter;
+        std::unique_ptr<rocksdb::TransactionLogIterator> iter;
         rocksdb::Status status = db->GetUpdatesSince(seq_number, &iter);
 
         if(!status.ok()) {
