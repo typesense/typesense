@@ -2,6 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <thread>
+#include <sys/stat.h>
 #include "json.hpp"
 
 const int NUM_CPU_STATES = 10;
@@ -66,22 +67,20 @@ private:
             float active_percentage = 100.f * (active_time / total_time);
             float idle_percentage = 100.f * (idle_time / total_time);
 
-            std::stringstream active_ss;
-            active_ss.setf(std::ios::fixed, std::ios::floatfield);
-            active_ss.precision(2);
-            active_ss << active_percentage;
-            stat.active = active_ss.str();
-
-            std::stringstream idle_ss;
-            idle_ss.setf(std::ios::fixed, std::ios::floatfield);
-            idle_ss.precision(2);
-            idle_ss << idle_percentage;
-            stat.idle = idle_ss.str();
-
+            stat.active = format_dp(active_percentage);
+            stat.idle = format_dp(idle_percentage);
             stats.push_back(stat);
         }
 
         return stats;
+    }
+
+    std::string format_dp(float value) const {
+        std::stringstream active_ss;
+        active_ss.setf(std::ios::fixed, std::ios::floatfield);
+        active_ss.precision(2);
+        active_ss << value;
+        return active_ss.str();
     }
 
     void read_cpu_data(std::vector<cpu_data_t> &entries) {

@@ -14,6 +14,8 @@
 #include <mach/mach_host.h>
 #endif
 
+#include "jemalloc.h"
+
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
@@ -25,15 +27,51 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     // MEMORY METRICS
 
+    size_t sz, active, allocated;
+
+    /*
+        stats.active:
+        Returns the total number of bytes in active pages allocated by the application.
+
+        stats.allocated
+        Returns the total number of bytes allocated by the application. Will be larger than active.
+
+        active/allocated == fragmentation ratio.
+    */
+
+#ifdef __APPLE__
+    je_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
+    je_mallctl("stats.active", &active, &sz, nullptr, 0);
+    je_mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
+#elif __linux__
+    mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
+    mallctl("stats.active", &active, &sz, nullptr, 0);
+    mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
+#else
+    active = allocated = 0;
+#endif
+
+    if(active != 0 && allocated != 0) {
+        // bytes allocated by allocator (jemalloc)
+        result["typesense_memory_used_bytes"] = std::to_string(allocated);
+        result["typesense_memory_active_bytes"] = std::to_string(active);
+
+        // Defragmentation ratio is calculated very similar to Redis:
+        // https://github.com/redis/redis/blob/d6180c8c8674ffdae3d6efa5f946d85fe9163464/src/defrag.c#L900
+        std::string frag_percent = format_dp(((float)active / allocated)*100 - 100);
+        result["fragmentation_percent"] = frag_percent;
+    }
+
     rusage r_usage;
     getrusage(RUSAGE_SELF, &r_usage);
 
+    // Bytes allocated by OS (resident set size) and is the number reported by tools such as htop.
     // `ru_maxrss` is in bytes on OSX but in kilobytes on Linux
-    #ifdef __APPLE__
-    result["typesense_memory_used_bytes"] = std::to_string(r_usage.ru_maxrss);
-    #elif __linux__
-    result["typesense_memory_used_bytes"] = std::to_string(r_usage.ru_maxrss * 1000);
-    #endif
+#ifdef __APPLE__
+    result["typesense_memory_used_rss_bytes"] = std::to_string(r_usage.ru_maxrss);
+#elif __linux__
+    result["typesense_memory_used_rss_bytes"] = std::to_string(r_usage.ru_maxrss * 1000);
+#endif
 
     uint64_t memory_available_bytes = 0;
     uint64_t memory_total_bytes = 0;
