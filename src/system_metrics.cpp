@@ -20,14 +20,20 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     statvfs(data_dir_path.c_str(), &st);
     uint64_t disk_total_bytes = st.f_blocks * st.f_frsize;
     uint64_t disk_used_bytes = (st.f_blocks - st.f_bavail) * st.f_frsize;
-    result["disk_total_bytes"] = disk_total_bytes;
-    result["disk_used_bytes"] = disk_used_bytes;
+    result["disk_total_bytes"] = std::to_string(disk_total_bytes);
+    result["disk_used_bytes"] = std::to_string(disk_used_bytes);
 
     // MEMORY METRICS
 
     rusage r_usage;
     getrusage(RUSAGE_SELF, &r_usage);
-    result["typesense_memory_used_bytes"] = r_usage.ru_maxrss * 1000;
+
+    // `ru_maxrss` is in bytes on OSX but in kilobytes on Linux
+    #ifdef __APPLE__
+    result["typesense_memory_used_bytes"] = std::to_string(r_usage.ru_maxrss);
+    #elif __linux__
+    result["typesense_memory_used_bytes"] = std::to_string(r_usage.ru_maxrss * 1000);
+    #endif
 
     uint64_t memory_available_bytes = 0;
     uint64_t memory_total_bytes = 0;
@@ -55,8 +61,8 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     memory_total_bytes = sys_info.totalram;
 #endif
 
-    result["memory_available_bytes"] = memory_available_bytes;
-    result["memory_total_bytes"] = memory_total_bytes;
+    result["memory_available_bytes"] = std::to_string(memory_available_bytes);
+    result["memory_total_bytes"] = std::to_string(memory_total_bytes);
 
     // CPU METRICS
 #if __linux__

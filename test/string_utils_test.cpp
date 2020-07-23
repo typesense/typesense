@@ -2,6 +2,7 @@
 #include "string_utils.h"
 #include <iconv.h>
 #include <unicode/translit.h>
+#include <json.hpp>
 
 TEST(StringUtilsTest, ShouldNormalizeString) {
     StringUtils string_utils;
@@ -58,4 +59,22 @@ TEST(StringUtilsTest, HMAC) {
 TEST(StringUtilsTest, UInt32Validation) {
     std::string big_num = "99999999999999999999999999999999";
     ASSERT_FALSE(StringUtils::is_uint32_t(big_num));
+}
+
+TEST(StringUtilsTest, ShouldSplitString) {
+    nlohmann::json obj1;
+    obj1["s"] = "Line one.\nLine two.\n";
+
+    nlohmann::json obj2;
+    obj2["s"] = "Line 1.\nLine 2.\n";
+
+    std::string text;
+    text = obj1.dump();
+    text += "\n" + obj2.dump();
+
+    std::vector<std::string> lines;
+    StringUtils::split(text, lines, "\n");
+
+    ASSERT_STREQ("{\"s\":\"Line one.\\nLine two.\\n\"}", lines[0].c_str());
+    ASSERT_STREQ("{\"s\":\"Line 1.\\nLine 2.\\n\"}", lines[1].c_str());
 }
