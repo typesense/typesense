@@ -143,41 +143,42 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
             num_docs_read++;
 
-            iter_batch[seq_id % collection->get_num_indices()].push_back(
-                    index_record(0, seq_id, iter->value().ToString(), document)
-            );
+            iter_batch[seq_id % collection->get_num_indices()].emplace_back(index_record(0, seq_id, document));
 
-            if(num_docs_read % init_batch_size == 0) {
-                batch_index_result res;
-                collection->par_index_in_memory(iter_batch, res);
+            // Peek and check for last record right here so that we handle batched indexing correctly
+            // Without doing this, the "last batch" would have to be indexed outside the loop.
+            iter->Next();
+            bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+            if((num_docs_read % init_batch_size == 0) || last_record) {
+                std::vector<size_t> indexed_counts;
+                indexed_counts.reserve(iter_batch.size());
+
+                collection->par_index_in_memory(iter_batch, indexed_counts);
+
                 for(size_t i = 0; i < collection->get_num_indices(); i++) {
+                    size_t num_records = iter_batch[i].size();
+                    size_t num_indexed = indexed_counts[i];
+
+                    if(num_indexed != num_records) {
+                        delete iter;
+                        const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
+                        if(index_error_op.ok()) {
+                            return Option<bool>(false, index_error_op.get());
+                        }
+                    }
                     iter_batch[i].clear();
                 }
 
-                if(res.num_indexed != res.items.size()) {
+                if(last_record) {
                     delete iter;
-                    const Option<std::string> & index_error_op = get_first_index_error(res.items);
-                    if(index_error_op.ok()) {
-                        return Option<bool>(false, index_error_op.get());
-                    }
+                    iter = nullptr;
+                    break;
                 }
             }
-
-            iter->Next();
         }
 
-        delete iter;
-
-        batch_index_result res;
-        collection->par_index_in_memory(iter_batch, res);
-
-        if(res.num_indexed != res.items.size()) {
-            const Option<std::string> & index_error_op = get_first_index_error(res.items);
-            if(index_error_op.ok()) {
-                return Option<bool>(false, index_error_op.get());
-            }
-        }
-
+        assert(iter == nullptr);
         add_to_collections(collection);
     }
 

@@ -313,38 +313,34 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     return Option<>(200);
 }
 
-batch_index_result Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
-                                    const std::string & default_sorting_field,
-                                    const std::unordered_map<std::string, field> & search_schema,
-                                    const std::map<std::string, field> & facet_schema) {
+size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
+                                 const std::string & default_sorting_field,
+                                 const std::unordered_map<std::string, field> & search_schema,
+                                 const std::map<std::string, field> & facet_schema) {
 
-    batch_index_result result;
+    size_t num_indexed = 0;
 
     for(auto & index_rec: iter_batch) {
-        if(index_rec.json_str.empty()) {
-            // indicates bad record (upstream validation failure)
-            continue;
-        }
-
         Option<uint32_t> validation_op = validate_index_in_memory(index_rec.document, index_rec.seq_id,
                                                                   default_sorting_field,
                                                                   search_schema, facet_schema);
 
         if(!validation_op.ok()) {
-            result.failure(index_rec, validation_op.code(), validation_op.error());
+            index_rec.index_failure(validation_op.code(), validation_op.error());
             continue;
         }
 
         Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.document, index_rec.seq_id, default_sorting_field);
         if(!index_mem_op.ok()) {
-            result.failure(index_rec, index_mem_op.code(), index_mem_op.error());
+            index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
             continue;
         }
 
-        result.success(index_rec);
+        index_rec.index_success(index_rec);
+        num_indexed++;
     }
 
-    return result;
+    return num_indexed;
 }
 
 void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
@@ -1696,7 +1692,7 @@ void Index::remove_and_shift_offset_index(sorted_array &offset_index, const uint
     delete[] new_array;
 }
 
-Option<uint32_t> Index::remove(const uint32_t seq_id, nlohmann::json & document) {
+Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document) {
     for(auto & name_field: search_schema) {
         if(name_field.second.optional && document.count(name_field.first) == 0) {
             continue;

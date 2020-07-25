@@ -582,16 +582,31 @@ bool post_import_documents(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> res_op = collection->add_many(req.body);
+    std::vector<std::string> json_lines;
+    StringUtils::split(req.body, json_lines, "\n");
+
+    const Option<nlohmann::json>& res_op = collection->add_many(json_lines);
 
     if(!res_op.ok()) {
         res.set(res_op.code(), res_op.error());
         return false;
     }
 
-    const nlohmann::json& result = res_op.get();
-    res.set_200(result.dump());
-    return result["success"].get<bool>();
+    std::stringstream ss;
+    const std::string& import_summary_json = res_op.get().dump();
+
+    ss << import_summary_json << "\n";
+
+    for (size_t i = 0; i < json_lines.size(); i++) {
+        if(i == json_lines.size()-1) {
+            ss << json_lines[i];
+        } else {
+            ss << json_lines[i] << "\n";
+        }
+    }
+
+    res.set_200(ss.str());
+    return true;
 }
 
 bool get_fetch_document(http_req & req, http_res & res) {
@@ -981,6 +996,9 @@ bool async_write_request(void *data) {
     if(!async_call && index_arg->req->_req != nullptr) {
         // we have to return a response to the client
         server->send_response(index_arg->req, index_arg->res);
+    } else {
+        delete index_arg->req;
+        delete index_arg->res;
     }
 
     if(index_arg->promise != nullptr) {

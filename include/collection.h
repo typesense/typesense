@@ -152,7 +152,7 @@ private:
                           bool highlighted_fully,
                           highlight_t &highlight);
 
-    void remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
+    void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
     void populate_overrides(std::string query,
                             const std::map<size_t, std::vector<std::string>>& pinned_hits,
@@ -221,7 +221,7 @@ public:
 
     Option<nlohmann::json> add(const std::string & json_str);
 
-    Option<nlohmann::json> add_many(const std::string & json_str);
+    Option<nlohmann::json> add_many(std::vector<std::string>& json_lines);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
@@ -243,6 +243,8 @@ public:
 
     Option<nlohmann::json> get(const std::string & id);
 
+    bool doc_exists(const std::string & id);
+
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<uint32_t> add_override(const override_t & override);
@@ -261,8 +263,7 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
 
-    void par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
-                             batch_index_result & result);
+    size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
 
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
                                const spp::sparse_hash_set<std::string> & exclude_fields);
@@ -288,5 +289,8 @@ public:
     void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const;
 
     void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const;
+
+    void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
+                     size_t &num_indexed);
 };
 
