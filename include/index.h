@@ -80,51 +80,23 @@ struct search_args {
 };
 
 struct index_record {
-    size_t record_pos;         // position of record in the original request
-
+    size_t position;         // position of record in the original request
     uint32_t seq_id;
-    std::string json_str;
     nlohmann::json document;
 
-    index_record(size_t record_pos, uint32_t seq_id, const std::string & json_str, const nlohmann::json & doc):
-                 record_pos(record_pos), seq_id(seq_id), json_str(json_str), document(doc) {
+    Option<bool> indexed;     // indicates if the indexing operation was a success
 
-    }
-};
-
-struct index_result {
-    index_record record;
-    Option<bool> index_op;     // indicates if the indexing operation was a success
-
-    index_result(const index_record & record, const Option<bool> & index_op):
-                 record(record), index_op(index_op) {
+    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc):
+            position(record_pos), seq_id(seq_id), document(doc), indexed(true) {
 
     }
 
-    bool operator<(const index_result & a) const {
-        return record.record_pos < a.record.record_pos;
-    }
-};
-
-struct batch_index_result {
-    std::vector<index_result> items;
-    size_t num_indexed = 0;
-
-    batch_index_result() {
-
+    void index_failure(const uint32_t err_code, const std::string & err_msg) {
+        indexed = Option<bool>(err_code, err_msg);
     }
 
-    void failure(const index_record & record, const uint32_t err_code, const std::string & err_msg) {
-        Option<bool> index_op_failure(err_code, err_msg);
-        index_result res(record, index_op_failure);
-        items.push_back(res);
-    }
-
-    void success(const index_record & record) {
-        Option<bool> index_op_success(true);
-        index_result res(record, index_op_success);
-        items.push_back(res);
-        num_indexed++;
+    void index_success(const index_record & record) {
+        indexed = Option<bool>(true);
     }
 };
 
@@ -252,7 +224,7 @@ public:
                           std::vector<std::vector<KV*>> & override_result_kvs,
                           const size_t typo_tokens_threshold);
 
-    Option<uint32_t> remove(const uint32_t seq_id, nlohmann::json & document);
+    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
@@ -276,7 +248,7 @@ public:
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema);
 
-    static batch_index_result batch_memory_index(Index *index,
+    static size_t batch_memory_index(Index *index,
                                         std::vector<index_record> & iter_batch,
                                         const std::string & default_sorting_field,
                                         const std::unordered_map<std::string, field> & search_schema,

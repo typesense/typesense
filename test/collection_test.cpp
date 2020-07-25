@@ -1254,14 +1254,26 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+std::vector<nlohmann::json> import_res_to_json(std::vector<std::string> imported_results) {
+    std::vector<nlohmann::json> out;
+
+    for(const auto& imported_result: imported_results) {
+        out.emplace_back(nlohmann::json::parse(imported_result));
+    }
+
+    return out;
+}
+
 TEST_F(CollectionTest, ImportDocuments) {
     Collection *coll_mul_fields;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::stringstream strstream;
     strstream << infile.rdbuf();
-    std::string import_records = strstream.str();
     infile.close();
+
+    std::vector<std::string> import_records;
+    StringUtils::split(strstream.str(), import_records, "\n");
 
     std::vector<field> fields = {
         field("title", field_types::STRING, false),
@@ -1282,7 +1294,6 @@ TEST_F(CollectionTest, ImportDocuments) {
     nlohmann::json import_response = import_res.get();
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
-    ASSERT_EQ(0, import_response.count("errors"));
 
     // now try searching for records
 
@@ -1304,19 +1315,20 @@ TEST_F(CollectionTest, ImportDocuments) {
     }
 
     // verify that empty import is caught gracefully
-    import_res = coll_mul_fields->add_many("");
+    std::vector<std::string> empty_records;
+    import_res = coll_mul_fields->add_many(empty_records);
     ASSERT_FALSE(import_res.ok());
     ASSERT_STREQ("The request body was empty. So, no records were imported.", import_res.error().c_str());
 
     // verify that only bad records are rejected, rest must be imported (records 2 and 4 are bad)
-    std::string more_records = std::string("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
-                                   "\"cast\": [\"Tom Skerritt\"] }\n") +
-                               "{\"title\": 123, \"starring\": \"Jazz Gosh\", \"points\": 23, "
-                                   "\"cast\": [\"Tom Skerritt\"] }\n" +
+    std::vector<std::string> more_records = {"{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                                   "\"cast\": [\"Tom Skerritt\"] }",
+                                "{\"title\": 123, \"starring\": \"Jazz Gosh\", \"points\": 23, "
+                                   "\"cast\": [\"Tom Skerritt\"] }",
                                "{\"title\": \"Test3\", \"starring\": \"Brad Fin\", \"points\": 11, "
-                                   "\"cast\": [\"Tom Skerritt\"] }\n" +
+                                   "\"cast\": [\"Tom Skerritt\"] }",
                                "{\"title\": \"Test4\", \"points\": 55, "
-                                   "\"cast\": [\"Tom Skerritt\"] }\n";
+                                   "\"cast\": [\"Tom Skerritt\"] }"};
 
     import_res = coll_mul_fields->add_many(more_records);
     ASSERT_TRUE(import_res.ok());
@@ -1324,23 +1336,25 @@ TEST_F(CollectionTest, ImportDocuments) {
     import_response = import_res.get();
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
-    ASSERT_EQ(4, import_response["items"].size());
 
-    ASSERT_TRUE(import_response["items"][0]["success"].get<bool>());
-    ASSERT_FALSE(import_response["items"][1]["success"].get<bool>());
-    ASSERT_TRUE(import_response["items"][2]["success"].get<bool>());
-    ASSERT_FALSE(import_response["items"][3]["success"].get<bool>());
+    std::vector<nlohmann::json> import_results = import_res_to_json(more_records);
 
-    ASSERT_STREQ("Field `title` must be a string.", import_response["items"][1]["error"].get<std::string>().c_str());
+    ASSERT_EQ(4, import_results.size());
+    ASSERT_TRUE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_TRUE(import_results[2]["success"].get<bool>());
+    ASSERT_FALSE(import_results[3]["success"].get<bool>());
+
+    ASSERT_STREQ("Field `title` must be a string.", import_results[1]["error"].get<std::string>().c_str());
     ASSERT_STREQ("Field `starring` has been declared in the schema, but is not found in the document.",
-                 import_response["items"][3]["error"].get<std::string>().c_str());
+                 import_results[3]["error"].get<std::string>().c_str());
 
     // record with duplicate IDs
 
-    more_records = std::string("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
-                                "\"cast\": [\"Tom Skerritt\"] }\n") +
+    more_records = {"{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                                "\"cast\": [\"Tom Skerritt\"] }",
                                 "{\"id\": \"id2\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
-                                "\"cast\": [\"Tom Skerritt\"] }";
+                                "\"cast\": [\"Tom Skerritt\"] }"};
 
     import_res = coll_mul_fields->add_many(more_records);
     ASSERT_TRUE(import_res.ok());
@@ -1350,14 +1364,16 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
-    ASSERT_FALSE(import_response["items"][0]["success"].get<bool>());
-    ASSERT_TRUE(import_response["items"][1]["success"].get<bool>());
+    import_results = import_res_to_json(more_records);
+    ASSERT_EQ(2, import_results.size());
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_TRUE(import_results[1]["success"].get<bool>());
 
-    ASSERT_STREQ("A document with id id1 already exists.", import_response["items"][0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id id1 already exists.", import_results[0]["error"].get<std::string>().c_str());
 
     // handle bad import json
 
-    more_records = std::string("[]");
+    more_records = {"[]"};
     import_res = coll_mul_fields->add_many(more_records);
     ASSERT_TRUE(import_res.ok());
 
@@ -1365,8 +1381,10 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
-    ASSERT_EQ(1, import_response["items"].size());
-    ASSERT_STREQ("Bad JSON.", import_response["items"][0]["error"].get<std::string>().c_str());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_EQ(1, import_results.size());
+    ASSERT_STREQ("Bad JSON.", import_results[0]["error"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_mul_fields");
 }

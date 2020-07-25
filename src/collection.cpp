@@ -116,11 +116,8 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
         return Option<uint32_t>(400, "Document's `id` field should be a string.");
     }
 
-    std::string doc_id = document["id"];
-    Option<nlohmann::json> doc_option = get(doc_id);
-
-    // we need to check if document ID already exists before attempting to index
-    if(doc_option.ok()) {
+    const std::string& doc_id = document["id"];
+    if(doc_exists(doc_id)) {
         return Option<uint32_t>(409, std::string("A document with id ") + doc_id + " already exists.");
     }
 
@@ -180,20 +177,19 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     return Option<nlohmann::json>(document);
 }
 
-Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) {
-    std::vector<std::string> json_lines;
-    StringUtils::split(json_lines_str, json_lines, "\n");
-
+Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines) {
     if(json_lines.empty()) {
         return Option<nlohmann::json>(400, "The request body was empty. So, no records were imported.");
     }
 
     std::vector<std::vector<index_record>> iter_batch;
-    batch_index_result result;
 
     for(size_t i = 0; i < num_indices; i++) {
-        iter_batch.push_back(std::vector<index_record>());
+        iter_batch.emplace_back(std::vector<index_record>());
     }
+
+    const size_t index_batch_size = 1000;
+    size_t num_indexed = 0;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -202,59 +198,66 @@ Option<nlohmann::json> Collection::add_many(const std::string & json_lines_str) 
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 
         if(!doc_seq_id_op.ok()) {
-            index_record record(i, 0, "", document);
-            result.failure(record, doc_seq_id_op.code(), doc_seq_id_op.error());
+            nlohmann::json index_res;
+            index_res["error"] = doc_seq_id_op.error();
+            index_res["success"] = false;
+
+            // NOTE: we overwrite the input json_lines with result to avoid memory pressure
+            json_lines[i] = index_res.dump();
             continue;
         }
 
         const uint32_t seq_id = doc_seq_id_op.get();
-        index_record record(i, seq_id, json_line, document);
-        iter_batch[seq_id % this->get_num_indices()].push_back(record);
-    }
+        index_record record(i, seq_id, document);
+        iter_batch[seq_id % this->get_num_indices()].emplace_back(record);
 
-    par_index_in_memory(iter_batch, result);
-
-    std::sort(result.items.begin(), result.items.end());
-
-    // store documents only documents that were indexed in-memory successfully
-    for(index_result & item: result.items) {
-        if(item.index_op.ok()) {
-            rocksdb::WriteBatch batch;
-            const std::string seq_id_str = std::to_string(item.record.seq_id);
-
-            batch.Put(get_doc_id_key(item.record.document["id"]), seq_id_str);
-            batch.Put(get_seq_id_key(item.record.seq_id), item.record.document.dump());
-            bool write_ok = store->batch_write(batch);
-
-            if(!write_ok) {
-                Option<bool> index_op_failure(500, "Could not write to on-disk storage.");
-                item.index_op = index_op_failure;
-
-                // remove from in-memory store to keep the state synced
-                remove_document(item.record.document, item.record.seq_id, false);
+        if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
+            batch_index(iter_batch, json_lines, num_indexed);
+            for(size_t i_index = 0; i_index < get_num_indices(); i_index++) {
+                iter_batch[i_index].clear();
             }
         }
     }
 
-    nlohmann::json resp;
-    resp["success"] = (result.num_indexed == json_lines.size());
-    resp["num_imported"] = result.num_indexed;
+    nlohmann::json resp_summary;
+    resp_summary["num_imported"] = num_indexed;
+    resp_summary["success"] = (num_indexed == json_lines.size());
 
-    resp["items"] = nlohmann::json::array();
-    for(const index_result & item: result.items) {
-        nlohmann::json item_obj;
+    return Option<nlohmann::json>(resp_summary);
+}
 
-        if(!item.index_op.ok()) {
-            item_obj["error"] = item.index_op.error();
-            item_obj["success"] = false;
-        } else {
-            item_obj["success"] = true;
+void Collection::batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
+                             size_t &num_indexed) {
+    std::vector<size_t> indexed_counts;
+    indexed_counts.reserve(index_batches.size());
+    par_index_in_memory(index_batches, indexed_counts);
+
+    // store only documents that were indexed in-memory successfully
+    for(auto& index_batch: index_batches) {
+        for(auto& index_record: index_batch) {
+            if(index_record.indexed.ok()) {
+                const std::string& seq_id_str = std::to_string(index_record.seq_id);
+
+                rocksdb::WriteBatch batch;
+                batch.Put(get_doc_id_key(index_record.document["id"]), seq_id_str);
+                batch.Put(get_seq_id_key(index_record.seq_id), index_record.document.dump());
+                bool write_ok = store->batch_write(batch);
+
+                if(!write_ok) {
+                    index_record.indexed = Option<bool>(500, "Could not write to on-disk storage.");;
+                    // remove from in-memory store to keep the state synced
+                    remove_document(index_record.document, index_record.seq_id, false);
+                }
+            }
+
+            if(index_record.indexed.ok()) {
+                json_out[index_record.position] = R"({"success": true})";
+                num_indexed++;
+            } else {
+                json_out[index_record.position] = R"({"success": false, "error": ")" + index_record.indexed.error() + "\"}";
+            }
         }
-
-        resp["items"].push_back(item_obj);
     }
-
-    return Option<nlohmann::json>(resp);
 }
 
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
@@ -272,10 +275,10 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
     return Option<>(200);
 }
 
-void Collection::par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
-                                     batch_index_result & result) {
-
-    std::vector<std::future<batch_index_result>> futures;
+size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
+                                       std::vector<size_t>& indexed_counts) {
+    std::vector<std::future<size_t>> futures;
+    size_t num_indexed = 0;
 
     for(size_t i=0; i < num_indices; i++) {
         futures.push_back(
@@ -285,11 +288,13 @@ void Collection::par_index_in_memory(std::vector<std::vector<index_record>> & it
     }
 
     for(size_t i=0; i < futures.size(); i++) {
-        batch_index_result future_res = futures[i].get();
-        result.items.insert(result.items.end(), future_res.items.begin(), future_res.items.end());
-        result.num_indexed += future_res.num_indexed;
-        num_documents += future_res.num_indexed;
+        size_t num_indexed_future = futures[i].get();
+        num_documents += num_indexed_future;
+        num_indexed += num_indexed_future;
+        indexed_counts[i] = num_indexed_future;
     }
+
+    return num_indexed;
 }
 
 void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string>& include_fields,
@@ -1169,7 +1174,7 @@ void Collection::highlight_result(const field &search_field,
                                   StringUtils & string_utils, size_t snippet_threshold,
                                   bool highlighted_fully,
                                   highlight_t & highlight) {
-    
+
     spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
     std::vector<art_leaf *> query_suggestion;
 
@@ -1311,6 +1316,10 @@ void Collection::free_leaf_indices(spp::sparse_hash_map<const art_leaf *, uint32
     }
 }
 
+bool Collection::doc_exists(const std::string & id) {
+    return store->contains(get_doc_id_key(id));
+}
+
 Option<nlohmann::json> Collection::get(const std::string & id) {
     std::string seq_id_str;
     StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
@@ -1347,8 +1356,8 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
     return Option<nlohmann::json>(document);
 }
 
-void Collection::remove_document(nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
-    std::string id = document["id"];
+void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+    const std::string& id = document["id"];
 
     Index* index = indices[seq_id % num_indices];
     index->remove(seq_id, document);
