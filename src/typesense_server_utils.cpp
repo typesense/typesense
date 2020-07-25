@@ -13,6 +13,7 @@
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
+#include "jemalloc.h"
 
 HttpServer* server;
 std::atomic<bool> quit_raft_service;
@@ -309,6 +310,16 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     if(using_jemalloc()) {
         LOG(INFO) << "Typesense is using jemalloc.";
+
+        // Due to time based decay depending on application not being idle-ish, set `background_thread`
+        // to help with releasing memory back to the OS and improve tail latency.
+        // See: https://github.com/jemalloc/jemalloc/issues/1398
+        bool background_thread = true;
+#ifdef __APPLE__
+        je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+#elif __linux__
+        mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
+#endif
     } else {
         LOG(WARNING) << "Typesense is NOT using jemalloc.";
     }

@@ -16,62 +16,51 @@
 
 #include "jemalloc.h"
 
+#if __APPLE__
+#define impl_mallctl je_mallctl
+#else
+#define impl_mallctl mallctl
+#endif
+
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
     statvfs(data_dir_path.c_str(), &st);
     uint64_t disk_total_bytes = st.f_blocks * st.f_frsize;
     uint64_t disk_used_bytes = (st.f_blocks - st.f_bavail) * st.f_frsize;
+    uint64_t disk_available_bytes = disk_total_bytes - disk_used_bytes;
     result["disk_total_bytes"] = std::to_string(disk_total_bytes);
-    result["disk_used_bytes"] = std::to_string(disk_used_bytes);
+    result["disk_available_bytes"] = std::to_string(disk_available_bytes);
 
     // MEMORY METRICS
 
-    size_t sz, active, allocated;
+    size_t sz, active = 1, allocated = 1, resident, metadata, mapped, retained;
+    sz = sizeof(size_t);
+    uint64_t epoch = 1;
 
-    /*
-        stats.active:
-        Returns the total number of bytes in active pages allocated by the application.
+    // See: http://jemalloc.net/jemalloc.3.html#stats.active
 
-        stats.allocated
-        Returns the total number of bytes allocated by the application. Will be larger than active.
+    impl_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
+    impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
 
-        active/allocated == fragmentation ratio.
-    */
+    impl_mallctl("stats.active", &active, &sz, nullptr, 0);
+    impl_mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
+    impl_mallctl("stats.resident", &resident, &sz, nullptr, 0);
+    impl_mallctl("stats.metadata", &metadata, &sz, nullptr, 0);
+    impl_mallctl("stats.mapped", &mapped, &sz, nullptr, 0);
+    impl_mallctl("stats.retained", &retained, &sz, nullptr, 0);
 
-#ifdef __APPLE__
-    je_mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
-    je_mallctl("stats.active", &active, &sz, nullptr, 0);
-    je_mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
-#elif __linux__
-    mallctl("thread.tcache.flush", nullptr, nullptr, nullptr, 0);
-    mallctl("stats.active", &active, &sz, nullptr, 0);
-    mallctl("stats.allocated", &allocated, &sz, nullptr, 0);
-#else
-    active = allocated = 0;
-#endif
+    result["typesense_memory_active_bytes"] = std::to_string(active);
+    result["typesense_memory_allocated_bytes"] = std::to_string(allocated);
+    result["typesense_memory_resident_bytes"] = std::to_string(active);
+    result["typesense_memory_metadata_bytes"] = std::to_string(metadata);
+    result["typesense_memory_mapped_bytes"] = std::to_string(mapped);
+    result["typesense_memory_retained_bytes"] = std::to_string(retained);
 
-    if(active != 0 && allocated != 0) {
-        // bytes allocated by allocator (jemalloc)
-        result["typesense_memory_used_bytes"] = std::to_string(allocated);
-        result["typesense_memory_active_bytes"] = std::to_string(active);
-
-        // Defragmentation ratio is calculated very similar to Redis:
-        // https://github.com/redis/redis/blob/d6180c8c8674ffdae3d6efa5f946d85fe9163464/src/defrag.c#L900
-        std::string frag_percent = format_dp(((float)active / allocated)*100 - 100);
-        result["fragmentation_percent"] = frag_percent;
-    }
-
-    rusage r_usage;
-    getrusage(RUSAGE_SELF, &r_usage);
-
-    // Bytes allocated by OS (resident set size) and is the number reported by tools such as htop.
-    // `ru_maxrss` is in bytes on OSX but in kilobytes on Linux
-#ifdef __APPLE__
-    result["typesense_memory_used_rss_bytes"] = std::to_string(r_usage.ru_maxrss);
-#elif __linux__
-    result["typesense_memory_used_rss_bytes"] = std::to_string(r_usage.ru_maxrss * 1000);
-#endif
+    // Fragmentation ratio is calculated very similar to how Redis does it:
+    // https://github.com/redis/redis/blob/d6180c8c8674ffdae3d6efa5f946d85fe9163464/src/defrag.c#L900
+    std::string frag_ratio = format_dp(1.0f - ((float)allocated / active));
+    result["typesense_memory_fragmentation_ratio"] = frag_ratio;
 
     uint64_t memory_available_bytes = 0;
     uint64_t memory_total_bytes = 0;
@@ -99,17 +88,16 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     memory_total_bytes = sys_info.totalram;
 #endif
 
-    result["memory_available_bytes"] = std::to_string(memory_available_bytes);
-    result["memory_total_bytes"] = std::to_string(memory_total_bytes);
+    result["system_memory_available_bytes"] = std::to_string(memory_available_bytes);
+    result["system_memory_total_bytes"] = std::to_string(memory_total_bytes);
 
     // CPU METRICS
 #if __linux__
     const std::vector<cpu_stat_t>& cpu_stats = get_cpu_stats();
 
     for(size_t i = 0; i < cpu_stats.size(); i++) {
-        std::string cpu_label = std::to_string(i+1);
-        result["cpu" + cpu_label + "_active_percentage"] = cpu_stats[i].active;
-        result["cpu" + cpu_label + "_idle_percentage"] = cpu_stats[i].idle;
+        std::string cpu_id = (i == 0) ? "" : std::to_string(i);
+        result["cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
     }
 #endif
 }
