@@ -519,7 +519,7 @@ bool collection_export_handler(http_req* req, http_res* res, void* data) {
         res->final = false;
         it->Next();
 
-        // apppend a new line character if there is going to be one more record to send
+        // append a new line character if there is going to be one more record to send
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             res->body += "\n";
         }
