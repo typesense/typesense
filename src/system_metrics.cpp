@@ -28,9 +28,8 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     statvfs(data_dir_path.c_str(), &st);
     uint64_t disk_total_bytes = st.f_blocks * st.f_frsize;
     uint64_t disk_used_bytes = (st.f_blocks - st.f_bavail) * st.f_frsize;
-    uint64_t disk_available_bytes = disk_total_bytes - disk_used_bytes;
-    result["disk_total_bytes"] = std::to_string(disk_total_bytes);
-    result["disk_available_bytes"] = std::to_string(disk_available_bytes);
+    result["system_disk_total_bytes"] = std::to_string(disk_total_bytes);
+    result["system_disk_used_bytes"] = std::to_string(disk_used_bytes);
 
     // MEMORY METRICS
 
@@ -88,7 +87,8 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     memory_total_bytes = sys_info.totalram;
 #endif
 
-    result["system_memory_available_bytes"] = std::to_string(memory_available_bytes);
+    uint64_t memory_used_bytes = memory_total_bytes - memory_available_bytes;
+    result["system_memory_used_bytes"] = std::to_string(memory_used_bytes);
     result["system_memory_total_bytes"] = std::to_string(memory_total_bytes);
 
     // CPU METRICS
@@ -97,7 +97,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
 
     for(size_t i = 0; i < cpu_stats.size(); i++) {
         std::string cpu_id = (i == 0) ? "" : std::to_string(i);
-        result["cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
+        result["system_cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
     }
 #endif
 }
