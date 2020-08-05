@@ -410,7 +410,8 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     req->res.status = response->status_code;
     req->res.reason = http_res::get_status_reason(response->status_code);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, nullptr, H2O_STRLIT("application/json; charset=utf-8"));
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE,
+            nullptr, response->content_type_header.c_str(), response->content_type_header.size());
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 
