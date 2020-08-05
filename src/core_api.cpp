@@ -605,6 +605,7 @@ bool post_import_documents(http_req & req, http_res & res) {
         }
     }
 
+    res.content_type_header = "text/plain; charset=utf8";
     res.set_200(ss.str());
     return true;
 }
