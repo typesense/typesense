@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <map>
 #include <curl/curl.h>
 
 /*
@@ -17,9 +18,9 @@ private:
 
     static size_t curl_write (void *contents, size_t size, size_t nmemb, std::string *s);
 
-    static CURL* init_curl(const std::string & url, std::string & buffer);
+    static CURL* init_curl(const std::string& url, std::string& response);
 
-    static long perform_curl(CURL *curl);
+    static long perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers);
 
 public:
     static HttpClient & get_instance() {
@@ -32,13 +33,17 @@ public:
 
     void init(const std::string & api_key);
 
-    static long get_response(const std::string & url, std::string & response, long timeout_ms=4000);
+    static long get_response(const std::string& url, std::string& response,
+                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
 
-    static long delete_response(const std::string & url, std::string & response, long timeout_ms=120000);
+    static long delete_response(const std::string& url, std::string& response,
+                                std::map<std::string, std::string>& res_headers, long timeout_ms=120000);
 
     static long post_response(const std::string & url, const std::string & body, std::string & response,
-                              long timeout_ms=4000);
+                              std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
 
     static long put_response(const std::string & url, const std::string & body, std::string & response,
-                             long timeout_ms=4000);
+                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+
+    static void extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers);
 };
