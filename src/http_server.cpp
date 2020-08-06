@@ -379,7 +379,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         }
 
         // for writes, we defer to replication_state
-        if(http_method != "GET") {
+        if(http_method == "POST" || http_method == "PUT" || http_method == "DELETE") {
             self->http_server->get_replication_state()->write(request, response);
             return 0;
         }

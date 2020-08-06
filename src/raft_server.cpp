@@ -114,17 +114,22 @@ void ReplicationState::write(http_req* request, http_res* response) {
             const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
             std::string url = scheme + "://" + leader_host_port + path;
 
+            std::map<std::string, std::string> res_headers;
+
             if(request->http_method == "POST") {
                 std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res);
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers);
+                response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             } else if(request->http_method == "PUT") {
                 std::string api_res;
-                long status = HttpClient::put_response(url, request->body, api_res);
+                long status = HttpClient::put_response(url, request->body, api_res, res_headers);
+                response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             } else if(request->http_method == "DELETE") {
                 std::string api_res;
-                long status = HttpClient::delete_response(url, api_res);
+                long status = HttpClient::delete_response(url, api_res, res_headers);
+                response->content_type_header = res_headers["content-type"];
                 response->set_body(status, api_res);
             } else {
                 const std::string& err = "Forwarding for http method not implemented: " + request->http_method;

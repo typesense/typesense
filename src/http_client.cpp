@@ -7,7 +7,8 @@
 std::string HttpClient::api_key = "";
 std::string HttpClient::ca_cert_path = "";
 
-long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response, long timeout_ms) {
+long HttpClient::post_response(const std::string &url, const std::string &body, std::string &response,
+                               std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
@@ -15,10 +16,11 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    return perform_curl(curl);
+    return perform_curl(curl, res_headers);
 }
 
-long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response, long timeout_ms) {
+long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response,
+                              std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
@@ -27,10 +29,11 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    return perform_curl(curl);
+    return perform_curl(curl, res_headers);
 }
 
-long HttpClient::delete_response(const std::string &url, std::string &response, long timeout_ms) {
+long HttpClient::delete_response(const std::string &url, std::string &response,
+                                 std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
@@ -38,17 +41,18 @@ long HttpClient::delete_response(const std::string &url, std::string &response, 
 
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-    return perform_curl(curl);
+    return perform_curl(curl, res_headers);
 }
 
-long HttpClient::get_response(const std::string &url, std::string &response, long timeout_ms) {
+long HttpClient::get_response(const std::string &url, std::string &response,
+                              std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
     if(curl == nullptr) {
         return 500;
     }
 
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    return perform_curl(curl);
+    return perform_curl(curl, res_headers);
 }
 
 void HttpClient::init(const std::string &api_key) {
@@ -74,7 +78,7 @@ void HttpClient::init(const std::string &api_key) {
     }
 }
 
-long HttpClient::perform_curl(CURL *curl) {
+long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& res_headers) {
     struct curl_slist *chunk = nullptr;
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());
@@ -89,18 +93,26 @@ long HttpClient::perform_curl(CURL *curl) {
 
     long http_code = 500;
     curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+    extract_response_headers(curl, res_headers);
     curl_easy_cleanup(curl);
 
     return http_code == 0 ? 500 : http_code;
 }
 
-CURL *HttpClient::init_curl(const std::string &url, std::string &buffer) {
+void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers) {
+    char* content_type;
+    curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+    res_headers.emplace("content-type", content_type);
+}
+
+CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
         nlohmann::json res;
         res["message"] = "Failed to initialize HTTP client.";
-        buffer = res.dump();
+        response = res.dump();
         return nullptr;
     }
 
@@ -118,7 +130,7 @@ CURL *HttpClient::init_curl(const std::string &url, std::string &buffer) {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
     return curl;
 }
