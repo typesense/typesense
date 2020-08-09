@@ -35,6 +35,8 @@ private:
 
     size_t default_num_indices;
 
+    float max_memory_ratio;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -58,7 +60,8 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    void init(Store *store, const size_t default_num_indices, const std::string & auth_key);
+    void init(Store *store, const size_t default_num_indices, const float max_memory_ratio,
+              const std::string & auth_key);
 
     Option<bool> load(const size_t init_batch_size=1000);
 

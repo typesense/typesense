@@ -130,6 +130,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
 
+    options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
+
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
@@ -371,7 +373,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     Store store(db_dir);
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, config.get_indices_per_collection(),
-                           config.get_api_key());
+                           config.get_max_memory_ratio(), config.get_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();

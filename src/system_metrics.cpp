@@ -22,6 +22,9 @@
 #define impl_mallctl mallctl
 #endif
 
+uint64_t SystemMetrics::non_proc_mem_last_access = 0;
+uint64_t SystemMetrics::non_proc_mem_bytes = 0;
+
 void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result) {
     // DISK METRICS
     struct statvfs st{};
@@ -61,8 +64,58 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     std::string frag_ratio = format_dp(1.0f - ((float)allocated / active));
     result["typesense_memory_fragmentation_ratio"] = frag_ratio;
 
+    result["system_memory_total_bytes"] = std::to_string(get_memory_total_bytes());
+    result["system_memory_used_bytes"] = std::to_string(get_memory_used_bytes());
+
+    // CPU METRICS
+#if __linux__
+    const std::vector<cpu_stat_t>& cpu_stats = get_cpu_stats();
+
+    for(size_t i = 0; i < cpu_stats.size(); i++) {
+        std::string cpu_id = (i == 0) ? "" : std::to_string(i);
+        result["system_cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
+    }
+#endif
+}
+
+float SystemMetrics::used_memory_ratio() {
+    // non process memory bytes is updated only periodically since it's expensive
+    uint64_t memory_consumed_bytes = get_memory_active_bytes() + get_memory_non_proc_bytes();
+    uint64_t memory_total_bytes = get_memory_total_bytes();
+
+    return ((float)memory_consumed_bytes / memory_total_bytes);
+}
+
+uint64_t SystemMetrics::linux_get_mem_available_bytes() {
+    std::string token;
+    std::ifstream file("/proc/meminfo");
+    while(file >> token) {
+        if(token == "MemAvailable:") {
+            uint64_t mem_kB;
+            if(file >> mem_kB) {
+                return mem_kB * 1024;
+            } else {
+                return 0;
+            }
+        }
+    }
+
+    return 0; // nothing found
+}
+
+uint64_t SystemMetrics::get_memory_active_bytes() {
+    size_t sz, memory_active_bytes = 1;
+    sz = sizeof(size_t);
+    uint64_t epoch = 1;
+
+    impl_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    impl_mallctl("stats.active", &memory_active_bytes, &sz, nullptr, 0);
+    return memory_active_bytes;
+}
+
+uint64_t SystemMetrics::get_memory_used_bytes() {
+    uint64_t memory_total_bytes = get_memory_total_bytes();
     uint64_t memory_available_bytes = 0;
-    uint64_t memory_total_bytes = 0;
 
 #ifdef __APPLE__
     vm_size_t mach_page_size;
@@ -74,30 +127,47 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     if (KERN_SUCCESS == host_page_size(mach_port, &mach_page_size) &&
         KERN_SUCCESS == host_statistics64(mach_port, HOST_VM_INFO,
                                           (host_info64_t)&vm_stats, &count)) {
-        memory_available_bytes = (int64_t)(vm_stats.free_count) * (int64_t)mach_page_size;
+        memory_available_bytes = memory_total_bytes -
+                ((int64_t)(vm_stats.active_count + vm_stats.wire_count) * (int64_t)mach_page_size);
     }
+#elif __linux__
+    struct sysinfo sys_info;
+    sysinfo(&sys_info);
+    memory_available_bytes = linux_get_mem_available_bytes();
+#endif
 
+    return memory_available_bytes;
+}
+
+uint64_t SystemMetrics::get_memory_total_bytes() {
+    uint64_t memory_total_bytes = 0;
+
+#ifdef __APPLE__
     uint64_t pages = sysconf(_SC_PHYS_PAGES);
     uint64_t page_size = sysconf(_SC_PAGE_SIZE);
     memory_total_bytes = (pages * page_size);
 #elif __linux__
     struct sysinfo sys_info;
     sysinfo(&sys_info);
-    memory_available_bytes = linux_get_mem_available_bytes();
     memory_total_bytes = sys_info.totalram;
 #endif
 
-    uint64_t memory_used_bytes = memory_total_bytes - memory_available_bytes;
-    result["system_memory_used_bytes"] = std::to_string(memory_used_bytes);
-    result["system_memory_total_bytes"] = std::to_string(memory_total_bytes);
+    return memory_total_bytes;
+}
 
-    // CPU METRICS
-#if __linux__
-    const std::vector<cpu_stat_t>& cpu_stats = get_cpu_stats();
+uint64_t SystemMetrics::get_memory_non_proc_bytes() {
+    uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
 
-    for(size_t i = 0; i < cpu_stats.size(); i++) {
-        std::string cpu_id = (i == 0) ? "" : std::to_string(i);
-        result["system_cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
+    uint64_t seconds_since_last = (now - non_proc_mem_last_access);
+
+    if(seconds_since_last > NON_PROC_MEM_UPDATE_INTERVAL_SECONDS) {
+        uint64_t memory_used_bytes = get_memory_used_bytes();
+        non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
     }
-#endif
+
+    non_proc_mem_last_access = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+    return non_proc_mem_bytes;
 }
