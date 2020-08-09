@@ -33,6 +33,10 @@ struct cpu_stat_t {
 class SystemMetrics {
 private:
 
+    const static uint64_t NON_PROC_MEM_UPDATE_INTERVAL_SECONDS = 60;
+    static uint64_t non_proc_mem_last_access;
+    static uint64_t non_proc_mem_bytes;
+
     size_t get_idle_time(const cpu_data_t &e) {
         return e.times[S_IDLE] +
                e.times[S_IOWAIT];
@@ -117,25 +121,28 @@ private:
         }
     }
 
-    static unsigned long linux_get_mem_available_bytes() {
-        std::string token;
-        std::ifstream file("/proc/meminfo");
-        while(file >> token) {
-            if(token == "MemAvailable:") {
-                unsigned long mem_kb;
-                if(file >> mem_kb) {
-                    return mem_kb * 1000;
-                } else {
-                    return 0;
-                }
-            }
-        }
+    static uint64_t get_memory_total_bytes();
 
-        return 0; // nothing found
-    }
+    static uint64_t get_memory_used_bytes();
+
+    static uint64_t linux_get_mem_available_bytes();
+
+    static uint64_t get_memory_active_bytes();
+
+    static uint64_t get_memory_non_proc_bytes();
 
 public:
+
+    SystemMetrics() {
+        non_proc_mem_last_access = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        uint64_t memory_used_bytes = get_memory_used_bytes();
+        non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
+    }
+
     void get(const std::string & data_dir_path, nlohmann::json& result);
+
+    static float used_memory_ratio();
 
     std::vector<cpu_stat_t> get_cpu_stats() {
         std::vector<cpu_data_t> cpu_data1;

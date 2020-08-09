@@ -142,6 +142,8 @@ private:
 
     size_t num_indices;
 
+    const float max_memory_ratio;
+
     std::string get_doc_id_key(const std::string & doc_id);
 
     std::string get_seq_id_key(uint32_t seq_id);
@@ -177,7 +179,7 @@ public:
 
     Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field> & fields,
-               const std::string & default_sorting_field, const size_t num_indices);
+               const std::string & default_sorting_field, const size_t num_indices, const float max_memory_ratio);
 
     ~Collection();
 
@@ -292,5 +294,7 @@ public:
 
     void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
                      size_t &num_indexed);
+
+    bool is_exceeding_memory_threshold() const;
 };
 

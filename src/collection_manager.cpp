@@ -38,7 +38,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             store,
                                             fields,
                                             default_sorting_field,
-                                            default_num_indices);
+                                            default_num_indices,
+                                            max_memory_ratio);
 
     return collection;
 }
@@ -50,10 +51,12 @@ void CollectionManager::add_to_collections(Collection* collection) {
 
 void CollectionManager::init(Store *store,
                              const size_t default_num_indices,
+                             const float max_memory_ratio,
                              const std::string & auth_key) {
     this->store = store;
     this->bootstrap_auth_key = auth_key;
     this->default_num_indices = default_num_indices;
+    this->max_memory_ratio = max_memory_ratio;
 
     auth_manager.init(store);
 }
@@ -271,7 +274,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
     collection_meta[COLLECTION_CREATED] = created_at;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field, this->default_num_indices);
+                                                default_sorting_field, this->default_num_indices,
+                                                this->max_memory_ratio);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;

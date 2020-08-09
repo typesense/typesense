@@ -31,6 +31,8 @@ private:
 
     size_t indices_per_collection;
 
+    float max_memory_ratio;
+
     std::string config_file;
     int config_file_validity;
 
@@ -42,6 +44,7 @@ public:
         this->peering_port = 8107;
         this->enable_cors = false;
         this->indices_per_collection = 4;
+        this->max_memory_ratio = 1.0f;
     }
 
     // setters
@@ -154,6 +157,10 @@ public:
         return this->nodes;
     }
 
+    float get_max_memory_ratio() const {
+        return this->max_memory_ratio;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -205,6 +212,10 @@ public:
         std::string enable_cors_str = get_env("TYPESENSE_ENABLE_CORS");
         StringUtils::toupper(enable_cors_str);
         this->enable_cors = ("TRUE" == enable_cors_str) ? true : false;
+
+        if(!get_env("TYPESENSE_MAX_MEMORY_RATIO").empty()) {
+            this->max_memory_ratio = std::stof(get_env("TYPESENSE_MAX_MEMORY_RATIO"));
+        }
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -286,6 +297,10 @@ public:
         if(reader.Exists("server", "nodes")) {
             this->nodes = reader.Get("server", "nodes", "");
         }
+
+        if(reader.Exists("server", "max-memory-ratio")) {
+            this->max_memory_ratio = (float) reader.GetReal("server", "max-memory-ratio", 1.0f);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -348,6 +363,10 @@ public:
 
         if(options.exist("nodes")) {
             this->nodes = options.get<std::string>("nodes");
+        }
+
+        if(options.exist("max-memory-ratio")) {
+            this->max_memory_ratio = options.get<float>("max-memory-ratio");
         }
     }
 

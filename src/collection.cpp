@@ -10,6 +10,7 @@
 #include <future>
 #include <chrono>
 #include <rocksdb/write_batch.h>
+#include <system_metrics.h>
 #include "topster.h"
 #include "logger.h"
 
@@ -36,9 +37,12 @@ struct match_index_t {
 
 Collection::Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
-                       const std::string & default_sorting_field, const size_t num_indices):
+                       const std::string & default_sorting_field, const size_t num_indices,
+                       const float max_memory_ratio):
                        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       fields(fields), default_sorting_field(default_sorting_field), num_indices(num_indices) {
+                       fields(fields), default_sorting_field(default_sorting_field),
+                       num_indices(num_indices),
+                       max_memory_ratio(max_memory_ratio) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -155,6 +159,10 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
         return Option<nlohmann::json>(doc_seq_id_op.code(), doc_seq_id_op.error());
     }
 
+    if(is_exceeding_memory_threshold()) {
+        return Option<nlohmann::json>(403, "Max memory ratio exceeded.");
+    }
+
     const uint32_t seq_id = doc_seq_id_op.get();
     const std::string seq_id_str = std::to_string(seq_id);
 
@@ -182,6 +190,8 @@ Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines
         return Option<nlohmann::json>(400, "The request body was empty. So, no records were imported.");
     }
 
+    LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
+
     std::vector<std::vector<index_record>> iter_batch;
 
     for(size_t i = 0; i < num_indices; i++) {
@@ -190,6 +200,7 @@ Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines
 
     const size_t index_batch_size = 1000;
     size_t num_indexed = 0;
+    bool exceeds_memory_limit = false;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -200,6 +211,21 @@ Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines
         if(!doc_seq_id_op.ok()) {
             nlohmann::json index_res;
             index_res["error"] = doc_seq_id_op.error();
+            index_res["success"] = false;
+
+            // NOTE: we overwrite the input json_lines with result to avoid memory pressure
+            json_lines[i] = index_res.dump();
+            continue;
+        }
+
+        // check for memory threshold before allowing subsequent batches
+        if(is_exceeding_memory_threshold()) {
+            exceeds_memory_limit = true;
+        }
+
+        if(exceeds_memory_limit) {
+            nlohmann::json index_res;
+            index_res["error"] = "Max memory ratio exceeded.";
             index_res["success"] = false;
 
             // NOTE: we overwrite the input json_lines with result to avoid memory pressure
@@ -224,6 +250,10 @@ Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines
     resp_summary["success"] = (num_indexed == json_lines.size());
 
     return Option<nlohmann::json>(resp_summary);
+}
+
+bool Collection::is_exceeding_memory_threshold() const {
+    return SystemMetrics::used_memory_ratio() > max_memory_ratio;
 }
 
 void Collection::batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
