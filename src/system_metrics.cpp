@@ -114,10 +114,10 @@ uint64_t SystemMetrics::get_memory_active_bytes() {
 }
 
 uint64_t SystemMetrics::get_memory_used_bytes() {
-    uint64_t memory_total_bytes = get_memory_total_bytes();
     uint64_t memory_available_bytes = 0;
 
 #ifdef __APPLE__
+    uint64_t memory_total_bytes = get_memory_total_bytes();
     vm_size_t mach_page_size;
     mach_port_t mach_port;
     mach_msg_type_number_t count;

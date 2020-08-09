@@ -48,29 +48,34 @@ private:
                e.times[S_SYSTEM] +
                e.times[S_IRQ] +
                e.times[S_SOFTIRQ] +
-               e.times[S_STEAL] +
-               e.times[S_GUEST] +
-               e.times[S_GUEST_NICE];
+               e.times[S_STEAL];
     }
 
-    std::vector<cpu_stat_t> compute_cpu_stats(const std::vector<cpu_data_t>& cpu_data1,
-                                              const std::vector<cpu_data_t>& cpu_data2) {
+    std::vector<cpu_stat_t> compute_cpu_stats(const std::vector<cpu_data_t>& cpu_data_prev,
+                                              const std::vector<cpu_data_t>& cpu_data_now) {
         std::vector<cpu_stat_t> stats;
-        const size_t NUM_ENTRIES = cpu_data1.size();
+        const size_t NUM_ENTRIES = cpu_data_prev.size();
 
         for (size_t i = 0; i < NUM_ENTRIES; ++i) {
+            const cpu_data_t &prev = cpu_data_prev[i];
+            const cpu_data_t &now = cpu_data_now[i];
+
+            auto prev_idle = get_idle_time(prev);
+            auto now_idle = get_idle_time(now);
+
+            auto prev_active = get_active_time(prev);
+            auto now_active = get_active_time(now);
+
+            auto prev_total = prev_idle + prev_active;
+            auto now_total = now_idle + now_active;
+
+            auto total_diff = float(now_total - prev_total);
+            auto idle_diff = float(now_idle - prev_idle);
+
+            float active_percentage = ((total_diff - idle_diff) / total_diff) * 100;
+            float idle_percentage = 100 - active_percentage;
+
             cpu_stat_t stat;
-
-            const cpu_data_t &d1 = cpu_data1[i];
-            const cpu_data_t &d2 = cpu_data2[i];
-
-            const float active_time = static_cast<float>(get_active_time(d2) - get_active_time(d1));
-            const float idle_time = static_cast<float>(get_idle_time(d2) - get_idle_time(d1));
-            const float total_time = active_time + idle_time;
-
-            float active_percentage = 100.f * (active_time / total_time);
-            float idle_percentage = 100.f * (idle_time / total_time);
-
             stat.active = format_dp(active_percentage);
             stat.idle = format_dp(idle_percentage);
             stats.push_back(stat);
@@ -145,19 +150,18 @@ public:
     static float used_memory_ratio();
 
     std::vector<cpu_stat_t> get_cpu_stats() {
-        std::vector<cpu_data_t> cpu_data1;
-        std::vector<cpu_data_t> cpu_data2;
-
         // snapshot 1
-        read_cpu_data(cpu_data1);
+        std::vector<cpu_data_t> cpu_data_prev;
+        read_cpu_data(cpu_data_prev);
 
         // 100ms pause
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
         // snapshot 2
-        read_cpu_data(cpu_data2);
+        std::vector<cpu_data_t> cpu_data_now;
+        read_cpu_data(cpu_data_now);
 
         // compute
-        return compute_cpu_stats(cpu_data1, cpu_data2);
+        return compute_cpu_stats(cpu_data_prev, cpu_data_now);
     }
 };
