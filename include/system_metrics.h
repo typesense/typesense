@@ -6,6 +6,7 @@
 #include "json.hpp"
 
 const int NUM_CPU_STATES = 10;
+const int NUM_NETWORK_STATS = 16;
 
 struct cpu_data_t {
     std::string cpu;
@@ -144,6 +145,8 @@ public:
         uint64_t memory_used_bytes = get_memory_used_bytes();
         non_proc_mem_bytes = memory_used_bytes - get_memory_active_bytes();
     }
+
+    static void linux_get_network_data(const std::string & stat_path, uint64_t& received_bytes, uint64_t& sent_bytes);
 
     void get(const std::string & data_dir_path, nlohmann::json& result);
 

@@ -14,6 +14,7 @@
 #include <mach/mach_host.h>
 #endif
 
+#include "string_utils.h"
 #include "jemalloc.h"
 
 #if __APPLE__
@@ -67,7 +68,7 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
     result["system_memory_total_bytes"] = std::to_string(get_memory_total_bytes());
     result["system_memory_used_bytes"] = std::to_string(get_memory_used_bytes());
 
-    // CPU METRICS
+    // CPU and Network metrics
 #if __linux__
     const std::vector<cpu_stat_t>& cpu_stats = get_cpu_stats();
 
@@ -75,6 +76,11 @@ void SystemMetrics::get(const std::string &data_dir_path, nlohmann::json &result
         std::string cpu_id = (i == 0) ? "" : std::to_string(i);
         result["system_cpu" + cpu_id + "_active_percentage"] = cpu_stats[i].active;
     }
+
+    uint64_t received_bytes, sent_bytes;
+    linux_get_network_data("/proc/net/dev", received_bytes, sent_bytes);
+    result["system_network_received_bytes"] = std::to_string(received_bytes);
+    result["system_network_sent_bytes"] = std::to_string(sent_bytes);
 #endif
 }
 
@@ -170,4 +176,52 @@ uint64_t SystemMetrics::get_memory_non_proc_bytes() {
             std::chrono::system_clock::now().time_since_epoch()).count();
 
     return non_proc_mem_bytes;
+}
+
+void SystemMetrics::linux_get_network_data(const std::string & stat_path,
+                                           uint64_t &received_bytes, uint64_t &sent_bytes) {
+    //std::ifstream stat_file("/proc/net/dev");
+    std::ifstream stat_file(stat_path);
+    std::string line;
+
+    // TODO: this probably needs to be handled better!
+    const std::string STR_ENS5("ens5");
+    const std::string STR_ETH0("eth0");
+
+    /*
+        Inter-|   Receive                                                |  Transmit
+        face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+        ens5: 324278716  897631    0    0    0     0          0         0 93933882  575535    0    0    0     0       0          0
+    */
+
+    received_bytes = 0;
+    sent_bytes = 0;
+
+    while (std::getline(stat_file, line)) {
+        StringUtils::trim(line);
+        if (line.rfind(STR_ENS5, 0) == 0 || line.rfind(STR_ETH0, 0) == 0) {
+            std::istringstream ss(line);
+            std::string throwaway;
+
+            // read interface label
+            ss >> throwaway;
+
+            uint64_t stat_value;
+
+            // read stats
+            for (int i = 0; i < NUM_NETWORK_STATS; i++) {
+                ss >> stat_value;
+
+                if(i == 0) {
+                    received_bytes = stat_value;
+                }
+
+                if(i == 8) {
+                    sent_bytes = stat_value;
+                }
+            }
+
+            break;
+        }
+    }
 }
