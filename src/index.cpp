@@ -894,111 +894,133 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
 
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
+        if(search_index.count(a_filter.field_name) == 0) {
+            continue;
+        }
 
-        if(search_index.count(a_filter.field_name) != 0) {
-            art_tree* t = search_index.at(a_filter.field_name);
-            field f = search_schema.at(a_filter.field_name);
-            std::vector<std::pair<uint32_t*, size_t>> filter_result_array_pairs;
+        art_tree* t = search_index.at(a_filter.field_name);
+        field f = search_schema.at(a_filter.field_name);
 
-            if(f.is_integer()) {
-                std::vector<const art_leaf*> leaves;
+        uint32_t* result_ids = nullptr;
+        size_t result_ids_len = 0;
 
-                for(const std::string & filter_value: a_filter.values) {
-                    if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
-                        int32_t value = (int32_t) std::stoi(filter_value);
-                        art_int32_search(t, value, a_filter.compare_operator, leaves);
-                    } else { // int64
-                        int64_t value = (int64_t) std::stol(filter_value);
-                        art_int64_search(t, value, a_filter.compare_operator, leaves);
-                    }
+        if(f.is_integer()) {
+            std::vector<const art_leaf*> leaves;
+            std::vector<uint32_t> ids;
 
-                    for(const art_leaf* leaf: leaves) {
-                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
-                                                                leaf->values->ids.getLength()));
-                    }
-                }
-            } else if(f.is_float()) {
-                std::vector<const art_leaf*> leaves;
-
-                for(const std::string & filter_value: a_filter.values) {
-                    float value = (float) std::atof(filter_value.c_str());
-                    art_float_search(t, value, a_filter.compare_operator, leaves);
-                    for(const art_leaf* leaf: leaves) {
-                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
-                                                                leaf->values->ids.getLength()));
-                    }
-                }
-            } else if(f.is_bool()) {
-                std::vector<const art_leaf*> leaves;
-
-                for(const std::string & filter_value: a_filter.values) {
-                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(),
-                                                             filter_value.length());
-                    if(leaf) {
-                        filter_result_array_pairs.push_back(std::make_pair(leaf->values->ids.uncompress(),
-                                                                           leaf->values->ids.getLength()));
-                    }
-                }
-            } else if(f.is_string()) {
-                for(const std::string & filter_value: a_filter.values) {
-                    std::vector<std::string> str_tokens;
-                    StringUtils::split(filter_value, str_tokens, " ");
-
-                    uint32_t* filtered_ids = nullptr;
-                    size_t filtered_size = 0;
-
-                    for(size_t i = 0; i < str_tokens.size(); i++) {
-                        std::string & str_token = str_tokens[i];
-                        string_utils.unicode_normalize(str_token);
-
-                        art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
-                                                                 str_token.length()+1);
-                        if(leaf == nullptr) {
-                            continue;
-                        }
-
-                        if(i == 0) {
-                            filtered_ids = leaf->values->ids.uncompress();
-                            filtered_size = leaf->values->ids.getLength();
-                        } else {
-                            // do AND for an exact match
-                            uint32_t* out = nullptr;
-                            uint32_t* leaf_ids = leaf->values->ids.uncompress();
-                            filtered_size = ArrayUtils::and_scalar(filtered_ids, filtered_size, leaf_ids,
-                                                                   leaf->values->ids.getLength(), &out);
-                            delete[] leaf_ids;
-                            delete[] filtered_ids;
-                            filtered_ids = out;
-                        }
-                    }
-
-                    filter_result_array_pairs.emplace_back(filtered_ids, filtered_size);
+            for(const std::string & filter_value: a_filter.values) {
+                if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
+                    int32_t value = (int32_t) std::stoi(filter_value);
+                    art_int32_search(t, value, a_filter.compare_operator, leaves);
+                } else { // int64
+                    int64_t value = (int64_t) std::stol(filter_value);
+                    art_int64_search(t, value, a_filter.compare_operator, leaves);
                 }
             }
 
-            uint32_t* result_ids = nullptr;
-            size_t result_ids_length = union_of_ids(filter_result_array_pairs, &result_ids);
+            result_ids = collate_leaf_ids(leaves, result_ids_len);
 
-            if(i == 0) {
-                filter_ids = result_ids;
-                filter_ids_length = result_ids_length;
-            } else {
-                uint32_t* filtered_results = nullptr;
-                filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
-                                                             result_ids_length, &filtered_results);
-                delete [] result_ids;
-                delete [] filter_ids;
-                filter_ids = filtered_results;
+        } else if(f.is_float()) {
+            std::vector<const art_leaf*> leaves;
+            std::vector<uint32_t> ids;
+
+            for(const std::string & filter_value: a_filter.values) {
+                float value = (float) std::atof(filter_value.c_str());
+                art_float_search(t, value, a_filter.compare_operator, leaves);
             }
 
-            for(std::pair<uint32_t*, size_t> & filter_result_array_pair: filter_result_array_pairs) {
-                delete[] filter_result_array_pair.first;
+            result_ids = collate_leaf_ids(leaves, result_ids_len);
+
+        } else if(f.is_bool()) {
+            std::vector<const art_leaf*> leaves;
+
+            for(const std::string & filter_value: a_filter.values) {
+                art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) filter_value.c_str(),
+                                                         filter_value.length());
+                if(leaf) {
+                    leaves.push_back(leaf);
+                }
             }
+            result_ids = collate_leaf_ids(leaves, result_ids_len);
+        } else if(f.is_string()) {
+            uint32_t* ids = nullptr;
+            size_t ids_size = 0;
+
+            for(const std::string & filter_value: a_filter.values) {
+                std::vector<std::string> str_tokens;
+                StringUtils::split(filter_value, str_tokens, " ");
+
+                uint32_t* strt_ids = nullptr;
+                size_t strt_ids_size = 0;
+
+                // there could be multiple tokens in a filter value, which we have to treat as ANDs
+                // e.g. country: South Africa
+                for(auto & str_token : str_tokens) {
+                    string_utils.unicode_normalize(str_token);
+
+                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
+                                                             str_token.length()+1);
+                    if(leaf == nullptr) {
+                        continue;
+                    }
+
+                    if(strt_ids == nullptr) {
+                        strt_ids = leaf->values->ids.uncompress();
+                        strt_ids_size = leaf->values->ids.getLength();
+                    } else {
+                        // do AND for an exact match
+                        uint32_t* out = nullptr;
+                        uint32_t* leaf_ids = leaf->values->ids.uncompress();
+                        strt_ids_size = ArrayUtils::and_scalar(strt_ids, strt_ids_size, leaf_ids,
+                                                               leaf->values->ids.getLength(), &out);
+                        delete[] leaf_ids;
+                        delete[] strt_ids;
+                        strt_ids = out;
+                    }
+                }
+
+                uint32_t* out = nullptr;
+                ids_size = ArrayUtils::or_scalar(ids, ids_size, strt_ids, strt_ids_size, &out);
+                delete[] strt_ids;
+                delete[] ids;
+                ids = out;
+            }
+
+            result_ids = ids;
+            result_ids_len = ids_size;
+        }
+
+        if(i == 0) {
+            filter_ids = result_ids;
+            filter_ids_length = result_ids_len;
+        } else {
+            uint32_t* filtered_results = nullptr;
+            filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
+                                                       result_ids_len, &filtered_results);
+            delete [] result_ids;
+            delete [] filter_ids;
+            filter_ids = filtered_results;
         }
     }
 
     *filter_ids_out = filter_ids;
     return Option<>(filter_ids_length);
+}
+
+uint32_t* Index::collate_leaf_ids(const std::vector<const art_leaf *> &leaves, size_t& result_ids_len) const {
+    std::vector<uint32_t> ids;
+
+    for(const art_leaf* leaf: leaves) {
+        uint32_t num_ids = leaf->values->ids.getLength();
+        uint32_t* leaf_ids = leaf->values->ids.uncompress();
+        std::copy(leaf_ids, leaf_ids + num_ids, std::back_inserter(ids));
+    }
+
+    uint32_t* result_ids = new uint32_t[ids.size()];
+    std::sort(ids.begin(), ids.end());
+    std::copy(ids.begin(), ids.end(), result_ids);
+    result_ids_len = ids.size();
+    return result_ids;
 }
 
 void Index::run_search() {
