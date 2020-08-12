@@ -44,8 +44,6 @@ typedef struct {
     uint8_t num_children;
     uint8_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
-    int32_t max_score;
-    uint32_t max_token_count;
 } art_node;
 
 /**

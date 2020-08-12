@@ -53,15 +53,11 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
         a_value = al->values->ids.getLength();
-    } else {
-        a_value = a->max_token_count;
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
         b_value = bl->values->ids.getLength();
-    } else {
-        b_value = b->max_token_count;
     }
 
     return a_value > b_value;
@@ -73,15 +69,11 @@ bool compare_art_node_score(const art_node* a, const art_node* b) {
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
         a_value = al->max_score;
-    } else {
-        a_value = a->max_score;
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
         b_value = bl->max_score;
-    } else {
-        b_value = b->max_score;
     }
 
     return a_value > b_value;
@@ -118,8 +110,6 @@ static art_node* alloc_node(uint8_t type) {
             abort();
     }
     n->type = type;
-    n->max_score = 0;
-    n->max_token_count = 0;
     return n;
 }
 
@@ -448,8 +438,6 @@ static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
 }
 
 static void copy_header(art_node *dest, art_node *src) {
-    dest->max_score = src->max_score;
-    dest->max_token_count = src->max_token_count;
     dest->num_children = src->num_children;
     dest->partial_len = src->partial_len;
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
@@ -457,8 +445,6 @@ static void copy_header(art_node *dest, art_node *src) {
 
 static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *child) {
     (void)ref;
-    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
-    n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->values->ids.getLength());
     n->n.num_children++;
     n->children[c] = (art_node *) child;
 }
@@ -467,8 +453,6 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
     if (n->n.num_children < 48) {
         int pos = 0;
         while (n->children[pos]) pos++;
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
-        n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->values->ids.getLength());
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
@@ -509,8 +493,6 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
             idx = n->n.num_children;
 
         // Set the child
-        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
-        n->n.max_token_count = MAX(n->n.max_token_count, ((art_leaf *) LEAF_RAW(child))->values->ids.getLength());
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
@@ -542,12 +524,6 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         memmove(n->keys+idx+1, n->keys+idx, n->n.num_children - idx);
         memmove(n->children+idx+1, n->children+idx,
                 (n->n.num_children - idx)*sizeof(void*));
-
-        int32_t child_max_score = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->max_score : ((art_node *) child)->max_score;
-        uint32_t child_token_count = IS_LEAF(child) ? ((art_leaf *) LEAF_RAW(child))->values->ids.getLength() : ((art_node *) child)->max_token_count;
-
-        n->n.max_score = MAX(n->n.max_score, child_max_score);
-        n->n.max_token_count = MAX(n->n.max_token_count, child_token_count);
 
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
@@ -647,9 +623,6 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         add_child4(new_n, ref, l2->key[depth+longest_prefix], SET_LEAF(l2));
         return NULL;
     }
-
-    n->max_score = MAX(n->max_score, document->score);
-    n->max_token_count = MAX(n->max_token_count, num_hits);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -1382,12 +1355,6 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
 
         // send depth as -1 to indicate that this is a root node
         art_fuzzy_recurse(0, 0, t->root, -1, term, term_len, irow, jrow, min_cost, max_cost, prefix, nodes);
-    }
-
-    if(token_order == FREQUENCY) {
-        std::sort(nodes.begin(), nodes.end(), compare_art_node_frequency);
-    } else {
-        std::sort(nodes.begin(), nodes.end(), compare_art_node_score);
     }
 
     //long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
