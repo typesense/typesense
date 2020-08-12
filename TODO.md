@@ -3,9 +3,8 @@
 a) ~~Fix memory ratio (decreasing with indexing)~~
 b) ~~Speed up wildcard searches further~~
 c) ~~Allow int64 in default sorting field~~
-d) Use connection timeout for CURL rather than request timeout
-e) Update role to set max memory ration at 0.80
-f) Async import
+d) ~~Use connection timeout for CURL rather than request timeout~~
+e) Async import
 
 **Search index**
 

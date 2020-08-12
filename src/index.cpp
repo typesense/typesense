@@ -1014,6 +1014,7 @@ uint32_t* Index::collate_leaf_ids(const std::vector<const art_leaf *> &leaves, s
         uint32_t num_ids = leaf->values->ids.getLength();
         uint32_t* leaf_ids = leaf->values->ids.uncompress();
         std::copy(leaf_ids, leaf_ids + num_ids, std::back_inserter(ids));
+        delete [] leaf_ids;
     }
 
     uint32_t* result_ids = new uint32_t[ids.size()];
