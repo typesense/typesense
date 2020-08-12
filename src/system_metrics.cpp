@@ -120,10 +120,9 @@ uint64_t SystemMetrics::get_memory_active_bytes() {
 }
 
 uint64_t SystemMetrics::get_memory_used_bytes() {
-    uint64_t memory_available_bytes = 0;
+    uint64_t memory_used_bytes = 0;
 
 #ifdef __APPLE__
-    uint64_t memory_total_bytes = get_memory_total_bytes();
     vm_size_t mach_page_size;
     mach_port_t mach_port;
     mach_msg_type_number_t count;
@@ -133,16 +132,13 @@ uint64_t SystemMetrics::get_memory_used_bytes() {
     if (KERN_SUCCESS == host_page_size(mach_port, &mach_page_size) &&
         KERN_SUCCESS == host_statistics64(mach_port, HOST_VM_INFO,
                                           (host_info64_t)&vm_stats, &count)) {
-        memory_available_bytes = memory_total_bytes -
-                ((int64_t)(vm_stats.active_count + vm_stats.wire_count) * (int64_t)mach_page_size);
+        memory_used_bytes = ((int64_t)(vm_stats.active_count + vm_stats.wire_count) * (int64_t)mach_page_size);
     }
 #elif __linux__
-    struct sysinfo sys_info;
-    sysinfo(&sys_info);
-    memory_available_bytes = linux_get_mem_available_bytes();
+    memory_used_bytes = get_memory_total_bytes() - linux_get_mem_available_bytes();
 #endif
 
-    return memory_available_bytes;
+    return memory_used_bytes;
 }
 
 uint64_t SystemMetrics::get_memory_total_bytes() {
