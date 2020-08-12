@@ -2259,7 +2259,7 @@ TEST_F(CollectionTest, OptionalFields) {
 
     infile.close();
 
-    // first must be able to fetch all records (i.e. all must have been index)
+    // first must be able to fetch all records (i.e. all must have been indexed)
 
     auto res = coll1->search("*", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(6, res["found"].get<size_t>());
