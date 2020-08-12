@@ -332,7 +332,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 
     std::string query_str(query.base, query.len);
     std::map<std::string, std::string> query_map = parse_query(query_str);
-    const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.
     std::string api_auth_key_sent = "";
@@ -348,55 +347,53 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     route_path *rpath = nullptr;
     uint64_t route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
 
-    if(route_hash != static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
-        // iterate and extract path params
-        for(size_t i = 0; i < rpath->path_parts.size(); i++) {
-            const std::string & path_part = rpath->path_parts[i];
-            if(path_part[0] == ':') {
-                query_map.emplace(path_part.substr(1), path_parts[i]);
-            }
+    if(route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
+        std::string message = "{ \"message\": \"Not Found\"}";
+        return send_response(req, 404, message);
+    }
+
+    // iterate and extract path params
+    for(size_t i = 0; i < rpath->path_parts.size(); i++) {
+        const std::string & path_part = rpath->path_parts[i];
+        if(path_part[0] == ':') {
+            query_map.emplace(path_part.substr(1), path_parts[i]);
         }
+    }
 
-        http_req* request = new http_req(req, http_method, route_hash, query_map, req_body);
-        http_res* response = new http_res();
+    bool authenticated = self->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
+    if(!authenticated) {
+        std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
+                               "` header must be sent.\"}";
+        return send_response(req, 401, message);
+    }
 
-        bool authenticated = self->http_server->auth_handler(*request, *rpath, api_auth_key_sent);
-        if(!authenticated) {
-            std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
-                                   "` header must be sent.\"}";
+    const std::string & req_body = std::string(req->entity.base, req->entity.len);
 
-            delete request;
-            delete response;
+    http_req* request = new http_req(req, http_method, route_hash, query_map, req_body);
+    http_res* response = new http_res();
 
-            return send_response(req, 401, message);
-        }
+    // routes match and is an authenticated request
+    // do any additional pre-request middleware operations here
+    if(rpath->action == "keys:create") {
+        // we enrich incoming request with a random API key here so that leader and replicas will use the same key
+        request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
+    }
 
-        // routes match and is an authenticated request
-        // do any additional pre-request middleware operations here
-        if(rpath->action == "keys:create") {
-            // we enrich incoming request with a random API key here so that leader and replicas will use the same key
-            request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
-        }
-
-        // for writes, we defer to replication_state
-        if(http_method == "POST" || http_method == "PUT" || http_method == "DELETE") {
-            self->http_server->get_replication_state()->write(request, response);
-            return 0;
-        }
-
-        (rpath->handler)(*request, *response);
-
-        if(!rpath->async) {
-            // If a handler is marked async, it's assumed that it's responsible for sending the response itself
-            // later in an async fashion by calling into the main http thread via a message
-            self->http_server->send_response(request, response);
-        }
-
+    // for writes, we defer to replication_state
+    if(http_method == "POST" || http_method == "PUT" || http_method == "DELETE") {
+        self->http_server->get_replication_state()->write(request, response);
         return 0;
     }
 
-    std::string message = "{ \"message\": \"Not Found\"}";
-    return send_response(req, 404, message);
+    (rpath->handler)(*request, *response);
+
+    if(!rpath->async_res) {
+        // If a handler is marked as async res, it's responsible for sending the response itself in an async fashion
+        // otherwise, we send the response on behalf of the handler
+        self->http_server->send_response(request, response);
+    }
+
+    return 0;
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
@@ -430,7 +427,7 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(http_req& req, const route_path& rpath,
+void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
                                                   const std::string& auth_key)) {
     auth_handler = handler;
 }

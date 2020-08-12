@@ -2,7 +2,8 @@
 
 #include "http_server.h"
 
-bool handle_authentication(http_req& req, const route_path& rpath, const std::string& auth_key);
+bool handle_authentication(std::map<std::string, std::string>& req_params, const route_path& rpath,
+                           const std::string& auth_key);
 
 // Collections
 

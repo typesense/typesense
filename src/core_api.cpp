@@ -9,13 +9,14 @@
 #include "system_metrics.h"
 #include "logger.h"
 
-bool handle_authentication(http_req& req, const route_path& rpath, const std::string& auth_key) {
+bool handle_authentication(std::map<std::string, std::string>& req_params, const route_path& rpath,
+                           const std::string& auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
     std::string collection = "*";
 
-    if(req.params.count("collection") != 0) {
-        collection = req.params.at("collection");
+    if(req_params.count("collection") != 0) {
+        collection = req_params.at("collection");
     }
 
     if(rpath.handler == get_health) {
@@ -23,7 +24,7 @@ bool handle_authentication(http_req& req, const route_path& rpath, const std::st
         return true;
     }
 
-    return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req.params);
+    return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req_params);
 }
 
 bool get_collections(http_req & req, http_res & res) {
@@ -988,7 +989,7 @@ bool async_write_request(void *data) {
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
             found_rpath->handler(*index_arg->req, *index_arg->res);
-            async_call = found_rpath->async;
+            async_call = found_rpath->async_res;
         } else {
             index_arg->res->set_404();
         }

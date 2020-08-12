@@ -165,12 +165,12 @@ struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
     bool (*handler)(http_req &, http_res &);
-    bool async;
+    bool async_res;
     std::string action;
 
     route_path(const std::string &httpMethod, const std::vector<std::string> &pathParts,
                bool (*handler)(http_req &, http_res &), bool async) :
-               http_method(httpMethod), path_parts(pathParts), handler(handler), async(async) {
+            http_method(httpMethod), path_parts(pathParts), handler(handler), async_res(async) {
         action = _get_action();
     }
 
