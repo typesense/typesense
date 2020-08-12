@@ -15,7 +15,6 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     }
 
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     return perform_curl(curl, res_headers);
 }
 
@@ -28,7 +27,6 @@ long HttpClient::put_response(const std::string &url, const std::string &body, s
 
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     return perform_curl(curl, res_headers);
 }
 
@@ -39,7 +37,6 @@ long HttpClient::delete_response(const std::string &url, std::string &response,
         return 500;
     }
 
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
     return perform_curl(curl, res_headers);
 }
@@ -51,7 +48,6 @@ long HttpClient::get_response(const std::string &url, std::string &response,
         return 500;
     }
 
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
     return perform_curl(curl, res_headers);
 }
 
@@ -123,7 +119,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
     }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 300);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
 
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
