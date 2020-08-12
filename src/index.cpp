@@ -1164,11 +1164,32 @@ void Index::search(Option<uint32_t> & outcome,
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string & field = search_fields[0];
 
+        // if a filter is not specified, use the sorting index to generate the list of all document ids
+        if(filters.empty()) {
+            std::string all_records_field;
+
+            // get the first non-optional field
+            for(const auto& kv: sort_schema) {
+                if(!kv.second.optional && kv.first != sort_field_const::text_match) {
+                    all_records_field = kv.first;
+                    break;
+                }
+            }
+
+            const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index[all_records_field];
+            filter_ids_length = kvs->size();
+            filter_ids = new uint32_t[filter_ids_length];
+
+            size_t i = 0;
+            for(const auto& kv: *kvs) {
+                filter_ids[i++] = kv.first;
+            }
+        }
+
         if(!curated_ids.empty()) {
             uint32_t *excluded_result_ids = nullptr;
             filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, &curated_ids_sorted[0],
                                                      curated_ids.size(), &excluded_result_ids);
-
             delete [] filter_ids;
             filter_ids = excluded_result_ids;
         }

@@ -619,15 +619,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         filters.push_back(f);
     }
 
-    // for a wildcard query, if filter is not specified, use default_sorting_field as a catch-all
-    if(query == "*" && filters.empty()) {
-        field f = search_schema.at(default_sorting_field);
-        std::string max_value = f.is_float() ? std::to_string(std::numeric_limits<float>::max()) :
-                                std::to_string(std::numeric_limits<int32_t>::max());
-        filter catch_all_filter = {f.name, {max_value}, LESS_THAN_EQUALS};
-        filters.push_back(catch_all_filter);
-    }
-
     // validate facet fields
     for(const std::string & field_name: facet_fields) {
         if(facet_schema.count(field_name) == 0) {
