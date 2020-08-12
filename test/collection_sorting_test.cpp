@@ -119,7 +119,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
 }
 
 TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
-    // Default sorting field must be int32 or float
+    // Default sorting field must be a  numerical field
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("age", field_types::INT32, false),
@@ -129,21 +129,68 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
 
     Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", fields, "name");
     EXPECT_FALSE(collection_op.ok());
-    EXPECT_EQ("Default sorting field `name` must be of type int32 or float.", collection_op.error());
+    EXPECT_EQ("Default sorting field `name` must be a single valued numerical field.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
 
     // Default sorting field must exist as a field in schema
-
-    fields = {field("name", field_types::STRING, false),
-              field("tags", field_types::STRING_ARRAY, true),
-              field("age", field_types::INT32, false),
-              field("average", field_types::INT32, false) };
 
     sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
     collection_op = collectionManager.create_collection("sample_collection", fields, "NOT-DEFINED");
     EXPECT_FALSE(collection_op.ok());
     EXPECT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
+}
+
+TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("starring", field_types::STRING, false),
+                                 field("points", field_types::INT64, false),
+                                 field("cast", field_types::STRING_ARRAY, false)};
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    sort_fields = { sort_by("points", "ASC") };
+    nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false).get();
+    ASSERT_EQ(10, results["hits"].size());
+
+    std::vector<std::string> ids = {"17", "13", "10", "4", "0", "1", "8", "6", "16", "11"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // limiting results to just 5, "ASC" keyword must be case insensitive
+    sort_fields = { sort_by("points", "asc") };
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 5, 1, FREQUENCY, false).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    ids = {"17", "13", "10", "4", "0"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
 }
 
 TEST_F(CollectionSortingTest, SortOnFloatFields) {

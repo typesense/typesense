@@ -986,7 +986,7 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         // ensure that default_sorting_field is a non-array numerical field
         auto coll_op = collectionManager.create_collection("coll_array_fields", fields, "years");
         ASSERT_EQ(false, coll_op.ok());
-        ASSERT_STREQ("Default sorting field `years` must be of type int32 or float.", coll_op.error().c_str());
+        ASSERT_STREQ("Default sorting field `years` must be a single valued numerical field.", coll_op.error().c_str());
 
         // let's try again properly
         coll_op = collectionManager.create_collection("coll_array_fields", fields, "age");

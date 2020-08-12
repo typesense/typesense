@@ -246,9 +246,10 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
         fields_json.push_back(field_val);
 
         if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
+                                                    field.type == field_types::INT64 ||
                                                     field.type == field_types::FLOAT)) {
             return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
-                                            "` must be of type int32 or float.");
+                                            "` must be a single valued numerical field.");
         }
 
         if(field.name == default_sorting_field) {
