@@ -131,7 +131,7 @@ public:
         const std::string& req_api_key,
         const std::string& action,
         const std::string& collection,
-        std::map<std::string, std::string> & params
+        std::map<std::string, std::string>& params
     );
 
     Option<std::string> params_from_scoped_key(

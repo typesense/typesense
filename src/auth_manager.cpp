@@ -123,7 +123,7 @@ Option<bool> AuthManager::init(Store *store) {
 }
 
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
-                               const std::string& collection, std::map<std::string, std::string> & params) {
+                               const std::string& collection, std::map<std::string, std::string>& params) {
 
     if(req_api_key.size() > KEY_LEN) {
         // scoped API key: validate and if valid, extract params

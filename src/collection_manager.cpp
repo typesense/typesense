@@ -213,7 +213,7 @@ void CollectionManager::dispose() {
 bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
                                          const std::string& action,
                                          const std::string& collection,
-                                         std::map<std::string, std::string> & params) {
+                                         std::map<std::string, std::string>& params) {
     if(auth_key_sent.empty()) {
         return false;
     }
