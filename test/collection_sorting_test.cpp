@@ -155,21 +155,25 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
     }
 
-    std::string json_line;
+    auto doc_str1 = "{\"title\": \"foo\", \"starring\": \"bar\", \"points\": 343234324234233234, \"cast\": [\"baz\"] }";
+    const Option<nlohmann::json> & add_op = coll_mul_fields->add(doc_str1);
+    ASSERT_TRUE(add_op.ok());
 
-    while (std::getline(infile, json_line)) {
-        coll_mul_fields->add(json_line);
-    }
+    auto doc_str2 = "{\"title\": \"foo\", \"starring\": \"bar\", \"points\": 343234324234233232, \"cast\": [\"baz\"] }";
+    auto doc_str3 = "{\"title\": \"foo\", \"starring\": \"bar\", \"points\": 343234324234233235, \"cast\": [\"baz\"] }";
+    auto doc_str4 = "{\"title\": \"foo\", \"starring\": \"bar\", \"points\": 343234324234233231, \"cast\": [\"baz\"] }";
 
-    infile.close();
+    coll_mul_fields->add(doc_str2);
+    coll_mul_fields->add(doc_str3);
+    coll_mul_fields->add(doc_str4);
 
     query_fields = {"title"};
     std::vector<std::string> facets;
     sort_fields = { sort_by("points", "ASC") };
-    nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 15, 1, FREQUENCY, false).get();
-    ASSERT_EQ(10, results["hits"].size());
+    nlohmann::json results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
 
-    std::vector<std::string> ids = {"17", "13", "10", "4", "0", "1", "8", "6", "16", "11"};
+    std::vector<std::string> ids = {"3", "1", "0", "2"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -178,12 +182,12 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // limiting results to just 5, "ASC" keyword must be case insensitive
-    sort_fields = { sort_by("points", "asc") };
-    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, 0, 5, 1, FREQUENCY, false).get();
-    ASSERT_EQ(5, results["hits"].size());
+    // DESC
+    sort_fields = { sort_by("points", "desc") };
+    results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
 
-    ids = {"17", "13", "10", "4", "0"};
+    ids = {"2", "0", "1", "3"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);

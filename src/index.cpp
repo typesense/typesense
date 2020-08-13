@@ -218,12 +218,7 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     }
 
     if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
-        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be of type int32 or float.");
-    }
-
-    if(search_schema.at(default_sorting_field).is_single_integer() &&
-       document[default_sorting_field].get<int64_t>() > std::numeric_limits<int32_t>::max()) {
-        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of an int32.");
+        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a single valued numerical field.");
     }
 
     if(search_schema.at(default_sorting_field).is_single_float() &&

@@ -1742,12 +1742,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_default_sorting_field_op1.ok());
-    ASSERT_STREQ("Default sorting field `age` must be of type int32 or float.", bad_default_sorting_field_op1.error().c_str());
-
-    doc_str = "{\"name\": \"foo\", \"age\": 343234324234233234, \"tags\": [], \"average\": 34 }";
-    const Option<nlohmann::json> & bad_default_sorting_field_op2 = sample_collection->add(doc_str);
-    ASSERT_FALSE(bad_default_sorting_field_op2.ok());
-    ASSERT_STREQ("Default sorting field `age` exceeds maximum value of an int32.", bad_default_sorting_field_op2.error().c_str());
+    ASSERT_STREQ("Default sorting field `age` must be a single valued numerical field.", bad_default_sorting_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op3 = sample_collection->add(doc_str);
