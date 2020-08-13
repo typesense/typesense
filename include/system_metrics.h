@@ -70,10 +70,12 @@ private:
             auto prev_total = prev_idle + prev_active;
             auto now_total = now_idle + now_active;
 
-            auto total_diff = float(now_total - prev_total);
-            auto idle_diff = float(now_idle - prev_idle);
+            float total_diff = float(now_total - prev_total);
+            float idle_diff = float(now_idle - prev_idle);
+            float active_diff = total_diff - idle_diff;
 
-            float active_percentage = ((total_diff - idle_diff) / total_diff) * 100;
+            // take care to avoid division by zero!
+            float active_percentage = (now_total == prev_total) ? 0 : ((active_diff / total_diff) * 100);
             float idle_percentage = 100 - active_percentage;
 
             cpu_stat_t stat;
