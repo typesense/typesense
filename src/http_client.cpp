@@ -82,7 +82,7 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     CURLcode res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        LOG(ERROR) << "CURL failed: " << curl_easy_strerror(res);
+        LOG(ERROR) << "CURL failed. Code: " << res << ", strerror: " << curl_easy_strerror(res);
         curl_easy_cleanup(curl);
         return 500;
     }
