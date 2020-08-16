@@ -18,7 +18,7 @@ void catch_interrupt(int sig);
 
 bool directory_exists(const std::string & dir_path);
 
-void stream_response(bool (*handler)(http_req* req, http_res* res, void* data),
+void stream_response(bool (*req_handler)(http_req* req, http_res* res, void* data),
                      http_req & request, http_res & response, void* data);
 
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv);

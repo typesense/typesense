@@ -10,11 +10,6 @@
 #include "raft_server.h"
 #include "logger.h"
 
-struct h2o_custom_req_handler_t {
-    h2o_handler_t super;
-    HttpServer* http_server;
-};
-
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path,
                        const std::string & ssl_cert_key_path, bool cors_enabled):
@@ -163,7 +158,7 @@ int HttpServer::run(ReplicationState* replication_state) {
         LOG(ERROR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
         return 1;
     } else {
-        LOG(INFO) << "Typesense has started. Ready to accept requests on port " << listen_port;
+        LOG(INFO) << "Typesense has started listening on port " << listen_port;
     }
 
     message_dispatcher->on(STOP_SERVER_MESSAGE, HttpServer::on_stop_server);
@@ -210,6 +205,9 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
     h2o_custom_req_handler_t *handler = reinterpret_cast<h2o_custom_req_handler_t*>(h2o_create_handler(pathconf, sizeof(*handler)));
     handler->http_server = this;
     handler->super.on_req = on_req;
+
+    // Enable streaming request body
+    handler->super.supports_request_streaming = 1;
 
     compress_args.min_size = 256;       // don't gzip less than this size
     compress_args.brotli.quality = -1;  // disable, not widely supported
@@ -270,8 +268,29 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
     return static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND);
 }
 
-int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
-    h2o_custom_req_handler_t *self = (h2o_custom_req_handler_t *)_self;
+void HttpServer::on_res_generator_dispose(void *self) {
+    //LOG(INFO) << "on_res_generator_dispose fires";
+    h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
+
+    // res_generator itself is reference counted, so we only free members
+    delete res_generator->req;
+    delete res_generator->res;
+}
+
+void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
+    //LOG(INFO) << "response_proceed called";
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+    custom_generator->req_handler(*custom_generator->req, *custom_generator->res);
+
+    if(custom_generator->req->_req->proceed_req) {
+        int is_end_stream = (custom_generator->res->final) ? 1: 0;
+        size_t written = custom_generator->req->chunk_length;
+        custom_generator->req->_req->proceed_req(custom_generator->req->_req, written, is_end_stream);
+    }
+}
+
+int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
+    h2o_custom_req_handler_t *h2o_handler = (h2o_custom_req_handler_t *)_h2o_handler;
 
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
@@ -281,7 +300,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     const std::string & path_without_query = path_with_query_parts[0];
 
     // Handle CORS
-    if(self->http_server->cors_enabled) {
+    if(h2o_handler->http_server->cors_enabled) {
         h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
                               0, NULL, H2O_STRLIT("*"));
 
@@ -318,7 +337,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
 
     // Except for health check, wait for replicating state to be ready before allowing requests
     // Follower or leader must have started AND data must also have been loaded
-    if(path_without_query != "/health" && !self->http_server->get_replication_state()->is_ready()) {
+    if(path_without_query != "/health" && !h2o_handler->http_server->get_replication_state()->is_ready()) {
         std::string message = "{ \"message\": \"Not Ready\"}";
         return send_response(req, 503, message);
     }
@@ -345,7 +364,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
     }
 
     route_path *rpath = nullptr;
-    uint64_t route_hash = self->http_server->find_route(path_parts, http_method, &rpath);
+    uint64_t route_hash = h2o_handler->http_server->find_route(path_parts, http_method, &rpath);
 
     if(route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         std::string message = "{ \"message\": \"Not Found\"}";
@@ -360,17 +379,26 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         }
     }
 
-    bool authenticated = self->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
+    bool authenticated = h2o_handler->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
     if(!authenticated) {
         std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
                                "` header must be sent.\"}";
         return send_response(req, 401, message);
     }
 
-    const std::string & req_body = std::string(req->entity.base, req->entity.len);
-
-    http_req* request = new http_req(req, http_method, route_hash, query_map, req_body);
+    const std::string & body = std::string(req->entity.base, req->entity.len);
+    http_req* request = new http_req(req, rpath->http_method, route_hash, query_map, body);
     http_res* response = new http_res();
+
+    // add custom generator with a dipose function for cleaning up resources
+    h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(
+            h2o_mem_alloc_shared(&req->pool, sizeof(*custom_generator), on_res_generator_dispose)
+    );
+    custom_generator->super = h2o_generator_t {response_proceed, nullptr};
+    custom_generator->req = request;
+    custom_generator->res = response;
+    custom_generator->req_handler = rpath->handler;
+    response->generator = &custom_generator->super;
 
     // routes match and is an authenticated request
     // do any additional pre-request middleware operations here
@@ -379,30 +407,100 @@ int HttpServer::catch_all_handler(h2o_handler_t *_self, h2o_req_t *req) {
         request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
     }
 
-    // for writes, we defer to replication_state
-    if(http_method == "POST" || http_method == "PUT" || http_method == "DELETE") {
-        self->http_server->get_replication_state()->write(request, response);
-        return 0;
-    }
+    if(req->proceed_req == nullptr) {
+        // Full request body is already available, so we don't care if handler is async or not
+        return process_request(request, response, rpath, h2o_handler);
+    } else {
+        // Only partial request body is available.
+        // If async_req is true, the request handler function will be invoked multiple times, for each chunk
+        request->streaming = rpath->async_req;
+        async_req_ctx_t* async_req_ctx = new async_req_ctx_t(request, response, h2o_handler, rpath);
 
-    (rpath->handler)(*request, *response);
+        //LOG(INFO) << "Partial request body length: " << req->entity.len;
 
-    if(!rpath->async_res) {
-        // If a handler is marked as async res, it's responsible for sending the response itself in an async fashion
-        // otherwise, we send the response on behalf of the handler
-        self->http_server->send_response(request, response);
+        req->write_req.cb = async_req_cb;
+        req->write_req.ctx = async_req_ctx;
+        int is_end_entity = 0;
+        req->proceed_req(req, req->entity.len, is_end_entity);
     }
 
     return 0;
 }
 
-void HttpServer::send_message(const std::string & type, void* data) {
-    message_dispatcher->send_message(type, data);
+int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
+    async_req_ctx_t* req_ctx = static_cast<async_req_ctx_t*>(ctx);
+
+    http_req* request = req_ctx->request;
+    http_res* response = req_ctx->response;
+
+    LOG(INFO) << "chunk.len: " << chunk.len << ", is_end_stream: " << is_end_stream;
+
+    request->chunk_length = chunk.len;
+
+    std::string chunk_str(chunk.base, chunk.len);
+    request->body += chunk_str;
+
+    if(request->streaming || is_end_stream) {
+        // Handler should be invoked for every chunk for streaming requests
+        // For a non streaming request, buffer body and invoke only at the end
+
+        // default value for response is NON_STREAMING
+        // for streaming requests, we have to set: START, IN_PROGRESS or END
+        if(request->streaming) {
+            if(is_end_stream) {
+                request->stream_state = "END";
+            } else if(request->stream_state == "NON_STREAMING") {
+                // `NON_STREAMING` default value indicates first chunk of streaming body
+                request->stream_state = "START";
+            } else {
+                request->stream_state = "IN_PROGRESS";
+            }
+        }
+
+        process_request(request, response, req_ctx->rpath, req_ctx->handler);
+    }
+
+    if(!is_end_stream && !request->streaming) {
+        // streaming requests will call proceed_req in an async fashion
+        // so we have to handle this only for non streaming
+        size_t written = chunk.len;
+        int stream_ended = 0;
+        request->_req->proceed_req(request->_req, written, stream_ended);
+    }
+
+    if (is_end_stream) {
+        // deletes only the container -- individual requests and response are deleted by response handler
+        delete req_ctx;
+    }
+
+    return 0;
 }
 
-void HttpServer::send_response(http_req* request, const http_res* response) {
+int HttpServer::process_request(http_req* request, http_res* response, route_path *rpath,
+                                const h2o_custom_req_handler_t *handler) {
+
+    // for writes, we delegate to replication_state to handle response
+    if(rpath->http_method == "POST" || rpath->http_method == "PUT" || rpath->http_method == "DELETE") {
+        handler->http_server->get_replication_state()->write(request, response);
+        return 0;
+    }
+
+    // for reads, we will invoke the request handler and handle response as well
+
+    (rpath->handler)(*request, *response);
+
+    if(!rpath->async_res) {
+        // If a handler is marked as async res, it's responsible for sending the response itself in an async fashion
+        // otherwise, we send the whole body response on behalf of the handler
+        handler->http_server->send_response(request, response);
+    }
+
+    return 0;
+}
+
+void HttpServer::send_response(http_req* request, http_res* response) {
     h2o_req_t* req = request->_req;
-    h2o_generator_t generator = {NULL, NULL};
+    h2o_generator_t& generator = *response->generator;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     req->res.status = response->status_code;
@@ -411,9 +509,6 @@ void HttpServer::send_response(http_req* request, const http_res* response) {
             nullptr, response->content_type_header.c_str(), response->content_type_header.size());
     h2o_start_response(req, &generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
-
-    delete request;
-    delete response;
 }
 
 int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string & message) {
@@ -427,36 +522,40 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
+void HttpServer::send_message(const std::string & type, void* data) {
+    message_dispatcher->send_message(type, data);
+}
+
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
                                                   const std::string& auth_key)) {
     auth_handler = handler;
 }
 
-void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath("GET", path_parts, handler, async);
+    route_path rpath("GET", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath("POST", path_parts, handler, async);
+    route_path rpath("POST", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath("PUT", path_parts, handler, async);
+    route_path rpath("PUT", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async) {
+void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
-    route_path rpath("DELETE", path_parts, handler, async);
+    route_path rpath("DELETE", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 

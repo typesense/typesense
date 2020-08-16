@@ -20,6 +20,8 @@ struct http_res {
     std::string body;
     bool final;
 
+    h2o_generator_t* generator = nullptr;
+
     http_res(): status_code(501), content_type_header("application/json; charset=utf-8"), final(true) {
 
     }
@@ -116,6 +118,11 @@ struct http_req {
     std::string http_method;
     uint64_t route_hash;
     std::map<std::string, std::string> params;
+
+    bool streaming;
+    std::string stream_state;
+
+    size_t chunk_length;
     std::string body;
     std::string metadata;
 
@@ -124,23 +131,27 @@ struct http_req {
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
-            const std::map<std::string, std::string> & params, std::string body):
+            const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            body(body) {
+            streaming(false), stream_state("NON_STREAMING"), body(body) {
 
     }
 
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
+    // Take care to check for existence of key to ensure backward compatibility during upgrade
 
     void deserialize(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
         body = content["body"];
-        metadata = content.count("metadata") != 0 ? content["metadata"] : "";
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
         }
+
+        metadata = content.count("metadata") != 0 ? content["metadata"] : "";
+        streaming = content.count("streaming") != 0 ? content["streaming"] : "";
+        stream_state = content.count("stream_state") != 0 ? content["stream_state"] : "";
 
         _req = nullptr;
     }
@@ -149,6 +160,8 @@ struct http_req {
         nlohmann::json content;
         content["route_hash"] = route_hash;
         content["params"] = params;
+        content["streaming"] = streaming;
+        content["stream_state"] = stream_state;
         content["body"] = body;
         content["metadata"] = metadata;
 
@@ -165,12 +178,14 @@ struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
     bool (*handler)(http_req &, http_res &);
+    bool async_req;
     bool async_res;
     std::string action;
 
     route_path(const std::string &httpMethod, const std::vector<std::string> &pathParts,
-               bool (*handler)(http_req &, http_res &), bool async) :
-            http_method(httpMethod), path_parts(pathParts), handler(handler), async_res(async) {
+               bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) :
+            http_method(httpMethod), path_parts(pathParts), handler(handler),
+            async_req(async_req), async_res(async_res) {
         action = _get_action();
     }
 
@@ -239,10 +254,9 @@ struct route_path {
 
 struct h2o_custom_generator_t {
     h2o_generator_t super;
-    bool (*handler)(http_req* req, http_res* res, void* data);
+    bool (*req_handler)(http_req& req, http_res& res);
     http_req* req;
     http_res* res;
-    void* data;
 };
 
 struct h2o_custom_res_message_t {

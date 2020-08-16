@@ -163,12 +163,12 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
-    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, nullptr, false);
-    route_path rpath_coll_get = route_path("GET", {"collections", ":collection"}, nullptr, false);
-    route_path rpath_coll_list = route_path("GET", {"collections"}, nullptr, false);
-    route_path rpath_keys_post = route_path("POST", {"keys"}, nullptr, false);
-    route_path rpath_doc_delete = route_path("DELETE", {"collections", ":collection", "documents", ":id"}, nullptr, false);
-    route_path rpath_override_upsert = route_path("PUT", {"collections", ":collection", "overrides", ":id"}, nullptr, false);
+    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, nullptr, false, false);
+    route_path rpath_coll_get = route_path("GET", {"collections", ":collection"}, nullptr, false, false);
+    route_path rpath_coll_list = route_path("GET", {"collections"}, nullptr, false, false);
+    route_path rpath_keys_post = route_path("POST", {"keys"}, nullptr, false, false);
+    route_path rpath_doc_delete = route_path("DELETE", {"collections", ":collection", "documents", ":id"}, nullptr, false, false);
+    route_path rpath_override_upsert = route_path("PUT", {"collections", ":collection", "overrides", ":id"}, nullptr, false, false);
 
     ASSERT_STREQ("documents:search", rpath_search._get_action().c_str());
     ASSERT_STREQ("collections:get", rpath_coll_get._get_action().c_str());

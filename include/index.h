@@ -129,8 +129,6 @@ private:
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    size_t union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_array_pairs, uint32_t **results_out);
-
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,

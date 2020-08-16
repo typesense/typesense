@@ -23,8 +23,8 @@ void master_server_routes() {
     server->post("/collections/:collection/documents", post_add_document);
     server->get("/collections/:collection/documents/search", get_search);
 
-    server->post("/collections/:collection/documents/import", post_import_documents);
-    server->get("/collections/:collection/documents/export", get_export_documents, true);
+    server->post("/collections/:collection/documents/import", post_import_documents, true, true);
+    server->get("/collections/:collection/documents/export", get_export_documents, false, true);
 
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);

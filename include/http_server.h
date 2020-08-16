@@ -29,6 +29,23 @@ struct h2o_custom_timer_t {
     }
 };
 
+struct h2o_custom_req_handler_t {
+    h2o_handler_t super;
+    HttpServer* http_server;
+};
+
+struct async_req_ctx_t {
+    http_req* request;
+    http_res* response;
+    h2o_custom_req_handler_t* handler;
+    route_path *rpath;
+
+    async_req_ctx_t(http_req *request, http_res* response, h2o_custom_req_handler_t *handler, route_path *rpath) :
+                    request(request), response(response), handler(handler), rpath(rpath) {
+
+    }
+};
+
 class HttpServer {
 private:
     h2o_globalconf_t config;
@@ -77,9 +94,15 @@ private:
 
     static std::map<std::string, std::string> parse_query(const std::string& query);
 
-    static int catch_all_handler(h2o_handler_t *self, h2o_req_t *req);
+    static int catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req);
+
+    static void response_proceed(h2o_generator_t *generator, h2o_req_t *req);
+
+    static void on_res_generator_dispose(void *self);
 
     static int send_response(h2o_req_t *req, int status_code, const std::string & message);
+
+    static int async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream);
 
 public:
     HttpServer(const std::string & version,
@@ -99,19 +122,19 @@ public:
     void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path & rpath,
                                           const std::string & auth_key));
 
-    void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
+    void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
-    void post(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
+    void post(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
-    void put(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
+    void put(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
-    void del(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async = false);
+    void del(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
     void on(const std::string & message, bool (*handler)(void*));
 
     void send_message(const std::string & type, void* data);
 
-    void send_response(http_req* request, const http_res* response);
+    void send_response(http_req* request, http_res* response);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
@@ -130,4 +153,7 @@ public:
 
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
+
+    static int process_request(http_req* request, http_res* response, route_path *rpath,
+                               const h2o_custom_req_handler_t *req_handler);
 };
