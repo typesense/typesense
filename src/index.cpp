@@ -784,8 +784,10 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf *> query_suggestion = next_suggestion(token_candidates_vec, n);
 
-        /*for(size_t i=0; i < query_suggestion.size(); i++) {
-            LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key;
+        /*LOG(INFO) << "n: " << n;
+        for(size_t i=0; i < query_suggestion.size(); i++) {
+            LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
+                      << query_suggestion[i]->values->ids.getLength();
         }*/
 
         // initialize results with the starting element (for further intersection)
@@ -857,30 +859,11 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
 
         searched_queries.push_back(query_suggestion);
 
+        //LOG(INFO) << "all_result_ids_len: " << all_result_ids_len << ", typo_tokens_threshold: " << typo_tokens_threshold;
         if(all_result_ids_len >= typo_tokens_threshold) {
             break;
         }
     }
-}
-
-size_t Index::union_of_ids(std::vector<std::pair<uint32_t*, size_t>> & result_array_pairs,
-                                uint32_t **results_out) {
-    uint32_t *results = nullptr;
-    size_t results_length = 0;
-
-    uint32_t *prev_results = nullptr;
-    size_t prev_results_length = 0;
-
-    for(const std::pair<uint32_t*, size_t> & result_array_pair: result_array_pairs) {
-        results_length = ArrayUtils::or_scalar(prev_results, prev_results_length, result_array_pair.first,
-                                               result_array_pair.second, &results);
-        delete [] prev_results;
-        prev_results = results;
-        prev_results_length = results_length;
-    }
-
-    *results_out = results;
-    return results_length;
 }
 
 Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {

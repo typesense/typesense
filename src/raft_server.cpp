@@ -161,14 +161,10 @@ void ReplicationState::write(http_req* request, http_res* response) {
     // To avoid ABA problem
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
+    //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
+
     // Now the task is applied to the group, waiting for the result.
     return node->apply(task);
-}
-
-void ReplicationState::read(http_res* response) {
-    // NOT USED:
-    // For consistency, reads to followers could be rejected.
-    // Currently, we don't do implement reads via raft.
 }
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
@@ -186,6 +182,8 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             ReplicationClosure* c = dynamic_cast<ReplicationClosure*>(iter.done());
             response = c->get_response();
             request = c->get_request();
+
+            //LOG(INFO) << ":::" << "body size inside apply: " << request->body.size();
         } else {
             // Parse request from the log
             response = new http_res;
@@ -215,6 +213,12 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         future.get();
     }
+}
+
+void ReplicationState::read(http_res* response) {
+    // NOT USED:
+    // For consistency, reads to followers could be rejected.
+    // Currently, we don't do implement reads via raft.
 }
 
 void* ReplicationState::save_snapshot(void* arg) {

@@ -77,4 +77,9 @@ TEST(StringUtilsTest, ShouldSplitString) {
 
     ASSERT_STREQ("{\"s\":\"Line one.\\nLine two.\\n\"}", lines[0].c_str());
     ASSERT_STREQ("{\"s\":\"Line 1.\\nLine 2.\\n\"}", lines[1].c_str());
+
+    // empty string should produce empty list
+    std::vector<std::string> lines_empty;
+    StringUtils::split("", lines_empty, "\n");
+    ASSERT_TRUE(lines_empty.empty());
 }

@@ -574,6 +574,16 @@ bool post_add_document(http_req & req, http_res & res) {
     return true;
 }
 
+bool collection_import_handler(http_req* request, http_res* response, void* data) {
+    if(request->_req->proceed_req) {
+        int is_end_stream = (response->final) ? 1: 0;
+        size_t written = request->chunk_length;
+        request->_req->proceed_req(request->_req, written, is_end_stream);
+    }
+
+    return true;
+}
+
 bool post_import_documents(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
@@ -583,12 +593,35 @@ bool post_import_documents(http_req & req, http_res & res) {
         return false;
     }
 
+    //LOG(INFO) << "req.body.size: " << req.body.size();
+
     std::vector<std::string> json_lines;
     StringUtils::split(req.body, json_lines, "\n");
+
+    if(req.stream_state == "END" || req.stream_state == "NON_STREAMING") {
+        req.body = "";
+    } else {
+        if(!json_lines.empty()) {
+            // check if req.body had incomplete last record
+            if(!nlohmann::json::accept(json_lines.back())) {
+                // eject partial record
+                req.body = json_lines.back();
+                json_lines.pop_back();
+            }
+        }
+    }
+
+    //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req.stream_state: " << req.stream_state;
+
+    if(json_lines.empty() && !req.body.empty()) {
+        // detects the case when only one partial record arrives as a chunk
+        return true;
+    }
 
     const Option<nlohmann::json>& res_op = collection->add_many(json_lines);
 
     if(!res_op.ok()) {
+        // FIXME: cannot set new status code midst of an ongoing import response
         res.set(res_op.code(), res_op.error());
         return false;
     }
@@ -608,6 +641,11 @@ bool post_import_documents(http_req & req, http_res & res) {
 
     res.content_type_header = "text/plain; charset=utf8";
     res.set_200(ss.str());
+
+    if(req._req) {
+        stream_response(collection_import_handler, req, res, nullptr);
+    }
+
     return true;
 }
 
@@ -978,7 +1016,7 @@ bool async_write_request(void *data) {
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
-    bool async_call = false;
+    bool async_res = false;
 
     if(index_arg->req->route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         // route not found
@@ -989,18 +1027,15 @@ bool async_write_request(void *data) {
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
             found_rpath->handler(*index_arg->req, *index_arg->res);
-            async_call = found_rpath->async_res;
+            async_res = found_rpath->async_res;
         } else {
             index_arg->res->set_404();
         }
     }
 
-    if(!async_call && index_arg->req->_req != nullptr) {
+    if(!async_res && index_arg->req->_req != nullptr) {
         // we have to return a response to the client
         server->send_response(index_arg->req, index_arg->res);
-    } else {
-        delete index_arg->req;
-        delete index_arg->res;
     }
 
     if(index_arg->promise != nullptr) {
