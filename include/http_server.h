@@ -34,16 +34,12 @@ struct h2o_custom_req_handler_t {
     HttpServer* http_server;
 };
 
-struct async_req_ctx_t {
+struct h2o_custom_generator_t {
+    h2o_generator_t super;
+    h2o_custom_req_handler_t* h2o_handler;
+    route_path *rpath;
     http_req* request;
     http_res* response;
-    h2o_custom_req_handler_t* handler;
-    route_path *rpath;
-
-    async_req_ctx_t(http_req *request, http_res* response, h2o_custom_req_handler_t *handler, route_path *rpath) :
-                    request(request), response(response), handler(handler), rpath(rpath) {
-
-    }
 };
 
 class HttpServer {
@@ -135,6 +131,8 @@ public:
     void send_message(const std::string & type, void* data);
 
     void send_response(http_req* request, http_res* response);
+
+    static void stream_response(http_req& request, http_res& response);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);

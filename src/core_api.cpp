@@ -534,12 +534,14 @@ bool collection_export_handler(http_req* req, http_res* res, void* data) {
 }
 
 bool get_export_documents(http_req & req, http_res & res) {
+    // NOTE: this is a streaming response end-point so this handler will be called multiple times
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
+        req.stream_state = "NON_STREAMING";
         res.set_404();
-        server->send_message(SEND_RESPONSE_MSG, new request_response{&req, &res});
+        server->stream_response(req, res);
         return false;
     }
 
@@ -550,50 +552,23 @@ bool get_export_documents(http_req & req, http_res & res) {
 
     res.content_type_header = "application/octet-stream";
     res.status_code = 200;
-    stream_response(collection_export_handler, req, res, (void *) it);
+
+    //stream_response(collection_export_handler, req, res, (void *) it);
     return true;
 }
 
-bool post_add_document(http_req & req, http_res & res) {
+bool post_import_documents(http_req& req, http_res& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
+        req.stream_state = "NON_STREAMING";
         res.set_404();
+        server->stream_response(req, res);
         return false;
     }
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
-
-    if(!inserted_doc_op.ok()) {
-        res.set(inserted_doc_op.code(), inserted_doc_op.error());
-        return false;
-    }
-
-    res.set_201(inserted_doc_op.get().dump());
-    return true;
-}
-
-bool collection_import_handler(http_req* request, http_res* response, void* data) {
-    if(request->_req->proceed_req) {
-        int is_end_stream = (response->final) ? 1: 0;
-        size_t written = request->chunk_length;
-        request->_req->proceed_req(request->_req, written, is_end_stream);
-    }
-
-    return true;
-}
-
-bool post_import_documents(http_req & req, http_res & res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
-
-    if(collection == nullptr) {
-        res.set_404();
-        return false;
-    }
-
-    //LOG(INFO) << "req.body.size: " << req.body.size();
+    LOG(INFO) << "Import, req.body.size: " << req.body.size() << ", state: " << req.stream_state;
 
     std::vector<std::string> json_lines;
     StringUtils::split(req.body, json_lines, "\n");
@@ -618,16 +593,10 @@ bool post_import_documents(http_req & req, http_res & res) {
         return true;
     }
 
-    const Option<nlohmann::json>& res_op = collection->add_many(json_lines);
-
-    if(!res_op.ok()) {
-        // FIXME: cannot set new status code midst of an ongoing import response
-        res.set(res_op.code(), res_op.error());
-        return false;
-    }
+    nlohmann::json json_res = collection->add_many(json_lines);
 
     std::stringstream ss;
-    const std::string& import_summary_json = res_op.get().dump();
+    const std::string& import_summary_json = json_res.dump();
 
     ss << import_summary_json << "\n";
 
@@ -642,10 +611,27 @@ bool post_import_documents(http_req & req, http_res & res) {
     res.content_type_header = "text/plain; charset=utf8";
     res.set_200(ss.str());
 
-    if(req._req) {
-        stream_response(collection_import_handler, req, res, nullptr);
+    server->stream_response(req, res);
+    return true;
+}
+
+bool post_add_document(http_req & req, http_res & res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
     }
 
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
+
+    if(!inserted_doc_op.ok()) {
+        res.set(inserted_doc_op.code(), inserted_doc_op.error());
+        return false;
+    }
+
+    res.set_201(inserted_doc_op.get().dump());
     return true;
 }
 

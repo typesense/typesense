@@ -1289,9 +1289,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // try importing records
 
-    Option<nlohmann::json> import_res = coll_mul_fields->add_many(import_records);
-    ASSERT_TRUE(import_res.ok());
-    nlohmann::json import_response = import_res.get();
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
@@ -1314,11 +1312,11 @@ TEST_F(CollectionTest, ImportDocuments) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // verify that empty import is caught gracefully
+    // verify that empty import is handled gracefully
     std::vector<std::string> empty_records;
-    import_res = coll_mul_fields->add_many(empty_records);
-    ASSERT_FALSE(import_res.ok());
-    ASSERT_STREQ("The request body was empty. So, no records were imported.", import_res.error().c_str());
+    import_response = coll_mul_fields->add_many(empty_records);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
     // verify that only bad records are rejected, rest must be imported (records 2 and 4 are bad)
     std::vector<std::string> more_records = {"{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
@@ -1330,10 +1328,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_res = coll_mul_fields->add_many(more_records);
-    ASSERT_TRUE(import_res.ok());
-
-    import_response = import_res.get();
+    import_response = coll_mul_fields->add_many(more_records);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1356,10 +1351,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                 "{\"id\": \"id2\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                                 "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_res = coll_mul_fields->add_many(more_records);
-    ASSERT_TRUE(import_res.ok());
-
-    import_response = import_res.get();
+    import_response = coll_mul_fields->add_many(more_records);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
@@ -1374,10 +1366,7 @@ TEST_F(CollectionTest, ImportDocuments) {
     // handle bad import json
 
     more_records = {"[]"};
-    import_res = coll_mul_fields->add_many(more_records);
-    ASSERT_TRUE(import_res.ok());
-
-    import_response = import_res.get();
+    import_response = coll_mul_fields->add_many(more_records);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());

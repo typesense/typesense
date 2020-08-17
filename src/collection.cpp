@@ -185,11 +185,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
     return Option<nlohmann::json>(document);
 }
 
-Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines) {
-    if(json_lines.empty()) {
-        return Option<nlohmann::json>(400, "The request body was empty. So, no records were imported.");
-    }
-
+nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
     LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
 
     std::vector<std::vector<index_record>> iter_batch;
@@ -249,7 +245,7 @@ Option<nlohmann::json> Collection::add_many(std::vector<std::string>& json_lines
     resp_summary["num_imported"] = num_indexed;
     resp_summary["success"] = (num_indexed == json_lines.size());
 
-    return Option<nlohmann::json>(resp_summary);
+    return resp_summary;
 }
 
 bool Collection::is_exceeding_memory_threshold() const {
