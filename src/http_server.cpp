@@ -272,6 +272,12 @@ void HttpServer::on_res_generator_dispose(void *self) {
     LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
 
+    if(res_generator->rpath->async_res) {
+        // for the handler to free any cached resources like an iterator
+        res_generator->request->stream_state = "DISPOSE";
+        res_generator->rpath->handler(*res_generator->request, *res_generator->response);
+    }
+
     // res_generator itself is reference counted, so we only delete the members
     delete res_generator->request;
     delete res_generator->response;

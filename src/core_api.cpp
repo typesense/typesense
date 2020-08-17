@@ -502,37 +502,6 @@ bool get_collection_summary(http_req & req, http_res & res) {
     return true;
 }
 
-bool collection_export_handler(http_req* req, http_res* res, void* data) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req->params["collection"]);
-
-    if(!collection) {
-        res->set_404();
-        return false;
-    }
-
-    const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
-
-    rocksdb::Iterator* it = reinterpret_cast<rocksdb::Iterator*>(data);
-
-    if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
-        res->body = it->value().ToString();
-        res->final = false;
-        it->Next();
-
-        // append a new line character if there is going to be one more record to send
-        if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
-            res->body += "\n";
-        }
-    } else {
-        res->body = "";
-        res->final = true;
-        delete it;
-    }
-
-    return true;
-}
-
 bool get_export_documents(http_req & req, http_res & res) {
     // NOTE: this is a streaming response end-point so this handler will be called multiple times
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -541,19 +510,50 @@ bool get_export_documents(http_req & req, http_res & res) {
     if(collection == nullptr) {
         req.stream_state = "NON_STREAMING";
         res.set_404();
-        server->stream_response(req, res);
+        HttpServer::stream_response(req, res);
         return false;
     }
 
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+    rocksdb::Iterator* it = nullptr;
 
-    rocksdb::Iterator* it = collectionManager.get_store()->get_iterator();
-    it->Seek(seq_id_prefix);
+    if(req.data == nullptr) {
+        it = collectionManager.get_store()->get_iterator();
+        it->Seek(seq_id_prefix);
+        req.data = it;
+    } else {
+        it = static_cast<rocksdb::Iterator*>(req.data);
+    }
+
+    if(req.stream_state == "DISPOSE") {
+        LOG(INFO) << "Disposing export iterator";
+        delete it;
+        req.data = nullptr;
+        return true;
+    }
+
+    if(req.stream_state == "NON_STREAMING") {
+        req.stream_state = "START";
+    } else if(req.stream_state == "START") {
+        req.stream_state = "IN_PROGRESS";
+    }
+
+    if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+        res.body = it->value().ToString();
+        it->Next();
+
+        // append a new line character if there is going to be one more record to send
+        if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+            res.body += "\n";
+        } else {
+            req.stream_state = "END";
+        }
+    }
 
     res.content_type_header = "application/octet-stream";
     res.status_code = 200;
 
-    //stream_response(collection_export_handler, req, res, (void *) it);
+    HttpServer::stream_response(req, res);
     return true;
 }
 
@@ -562,13 +562,18 @@ bool post_import_documents(http_req& req, http_res& res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        req.stream_state = "NON_STREAMING";
+        req.stream_state = (req.stream_state == "IN_PROGRESS") ? "END" : "NON_STREAMING";
         res.set_404();
-        server->stream_response(req, res);
+        HttpServer::stream_response(req, res);
         return false;
     }
 
     LOG(INFO) << "Import, req.body.size: " << req.body.size() << ", state: " << req.stream_state;
+
+    if(req.stream_state == "DISPOSE") {
+        // we don't cache any state across iterations, so just return
+        return true;
+    }
 
     std::vector<std::string> json_lines;
     StringUtils::split(req.body, json_lines, "\n");
@@ -611,7 +616,7 @@ bool post_import_documents(http_req& req, http_res& res) {
     res.content_type_header = "text/plain; charset=utf8";
     res.set_200(ss.str());
 
-    server->stream_response(req, res);
+    HttpServer::stream_response(req, res);
     return true;
 }
 

@@ -125,14 +125,16 @@ struct http_req {
     std::string body;
     std::string metadata;
 
-    http_req(): route_hash(1) {
+    void* data;
+
+    http_req(): _req(nullptr), route_hash(1), chunk_length(0), data(nullptr) {
 
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            stream_state("NON_STREAMING"), body(body) {
+            stream_state("NON_STREAMING"), chunk_length(0), body(body), data(nullptr) {
 
     }
 
