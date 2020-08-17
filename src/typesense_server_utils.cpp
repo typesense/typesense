@@ -68,33 +68,6 @@ Option<std::string> fetch_file_contents(const std::string & file_path) {
     return Option<std::string>(content);
 }
 
-void stream_response(bool (*req_handler)(http_req* req, http_res* res, void* data),
-                     http_req & request, http_res & response, void* data) {
-    h2o_req_t* req = request._req;
-    h2o_custom_generator_t *custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
-
-    if (request.stream_state == "START" || request.stream_state == "NON_STREAMING") {
-        req->res.status = response.status_code;
-        req->res.reason = http_res::get_status_reason(response.status_code);
-        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       response.content_type_header.c_str(),
-                       response.content_type_header.size());
-        h2o_start_response(req, &custom_generator->super);
-    }
-
-    custom_generator->res->final = (request.stream_state == "END" || request.stream_state == "NON_STREAMING");
-
-    h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
-    const h2o_send_state_t state = custom_generator->res->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
-    h2o_send(req, &body, 1, state);
-
-    if(state == H2O_SEND_STATE_FINAL) {
-        delete custom_generator->req;
-        delete custom_generator->res;
-        delete custom_generator;
-    }
-}
-
 void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.set_program_name("./typesense-server");
 

@@ -269,28 +269,16 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
-    //LOG(INFO) << "on_res_generator_dispose fires";
+    LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
 
-    // res_generator itself is reference counted, so we only free members
-    delete res_generator->req;
-    delete res_generator->res;
-}
-
-void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
-    //LOG(INFO) << "response_proceed called";
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
-    custom_generator->req_handler(*custom_generator->req, *custom_generator->res);
-
-    if(custom_generator->req->_req->proceed_req) {
-        int is_end_stream = (custom_generator->res->final) ? 1: 0;
-        size_t written = custom_generator->req->chunk_length;
-        custom_generator->req->_req->proceed_req(custom_generator->req->_req, written, is_end_stream);
-    }
+    // res_generator itself is reference counted, so we only delete the members
+    delete res_generator->request;
+    delete res_generator->response;
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
-    h2o_custom_req_handler_t *h2o_handler = (h2o_custom_req_handler_t *)_h2o_handler;
+    h2o_custom_req_handler_t* h2o_handler = (h2o_custom_req_handler_t *)_h2o_handler;
 
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
@@ -387,17 +375,19 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     const std::string & body = std::string(req->entity.base, req->entity.len);
+
     http_req* request = new http_req(req, rpath->http_method, route_hash, query_map, body);
     http_res* response = new http_res();
 
     // add custom generator with a dipose function for cleaning up resources
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(
-            h2o_mem_alloc_shared(&req->pool, sizeof(*custom_generator), on_res_generator_dispose)
+        h2o_mem_alloc_shared(&req->pool, sizeof(*custom_generator), on_res_generator_dispose)
     );
     custom_generator->super = h2o_generator_t {response_proceed, nullptr};
-    custom_generator->req = request;
-    custom_generator->res = response;
-    custom_generator->req_handler = rpath->handler;
+    custom_generator->request = request;
+    custom_generator->response = response;
+    custom_generator->rpath = rpath;
+    custom_generator->h2o_handler = h2o_handler;
     response->generator = &custom_generator->super;
 
     // routes match and is an authenticated request
@@ -412,14 +402,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         return process_request(request, response, rpath, h2o_handler);
     } else {
         // Only partial request body is available.
-        // If async_req is true, the request handler function will be invoked multiple times, for each chunk
-        request->streaming = rpath->async_req;
-        async_req_ctx_t* async_req_ctx = new async_req_ctx_t(request, response, h2o_handler, rpath);
+        // If rpath->async_req is true, the request handler function will be invoked multiple times, for each chunk
 
         //LOG(INFO) << "Partial request body length: " << req->entity.len;
 
         req->write_req.cb = async_req_cb;
-        req->write_req.ctx = async_req_ctx;
+        req->write_req.ctx = custom_generator;
         int is_end_entity = 0;
         req->proceed_req(req, req->entity.len, is_end_entity);
     }
@@ -428,25 +416,27 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 }
 
 int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
-    async_req_ctx_t* req_ctx = static_cast<async_req_ctx_t*>(ctx);
+    h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
-    http_req* request = req_ctx->request;
-    http_res* response = req_ctx->response;
+    http_req* request = custom_generator->request;
+    http_res* response = custom_generator->response;
 
-    LOG(INFO) << "chunk.len: " << chunk.len << ", is_end_stream: " << is_end_stream;
+    //LOG(INFO) << "async_req_cb, chunk.len: " << chunk.len << ", is_end_stream: " << is_end_stream;
 
     request->chunk_length = chunk.len;
 
     std::string chunk_str(chunk.base, chunk.len);
     request->body += chunk_str;
 
-    if(request->streaming || is_end_stream) {
-        // Handler should be invoked for every chunk for streaming requests
+    bool async_req = custom_generator->rpath->async_req;
+
+    if(async_req || is_end_stream) {
+        // Handler should be invoked for every chunk for async streaming requests
         // For a non streaming request, buffer body and invoke only at the end
 
         // default value for response is NON_STREAMING
         // for streaming requests, we have to set: START, IN_PROGRESS or END
-        if(request->streaming) {
+        if(async_req) {
             if(is_end_stream) {
                 request->stream_state = "END";
             } else if(request->stream_state == "NON_STREAMING") {
@@ -457,20 +447,15 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
             }
         }
 
-        process_request(request, response, req_ctx->rpath, req_ctx->handler);
+        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler);
     }
 
-    if(!is_end_stream && !request->streaming) {
+    if(!is_end_stream && !async_req) {
         // streaming requests will call proceed_req in an async fashion
         // so we have to handle this only for non streaming
         size_t written = chunk.len;
         int stream_ended = 0;
         request->_req->proceed_req(request->_req, written, stream_ended);
-    }
-
-    if (is_end_stream) {
-        // deletes only the container -- individual requests and response are deleted by response handler
-        delete req_ctx;
     }
 
     return 0;
@@ -524,6 +509,50 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
 
 void HttpServer::send_message(const std::string & type, void* data) {
     message_dispatcher->send_message(type, data);
+}
+
+void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
+    //LOG(INFO) << "response_proceed called";
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+
+    // if the request itself is async, we will proceed the request to fetch input content
+    // otherwise, call the handler since it will be the handler that will be producing content
+
+    if (custom_generator->rpath->async_req &&
+        custom_generator->request->_req && custom_generator->request->_req->proceed_req) {
+
+        int is_end_stream = (custom_generator->response->final) ? 1 : 0;
+        size_t written = custom_generator->request->chunk_length;
+        custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, is_end_stream);
+
+    } else {
+        custom_generator->rpath->handler(*custom_generator->request, *custom_generator->response);
+    }
+}
+
+void HttpServer::stream_response(http_req& request, http_res& response) {
+    if(!request._req) {
+        // underlying request is no longer available
+        return ;
+    }
+
+    h2o_req_t* req = request._req;
+    h2o_custom_generator_t *custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
+
+    if (request.stream_state == "START" || request.stream_state == "NON_STREAMING") {
+        req->res.status = response.status_code;
+        req->res.reason = http_res::get_status_reason(response.status_code);
+        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
+                       response.content_type_header.c_str(),
+                       response.content_type_header.size());
+        h2o_start_response(req, &custom_generator->super);
+    }
+
+    custom_generator->response->final = (request.stream_state == "END" || request.stream_state == "NON_STREAMING");
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
+    const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    h2o_send(req, &body, 1, state);
 }
 
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,

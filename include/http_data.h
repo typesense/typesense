@@ -119,7 +119,6 @@ struct http_req {
     uint64_t route_hash;
     std::map<std::string, std::string> params;
 
-    bool streaming;
     std::string stream_state;
 
     size_t chunk_length;
@@ -133,7 +132,7 @@ struct http_req {
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            streaming(false), stream_state("NON_STREAMING"), body(body) {
+            stream_state("NON_STREAMING"), body(body) {
 
     }
 
@@ -150,7 +149,6 @@ struct http_req {
         }
 
         metadata = content.count("metadata") != 0 ? content["metadata"] : "";
-        streaming = content.count("streaming") != 0 ? content["streaming"] : "";
         stream_state = content.count("stream_state") != 0 ? content["stream_state"] : "";
 
         _req = nullptr;
@@ -160,7 +158,6 @@ struct http_req {
         nlohmann::json content;
         content["route_hash"] = route_hash;
         content["params"] = params;
-        content["streaming"] = streaming;
         content["stream_state"] = stream_state;
         content["body"] = body;
         content["metadata"] = metadata;
@@ -187,6 +184,10 @@ struct route_path {
             http_method(httpMethod), path_parts(pathParts), handler(handler),
             async_req(async_req), async_res(async_res) {
         action = _get_action();
+        if(async_req) {
+            // once a request is async, response also needs to be async
+            this->async_res = true;
+        }
     }
 
     inline bool operator< (const route_path& rhs) const {
@@ -250,13 +251,6 @@ struct route_path {
 
         return resource + ":" + operation;
     }
-};
-
-struct h2o_custom_generator_t {
-    h2o_generator_t super;
-    bool (*req_handler)(http_req& req, http_res& res);
-    http_req* req;
-    http_res* res;
 };
 
 struct h2o_custom_res_message_t {
