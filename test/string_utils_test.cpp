@@ -82,4 +82,16 @@ TEST(StringUtilsTest, ShouldSplitString) {
     std::vector<std::string> lines_empty;
     StringUtils::split("", lines_empty, "\n");
     ASSERT_TRUE(lines_empty.empty());
+
+    // restrict list of max_values
+    std::vector<std::string> lines_limited;
+    size_t end_index = StringUtils::split("a b c d e f", lines_limited, " ", false, 0, 3);
+    ASSERT_EQ(3, lines_limited.size());
+    ASSERT_EQ(6, end_index);
+
+    // start from an arbitrary position in string
+    std::vector<std::string> lines_custom_start;
+    end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, 2, 100);
+    ASSERT_EQ(5, lines_custom_start.size());
+    ASSERT_EQ(11, end_index);
 }
