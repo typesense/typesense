@@ -14,6 +14,17 @@ extern "C" {
     #include "h2o.h"
 }
 
+struct h2o_custom_timer_t {
+    h2o_timer_t timer{};
+    void *data;
+
+    h2o_custom_timer_t(): data(nullptr) {}
+
+    explicit h2o_custom_timer_t(void *data): data(data) {
+
+    }
+};
+
 struct http_res {
     uint32_t status_code;
     std::string content_type_header;
@@ -120,21 +131,26 @@ struct http_req {
     std::map<std::string, std::string> params;
 
     std::string stream_state;
-
     size_t chunk_length;
+
     std::string body;
+    size_t body_index;
     std::string metadata;
 
     void* data;
 
-    http_req(): _req(nullptr), route_hash(1), chunk_length(0), data(nullptr) {
+    // for deffered processing of async handlers
+    h2o_custom_timer_t defer_timer;
+
+    http_req(): _req(nullptr), route_hash(1), chunk_length(0), body_index(0), data(nullptr) {
 
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            stream_state("NON_STREAMING"), chunk_length(0), body(body), data(nullptr) {
+            stream_state("NON_STREAMING"), chunk_length(0), body(body), body_index(0),
+            data(nullptr) {
 
     }
 

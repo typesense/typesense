@@ -18,17 +18,6 @@ extern "C" {
 class ReplicationState;
 class HttpServer;
 
-struct h2o_custom_timer_t {
-    h2o_timer_t timer{};
-    HttpServer *server;
-
-    h2o_custom_timer_t(): server(nullptr) {}
-
-    explicit h2o_custom_timer_t(HttpServer *server): server(server) {
-
-    }
-};
-
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
     HttpServer* http_server;
@@ -40,6 +29,12 @@ struct h2o_custom_generator_t {
     route_path *rpath;
     http_req* request;
     http_res* response;
+};
+
+struct deferred_req_res_t {
+    http_req* req;
+    http_res* res;
+    HttpServer* server;
 };
 
 class HttpServer {
@@ -154,4 +149,8 @@ public:
 
     static int process_request(http_req* request, http_res* response, route_path *rpath,
                                const h2o_custom_req_handler_t *req_handler);
+
+    static void on_deferred_process_request(h2o_timer_t *entry);
+
+    void defer_processing(http_req& req, http_res& res, size_t timeout_ms);
 };

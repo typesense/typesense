@@ -352,7 +352,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ThreadPool thread_pool(4);
+    ThreadPool thread_pool(32);
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), create_init_db_snapshot);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {

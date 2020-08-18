@@ -186,7 +186,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
 }
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
-    LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
+    //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
 
     std::vector<std::vector<index_record>> iter_batch;
 

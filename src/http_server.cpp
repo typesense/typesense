@@ -51,7 +51,7 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
 
     LOG(INFO) << "Refreshing SSL certs from disk.";
 
-    HttpServer *hs = custom_timer->server;
+    HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
     SSL_CTX *ssl_ctx = hs->accept_ctx->ssl_ctx;
 
     if (SSL_CTX_use_certificate_chain_file(ssl_ctx, hs->ssl_cert_path.c_str()) != 1) {
@@ -71,9 +71,9 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
     ssl_refresh_timer = h2o_custom_timer_t(this);
-    ssl_refresh_timer.timer.expire_at = 10000000;
-    h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);  // every 8 hours
-    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);
+    ssl_refresh_timer.timer.expire_at = UINT64_MAX-1;
+    h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);
+    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);  // every 8 hours
 
     accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
 
@@ -269,13 +269,18 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
-    LOG(INFO) << "on_res_generator_dispose fires";
+    //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
 
     if(res_generator->rpath->async_res) {
         // for the handler to free any cached resources like an iterator
         res_generator->request->stream_state = "DISPOSE";
         res_generator->rpath->handler(*res_generator->request, *res_generator->response);
+    }
+
+    if(res_generator->request->defer_timer.data != nullptr) {
+        deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(res_generator->request->defer_timer.data);
+        delete deferred_req_res;
     }
 
     // res_generator itself is reference counted, so we only delete the members
@@ -489,6 +494,28 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
     return 0;
 }
 
+void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
+    h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
+    deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(custom_timer->data);
+
+    route_path* found_rpath = nullptr;
+    deferred_req_res->server->get_route(deferred_req_res->req->route_hash, &found_rpath);
+    if(found_rpath) {
+        found_rpath->handler(*deferred_req_res->req, *deferred_req_res->res);
+    }
+}
+
+void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_ms) {
+    if(req.defer_timer.data == nullptr) {
+        auto deferred_req_res = new deferred_req_res_t{&req, &res, this};
+        req.defer_timer.data = deferred_req_res;
+        req.defer_timer.timer.expire_at = UINT64_MAX-1;
+        h2o_timer_init(&req.defer_timer.timer, on_deferred_process_request);
+    }
+
+    h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
+}
+
 void HttpServer::send_response(http_req* request, http_res* response) {
     h2o_req_t* req = request->_req;
     h2o_generator_t& generator = *response->generator;
@@ -543,7 +570,7 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     }
 
     h2o_req_t* req = request._req;
-    h2o_custom_generator_t *custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
     if (request.stream_state == "START" || request.stream_state == "NON_STREAMING") {
         req->res.status = response.status_code;
@@ -557,6 +584,8 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     custom_generator->response->final = (request.stream_state == "END" || request.stream_state == "NON_STREAMING");
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
+    response.body = "";
+
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
 }

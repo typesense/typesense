@@ -558,6 +558,28 @@ bool get_export_documents(http_req & req, http_res & res) {
 }
 
 bool post_import_documents(http_req& req, http_res& res) {
+    const char *BATCH_SIZE = "batch_size";
+
+    if(req.stream_state == "DISPOSE") {
+        // we don't cache any state across iterations, so just return
+        return true;
+    }
+
+    if(req.params.count(BATCH_SIZE) == 0) {
+        req.params[BATCH_SIZE] = "40";
+    }
+
+    if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
+        req.stream_state = "NON_STREAMING";
+        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be an unsigned integer.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
+
+    LOG(INFO) << "Import batch size: " << IMPORT_BATCH_SIZE;
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
@@ -568,55 +590,67 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
-    LOG(INFO) << "Import, req.body.size: " << req.body.size() << ", state: " << req.stream_state;
-
-    if(req.stream_state == "DISPOSE") {
-        // we don't cache any state across iterations, so just return
-        return true;
-    }
+    //LOG(INFO) << "Import, req.body.size: " << req.body.size() << ", state: " << req.stream_state;
 
     std::vector<std::string> json_lines;
-    StringUtils::split(req.body, json_lines, "\n");
+    req.body_index = StringUtils::split(req.body, json_lines, "\n", false, req.body_index, IMPORT_BATCH_SIZE);
 
-    if(req.stream_state == "END" || req.stream_state == "NON_STREAMING") {
-        req.body = "";
-    } else {
-        if(!json_lines.empty()) {
-            // check if req.body had incomplete last record
-            if(!nlohmann::json::accept(json_lines.back())) {
-                // eject partial record
-                req.body = json_lines.back();
-                json_lines.pop_back();
+    bool stream_proceed = false;  // default state
+
+    //LOG(INFO) << "req.body_index=" << req.body_index << ", req.body.size=" << req.body.size();
+    //LOG(INFO) << "req body percentage: " << (float(req.body_index)/req.body.size())*100;
+
+    if(req.body_index == req.body.size()) {
+        // body has been consumed fully, see whether we can fetch more request body
+        req.body_index = 0;
+        stream_proceed = true;
+
+        if(req.stream_state == "END" || req.stream_state == "NON_STREAMING") {
+            req.body = "";
+        } else {
+            if(!json_lines.empty()) {
+                // check if req.body had incomplete last record
+                if(!nlohmann::json::accept(json_lines.back())) {
+                    // eject partial record
+                    req.body = json_lines.back();
+                    json_lines.pop_back();
+                }
             }
         }
     }
 
     //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req.stream_state: " << req.stream_state;
 
-    if(json_lines.empty() && !req.body.empty()) {
-        // detects the case when only one partial record arrives as a chunk
-        return true;
-    }
-
-    nlohmann::json json_res = collection->add_many(json_lines);
-
+    // When only one partial record arrives as a chunk, an empty body is pushed to response stream
+    bool single_partial_record_body = (json_lines.empty() && !req.body.empty());
     std::stringstream ss;
-    const std::string& import_summary_json = json_res.dump();
 
-    ss << import_summary_json << "\n";
+    if(!single_partial_record_body) {
+        nlohmann::json json_res = collection->add_many(json_lines);
+        //const std::string& import_summary_json = json_res.dump();
+        //ss << import_summary_json << "\n";
 
-    for (size_t i = 0; i < json_lines.size(); i++) {
-        if(i == json_lines.size()-1) {
-            ss << json_lines[i];
-        } else {
-            ss << json_lines[i] << "\n";
+        for (size_t i = 0; i < json_lines.size(); i++) {
+            if(i == json_lines.size()-1 && req.stream_state == "END" && req.body_index == req.body.size()) {
+                // indicates last record of last batch
+                ss << json_lines[i];
+            } else {
+                ss << json_lines[i] << "\n";
+            }
         }
     }
 
     res.content_type_header = "text/plain; charset=utf8";
-    res.set_200(ss.str());
+    res.status_code = 200;
+    res.body += ss.str();
 
-    HttpServer::stream_response(req, res);
+    if(stream_proceed) {
+        HttpServer::stream_response(req, res);
+    } else {
+        // push handler back onto the event loop: we must process the next batch without blocking the event loop
+        server->defer_processing(req, res, 1);
+    }
+
     return true;
 }
 
@@ -1027,6 +1061,12 @@ bool async_write_request(void *data) {
     if(!async_res && index_arg->req->_req != nullptr) {
         // we have to return a response to the client
         server->send_response(index_arg->req, index_arg->res);
+    }
+
+    if(index_arg->req->_req == nullptr) {
+        // indicates raft serialized request and response -- lifecycle must be managed here
+        delete index_arg->req;
+        delete index_arg->res;
     }
 
     if(index_arg->promise != nullptr) {
