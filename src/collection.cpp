@@ -132,6 +132,7 @@ nlohmann::json Collection::get_summary_json() {
     nlohmann::json json_response;
 
     json_response["name"] = name;
+    json_response["num_indices"] = num_indices;
     json_response["num_documents"] = num_documents;
     json_response["created_at"] = created_at;
 

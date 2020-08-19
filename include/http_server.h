@@ -127,6 +127,8 @@ public:
 
     void send_response(http_req* request, http_res* response);
 
+    static void destroy_request_response(http_req* request, http_res* response);
+
     static void stream_response(http_req& request, http_res& response);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,

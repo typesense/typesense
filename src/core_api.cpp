@@ -42,6 +42,7 @@ bool get_collections(http_req & req, http_res & res) {
 }
 
 bool post_create_collection(http_req & req, http_res & res) {
+    const char* NUM_INDICES = "num_indices";
     nlohmann::json req_json;
 
     try {
@@ -61,6 +62,10 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
+    if(req_json.count(NUM_INDICES) == 0) {
+        req_json[NUM_INDICES] = CollectionManager::DEFAULT_NUM_INDICES;
+    }
+
     if(req_json.count("fields") == 0) {
         res.set_400("Parameter `fields` is required.");
         return false;
@@ -76,6 +81,16 @@ bool post_create_collection(http_req & req, http_res & res) {
     if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
         res.set_400(std::string("`") + DEFAULT_SORTING_FIELD +
                     "` should be a string. It should be the name of an int32/float field.");
+        return false;
+    }
+
+    if(!req_json[NUM_INDICES].is_number_unsigned()) {
+        res.set_400(std::string("`") + NUM_INDICES + "` should be a positive integer.");
+        return false;
+    }
+
+    if(req_json[NUM_INDICES].get<size_t>() == 0) {
+        res.set_400(std::string("`") + NUM_INDICES + "` should be a positive integer.");
         return false;
     }
 
@@ -125,7 +140,8 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
     const Option<Collection*> & collection_op =
-            collectionManager.create_collection(req_json["name"], fields, default_sorting_field);
+            collectionManager.create_collection(req_json["name"], req_json[NUM_INDICES].get<size_t>(),
+            fields, default_sorting_field);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();
@@ -571,14 +587,21 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
         req.stream_state = "NON_STREAMING";
-        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be an unsigned integer.");
+        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
         HttpServer::stream_response(req, res);
         return false;
     }
 
     const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
 
-    LOG(INFO) << "Import batch size: " << IMPORT_BATCH_SIZE;
+    if(IMPORT_BATCH_SIZE == 0) {
+        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        return false;
+    }
+
+    if(req.stream_state == "START" && req.body_index == 0) {
+        LOG(INFO) << "Import batch size: " << IMPORT_BATCH_SIZE;
+    }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
@@ -1036,8 +1059,8 @@ bool del_key(http_req &req, http_res &res) {
     return true;
 }
 
-bool async_write_request(void *data) {
-    //LOG(INFO) << "async_write_request called";
+bool raft_write_send_response(void *data) {
+    //LOG(INFO) << "raft_write_send_response called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
@@ -1047,10 +1070,10 @@ bool async_write_request(void *data) {
         // route not found
         index_arg->res->set_400("Not found.");
     } else if(index_arg->req->route_hash != static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED)) {
-        // call the underlying http handler
         route_path* found_rpath = nullptr;
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
+            // call request handler
             found_rpath->handler(*index_arg->req, *index_arg->res);
             async_res = found_rpath->async_res;
         } else {
@@ -1058,15 +1081,9 @@ bool async_write_request(void *data) {
         }
     }
 
-    if(!async_res && index_arg->req->_req != nullptr) {
-        // we have to return a response to the client
+    if(!async_res) {
+        // only handle synchronous responses as async ones are handled by their handlers
         server->send_response(index_arg->req, index_arg->res);
-    }
-
-    if(index_arg->req->_req == nullptr) {
-        // indicates raft serialized request and response -- lifecycle must be managed here
-        delete index_arg->req;
-        delete index_arg->res;
     }
 
     if(index_arg->promise != nullptr) {

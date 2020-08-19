@@ -329,8 +329,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     Store store(db_dir);
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, config.get_indices_per_collection(),
-                           config.get_max_memory_ratio(), config.get_api_key());
+    collectionManager.init(&store, config.get_max_memory_ratio(), config.get_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
@@ -348,7 +347,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     server->set_auth_handler(handle_authentication);
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
-    server->on(ReplicationState::REPLICATION_MSG, async_write_request);
+    server->on(ReplicationState::REPLICATION_MSG, raft_write_send_response);
 
     // first we start the peering service
 

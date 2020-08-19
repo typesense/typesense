@@ -29,11 +29,10 @@ private:
     static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "fields";
     static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
     static constexpr const char* COLLECTION_CREATED = "created_at";
+    static constexpr const char* COLLECTION_NUM_INDICES = "num_indices";
 
     std::string bootstrap_auth_key;
     std::string bootstrap_search_only_auth_key;
-
-    size_t default_num_indices;
 
     float max_memory_ratio;
 
@@ -60,8 +59,7 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    void init(Store *store, const size_t default_num_indices, const float max_memory_ratio,
-              const std::string & auth_key);
+    void init(Store *store, const float max_memory_ratio, const std::string & auth_key);
 
     Option<bool> load(const size_t init_batch_size=1000);
 
@@ -75,7 +73,8 @@ public:
     bool auth_key_matches(const std::string& auth_key_sent, const std::string& action,
                           const std::string& collection, std::map<std::string, std::string>& params);
 
-    Option<Collection*> create_collection(const std::string name, const std::vector<field> & fields,
+    Option<Collection*> create_collection(const std::string name, const size_t num_indices,
+                                          const std::vector<field> & fields,
                                           const std::string & default_sorting_field,
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)));
 
@@ -105,6 +104,8 @@ public:
     Option<bool> upsert_symlink(const std::string & symlink_name, const std::string & collection_name);
 
     Option<bool> delete_symlink(const std::string & symlink_name);
+
+    static const size_t DEFAULT_NUM_INDICES = 4;
 
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";

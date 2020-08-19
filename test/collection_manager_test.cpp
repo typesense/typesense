@@ -20,7 +20,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
 
         search_fields = {
@@ -31,7 +31,7 @@ protected:
         };
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection("collection1", search_fields, "points", 12345).get();
+        collection1 = collectionManager.create_collection("collection1", 4, search_fields, "points", 12345).get();
     }
 
     virtual void SetUp() {
@@ -86,7 +86,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
-              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\"}",
+              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\",\"num_indices\":4}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -124,7 +124,7 @@ TEST_F(CollectionManagerTest, GetAllCollections) {
     ASSERT_STREQ("collection1", collection_vec[0]->get_name().c_str());
 
     // try creating one more collection
-    collectionManager.create_collection("collection2", search_fields, "points");
+    collectionManager.create_collection("collection2", 4, search_fields, "points");
     collection_vec = collectionManager.get_collections();
     ASSERT_EQ(2, collection_vec.size());
 
@@ -212,7 +212,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 4, 1.0, "auth_key");
+    collectionManager2.init(store, 1.0, "auth_key");
     collectionManager2.load();
 
     collection1 = collectionManager2.get_collection("collection1");
@@ -280,7 +280,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *store = new Store(state_dir_path);
-    cmanager.init(store, 4, 1.0, "auth_key");
+    cmanager.init(store, 1.0, "auth_key");
     cmanager.load();
 
     // try resolving on a blank slate
@@ -346,7 +346,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
-    cmanager2.init(store, 4, 1.0, "auth_key");
+    cmanager2.init(store, 1.0, "auth_key");
     cmanager2.load();
 
     collection_option = cmanager2.resolve_symlink("company");

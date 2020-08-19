@@ -4,6 +4,9 @@
 #include "collection_manager.h"
 #include "logger.h"
 
+constexpr const char* CollectionManager::COLLECTION_NUM_INDICES;
+constexpr const size_t CollectionManager::DEFAULT_NUM_INDICES;
+
 CollectionManager::CollectionManager() {
 
 }
@@ -31,6 +34,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     uint64_t created_at = collection_meta.find((const char*)COLLECTION_CREATED) != collection_meta.end() ?
                        collection_meta[COLLECTION_CREATED].get<uint64_t>() : 0;
 
+    size_t num_indices = collection_meta.count(COLLECTION_NUM_INDICES) != 0 ?
+                         collection_meta[COLLECTION_NUM_INDICES].get<size_t>() :
+                         DEFAULT_NUM_INDICES;
+
+    LOG(INFO) << "Loading collection with " << num_indices << " indices.";
+
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
@@ -38,7 +47,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             store,
                                             fields,
                                             default_sorting_field,
-                                            default_num_indices,
+                                            num_indices,
                                             max_memory_ratio);
 
     return collection;
@@ -50,12 +59,10 @@ void CollectionManager::add_to_collections(Collection* collection) {
 }
 
 void CollectionManager::init(Store *store,
-                             const size_t default_num_indices,
                              const float max_memory_ratio,
                              const std::string & auth_key) {
     this->store = store;
     this->bootstrap_auth_key = auth_key;
-    this->default_num_indices = default_num_indices;
     this->max_memory_ratio = max_memory_ratio;
 
     auth_manager.init(store);
@@ -227,7 +234,9 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
     return auth_manager.authenticate(auth_key_sent, action, collection, params);
 }
 
-Option<Collection*> CollectionManager::create_collection(const std::string name, const std::vector<field> & fields,
+Option<Collection*> CollectionManager::create_collection(const std::string name,
+                                                         const size_t num_indices,
+                                                         const std::vector<field> & fields,
                                                          const std::string & default_sorting_field,
                                                          const uint64_t created_at) {
     if(store->contains(Collection::get_meta_key(name))) {
@@ -273,9 +282,10 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[COLLECTION_CREATED] = created_at;
+    collection_meta[COLLECTION_NUM_INDICES] = num_indices;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field, this->default_num_indices,
+                                                default_sorting_field, num_indices,
                                                 this->max_memory_ratio);
     next_collection_id++;
 

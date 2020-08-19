@@ -15,7 +15,7 @@ extern "C" {
 }
 
 struct h2o_custom_timer_t {
-    h2o_timer_t timer{};
+    h2o_timer_t timer;
     void *data;
 
     h2o_custom_timer_t(): data(nullptr) {}
@@ -181,6 +181,14 @@ struct http_req {
         content["metadata"] = metadata;
 
         return content.dump();
+    }
+
+    bool is_ending() {
+        return stream_state == "END" || stream_state == "NON_STREAMING";
+    }
+
+    bool is_starting() {
+        return stream_state == "START" || stream_state == "NON_STREAMING";
     }
 };
 
