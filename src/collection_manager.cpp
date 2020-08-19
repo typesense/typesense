@@ -131,6 +131,8 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
 
         rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+        std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
         std::vector<std::vector<index_record>> iter_batch;
 
         for(size_t i = 0; i < collection->get_num_indices(); i++) {
@@ -171,7 +173,6 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
                     size_t num_indexed = indexed_counts[i];
 
                     if(num_indexed != num_records) {
-                        delete iter;
                         const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
                         if(index_error_op.ok()) {
                             return Option<bool>(false, index_error_op.get());
@@ -179,16 +180,9 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
                     }
                     iter_batch[i].clear();
                 }
-
-                if(last_record) {
-                    delete iter;
-                    iter = nullptr;
-                    break;
-                }
             }
         }
 
-        assert(iter == nullptr);
         add_to_collections(collection);
     }
 
