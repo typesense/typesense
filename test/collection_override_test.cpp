@@ -18,7 +18,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
@@ -31,7 +31,7 @@ protected:
 
         coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
         if(coll_mul_fields == nullptr) {
-            coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+            coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
         }
 
         std::string json_line;

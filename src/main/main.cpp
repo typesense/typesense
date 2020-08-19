@@ -35,7 +35,7 @@ int main(int argc, char* argv[]) {
 
     Collection *collection = collectionManager.get_collection("github_top1k");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("github_top1k", fields_to_index, "stars").get();
+        collection = collectionManager.create_collection("github_top1k", 4, fields_to_index, "stars").get();
     }
 
     int j = 0;

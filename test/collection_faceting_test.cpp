@@ -20,7 +20,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
     }
 
@@ -50,7 +50,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -336,7 +336,7 @@ TEST_F(CollectionFacetingTest, FacetCountsBool) {
 
     coll1 = collectionManager.get_collection("coll1");
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -390,7 +390,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -507,7 +507,7 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
 
     coll_float_fields = collectionManager.get_collection("coll_float_fields");
     if(coll_float_fields == nullptr) {
-        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields, "average").get();
+        coll_float_fields = collectionManager.create_collection("coll_float_fields", 4, fields, "average").get();
     }
 
     std::string json_line;

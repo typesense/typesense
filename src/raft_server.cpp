@@ -92,6 +92,7 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 }
 
 void ReplicationState::write(http_req* request, http_res* response) {
+    // NOTE: this is executed on a different thread and runs concurrent to http thread
     if (!is_leader()) {
         if(node->leader_id().is_empty()) {
             // Handle no leader scenario
@@ -187,11 +188,10 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         } else {
             // Parse request from the log
             response = new http_res;
-            http_req* remote_request = new http_req;
-            remote_request->deserialize(iter.data().to_string());
-            remote_request->_req = nullptr;  // indicates remote request
 
-            request = remote_request;
+            request = new http_req;
+            request->deserialize(iter.data().to_string());
+            request->_req = nullptr;  // indicates remote request
         }
 
         if(request->_req == nullptr && request->body == "INIT_SNAPSHOT") {

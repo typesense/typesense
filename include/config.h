@@ -29,8 +29,6 @@ private:
 
     bool enable_cors;
 
-    size_t indices_per_collection;
-
     float max_memory_ratio;
 
     std::string config_file;
@@ -43,7 +41,6 @@ public:
         this->api_port = 8108;
         this->peering_port = 8107;
         this->enable_cors = false;
-        this->indices_per_collection = 4;
         this->max_memory_ratio = 1.0f;
     }
 
@@ -88,10 +85,6 @@ public:
 
     void set_enable_cors(bool enable_cors) {
         this->enable_cors = enable_cors;
-    }
-
-    void set_indices_per_collection(size_t indices_per_collection) {
-        this->indices_per_collection  = indices_per_collection;
     }
 
     // getters
@@ -139,10 +132,6 @@ public:
 
     bool get_enable_cors() const {
         return this->enable_cors;
-    }
-
-    size_t get_indices_per_collection() const {
-        return indices_per_collection;
     }
 
     std::string get_peering_address() const {

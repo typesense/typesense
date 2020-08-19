@@ -71,7 +71,6 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
     ssl_refresh_timer = h2o_custom_timer_t(this);
-    ssl_refresh_timer.timer.expire_at = UINT64_MAX-1;
     h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);
     h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);  // every 8 hours
 
@@ -278,14 +277,7 @@ void HttpServer::on_res_generator_dispose(void *self) {
         res_generator->rpath->handler(*res_generator->request, *res_generator->response);
     }
 
-    if(res_generator->request->defer_timer.data != nullptr) {
-        deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(res_generator->request->defer_timer.data);
-        delete deferred_req_res;
-    }
-
-    // res_generator itself is reference counted, so we only delete the members
-    delete res_generator->request;
-    delete res_generator->response;
+    destroy_request_response(res_generator->request, res_generator->response);
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
@@ -509,24 +501,15 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
     if(req.defer_timer.data == nullptr) {
         auto deferred_req_res = new deferred_req_res_t{&req, &res, this};
         req.defer_timer.data = deferred_req_res;
-        req.defer_timer.timer.expire_at = UINT64_MAX-1;
         h2o_timer_init(&req.defer_timer.timer, on_deferred_process_request);
     }
 
+    h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
 }
 
-void HttpServer::send_response(http_req* request, http_res* response) {
-    h2o_req_t* req = request->_req;
-    h2o_generator_t& generator = *response->generator;
-
-    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
-    req->res.status = response->status_code;
-    req->res.reason = http_res::get_status_reason(response->status_code);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE,
-            nullptr, response->content_type_header.c_str(), response->content_type_header.size());
-    h2o_start_response(req, &generator);
-    h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
+void HttpServer::send_message(const std::string & type, void* data) {
+    message_dispatcher->send_message(type, data);
 }
 
 int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string & message) {
@@ -540,8 +523,22 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::send_message(const std::string & type, void* data) {
-    message_dispatcher->send_message(type, data);
+void HttpServer::send_response(http_req* request, http_res* response) {
+    if(request->_req == nullptr) {
+        // indicates serialized request and response -- lifecycle must be managed here
+        return destroy_request_response(request, response);
+    }
+
+    h2o_req_t* req = request->_req;
+    h2o_generator_t& generator = *response->generator;
+
+    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
+    req->res.status = response->status_code;
+    req->res.reason = http_res::get_status_reason(response->status_code);
+    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE,
+            nullptr, response->content_type_header.c_str(), response->content_type_header.size());
+    h2o_start_response(req, &generator);
+    h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
@@ -564,9 +561,10 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 }
 
 void HttpServer::stream_response(http_req& request, http_res& response) {
-    if(!request._req) {
-        // underlying request is no longer available
-        return ;
+    if(request._req == nullptr) {
+        // serialized request or underlying request is no longer available
+        destroy_request_response(&request, &response);
+        return;
     }
 
     h2o_req_t* req = request._req;
@@ -588,6 +586,16 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
 
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
+}
+
+void HttpServer::destroy_request_response(http_req* request, http_res* response) {
+    if(request->defer_timer.data != nullptr) {
+        deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(request->defer_timer.data);
+        delete deferred_req_res;
+    }
+
+    delete request;
+    delete response;
 }
 
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
@@ -675,3 +683,4 @@ bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
 uint64_t HttpServer::node_state() const {
     return replication_state->node_state();
 }
+

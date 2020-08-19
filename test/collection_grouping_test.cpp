@@ -18,7 +18,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
 
         std::vector<field> fields = {
@@ -31,7 +31,7 @@ protected:
 
         coll_group = collectionManager.get_collection("coll_group");
         if(coll_group == nullptr) {
-            coll_group = collectionManager.create_collection("coll_group", fields, "rating").get();
+            coll_group = collectionManager.create_collection("coll_group", 4, fields, "rating").get();
         }
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/group_documents.jsonl");

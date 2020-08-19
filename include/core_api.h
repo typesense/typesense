@@ -69,6 +69,6 @@ bool get_metrics_json(http_req& req, http_res& res);
 
 // Misc helpers
 
-bool async_write_request(void *data);
+bool raft_write_send_response(void *data);
 
 static constexpr const char* SEND_RESPONSE_MSG = "send_response";

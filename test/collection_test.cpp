@@ -20,7 +20,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
@@ -34,7 +34,7 @@ protected:
 
         collection = collectionManager.get_collection("collection");
         if(collection == nullptr) {
-            collection = collectionManager.create_collection("collection", search_fields, "points").get();
+            collection = collectionManager.create_collection("collection", 4, search_fields, "points").get();
         }
 
         std::string json_line;
@@ -581,7 +581,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
 
     coll_multi_string = collectionManager.get_collection("coll_multi_string");
     if (coll_multi_string == nullptr) {
-        coll_multi_string = collectionManager.create_collection("coll_multi_string", fields, "points").get();
+        coll_multi_string = collectionManager.create_collection("coll_multi_string", 4, fields, "points").get();
     }
 
     nlohmann::json document;
@@ -609,7 +609,7 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
 
     coll_array_text = collectionManager.get_collection("coll_array_text");
     if (coll_array_text == nullptr) {
-        coll_array_text = collectionManager.create_collection("coll_array_text", fields, "points").get();
+        coll_array_text = collectionManager.create_collection("coll_array_text", 4, fields, "points").get();
     }
 
     std::string json_line;
@@ -774,7 +774,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
 
     std::string json_line;
@@ -892,7 +892,7 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
 
     std::string json_line;
@@ -984,12 +984,12 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
         // ensure that default_sorting_field is a non-array numerical field
-        auto coll_op = collectionManager.create_collection("coll_array_fields", fields, "years");
+        auto coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "years");
         ASSERT_EQ(false, coll_op.ok());
         ASSERT_STREQ("Default sorting field `years` must be a single valued numerical field.", coll_op.error().c_str());
 
         // let's try again properly
-        coll_op = collectionManager.create_collection("coll_array_fields", fields, "age");
+        coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "age");
         coll_array_fields = coll_op.get();
     }
 
@@ -1129,7 +1129,7 @@ TEST_F(CollectionTest, FilterOnFloatFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -1284,7 +1284,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
 
     // try importing records
@@ -1393,7 +1393,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     coll_bool = collectionManager.get_collection("coll_bool");
     if(coll_bool == nullptr) {
-        coll_bool = collectionManager.create_collection("coll_bool", fields, "rating").get();
+        coll_bool = collectionManager.create_collection("coll_bool", 4, fields, "rating").get();
     }
 
     std::string json_line;
@@ -1498,7 +1498,7 @@ TEST_F(CollectionTest, FilterOnTextFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -1582,7 +1582,7 @@ TEST_F(CollectionTest, HandleBadlyFormedFilterQuery) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -1638,7 +1638,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     coll_array_fields = collectionManager.get_collection("coll_array_fields");
     if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", fields, "age").get();
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -1693,7 +1693,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     sample_collection = collectionManager.get_collection("sample_collection");
     if(sample_collection == nullptr) {
-        sample_collection = collectionManager.create_collection("sample_collection", fields, "age").get();
+        sample_collection = collectionManager.create_collection("sample_collection", 4, fields, "age").get();
     }
 
     const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
@@ -1773,7 +1773,7 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
 
     empty_coll = collectionManager.get_collection("empty_coll");
     if(empty_coll == nullptr) {
-        empty_coll = collectionManager.create_collection("empty_coll", fields, "age").get();
+        empty_coll = collectionManager.create_collection("empty_coll", 4, fields, "age").get();
     }
 
     nlohmann::json results = empty_coll->search("a", {"name"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
@@ -1793,7 +1793,7 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "age").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "age").get();
     }
 
     nlohmann::json doc;
@@ -1821,7 +1821,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "average").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "average").get();
     }
 
     nlohmann::json doc;
@@ -1849,7 +1849,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     Collection *collection_for_del;
     collection_for_del = collectionManager.get_collection("collection_for_del");
     if(collection_for_del == nullptr) {
-        collection_for_del = collectionManager.create_collection("collection_for_del", search_fields, "points").get();
+        collection_for_del = collectionManager.create_collection("collection_for_del", 4, search_fields, "points").get();
     }
 
     std::string json_line;
@@ -1930,7 +1930,7 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -2001,7 +2001,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     coll_large_text = collectionManager.get_collection("coll_large_text");
     if(coll_large_text == nullptr) {
-        coll_large_text = collectionManager.create_collection("coll_large_text", fields, "age").get();
+        coll_large_text = collectionManager.create_collection("coll_large_text", 4, fields, "age").get();
     }
 
     std::string json_line;
@@ -2083,7 +2083,7 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     coll1 = collectionManager.get_collection("coll1");
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -2108,7 +2108,7 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
 
     coll1 = collectionManager.get_collection("coll1");
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -2151,7 +2151,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     coll1 = collectionManager.get_collection("coll1");
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc;
@@ -2226,7 +2226,7 @@ TEST_F(CollectionTest, OptionalFields) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "max").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "max").get();
     }
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
@@ -2290,7 +2290,7 @@ TEST_F(CollectionTest, OptionalFields) {
         field("score", field_types::INT32, false, true),
     };
 
-    auto create_op = collectionManager.create_collection("coll2", fields, "score");
+    auto create_op = collectionManager.create_collection("coll2", 4, fields, "score");
 
     ASSERT_FALSE(create_op.ok());
     ASSERT_STREQ("Default sorting field `score` cannot be an optional field.", create_op.error().c_str());

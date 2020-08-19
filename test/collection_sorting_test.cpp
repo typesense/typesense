@@ -20,7 +20,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 4, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key");
         collectionManager.load();
     }
 
@@ -45,7 +45,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
 
     std::string json_line;
@@ -127,7 +127,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", fields, "name");
+    Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", 4, fields, "name");
     EXPECT_FALSE(collection_op.ok());
     EXPECT_EQ("Default sorting field `name` must be a single valued numerical field.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
@@ -135,7 +135,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     // Default sorting field must exist as a field in schema
 
     sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
-    collection_op = collectionManager.create_collection("sample_collection", fields, "NOT-DEFINED");
+    collection_op = collectionManager.create_collection("sample_collection", 4, fields, "NOT-DEFINED");
     EXPECT_FALSE(collection_op.ok());
     EXPECT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
@@ -152,7 +152,7 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
 
     auto doc_str1 = "{\"title\": \"foo\", \"starring\": \"bar\", \"points\": 343234324234233234, \"cast\": [\"baz\"] }";
@@ -211,7 +211,7 @@ TEST_F(CollectionSortingTest, SortOnFloatFields) {
 
     coll_float_fields = collectionManager.get_collection("coll_float_fields");
     if(coll_float_fields == nullptr) {
-        coll_float_fields = collectionManager.create_collection("coll_float_fields", fields, "score").get();
+        coll_float_fields = collectionManager.create_collection("coll_float_fields", 4, fields, "score").get();
     }
 
     std::string json_line;
@@ -279,7 +279,7 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
 
     coll1 = collectionManager.get_collection("coll1");
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     nlohmann::json doc1;
