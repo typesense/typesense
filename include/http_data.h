@@ -31,6 +31,9 @@ struct http_res {
     std::string body;
     bool final;
 
+    // fulfilled by an async response handler to pass control back to raft replica apply thread
+    std::promise<bool>* promise = nullptr;
+
     h2o_generator_t* generator = nullptr;
 
     http_res(): status_code(501), content_type_header("application/json; charset=utf-8"), final(true) {
@@ -130,8 +133,9 @@ struct http_req {
     uint64_t route_hash;
     std::map<std::string, std::string> params;
 
-    std::string stream_state;
-    size_t chunk_length;
+    bool first_chunk_aggregate;
+    bool last_chunk_aggregate;
+    size_t chunk_len;
 
     std::string body;
     size_t body_index;
@@ -142,15 +146,17 @@ struct http_req {
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
-    http_req(): _req(nullptr), route_hash(1), chunk_length(0), body_index(0), data(nullptr) {
+    http_req(): _req(nullptr), route_hash(1),
+                first_chunk_aggregate(true), last_chunk_aggregate(false),
+                chunk_len(0), body_index(0), data(nullptr) {
 
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            stream_state("NON_STREAMING"), chunk_length(0), body(body), body_index(0),
-            data(nullptr) {
+            first_chunk_aggregate(true), last_chunk_aggregate(false),
+            chunk_len(0), body(body), body_index(0), data(nullptr) {
 
     }
 
@@ -167,8 +173,8 @@ struct http_req {
         }
 
         metadata = content.count("metadata") != 0 ? content["metadata"] : "";
-        stream_state = content.count("stream_state") != 0 ? content["stream_state"] : "";
-
+        first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
+        last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
         _req = nullptr;
     }
 
@@ -176,19 +182,16 @@ struct http_req {
         nlohmann::json content;
         content["route_hash"] = route_hash;
         content["params"] = params;
-        content["stream_state"] = stream_state;
+        content["first_chunk_aggregate"] = first_chunk_aggregate;
+        content["last_chunk_aggregate"] = last_chunk_aggregate;
         content["body"] = body;
         content["metadata"] = metadata;
 
         return content.dump();
     }
 
-    bool is_ending() {
-        return stream_state == "END" || stream_state == "NON_STREAMING";
-    }
-
-    bool is_starting() {
-        return stream_state == "START" || stream_state == "NON_STREAMING";
+    bool is_http_v1() {
+        return (_req->version < 0x200);
     }
 };
 

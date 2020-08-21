@@ -127,6 +127,7 @@ int HttpServer::create_listener() {
     }
 
     ctx.globalconf->server_name = h2o_strdup(nullptr, "", SIZE_MAX);
+    ctx.globalconf->http2.active_stream_window_size = ACTIVE_STREAM_WINDOW_SIZE;
 
     accept_ctx->ctx = &ctx;
     accept_ctx->hosts = config.hosts;
@@ -270,13 +271,6 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 void HttpServer::on_res_generator_dispose(void *self) {
     //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
-
-    if(res_generator->rpath->async_res) {
-        // for the handler to free any cached resources like an iterator
-        res_generator->request->stream_state = "DISPOSE";
-        res_generator->rpath->handler(*res_generator->request, *res_generator->response);
-    }
-
     destroy_request_response(res_generator->request, res_generator->response);
 }
 
@@ -402,6 +396,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
+        request->last_chunk_aggregate = true;
         return process_request(request, response, rpath, h2o_handler);
     } else {
         // Only partial request body is available.
@@ -411,54 +406,76 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
         req->write_req.cb = async_req_cb;
         req->write_req.ctx = custom_generator;
-        int is_end_entity = 0;
-        req->proceed_req(req, req->entity.len, is_end_entity);
+        req->proceed_req(req, req->entity.len, H2O_SEND_STATE_IN_PROGRESS);
     }
 
     return 0;
 }
 
+
 int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
+    // NOTE: this callback is triggered multiple times by HTTP 2 but only once by HTTP 1
+    // This quirk is because of the underlying buffer/window sizes. We will have to deal with both cases.
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
     http_req* request = custom_generator->request;
     http_res* response = custom_generator->response;
 
-    //LOG(INFO) << "async_req_cb, chunk.len: " << chunk.len << ", is_end_stream: " << is_end_stream;
-
-    request->chunk_length = chunk.len;
-
     std::string chunk_str(chunk.base, chunk.len);
+
     request->body += chunk_str;
+    request->chunk_len += chunk.len;
 
-    bool async_req = custom_generator->rpath->async_req;
+    LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len << ", aggr_chunk_len=" << request->chunk_len
+              << ", is_end_stream=" << is_end_stream;
 
-    if(async_req || is_end_stream) {
-        // Handler should be invoked for every chunk for async streaming requests
-        // For a non streaming request, buffer body and invoke only at the end
+    //LOG(INFO) << "request->body.size(): " << request->body.size() << ", request->chunk_len=" << request->chunk_len;
 
-        // default value for response is NON_STREAMING
-        // for streaming requests, we have to set: START, IN_PROGRESS or END
-        if(async_req) {
-            if(is_end_stream) {
-                request->stream_state = "END";
-            } else if(request->stream_state == "NON_STREAMING") {
-                // `NON_STREAMING` default value indicates first chunk of streaming body
-                request->stream_state = "START";
-            } else {
-                request->stream_state = "IN_PROGRESS";
-            }
-        }
-
-        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler);
+    size_t CHUNK_LIMIT = 0;
+    if(request->is_http_v1()) {
+        CHUNK_LIMIT = ACTIVE_STREAM_WINDOW_SIZE;
+    } else {
+        // For http v2, first window will include both initial request entity and as well as chunks.
+        CHUNK_LIMIT = request->first_chunk_aggregate ?
+                      (ACTIVE_STREAM_WINDOW_SIZE - request->_req->entity.len) : ACTIVE_STREAM_WINDOW_SIZE;
     }
 
-    if(!is_end_stream && !async_req) {
-        // streaming requests will call proceed_req in an async fashion
-        // so we have to handle this only for non streaming
+    bool async_req = custom_generator->rpath->async_req;
+    bool can_process_async = async_req && (request->chunk_len >= CHUNK_LIMIT);
+
+    /*if(is_end_stream == 1) {
+        LOG(INFO) << "is_end_stream=1";
+    }*/
+
+    // first let's handle the case where we are ready to fire the request handler
+    if(can_process_async || is_end_stream) {
+        // For async streaming requests, handler should be invoked for every aggregated chunk
+        // For a non streaming request, buffer body and invoke only at the end
+
+        if(request->first_chunk_aggregate) {
+            request->first_chunk_aggregate = false;
+        }
+
+        // default value for last_chunk_aggregate is false
+        request->last_chunk_aggregate = (is_end_stream == 1);
+        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler);
+        return 0;
+    }
+
+    // we are not ready to fire the request handler, so that means we need to buffer the request further
+    // this could be because we are a) dealing with a HTTP v1 request or b) a synchronous request
+
+    if(request->is_http_v1()) {
+        // http v1 callbacks fire on small chunk sizes, so fetch more to match window size of http v2 buffer
         size_t written = chunk.len;
-        int stream_ended = 0;
-        request->_req->proceed_req(request->_req, written, stream_ended);
+        request->_req->proceed_req(request->_req, written, H2O_SEND_STATE_IN_PROGRESS);
+    }
+
+    if(!async_req) {
+        // progress ONLY non-streaming type request body since
+        // streaming requests will call proceed_req in an async fashion
+        size_t written = chunk.len;
+        request->_req->proceed_req(request->_req, written, H2O_SEND_STATE_IN_PROGRESS);
     }
 
     return 0;
@@ -474,7 +491,6 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
     }
 
     // for reads, we will invoke the request handler and handle response as well
-
     (rpath->handler)(*request, *response);
 
     if(!rpath->async_res) {
@@ -551,9 +567,12 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     if (custom_generator->rpath->async_req &&
         custom_generator->request->_req && custom_generator->request->_req->proceed_req) {
 
-        int is_end_stream = (custom_generator->response->final) ? 1 : 0;
-        size_t written = custom_generator->request->chunk_length;
-        custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, is_end_stream);
+        size_t written = custom_generator->request->chunk_len;
+        custom_generator->request->chunk_len = 0;
+        auto stream_state = (custom_generator->response->final) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+
+        // NOTE: `written` is ignored by http1.1 implementation, so it's meant only for http 2 and http 3
+        custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, stream_state);
 
     } else {
         custom_generator->rpath->handler(*custom_generator->request, *custom_generator->response);
@@ -561,8 +580,13 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 }
 
 void HttpServer::stream_response(http_req& request, http_res& response) {
+    //LOG(INFO) << "stream_response called";
     if(request._req == nullptr) {
-        // serialized request or underlying request is no longer available
+        // raft log replay
+        if(response.promise) {
+            // returns control back to raft replication thread
+            response.promise->set_value(true);
+        }
         destroy_request_response(&request, &response);
         return;
     }
@@ -570,7 +594,8 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     h2o_req_t* req = request._req;
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
-    if (request.stream_state == "START" || request.stream_state == "NON_STREAMING") {
+    if (req->res.status == 0) {
+        response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
         req->res.status = response.status_code;
         req->res.reason = http_res::get_status_reason(response.status_code);
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
@@ -579,13 +604,17 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
         h2o_start_response(req, &custom_generator->super);
     }
 
-    custom_generator->response->final = (request.stream_state == "END" || request.stream_state == "NON_STREAMING");
-
     h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
     response.body = "";
 
+    custom_generator->response->final = request.last_chunk_aggregate;
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
+
+    if(response.promise) {
+        // returns control back to raft replication thread
+        response.promise->set_value(true);
+    }
 }
 
 void HttpServer::destroy_request_response(http_req* request, http_res* response) {

@@ -1,12 +1,12 @@
 # Download and build H2O
 
-set(H2O_VERSION 2.3.0-beta2)
+set(H2O_VERSION 5accc794404996fb056f1826f5a172693de95f22)
 set(H2O_NAME h2o-${H2O_VERSION})
-set(H2O_TAR_PATH ${DEP_ROOT_DIR}/v${H2O_NAME}.tar.gz)
+set(H2O_TAR_PATH ${DEP_ROOT_DIR}/${H2O_NAME}.tar.gz)
 
 if(NOT EXISTS ${H2O_TAR_PATH})
-    message(STATUS "Downloading ${H2O_NAME}...")
-    file(DOWNLOAD https://github.com/h2o/h2o/archive/v${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
+    message(STATUS "Downloading https://github.com/h2o/h2o/archive/${H2O_VERSION}.tar.gz")
+    file(DOWNLOAD https://github.com/h2o/h2o/archive/${H2O_VERSION}.tar.gz ${H2O_TAR_PATH})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME})
@@ -14,9 +14,13 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME})
     execute_process(COMMAND ${CMAKE_COMMAND} -E tar xzf ${H2O_TAR_PATH} WORKING_DIRECTORY ${DEP_ROOT_DIR}/)
 endif()
 
-if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/h2o)
+if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/libh2o-evloop.a)
     message("Configuring ${H2O_NAME}...")
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME}/build)
+
+    execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory deps/picotls/include include/h2o
+                    WORKING_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME})
+
     execute_process(COMMAND ${CMAKE_COMMAND}
             "-DCMAKE_FIND_LIBRARY_SUFFIXES=.a"
             "-DWITH_MRUBY=off"
@@ -32,6 +36,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/h2o)
         message("Building ${H2O_NAME} locally...")
         execute_process(COMMAND ${CMAKE_COMMAND} --build
                 "${DEP_ROOT_DIR}/${H2O_NAME}/build"
+                --target libh2o-evloop
                 RESULT_VARIABLE
                 H2O_BUILD)
         if(NOT H2O_BUILD EQUAL 0)
