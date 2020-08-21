@@ -201,7 +201,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
-
         nlohmann::json document;
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 

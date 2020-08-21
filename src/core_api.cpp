@@ -524,7 +524,7 @@ bool get_export_documents(http_req & req, http_res & res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        req.stream_state = "NON_STREAMING";
+        req.last_chunk_aggregate = true;
         res.set_404();
         HttpServer::stream_response(req, res);
         return false;
@@ -541,19 +541,6 @@ bool get_export_documents(http_req & req, http_res & res) {
         it = static_cast<rocksdb::Iterator*>(req.data);
     }
 
-    if(req.stream_state == "DISPOSE") {
-        LOG(INFO) << "Disposing export iterator";
-        delete it;
-        req.data = nullptr;
-        return true;
-    }
-
-    if(req.stream_state == "NON_STREAMING") {
-        req.stream_state = "START";
-    } else if(req.stream_state == "START") {
-        req.stream_state = "IN_PROGRESS";
-    }
-
     if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
         res.body = it->value().ToString();
         it->Next();
@@ -561,8 +548,11 @@ bool get_export_documents(http_req & req, http_res & res) {
         // append a new line character if there is going to be one more record to send
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             res.body += "\n";
+            req.last_chunk_aggregate = false;
         } else {
-            req.stream_state = "END";
+            req.last_chunk_aggregate = true;
+            delete it;
+            req.data = nullptr;
         }
     }
 
@@ -574,19 +564,16 @@ bool get_export_documents(http_req & req, http_res & res) {
 }
 
 bool post_import_documents(http_req& req, http_res& res) {
+    //LOG(INFO) << "post_import_documents";
+    //LOG(INFO) << "req.first_chunk=" << req.first_chunk_aggregate << ", last_chunk=" << req.last_chunk_aggregate;
     const char *BATCH_SIZE = "batch_size";
-
-    if(req.stream_state == "DISPOSE") {
-        // we don't cache any state across iterations, so just return
-        return true;
-    }
 
     if(req.params.count(BATCH_SIZE) == 0) {
         req.params[BATCH_SIZE] = "40";
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
-        req.stream_state = "NON_STREAMING";
+        req.last_chunk_aggregate = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
         HttpServer::stream_response(req, res);
         return false;
@@ -599,36 +586,35 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
-    if(req.stream_state == "START" && req.body_index == 0) {
-        LOG(INFO) << "Import batch size: " << IMPORT_BATCH_SIZE;
+    if(req.body_index == 0) {
+        // will log for every major chunk of request body
+        LOG(INFO) << "Import, req.body.size=" << req.body.size() << ", batch_size=" << IMPORT_BATCH_SIZE;
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        req.stream_state = (req.stream_state == "IN_PROGRESS") ? "END" : "NON_STREAMING";
+        req.last_chunk_aggregate = true;
         res.set_404();
         HttpServer::stream_response(req, res);
         return false;
     }
 
-    //LOG(INFO) << "Import, req.body.size: " << req.body.size() << ", state: " << req.stream_state;
+    //LOG(INFO) << "Import, " << "req.body_index=" << req.body_index << ", req.body.size: " << req.body.size();
+    //LOG(INFO) << "req body %: " << (float(req.body_index)/req.body.size())*100;
 
     std::vector<std::string> json_lines;
     req.body_index = StringUtils::split(req.body, json_lines, "\n", false, req.body_index, IMPORT_BATCH_SIZE);
 
     bool stream_proceed = false;  // default state
 
-    //LOG(INFO) << "req.body_index=" << req.body_index << ", req.body.size=" << req.body.size();
-    //LOG(INFO) << "req body percentage: " << (float(req.body_index)/req.body.size())*100;
-
     if(req.body_index == req.body.size()) {
         // body has been consumed fully, see whether we can fetch more request body
         req.body_index = 0;
         stream_proceed = true;
 
-        if(req.stream_state == "END" || req.stream_state == "NON_STREAMING") {
+        if(req.last_chunk_aggregate) {
             req.body = "";
         } else {
             if(!json_lines.empty()) {
@@ -637,6 +623,8 @@ bool post_import_documents(http_req& req, http_res& res) {
                     // eject partial record
                     req.body = json_lines.back();
                     json_lines.pop_back();
+                } else {
+                    req.body = "";
                 }
             }
         }
@@ -654,7 +642,7 @@ bool post_import_documents(http_req& req, http_res& res) {
         //ss << import_summary_json << "\n";
 
         for (size_t i = 0; i < json_lines.size(); i++) {
-            if(i == json_lines.size()-1 && req.stream_state == "END" && req.body_index == req.body.size()) {
+            if(i == json_lines.size()-1 && req.body_index == req.body.size() && req.last_chunk_aggregate) {
                 // indicates last record of last batch
                 ss << json_lines[i];
             } else {
@@ -1073,9 +1061,14 @@ bool raft_write_send_response(void *data) {
         route_path* found_rpath = nullptr;
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
-            // call request handler
-            found_rpath->handler(*index_arg->req, *index_arg->res);
+            // for an async response handler, we need to assign the promise
             async_res = found_rpath->async_res;
+            if(async_res) {
+                index_arg->res->promise = index_arg->promise;
+            }
+
+            // now we can call the request handler
+            found_rpath->handler(*index_arg->req, *index_arg->res);
         } else {
             index_arg->res->set_404();
         }
@@ -1084,10 +1077,10 @@ bool raft_write_send_response(void *data) {
     if(!async_res) {
         // only handle synchronous responses as async ones are handled by their handlers
         server->send_response(index_arg->req, index_arg->res);
-    }
 
-    if(index_arg->promise != nullptr) {
-        index_arg->promise->set_value(true);  // returns control back to caller
+        if(index_arg->promise != nullptr) {
+            index_arg->promise->set_value(true);  // returns control back to raft replication thread
+        }
     }
 
     return true;

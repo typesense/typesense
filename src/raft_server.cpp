@@ -191,7 +191,8 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
 
             request = new http_req;
             request->deserialize(iter.data().to_string());
-            request->_req = nullptr;  // indicates remote request
+
+            //LOG(INFO) << "Parsed request from the log, body_size: " << request->body.size();
         }
 
         if(request->_req == nullptr && request->body == "INIT_SNAPSHOT") {
