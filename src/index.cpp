@@ -587,7 +587,7 @@ void Index::index_float_array_field(const std::vector<float> & values, const uin
     }
 }
 
-void Index::compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type) {
+void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type) {
     if(field_type == field_types::INT32 || field_type == field_types::INT32_ARRAY) {
         int32_t val = raw_value;
         if (val < a_facet.stats.fvmin) {
@@ -685,6 +685,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         size_t facet_id = facet_to_index[a_facet.field_name];
 
+        bool should_compute_stats = (facet_field.type != field_types::STRING &&
+                                     facet_field.type != field_types::BOOL &&
+                                     facet_field.type != field_types::STRING_ARRAY &&
+                                     facet_field.type != field_types::BOOL_ARRAY);
+
         for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
 
@@ -696,18 +701,23 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                 int array_pos = 0;
                 bool fvalue_found = false;
-                std::stringstream fvaluestream; // for hashing the entire facet value (multiple tokens)
+                uint64_t combined_hash = 1;  // for hashing the entire facet value (multiple tokens)
+
                 spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_positions;
                 size_t field_token_index = -1;
 
                 for(size_t j = 0; j < fhashes.size(); j++) {
                     if(fhashes[j] != FACET_ARRAY_DELIMETER) {
-                        int64_t ftoken_hash = fhashes[j];
-                        fvaluestream << ftoken_hash;
+                        uint64_t ftoken_hash = fhashes[j];
+
+                        // reference: https://stackoverflow.com/a/4182771/131050
+                        combined_hash *= (1779033703 + 2*ftoken_hash);
                         field_token_index++;
 
                         // ftoken_hash is the raw value for numeric fields
-                        compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
+                        if(should_compute_stats) {
+                            compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
+                        }
 
                         // not using facet query or this particular facet value is found in facet filter
                         if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
@@ -731,8 +741,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     // 0 indicates separator, while the second condition checks for non-array string
                     if(fhashes[j] == FACET_ARRAY_DELIMETER || (fhashes.back() != FACET_ARRAY_DELIMETER && j == fhashes.size() - 1)) {
                         if(!use_facet_query || fvalue_found) {
-                            const std::string & fvalue_str = fvaluestream.str();
-                            uint64_t fhash = facet_token_hash(facet_field, fvalue_str);
+                            uint64_t fhash = combined_hash;
 
                             if(a_facet.result_map.count(fhash) == 0) {
                                 a_facet.result_map[fhash] = facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
@@ -757,7 +766,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                         array_pos++;
                         fvalue_found = false;
-                        std::stringstream().swap(fvaluestream);
+                        combined_hash = 1;
                         spp::sparse_hash_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
                         field_token_index = -1;
                     }

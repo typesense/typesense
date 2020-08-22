@@ -190,7 +190,7 @@ private:
 
     uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
-    void compute_facet_stats(facet &a_facet, int64_t raw_value, const std::string & field_type);
+    void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
     // reference: https://stackoverflow.com/a/27952689/131050
     uint64_t hash_combine(uint64_t lhs, uint64_t rhs) const {
