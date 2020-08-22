@@ -326,6 +326,7 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
 void ReplicationState::refresh_nodes(const std::string & nodes) {
     if(!node) {
+        LOG(WARNING) << "Node state is not initialized: unable to refresh nodes.";
         return ;
     }
 
@@ -336,22 +337,20 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(new_conf, refresh_nodes_done);
     } else if(node->leader_id().is_empty()) {
-        // Reset the peers of a node that:
-        // a) is NOT a leader
-        // b) does NOT have a leader
-        // c) every node except self has changed
+        // When node is not a leader, does not have a leader and is also a single-node cluster,
+        // we forcefully reset its peers.
+        // NOTE: `reset_peers()` is not a safe call to make as we give up on consistency and consensus guarantees.
+        // We are doing this solely to handle single node cluster whose IP changes.
+        // Examples: Docker container IP change, local DHCP leased IP change etc.
 
-        std::set<braft::PeerId> new_peers;
-        new_conf.list_peers(&new_peers);
+        std::vector<braft::PeerId> latest_nodes;
+        new_conf.list_peers(&latest_nodes);
 
-        std::set<braft::PeerId> intersect;
-        std::set_intersection(peers.begin(), peers.end(), new_peers.begin(), new_peers.end(),
-                              std::inserter(intersect, intersect.end()));
-
-        if(intersect.empty() ||
-          (intersect.size() == 1 && (*intersect.begin()).to_string() == node->node_id().peer_id.to_string())) {
-            LOG(WARNING) << "Quorum change: resetting peers.";
+        if(latest_nodes.size() == 1) {
+            LOG(WARNING) << "Single-node with no leader. Resetting peers.";
             node->reset_peers(new_conf);
+        } else {
+            LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
         }
     }
 }
