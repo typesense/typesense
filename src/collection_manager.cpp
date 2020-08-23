@@ -64,11 +64,14 @@ void CollectionManager::init(Store *store,
     this->store = store;
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
-
-    auth_manager.init(store);
 }
 
 Option<bool> CollectionManager::load(const size_t init_batch_size) {
+    Option<bool> auth_init_op = auth_manager.init(store);
+    if(!auth_init_op.ok()) {
+        LOG(ERROR) << "Auth manager init failed, error=" << auth_init_op.error();
+    }
+
     std::string next_collection_id_str;
     StoreStatus next_coll_id_status = store->get(NEXT_COLLECTION_ID_KEY, next_collection_id_str);
 

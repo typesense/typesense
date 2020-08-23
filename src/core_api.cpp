@@ -953,7 +953,8 @@ bool get_keys(http_req &req, http_res &res) {
     nlohmann::json res_json;
     res_json["keys"] = nlohmann::json::array();
 
-    for(const auto & key: keys_op.get()) {
+    const std::vector<api_key_t>& keys = keys_op.get();
+    for(const auto & key: keys) {
         nlohmann::json key_obj = key.to_json();
         key_obj["value_prefix"] = key_obj["value"];
         key_obj.erase("value");
