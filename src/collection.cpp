@@ -173,9 +173,11 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
         return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
     }
 
+    const std::string& serialized_json = document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+
     rocksdb::WriteBatch batch;
     batch.Put(get_doc_id_key(document["id"]), seq_id_str);
-    batch.Put(get_seq_id_key(seq_id), document.dump());
+    batch.Put(get_seq_id_key(seq_id), serialized_json);
     bool write_ok = store->batch_write(batch);
 
     if(!write_ok) {
@@ -263,10 +265,12 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
         for(auto& index_record: index_batch) {
             if(index_record.indexed.ok()) {
                 const std::string& seq_id_str = std::to_string(index_record.seq_id);
+                const std::string& serialized_json = index_record.document.dump(-1, ' ', false,
+                                                                                nlohmann::detail::error_handler_t::ignore);
 
                 rocksdb::WriteBatch batch;
                 batch.Put(get_doc_id_key(index_record.document["id"]), seq_id_str);
-                batch.Put(get_seq_id_key(index_record.seq_id), index_record.document.dump());
+                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
                 bool write_ok = store->batch_write(batch);
 
                 if(!write_ok) {

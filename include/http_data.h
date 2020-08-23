@@ -187,7 +187,7 @@ struct http_req {
         content["body"] = body;
         content["metadata"] = metadata;
 
-        return content.dump();
+        return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
     }
 
     bool is_http_v1() {
