@@ -4,8 +4,8 @@
 #include "collection_manager.h"
 #include "logger.h"
 
-constexpr const char* CollectionManager::COLLECTION_NUM_INDICES;
-constexpr const size_t CollectionManager::DEFAULT_NUM_INDICES;
+constexpr const char* CollectionManager::COLLECTION_NUM_MEMORY_SHARDS;
+constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
 CollectionManager::CollectionManager() {
 
@@ -34,11 +34,11 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
     uint64_t created_at = collection_meta.find((const char*)COLLECTION_CREATED) != collection_meta.end() ?
                        collection_meta[COLLECTION_CREATED].get<uint64_t>() : 0;
 
-    size_t num_indices = collection_meta.count(COLLECTION_NUM_INDICES) != 0 ?
-                         collection_meta[COLLECTION_NUM_INDICES].get<size_t>() :
-                         DEFAULT_NUM_INDICES;
+    size_t num_memory_shards = collection_meta.count(COLLECTION_NUM_MEMORY_SHARDS) != 0 ?
+                               collection_meta[COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
+                               DEFAULT_NUM_MEMORY_SHARDS;
 
-    LOG(INFO) << "Loading collection with " << num_indices << " indices.";
+    LOG(INFO) << "Loading collection with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
@@ -47,7 +47,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             store,
                                             fields,
                                             default_sorting_field,
-                                            num_indices,
+                                            num_memory_shards,
                                             max_memory_ratio);
 
     return collection;
@@ -138,7 +138,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
         std::vector<std::vector<index_record>> iter_batch;
 
-        for(size_t i = 0; i < collection->get_num_indices(); i++) {
+        for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
             iter_batch.push_back(std::vector<index_record>());
         }
 
@@ -158,7 +158,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
             num_docs_read++;
 
-            iter_batch[seq_id % collection->get_num_indices()].emplace_back(index_record(0, seq_id, document));
+            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document));
 
             // Peek and check for last record right here so that we handle batched indexing correctly
             // Without doing this, the "last batch" would have to be indexed outside the loop.
@@ -171,7 +171,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
                 collection->par_index_in_memory(iter_batch, indexed_counts);
 
-                for(size_t i = 0; i < collection->get_num_indices(); i++) {
+                for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
                     size_t num_records = iter_batch[i].size();
                     size_t num_indexed = indexed_counts[i];
 
@@ -231,8 +231,8 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
     return auth_manager.authenticate(auth_key_sent, action, collection, params);
 }
 
-Option<Collection*> CollectionManager::create_collection(const std::string name,
-                                                         const size_t num_indices,
+Option<Collection*> CollectionManager::create_collection(const std::string& name,
+                                                         const size_t num_memory_shards,
                                                          const std::vector<field> & fields,
                                                          const std::string & default_sorting_field,
                                                          const uint64_t created_at) {
@@ -279,10 +279,10 @@ Option<Collection*> CollectionManager::create_collection(const std::string name,
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[COLLECTION_CREATED] = created_at;
-    collection_meta[COLLECTION_NUM_INDICES] = num_indices;
+    collection_meta[COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field, num_indices,
+                                                default_sorting_field, num_memory_shards,
                                                 this->max_memory_ratio);
     next_collection_id++;
 

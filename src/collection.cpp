@@ -35,14 +35,14 @@ struct match_index_t {
     }
 };
 
-Collection::Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
+Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
-                       const std::string & default_sorting_field, const size_t num_indices,
+                       const std::string& default_sorting_field, const size_t num_memory_shards,
                        const float max_memory_ratio):
-                       name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
-                       fields(fields), default_sorting_field(default_sorting_field),
-                       num_indices(num_indices),
-                       max_memory_ratio(max_memory_ratio) {
+        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
+        fields(fields), default_sorting_field(default_sorting_field),
+        num_memory_shards(num_memory_shards),
+        max_memory_ratio(max_memory_ratio) {
 
     for(const field& field: fields) {
         search_schema.emplace(field.name, field);
@@ -56,7 +56,7 @@ Collection::Collection(const std::string name, const uint32_t collection_id, con
         }
     }
 
-    for(size_t i = 0; i < num_indices; i++) {
+    for(size_t i = 0; i < num_memory_shards; i++) {
         Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
         indices.push_back(index);
         std::thread* thread = new std::thread(&Index::run_search, index);
@@ -132,7 +132,7 @@ nlohmann::json Collection::get_summary_json() {
     nlohmann::json json_response;
 
     json_response["name"] = name;
-    json_response["num_indices"] = num_indices;
+    json_response["num_memory_shards"] = num_memory_shards;
     json_response["num_documents"] = num_documents;
     json_response["created_at"] = created_at;
 
@@ -193,7 +193,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
 
     std::vector<std::vector<index_record>> iter_batch;
 
-    for(size_t i = 0; i < num_indices; i++) {
+    for(size_t i = 0; i < num_memory_shards; i++) {
         iter_batch.emplace_back(std::vector<index_record>());
     }
 
@@ -233,11 +233,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
 
         const uint32_t seq_id = doc_seq_id_op.get();
         index_record record(i, seq_id, document);
-        iter_batch[seq_id % this->get_num_indices()].emplace_back(record);
+        iter_batch[seq_id % this->get_num_memory_shards()].emplace_back(record);
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
             batch_index(iter_batch, json_lines, num_indexed);
-            for(size_t i_index = 0; i_index < get_num_indices(); i_index++) {
+            for(size_t i_index = 0; i_index < get_num_memory_shards(); i_index++) {
                 iter_batch[i_index].clear();
             }
         }
@@ -298,7 +298,7 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
         return validation_op;
     }
 
-    Index* index = indices[seq_id % num_indices];
+    Index* index = indices[seq_id % num_memory_shards];
     index->index_in_memory(document, seq_id, default_sorting_field);
 
     num_documents += 1;
@@ -310,7 +310,7 @@ size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & 
     std::vector<std::future<size_t>> futures;
     size_t num_indexed = 0;
 
-    for(size_t i=0; i < num_indices; i++) {
+    for(size_t i=0; i < num_memory_shards; i++) {
         futures.push_back(
             std::async(&Index::batch_memory_index, indices[i], std::ref(iter_batch[i]), default_sorting_field,
                        search_schema, facet_schema)
@@ -470,14 +470,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
             auto seq_id = pos_ids.second[inner_pos];
-            auto index_id = (seq_id % num_indices);
+            auto index_id = (seq_id % num_memory_shards);
             index_to_included_ids[index_id][outer_pos][inner_pos] = seq_id;
             //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
         }
     }
 
     for(auto seq_id: excluded_ids) {
-        auto index_id = (seq_id % num_indices);
+        auto index_id = (seq_id % num_memory_shards);
         index_to_excluded_ids[index_id].push_back(seq_id);
     }
 
@@ -1202,7 +1202,7 @@ void Collection::highlight_result(const field &search_field,
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
         // is from the best matched field and need not be present in other fields of a document.
-        Index* index = indices[field_order_kv->key % num_indices];
+        Index* index = indices[field_order_kv->key % num_memory_shards];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
         if(actual_leaf != nullptr) {
             query_suggestion.push_back(actual_leaf);
@@ -1380,7 +1380,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
 void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
     const std::string& id = document["id"];
 
-    Index* index = indices[seq_id % num_indices];
+    Index* index = indices[seq_id % num_memory_shards];
     index->remove(seq_id, document);
     num_documents -= 1;
 
@@ -1454,8 +1454,8 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
     return Option<uint32_t>(404, "Could not find that `id`.");
 }
 
-size_t Collection::get_num_indices() {
-    return num_indices;
+size_t Collection::get_num_memory_shards() {
+    return num_memory_shards;
 }
 
 uint32_t Collection::get_seq_id_from_key(const std::string & key) {
