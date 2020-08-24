@@ -140,7 +140,7 @@ private:
 
     std::string default_sorting_field;
 
-    size_t num_indices;
+    size_t num_memory_shards;
 
     const float max_memory_ratio;
 
@@ -177,9 +177,9 @@ private:
 public:
     Collection() = delete;
 
-    Collection(const std::string name, const uint32_t collection_id, const uint64_t created_at,
-               const uint32_t next_seq_id, Store *store, const std::vector<field> & fields,
-               const std::string & default_sorting_field, const size_t num_indices, const float max_memory_ratio);
+    Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
+               const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
+               const std::string& default_sorting_field, const size_t num_memory_shards, const float max_memory_ratio);
 
     ~Collection();
 
@@ -257,7 +257,7 @@ public:
         return overrides;
     };
 
-    size_t get_num_indices();
+    size_t get_num_memory_shards();
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 

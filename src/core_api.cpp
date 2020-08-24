@@ -42,7 +42,7 @@ bool get_collections(http_req & req, http_res & res) {
 }
 
 bool post_create_collection(http_req & req, http_res & res) {
-    const char* NUM_INDICES = "num_indices";
+    const char* NUM_MEMORY_SHARDS = "num_memory_shards";
     nlohmann::json req_json;
 
     try {
@@ -62,8 +62,8 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    if(req_json.count(NUM_INDICES) == 0) {
-        req_json[NUM_INDICES] = CollectionManager::DEFAULT_NUM_INDICES;
+    if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
+        req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
     }
 
     if(req_json.count("fields") == 0) {
@@ -84,13 +84,13 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    if(!req_json[NUM_INDICES].is_number_unsigned()) {
-        res.set_400(std::string("`") + NUM_INDICES + "` should be a positive integer.");
+    if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
+        res.set_400(std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
         return false;
     }
 
-    if(req_json[NUM_INDICES].get<size_t>() == 0) {
-        res.set_400(std::string("`") + NUM_INDICES + "` should be a positive integer.");
+    if(req_json[NUM_MEMORY_SHARDS].get<size_t>() == 0) {
+        res.set_400(std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
         return false;
     }
 
@@ -140,7 +140,7 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
     const Option<Collection*> & collection_op =
-            collectionManager.create_collection(req_json["name"], req_json[NUM_INDICES].get<size_t>(),
+            collectionManager.create_collection(req_json["name"], req_json[NUM_MEMORY_SHARDS].get<size_t>(),
             fields, default_sorting_field);
 
     if(collection_op.ok()) {
