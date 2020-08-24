@@ -618,8 +618,17 @@ bool post_import_documents(http_req& req, http_res& res) {
             req.body = "";
         } else {
             if(!json_lines.empty()) {
-                // check if req.body had incomplete last record
-                if(!nlohmann::json::accept(json_lines.back())) {
+                // check if req.body had complete last record
+                bool complete_document;
+
+                try {
+                    nlohmann::json document = nlohmann::json::parse(json_lines.back());
+                    complete_document = document.is_object();
+                } catch(const std::exception& e) {
+                    complete_document = false;
+                }
+
+                if(!complete_document) {
                     // eject partial record
                     req.body = json_lines.back();
                     json_lines.pop_back();
