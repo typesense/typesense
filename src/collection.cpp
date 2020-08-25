@@ -1233,7 +1233,7 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        const Match & this_match = Match::match(field_order_kv->key, token_positions);
+        const Match & this_match = Match(field_order_kv->key, token_positions);
         uint64_t this_match_score = this_match.get_match_score(1, field_order_kv->field_id);
         match_indices.emplace_back(this_match, this_match_score, array_index);
     }
@@ -1258,14 +1258,12 @@ void Collection::highlight_result(const field &search_field,
             StringUtils::split(document[search_field.name][match_index.index], tokens, " ");
         }
 
-        // unpack `match.offset_diffs` into `token_indices`
         std::vector<size_t> token_indices;
         spp::sparse_hash_set<std::string> token_hits;
 
-        size_t num_tokens_found = (size_t) match.offset_diffs[0];
-        for(size_t i = 1; i <= num_tokens_found; i++) {
-            if(match.offset_diffs[i] != std::numeric_limits<int8_t>::max()) {
-                size_t token_index = (size_t)(match.start_offset + match.offset_diffs[i]);
+        for(size_t i = 0; i < match.words_present; i++) {
+            if(match.offsets[i].offset != MAX_DISPLACEMENT) {
+                size_t token_index = (size_t)(match.offsets[i].offset);
                 token_indices.push_back(token_index);
                 std::string token = tokens[token_index];
                 string_utils.unicode_normalize(token);

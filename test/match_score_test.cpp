@@ -1,49 +1,6 @@
 #include <gtest/gtest.h>
 #include <match_score.h>
 
-TEST(MatchTest, ShouldPackTokenOffsets) {
-    uint16_t min_token_offset1[3] = {567, 568, 570};
-    char offset_diffs[16];
-
-    Match::pack_token_offsets(min_token_offset1, 3, 567, offset_diffs);
-
-    ASSERT_EQ(3, offset_diffs[0]);
-    ASSERT_EQ(0, offset_diffs[1]);
-    ASSERT_EQ(1, offset_diffs[2]);
-    ASSERT_EQ(3, offset_diffs[3]);
-
-    uint16_t min_token_offset2[3] = {0, 1, 2};
-    Match::pack_token_offsets(min_token_offset2, 3, 0, offset_diffs);
-
-    ASSERT_EQ(3, offset_diffs[0]);
-    ASSERT_EQ(0, offset_diffs[1]);
-    ASSERT_EQ(1, offset_diffs[2]);
-    ASSERT_EQ(2, offset_diffs[3]);
-
-    uint16_t min_token_offset3[1] = {123};
-    Match::pack_token_offsets(min_token_offset3, 1, 123, offset_diffs);
-
-    ASSERT_EQ(1, offset_diffs[0]);
-    ASSERT_EQ(0, offset_diffs[1]);
-
-    // a token might not have an offset because it might not be in the best matching window
-    uint16_t min_token_offset4[3] = {0, MAX_DISPLACEMENT, 2};
-    Match::pack_token_offsets(min_token_offset4, 3, 0, offset_diffs);
-
-    ASSERT_EQ(3, offset_diffs[0]);
-    ASSERT_EQ(0, offset_diffs[1]);
-    ASSERT_EQ(std::numeric_limits<int8_t>::max(), offset_diffs[2]);
-    ASSERT_EQ(2, offset_diffs[3]);
-
-    uint16_t min_token_offset5[3] = {MAX_DISPLACEMENT, 2, 4};
-    Match::pack_token_offsets(min_token_offset5, 3, 2, offset_diffs);
-
-    ASSERT_EQ(3, offset_diffs[0]);
-    ASSERT_EQ(std::numeric_limits<int8_t>::max(), offset_diffs[1]);
-    ASSERT_EQ(0, offset_diffs[2]);
-    ASSERT_EQ(2, offset_diffs[3]);
-}
-
 TEST(MatchTest, TokenOffsetsExceedWindowSize) {
     std::vector<std::vector<uint16_t>> token_positions = {
         std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}),
@@ -51,7 +8,35 @@ TEST(MatchTest, TokenOffsetsExceedWindowSize) {
         std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1})
     };
 
-    const Match & this_match = Match::match(100, token_positions);
+    const Match & this_match = Match(100, token_positions);
 
-    ASSERT_EQ(WINDOW_SIZE, this_match.words_present);
+    ASSERT_EQ(WINDOW_SIZE, (size_t)this_match.words_present);
+}
+
+TEST(MatchTest, MatchScoreV2) {
+    std::vector<std::vector<uint16_t>> token_offsets;
+    token_offsets.push_back({38, 50, 170, 187, 195, 222});
+    token_offsets.push_back({39, 140, 171, 189, 223});
+    token_offsets.push_back({169, 180});
+
+//    token_offsets.push_back({38, 50, 187, 195, 201});
+//    token_offsets.push_back({120, 167, 171, 223});  // 39,
+//    token_offsets.push_back({240, 250});
+
+    size_t total_distance = 0, words_present = 0, offset_sum = 0;
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    for(size_t i = 0; i < 1; i++) {
+        auto match = Match(100, token_offsets, true);
+        total_distance += match.distance;
+        words_present += match.words_present;
+        offset_sum += match.offsets.size();
+    }
+
+    uint64_t timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+    LOG(INFO) << "Time taken: " << timeNanos;
+
+    LOG(INFO) << total_distance << ", " << words_present << ", " << offset_sum;
+
 }
