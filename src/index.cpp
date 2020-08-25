@@ -1442,9 +1442,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     //auto begin = std::chrono::high_resolution_clock::now();
 
-    char empty_offset_diffs[16];
-    std::fill_n(empty_offset_diffs, 16, 0);
-    Match single_token_match = Match(1, 0, 0, empty_offset_diffs);
+    Match single_token_match = Match(1, 0);
     const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost, field_id);
 
     std::unordered_map<std::string, size_t> facet_to_id;
@@ -1472,7 +1470,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 if(token_positions.empty()) {
                     continue;
                 }
-                const Match & match = Match::match(seq_id, token_positions);
+                const Match & match = Match(seq_id, token_positions, false);
                 uint64_t this_match_score = match.get_match_score(total_cost, field_id);
 
                 if(this_match_score > match_score) {
