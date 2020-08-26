@@ -105,7 +105,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
 
-    // 2 facets, 1 text filter with no filters
+    // 2 facets, 1 text query with no filters
     facets.clear();
     facets.push_back("tags");
     facets.push_back("name_facet");
@@ -491,6 +491,18 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+
+    // facet query longer than a token is correctly matched with typo tolerance
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "categories:cellx").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cello</mark>phanes", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
