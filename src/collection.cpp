@@ -1065,9 +1065,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 }
 
                 if(token_query_pos.count(i) != 0) {
-                    size_t highlight_len = facet_query_tokens[token_query_pos[i]].size();
-                    const std::string & unmarked = tokens[i].substr(highlight_len, std::string::npos);
-                    highlightedss << "<mark>" + tokens[i].substr(0, highlight_len) + "</mark>" + unmarked;
+                    size_t query_token_len = facet_query_tokens[token_query_pos[i]].size();
+                    // handle query token being larger than actual token (typo correction)
+                    query_token_len = std::min(query_token_len, tokens[i].size());
+                    const std::string & unmarked = tokens[i].substr(query_token_len, std::string::npos);
+                    highlightedss << "<mark>" + tokens[i].substr(0, query_token_len) + "</mark>" + unmarked;
                 } else {
                     highlightedss << tokens[i];
                 }
