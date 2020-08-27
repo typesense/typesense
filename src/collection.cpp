@@ -211,6 +211,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             index_res["error"] = doc_seq_id_op.error();
             index_res["success"] = false;
 
+            // FIXME:
+            LOG(INFO) << "Document parsing error, bad json_line is: " << json_line;
+
             // NOTE: we overwrite the input json_lines with result to avoid memory pressure
             json_lines[i] = index_res.dump();
             continue;
@@ -732,6 +735,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     size_t total_found = 0;
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
+
+    // FIXME:
+    LOG(INFO) << "Num indices used for querying: " << indices.size();
 
     // send data to individual index threads
     size_t index_id = 0;
