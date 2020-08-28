@@ -589,9 +589,8 @@ bool post_import_documents(http_req& req, http_res& res) {
     if(req.body_index == 0) {
         // will log for every major chunk of request body
         LOG(INFO) << "Import, req.body.size=" << req.body.size() << ", batch_size=" << IMPORT_BATCH_SIZE;
-        // FIXME:
-        int nminusten_pos = std::max(0, int(req.body.size())-10);
-        LOG(INFO) << "Last 10 chars: " << req.body.substr(nminusten_pos);
+        //int nminusten_pos = std::max(0, int(req.body.size())-10);
+        //LOG(INFO) << "Last 10 chars: " << req.body.substr(nminusten_pos);
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -604,15 +603,13 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
-    // FIXME:
-    LOG(INFO) << "Import, " << "req.body_index=" << req.body_index << ", req.body.size: " << req.body.size();
+    //LOG(INFO) << "Import, " << "req.body_index=" << req.body_index << ", req.body.size: " << req.body.size();
     //LOG(INFO) << "req body %: " << (float(req.body_index)/req.body.size())*100;
 
     std::vector<std::string> json_lines;
     req.body_index = StringUtils::split(req.body, json_lines, "\n", false, req.body_index, IMPORT_BATCH_SIZE);
 
-    // FIXME:
-    LOG(INFO) << "json_lines.size before: " << json_lines.size();
+    //LOG(INFO) << "json_lines.size before: " << json_lines.size() << ", req.body_index: " << req.body_index;
 
     bool stream_proceed = false;  // default state
 
@@ -622,8 +619,7 @@ bool post_import_documents(http_req& req, http_res& res) {
         stream_proceed = true;
 
         if(req.last_chunk_aggregate) {
-            // FIXME:
-            LOG(INFO) << "req.last_chunk_aggregate is true";
+            //LOG(INFO) << "req.last_chunk_aggregate is true";
             req.body = "";
         } else {
             if(!json_lines.empty()) {
@@ -648,16 +644,14 @@ bool post_import_documents(http_req& req, http_res& res) {
         }
     }
 
-    // FIXME:
-    LOG(INFO) << "json_lines.size after: " << json_lines.size();
+    //LOG(INFO) << "json_lines.size after: " << json_lines.size() << ", stream_proceed: " << stream_proceed;
     //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req.stream_state: " << req.stream_state;
 
     // When only one partial record arrives as a chunk, an empty body is pushed to response stream
     bool single_partial_record_body = (json_lines.empty() && !req.body.empty());
     std::stringstream response_stream;
 
-    // FIXME:
-    LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
+    //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
     if(!single_partial_record_body) {
         nlohmann::json json_res = collection->add_many(json_lines);
