@@ -227,6 +227,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             nlohmann::json index_res;
             index_res["error"] = "Max memory ratio exceeded.";
             index_res["success"] = false;
+            index_res["document"] = json_line;
 
             json_lines[i] = index_res.dump();
             continue;
@@ -285,7 +286,11 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                 json_out[index_record.position] = R"({"success": true})";
                 num_indexed++;
             } else {
-                json_out[index_record.position] = R"({"success": false, "error": ")" + index_record.indexed.error() + "\"}";
+                nlohmann::json res;
+                res["success"] = false;
+                res["error"] = index_record.indexed.error();
+                res["document"] = index_record.document.dump();
+                json_out[index_record.position] = res.dump();
             }
         }
     }
@@ -1266,7 +1271,7 @@ void Collection::highlight_result(const field &search_field,
         std::vector<size_t> token_indices;
         spp::sparse_hash_set<std::string> token_hits;
 
-        for(size_t i = 0; i < match.words_present; i++) {
+        for(size_t i = 0; i < match.offsets.size(); i++) {
             if(match.offsets[i].offset != MAX_DISPLACEMENT) {
                 size_t token_index = (size_t)(match.offsets[i].offset);
                 token_indices.push_back(token_index);

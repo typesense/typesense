@@ -100,7 +100,7 @@ struct Match {
         Create vector with first offset from each token.
         Sort vector descending.
         Calculate distance, use only tokens within max window size from lowest offset.
-        Reassign best distance and window if found.
+        Reassign best window and distance if found.
         Pop end of vector (smallest offset).
         Push to vector next offset of token just popped.
         Until queue size is 1.
@@ -157,7 +157,8 @@ struct Match {
                 this_window[window.back().token_id] = window.back();
             }
 
-            if (this_num_match > best_num_match && this_displacement < best_displacement) {
+            if ( (this_num_match > best_num_match) ||
+                 (this_num_match == best_num_match && this_displacement < best_displacement)) {
                 best_displacement = this_displacement;
                 best_num_match = this_num_match;
                 if(populate_window) {
@@ -165,7 +166,7 @@ struct Match {
                 }
             }
 
-            if (best_displacement == (window.size() - 1)) {
+            if (best_num_match == tokens_size && best_displacement == (window.size() - 1)) {
                 // this is the best we can get, so quit early!
                 break;
             }
