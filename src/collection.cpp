@@ -104,11 +104,11 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
-        return Option<uint32_t>(400, "Bad JSON.");
+        return Option<uint32_t>(400, std::string("Bad JSON: ") + e.what());
     }
 
     if(!document.is_object()) {
-        return Option<uint32_t>(400, "Bad JSON.");
+        return Option<uint32_t>(400, "Bad JSON: not a properly formed document.");
     }
 
     uint32_t seq_id = get_next_seq_id();
@@ -206,15 +206,14 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
         nlohmann::json document;
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 
+        // NOTE: we overwrite the input json_lines with result to avoid memory pressure
+
         if(!doc_seq_id_op.ok()) {
             nlohmann::json index_res;
             index_res["error"] = doc_seq_id_op.error();
             index_res["success"] = false;
+            index_res["document"] = json_line;
 
-            // FIXME:
-            LOG(INFO) << "Document parsing error, bad json_line is: " << json_line;
-
-            // NOTE: we overwrite the input json_lines with result to avoid memory pressure
             json_lines[i] = index_res.dump();
             continue;
         }
@@ -229,7 +228,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             index_res["error"] = "Max memory ratio exceeded.";
             index_res["success"] = false;
 
-            // NOTE: we overwrite the input json_lines with result to avoid memory pressure
             json_lines[i] = index_res.dump();
             continue;
         }
@@ -736,8 +734,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     size_t total_found = 0;
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
-    // FIXME:
-    LOG(INFO) << "Num indices used for querying: " << indices.size();
+    //LOG(INFO) << "Num indices used for querying: " << indices.size();
 
     // send data to individual index threads
     size_t index_id = 0;
