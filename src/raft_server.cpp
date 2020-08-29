@@ -223,6 +223,8 @@ void ReplicationState::read(http_res* response) {
 }
 
 void* ReplicationState::save_snapshot(void* arg) {
+    LOG(INFO) << "save_snapshot called";
+
     SnapshotArg* sa = static_cast<SnapshotArg*>(arg);
     std::unique_ptr<SnapshotArg> arg_guard(sa);
     brpc::ClosureGuard done_guard(sa->done);
@@ -252,6 +254,8 @@ void* ReplicationState::save_snapshot(void* arg) {
             return nullptr;
         }
     }
+
+    LOG(INFO) << "save_snapshot done";
 
     return nullptr;
 }

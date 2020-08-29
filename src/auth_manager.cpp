@@ -4,6 +4,8 @@
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 
 Option<bool> AuthManager::init(Store *store) {
+    LOG(INFO) << "AuthManager::init()";
+
     this->store = store;
 
     std::string next_api_key_id_str;
@@ -21,6 +23,8 @@ Option<bool> AuthManager::init(Store *store) {
 
     std::vector<std::string> api_key_json_strs;
     store->scan_fill(API_KEYS_PREFIX, api_key_json_strs);
+
+    LOG(INFO) << "Indexing " << api_key_json_strs.size() << " API key(s) found on disk.";
 
     for(auto & api_key_json_str: api_key_json_strs) {
         api_key_t api_key;
@@ -80,6 +84,8 @@ Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
 }
 
 Option<api_key_t> AuthManager::create_key(api_key_t& api_key) {
+    LOG(INFO) << "AuthManager::create_key()";
+
     if(api_keys.count(api_key.value) != 0) {
         return Option<api_key_t>(409, "API key generation conflict.");
     }
@@ -124,6 +130,9 @@ uint32_t AuthManager::get_next_api_key_id() {
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
                                const std::string& collection, std::map<std::string, std::string>& params) {
 
+    // FIXME:
+    LOG(INFO) << "AuthManager::authenticate()";
+
     if(req_api_key.size() > KEY_LEN) {
         // scoped API key: validate and if valid, extract params
         Option<std::string> params_op = params_from_scoped_key(req_api_key, action, collection);
@@ -160,6 +169,9 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
 
         return true;
     }
+
+    // FIXME:
+    LOG(INFO) << "api_keys.size() = " << api_keys.size();
 
     if(api_keys.count(req_api_key) == 0) {
         return false;

@@ -983,6 +983,8 @@ bool get_keys(http_req &req, http_res &res) {
 }
 
 bool post_create_key(http_req &req, http_res &res) {
+    LOG(INFO) << "post_create_key";
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     AuthManager &auth_manager = collectionManager.getAuthManager();
 
