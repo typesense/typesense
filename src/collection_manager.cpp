@@ -67,6 +67,8 @@ void CollectionManager::init(Store *store,
 }
 
 Option<bool> CollectionManager::load(const size_t init_batch_size) {
+    LOG(INFO) << "CollectionManager::load()";
+
     Option<bool> auth_init_op = auth_manager.init(store);
     if(!auth_init_op.ok()) {
         LOG(ERROR) << "Auth manager init failed, error=" << auth_init_op.error();
