@@ -18,6 +18,22 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl, res_headers);
 }
 
+long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response) {
+    deferred_req_res_t* req_res = new deferred_req_res_t{request, response, nullptr};
+    std::unique_ptr<deferred_req_res_t> index_arg_guard(req_res);
+
+    CURL *curl = init_curl_async(url, req_res);
+    if(curl == nullptr) {
+        return 500;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+
+    return 0;
+}
+
 long HttpClient::put_response(const std::string &url, const std::string &body, std::string &response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms) {
     CURL *curl = init_curl(url, response);
@@ -102,6 +118,125 @@ void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std:
     res_headers.emplace("content-type", content_type);
 }
 
+size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    // callback for request body to be sent to remote host
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(userdata);
+    size_t max_req_bytes = (size * nitems);
+
+    const char* total_body_buf = req_res->req->body.c_str();
+    size_t available_body_bytes = (req_res->req->body.size() - req_res->req->body_index);
+
+    // copy data into `buffer` not exceeding max_req_bytes
+    size_t bytes_to_read = std::min(max_req_bytes, available_body_bytes);
+
+    memcpy(buffer, total_body_buf + req_res->req->body_index, bytes_to_read);
+
+    req_res->req->body_index += bytes_to_read;
+
+    LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
+    LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index;
+    LOG(INFO) << "req_res->req->body.size(): " << req_res->req->body.size();
+
+    if(req_res->req->body_index == req_res->req->body.size()) {
+        LOG(INFO) << "Current body buffer has been consumed fully.";
+        size_t written = req_res->req->chunk_len;
+
+        req_res->req->chunk_len = 0;
+        req_res->req->body_index = 0;
+        req_res->req->body = "";
+
+        req_res->res->final = req_res->req->last_chunk_aggregate;
+        req_res->req->proxy_status = -1;
+        auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+
+        if(req_res->req->last_chunk_aggregate) {
+            LOG(INFO) << "Request forwarding done.";
+            if(req_res->req->_req->proceed_req) {
+                req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+            }
+        } else {
+            LOG(INFO) << "Pausing forwarding and requesting more input.";
+            //curl_easy_pause(req_res->req->data, CURL_READFUNC_PAUSE);
+            req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+
+            while(req_res->req->proxy_status != 0 && req_res->req->body.empty()) {
+                LOG(INFO) << "Sleeping for 1 second...";
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            }
+
+            req_res->req->proxy_status = 1;
+            LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
+            //curl_easy_pause(req_res->req->data, CURLPAUSE_RECV_CONT);
+        }
+    }
+
+    return bytes_to_read;
+}
+
+size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, void *context) {
+    // callback for response body to be sent back to client
+    LOG(INFO) << "curl_write_async";
+
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
+    size_t res_size = size * nmemb;
+
+    // FIXME: use header from remote response
+    // we've got response from remote host: write to client and ask for more request body
+    req_res->res->content_type_header = "text/plain; charset=utf8";
+    req_res->res->status_code = 200;
+
+    // FIXME: cannot mutate body since it will be used by h2o to write
+    req_res->res->body = std::string(buffer, res_size);
+
+    LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
+
+    // this needs to be sent from http thread
+    //h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(req_res->res->generator);
+    //HttpServer *server = custom_generator->h2o_handler->http_server;
+    //server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    return res_size;
+}
+
+CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res) {
+    CURL *curl = curl_easy_init();
+
+    if(curl == nullptr) {
+        return nullptr;
+    }
+
+    req_res->req->data = curl;
+
+    struct curl_slist *chunk = nullptr;
+    std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
+    chunk = curl_slist_append(chunk, api_key_header.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+    // callback called every time request body is needed
+    curl_easy_setopt(curl, CURLOPT_READFUNCTION, HttpClient::curl_req_send_callback);
+
+    // context to callback
+    curl_easy_setopt(curl, CURLOPT_READDATA, (void *)req_res);
+
+    if(!ca_cert_path.empty()) {
+        curl_easy_setopt(curl, CURLOPT_CAINFO, ca_cert_path.c_str());
+    } else {
+        LOG(WARNING) << "Unable to locate system SSL certificates.";
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+
+    // to allow self-signed certs
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);
+
+    return curl;
+}
+
 CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
     CURL *curl = curl_easy_init();
 
@@ -131,7 +266,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
     return curl;
 }
 
-size_t HttpClient::curl_write(void *contents, size_t size, size_t nmemb, std::string *s) {
-    s->append((char*)contents, size*nmemb);
+size_t HttpClient::curl_write(char *contents, size_t size, size_t nmemb, std::string *s) {
+    s->append(contents, size*nmemb);
     return size*nmemb;
 }

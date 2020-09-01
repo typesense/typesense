@@ -96,6 +96,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     if (!is_leader()) {
         if(node->leader_id().is_empty()) {
             // Handle no leader scenario
+            // FIXME: could happen in the middle of streaming, so a h2o_start_response can bomb.
             LOG(ERROR) << "Rejecting write: could not find a leader.";
             response->set_500("Could not find a leader.");
             auto replication_arg = new AsyncIndexArg{request, response, nullptr};
@@ -103,8 +104,15 @@ void ReplicationState::write(http_req* request, http_res* response) {
             return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
         }
 
+        if (request->proxy_status == -1) {
+            // indicates async request body of in-flight request
+            //LOG(INFO) << "Inflight request, updating proxy status, body size: " << request->body.size();
+            request->proxy_status = 0;
+            return ;
+        }
+
         const std::string & leader_addr = node->leader_id().to_string();
-        //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
+        LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
         thread_pool->enqueue([leader_addr, request, response, this]() {
             auto raw_req = request->_req;
@@ -118,10 +126,27 @@ void ReplicationState::write(http_req* request, http_res* response) {
             std::map<std::string, std::string> res_headers;
 
             if(request->http_method == "POST") {
-                std::string api_res;
-                long status = HttpClient::post_response(url, request->body, api_res, res_headers);
-                response->content_type_header = res_headers["content-type"];
-                response->set_body(status, api_res);
+                std::vector<std::string> path_parts;
+                StringUtils::split(path, path_parts, "/");
+
+                if(path_parts.back().rfind("import", 0) == 0) {
+                    // imports are handled asynchronously
+                    response->async_request_proceed = false;
+                    request->proxy_status = 1;
+
+                    long status = HttpClient::post_response_async(url, request, response);
+                    if(status == 500) {
+                        response->content_type_header = res_headers["content-type"];
+                        response->set_500("");
+                    } else {
+                        return ;
+                    }
+                } else {
+                    std::string api_res;
+                    long status = HttpClient::post_response(url, request->body, api_res, res_headers);
+                    response->content_type_header = res_headers["content-type"];
+                    response->set_body(status, api_res);
+                }
             } else if(request->http_method == "PUT") {
                 std::string api_res;
                 long status = HttpClient::put_response(url, request->body, api_res, res_headers);

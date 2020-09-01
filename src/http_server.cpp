@@ -484,6 +484,8 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 int HttpServer::process_request(http_req* request, http_res* response, route_path *rpath,
                                 const h2o_custom_req_handler_t *handler) {
 
+    //LOG(INFO) << "process_request called";
+
     // for writes, we delegate to replication_state to handle response
     if(rpath->http_method == "POST" || rpath->http_method == "PUT" || rpath->http_method == "DELETE") {
         handler->http_server->get_replication_state()->write(request, response);
@@ -564,6 +566,12 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     // if the request itself is async, we will proceed the request to fetch input content
     // otherwise, call the handler since it will be the handler that will be producing content
 
+    if(!custom_generator->response->async_request_proceed) {
+        // request progression is not tied to response generation
+        //LOG(INFO) << "Ignoring request proceed";
+        return ;
+    }
+
     if (custom_generator->rpath->async_req &&
         custom_generator->request->_req && custom_generator->request->_req->proceed_req) {
 
@@ -595,6 +603,7 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
     if (req->res.status == 0) {
+        //LOG(INFO) << "h2o_start_response";
         response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
         req->res.status = response.status_code;
         req->res.reason = http_res::get_status_reason(response.status_code);
@@ -604,10 +613,14 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
         h2o_start_response(req, &custom_generator->super);
     }
 
+    //LOG(INFO) << "stream_response, body_size: " << response.body.size();
+
     h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
     response.body = "";
 
+    // FIXME: should this be moved outside?
     custom_generator->response->final = request.last_chunk_aggregate;
+
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
 
@@ -713,3 +726,9 @@ uint64_t HttpServer::node_state() const {
     return replication_state->node_state();
 }
 
+bool HttpServer::on_stream_response_message(void *data) {
+    //LOG(INFO) << "on_stream_response_message";
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
+    stream_response(*req_res->req, *req_res->res);
+    return true;
+}

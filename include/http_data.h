@@ -31,10 +31,13 @@ struct http_res {
     std::string body;
     bool final;
 
-    // fulfilled by an async response handler to pass control back to raft replica apply thread
+    // fulfilled by an async response handler to pass control back for further writes
     std::promise<bool>* promise = nullptr;
 
     h2o_generator_t* generator = nullptr;
+
+    // for async requests, automatically progresses request body on response proceed
+    bool async_request_proceed = true;
 
     http_res(): status_code(501), content_type_header("application/json; charset=utf-8"), final(true) {
 
@@ -143,12 +146,15 @@ struct http_req {
 
     void* data;
 
+    // used during forwarding of requests from follower to leader
+    std::atomic<int> proxy_status;
+
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr) {
+                chunk_len(0), body_index(0), data(nullptr), proxy_status(0) {
 
     }
 
@@ -156,7 +162,7 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr) {
+            chunk_len(0), body(body), body_index(0), data(nullptr), proxy_status(0) {
 
     }
 
