@@ -316,6 +316,11 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
     size_t num_indexed = 0;
 
     for(auto & index_rec: iter_batch) {
+        if(!index_rec.indexed.ok()) {
+            // some records could have been invalidated upstream
+            continue;
+        }
+
         Option<uint32_t> validation_op = validate_index_in_memory(index_rec.document, index_rec.seq_id,
                                                                   default_sorting_field,
                                                                   search_schema, facet_schema);

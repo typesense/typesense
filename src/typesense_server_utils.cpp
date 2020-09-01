@@ -348,6 +348,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(ReplicationState::REPLICATION_MSG, raft_write_send_response);
+    server->on(HttpServer::STREAM_RESPONSE_MESSAGE, HttpServer::on_stream_response_message);
 
     // first we start the peering service
 

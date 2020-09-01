@@ -90,6 +90,8 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
+    LOG(INFO) << "Found " << collection_meta_jsons.size() << " collection(s) on disk.";
+
     for(auto & collection_meta_json: collection_meta_jsons) {
         nlohmann::json collection_meta;
 
