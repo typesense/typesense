@@ -117,7 +117,7 @@ public:
     // updates cluster membership
     void refresh_nodes(const std::string & nodes);
 
-    bool is_leader() const {
+    bool has_leader_term() const {
         return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
