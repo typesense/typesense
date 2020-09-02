@@ -93,7 +93,7 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 
 void ReplicationState::write(http_req* request, http_res* response) {
     // NOTE: this is executed on a different thread and runs concurrent to http thread
-    if (!is_leader()) {
+    if (!node->is_leader()) {
         if(node->leader_id().is_empty()) {
             // Handle no leader scenario
             // FIXME: could happen in the middle of streaming, so a h2o_start_response can bomb.
@@ -325,7 +325,7 @@ int ReplicationState::init_db() {
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
-    CHECK(!is_leader()) << "Leader is not supposed to load snapshot";
+    CHECK(!node->is_leader()) << "Leader is not supposed to load snapshot";
 
     LOG(INFO) << "on_snapshot_load";
 
@@ -362,7 +362,7 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
     braft::Configuration new_conf;
     new_conf.parse_from(nodes);
 
-    if(is_leader()) {
+    if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(new_conf, refresh_nodes_done);
     } else if(node->leader_id().is_empty()) {
@@ -406,7 +406,7 @@ bool ReplicationState::is_alive() const {
     }
 
     // node should either be a leader or have a leader
-    return (is_leader() || !node->leader_id().is_empty());
+    return (node->is_leader() || !node->leader_id().is_empty());
 }
 
 uint64_t ReplicationState::node_state() const {
