@@ -214,4 +214,6 @@ private:
     void on_stop_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node stops following " << ctx;
     }
+
+    void follower_write(http_req *request, http_res *response) const;
 };

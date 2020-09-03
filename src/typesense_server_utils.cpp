@@ -252,7 +252,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     LOG(INFO) << "Typesense peering service is going to quit.";
 
-    // Stop counter before server
+    // Stop application before server
     replication_state.shutdown();
     raft_server.Stop(0);
 
@@ -349,6 +349,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     server->on(SEND_RESPONSE_MSG, on_send_response);
     server->on(ReplicationState::REPLICATION_MSG, raft_write_send_response);
     server->on(HttpServer::STREAM_RESPONSE_MESSAGE, HttpServer::on_stream_response_message);
+    server->on(HttpServer::REQUEST_PROCEED_MESSAGE, HttpServer::on_request_proceed_message);
 
     // first we start the peering service
 

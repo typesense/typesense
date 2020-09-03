@@ -525,6 +525,7 @@ bool get_export_documents(http_req & req, http_res & res) {
 
     if(collection == nullptr) {
         req.last_chunk_aggregate = true;
+        res.final = true;
         res.set_404();
         HttpServer::stream_response(req, res);
         return false;
@@ -551,6 +552,7 @@ bool get_export_documents(http_req & req, http_res & res) {
             req.last_chunk_aggregate = false;
         } else {
             req.last_chunk_aggregate = true;
+            res.final = true;
             delete it;
             req.data = nullptr;
         }
@@ -574,6 +576,7 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
         req.last_chunk_aggregate = true;
+        res.final = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
         HttpServer::stream_response(req, res);
         return false;
@@ -598,6 +601,7 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(collection == nullptr) {
         req.last_chunk_aggregate = true;
+        res.final = true;
         res.set_404();
         HttpServer::stream_response(req, res);
         return false;
@@ -673,6 +677,7 @@ bool post_import_documents(http_req& req, http_res& res) {
     res.body += response_stream.str();
 
     if(stream_proceed) {
+        res.final = req.last_chunk_aggregate;
         HttpServer::stream_response(req, res);
     } else {
         // push handler back onto the event loop: we must process the next batch without blocking the event loop
@@ -1100,6 +1105,7 @@ bool raft_write_send_response(void *data) {
 
         if(index_arg->promise != nullptr) {
             index_arg->promise->set_value(true);  // returns control back to raft replication thread
+            index_arg->promise = nullptr;
         }
     }
 

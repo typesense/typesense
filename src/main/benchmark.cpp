@@ -51,7 +51,7 @@ void benchmark_hn_titles(char* file_path) {
 
     Collection *collection = collectionManager.get_collection("hnstories_direct");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("hnstories_direct", fields_to_index, "points").get();
+        collection = collectionManager.create_collection("hnstories_direct", 4, fields_to_index, "points").get();
     }
 
     std::ifstream infile(file_path);

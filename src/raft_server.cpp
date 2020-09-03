@@ -92,83 +92,8 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 }
 
 void ReplicationState::write(http_req* request, http_res* response) {
-    // NOTE: this is executed on a different thread and runs concurrent to http thread
     if (!node->is_leader()) {
-        if(node->leader_id().is_empty()) {
-            // Handle no leader scenario
-            // FIXME: could happen in the middle of streaming, so a h2o_start_response can bomb.
-            LOG(ERROR) << "Rejecting write: could not find a leader.";
-            response->set_500("Could not find a leader.");
-            auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-            return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
-        }
-
-        if (request->proxy_status == -1) {
-            // indicates async request body of in-flight request
-            //LOG(INFO) << "Inflight request, updating proxy status, body size: " << request->body.size();
-            request->proxy_status = 0;
-            return ;
-        }
-
-        const std::string & leader_addr = node->leader_id().to_string();
-        LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
-
-        thread_pool->enqueue([leader_addr, request, response, this]() {
-            auto raw_req = request->_req;
-            std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
-            std::vector<std::string> addr_parts;
-            StringUtils::split(leader_addr, addr_parts, ":");
-            std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-            const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
-            std::string url = scheme + "://" + leader_host_port + path;
-
-            std::map<std::string, std::string> res_headers;
-
-            if(request->http_method == "POST") {
-                std::vector<std::string> path_parts;
-                StringUtils::split(path, path_parts, "/");
-
-                if(path_parts.back().rfind("import", 0) == 0) {
-                    // imports are handled asynchronously
-                    response->async_request_proceed = false;
-                    request->proxy_status = 1;
-
-                    long status = HttpClient::post_response_async(url, request, response);
-                    if(status == 500) {
-                        response->content_type_header = res_headers["content-type"];
-                        response->set_500("");
-                    } else {
-                        return ;
-                    }
-                } else {
-                    std::string api_res;
-                    long status = HttpClient::post_response(url, request->body, api_res, res_headers);
-                    response->content_type_header = res_headers["content-type"];
-                    response->set_body(status, api_res);
-                }
-            } else if(request->http_method == "PUT") {
-                std::string api_res;
-                long status = HttpClient::put_response(url, request->body, api_res, res_headers);
-                response->content_type_header = res_headers["content-type"];
-                response->set_body(status, api_res);
-            } else if(request->http_method == "DELETE") {
-                std::string api_res;
-                long status = HttpClient::delete_response(url, api_res, res_headers);
-                response->content_type_header = res_headers["content-type"];
-                response->set_body(status, api_res);
-            } else {
-                const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
-                LOG(ERROR) << err;
-                response->set_500(err);
-            }
-
-            auto replication_arg = new AsyncIndexArg{request, response, nullptr};
-            replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-            message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
-        });
-
-        return ;
+        return follower_write(request, response);
     }
 
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
@@ -187,13 +112,111 @@ void ReplicationState::write(http_req* request, http_res* response) {
     // To avoid ABA problem
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
-    //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
+    LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
     // Now the task is applied to the group, waiting for the result.
     return node->apply(task);
 }
 
+size_t follower_write_count = 0;
+
+void ReplicationState::follower_write(http_req *request, http_res *response) const {
+    follower_write_count++;
+
+    LOG(INFO) << "follower_write_count: " << follower_write_count;
+
+    if(follower_write_count == 1) {
+        //LOG(INFO) << "follower_write, will sleep for 10 seconds...";
+        //std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+
+    if(node->leader_id().is_empty()) {
+        // Handle no leader scenario
+        LOG(ERROR) << "Rejecting write: could not find a leader.";
+
+        if(request->_req->proceed_req && request->promise) {
+            // streaming in progress: ensure graceful termination (cannot start response again)
+            LOG(ERROR) << "Terminating streaming request gracefully.";
+            request->promise->set_value(true);
+            request->promise = nullptr;
+            return ;
+        }
+
+        response->set_500("Could not find a leader.");
+        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
+        return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+    }
+
+    if (request->_req->proceed_req && request->promise) {
+        // indicates async request body of in-flight request
+        LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
+        request->promise->set_value(true);
+        request->promise = nullptr;
+        return ;
+    }
+
+    const std::string & leader_addr = node->leader_id().to_string();
+    LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
+
+    thread_pool->enqueue([leader_addr, request, response, this]() {
+        auto raw_req = request->_req;
+        std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
+        std::vector<std::string> addr_parts;
+        StringUtils::split(leader_addr, addr_parts, ":");
+        std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
+        const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
+        std::string url = scheme + "://" + leader_host_port + path;
+
+        std::map<std::string, std::string> res_headers;
+
+        if(request->http_method == "POST") {
+            std::vector<std::string> path_parts;
+            StringUtils::split(path, path_parts, "/");
+
+            if(path_parts.back().rfind("import", 0) == 0) {
+                // imports are handled asynchronously
+                response->proceed_req_after_write = false;
+
+                long status = HttpClient::post_response_async(url, request, response);
+                if(status == 500) {
+                    response->content_type_header = res_headers["content-type"];
+                    response->set_500("");
+                } else {
+                    return ;
+                }
+            } else {
+                std::string api_res;
+                long status = HttpClient::post_response(url, request->body, api_res, res_headers);
+                response->content_type_header = res_headers["content-type"];
+                response->set_body(status, api_res);
+            }
+        } else if(request->http_method == "PUT") {
+            std::string api_res;
+            long status = HttpClient::put_response(url, request->body, api_res, res_headers);
+            response->content_type_header = res_headers["content-type"];
+            response->set_body(status, api_res);
+        } else if(request->http_method == "DELETE") {
+            std::string api_res;
+            long status = HttpClient::delete_response(url, api_res, res_headers);
+            response->content_type_header = res_headers["content-type"];
+            response->set_body(status, api_res);
+        } else {
+            const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
+            LOG(ERROR) << err;
+            response->set_500(err);
+        }
+
+        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
+        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+    });
+}
+
 void ReplicationState::on_apply(braft::Iterator& iter) {
+    LOG(INFO) << "ReplicationState::on_apply";
+
+    // NOTE: this is executed on a different thread and runs concurrent to http thread
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
@@ -237,7 +260,9 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         std::future<bool> future = promise.get_future();
         auto replication_arg = new AsyncIndexArg{request, response, &promise};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        LOG(INFO) << "Raft write waiting for future";
         future.get();
+        LOG(INFO) << "Raft write got the future";
     }
 }
 
@@ -325,7 +350,7 @@ int ReplicationState::init_db() {
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
-    CHECK(!node->is_leader()) << "Leader is not supposed to load snapshot";
+    CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
 
     LOG(INFO) << "on_snapshot_load";
 
