@@ -38,7 +38,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                collection_meta[COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
                                DEFAULT_NUM_MEMORY_SHARDS;
 
-    LOG(INFO) << "Loading collection with " << num_memory_shards << " memory shards.";
+    LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
                                             collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),

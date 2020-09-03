@@ -37,9 +37,9 @@ struct http_res {
     h2o_generator_t* generator = nullptr;
 
     // for async requests, automatically progresses request body on response proceed
-    bool async_request_proceed = true;
+    bool proceed_req_after_write = true;
 
-    http_res(): status_code(501), content_type_header("application/json; charset=utf-8"), final(true) {
+    http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true) {
 
     }
 
@@ -147,14 +147,14 @@ struct http_req {
     void* data;
 
     // used during forwarding of requests from follower to leader
-    std::atomic<int> proxy_status;
+    std::promise<bool>* promise = nullptr;
 
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), proxy_status(0) {
+                chunk_len(0), body_index(0), data(nullptr), promise(nullptr) {
 
     }
 
@@ -162,7 +162,7 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), proxy_status(0) {
+            chunk_len(0), body(body), body_index(0), data(nullptr), promise(nullptr) {
 
     }
 
@@ -332,7 +332,7 @@ struct http_message_dispatcher {
     }
 
     void send_message(const std::string & type, void* data) {
-        h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{NULL, NULL}}, &message_handlers, type.c_str(), data};
+        h2o_custom_res_message_t* message = new h2o_custom_res_message_t{{{nullptr, nullptr}}, &message_handlers, type, data};
         h2o_multithread_send_message(message_receiver, &message->super);
     }
 

@@ -91,6 +91,8 @@ private:
 
     static void response_proceed(h2o_generator_t *generator, h2o_req_t *req);
 
+    static void response_abort(h2o_generator_t *generator, h2o_req_t *req);
+
     static void on_res_generator_dispose(void *self);
 
     static int send_response(h2o_req_t *req, int status_code, const std::string & message);
@@ -148,11 +150,14 @@ public:
 
     static bool on_stream_response_message(void *data);
 
+    static bool on_request_proceed_message(void *data);
+
     std::string get_version();
 
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";
+    static constexpr const char* REQUEST_PROCEED_MESSAGE = "REQUEST_PROCEED";
 
     static int process_request(http_req* request, http_res* response, route_path *rpath,
                                const h2o_custom_req_handler_t *req_handler);

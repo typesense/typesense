@@ -22,9 +22,11 @@ private:
 
     static size_t curl_write_async(char *buffer, size_t size, size_t nmemb, void* context);
 
+    static size_t curl_write_async_done(void* context, curl_socket_t item);
+
     static CURL* init_curl(const std::string& url, std::string& response);
 
-    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res);
+    static CURL* init_curl_async(const std::string& url, request_response* req_res);
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 

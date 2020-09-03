@@ -269,7 +269,7 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
-    //LOG(INFO) << "on_res_generator_dispose fires";
+    LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
     destroy_request_response(res_generator->request, res_generator->response);
 }
@@ -376,11 +376,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     http_req* request = new http_req(req, rpath->http_method, route_hash, query_map, body);
     http_res* response = new http_res();
 
-    // add custom generator with a dipose function for cleaning up resources
+    // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(
         h2o_mem_alloc_shared(&req->pool, sizeof(*custom_generator), on_res_generator_dispose)
     );
-    custom_generator->super = h2o_generator_t {response_proceed, nullptr};
+    custom_generator->super = h2o_generator_t {response_proceed, response_abort};
     custom_generator->request = request;
     custom_generator->response = response;
     custom_generator->rpath = rpath;
@@ -524,6 +524,12 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
 
     h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
+
+    if(exit_loop && res.promise) {
+        // otherwise, replication thread could be stuck waiting on a future
+        res.promise->set_value(true);
+        res.promise = nullptr;
+    }
 }
 
 void HttpServer::send_message(const std::string & type, void* data) {
@@ -559,42 +565,67 @@ void HttpServer::send_response(http_req* request, http_res* response) {
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 }
 
-void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
-    //LOG(INFO) << "response_proceed called";
+void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
+    LOG(INFO) << "response_abort called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
-    // if the request itself is async, we will proceed the request to fetch input content
-    // otherwise, call the handler since it will be the handler that will be producing content
+    if(custom_generator->response->promise) {
+        // returns control back to caller (raft replication or follower forward)
+        LOG(INFO) << "response_abort: fulfilling promise.";
+        custom_generator->response->promise->set_value(true);
+        custom_generator->response->promise = nullptr;
+    }
+}
 
-    if(!custom_generator->response->async_request_proceed) {
+void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
+    LOG(INFO) << "response_proceed called";
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
+
+    if(custom_generator->response->promise) {
+        // returns control back to caller (raft replication or follower forward)
+        LOG(INFO) << "response_proceed: fulfilling promise.";
+        custom_generator->response->promise->set_value(true);
+        custom_generator->response->promise = nullptr;
+    }
+
+    LOG(INFO) << "proceed_req_after_write: " << custom_generator->response->proceed_req_after_write;
+    if(!custom_generator->response->proceed_req_after_write) {
         // request progression is not tied to response generation
-        //LOG(INFO) << "Ignoring request proceed";
+        LOG(INFO) << "Ignoring request proceed";
         return ;
     }
 
-    if (custom_generator->rpath->async_req &&
-        custom_generator->request->_req && custom_generator->request->_req->proceed_req) {
-
-        size_t written = custom_generator->request->chunk_len;
-        custom_generator->request->chunk_len = 0;
+    // if the request itself is async, we will proceed the request to fetch input content
+    if (custom_generator->rpath->async_req) {
         auto stream_state = (custom_generator->response->final) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
 
-        // NOTE: `written` is ignored by http1.1 implementation, so it's meant only for http 2 and http 3
-        custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, stream_state);
+        // `written` is ignored by http1.1 implementation, so meant only for http 2+
+        size_t written = custom_generator->request->chunk_len;
+        custom_generator->request->chunk_len = 0;
 
+        if(custom_generator->request->_req->proceed_req) {
+            LOG(INFO) << "response_proceed: proceeding req";
+            custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, stream_state);
+        }
     } else {
+        // otherwise, call the handler since it will be the handler that will be producing content
+        // (streaming response but not request)
         custom_generator->rpath->handler(*custom_generator->request, *custom_generator->response);
     }
 }
 
 void HttpServer::stream_response(http_req& request, http_res& response) {
-    //LOG(INFO) << "stream_response called";
+    LOG(INFO) << "stream_response called";
     if(request._req == nullptr) {
         // raft log replay
+        LOG(INFO) << "request._req == nullptr";
+
         if(response.promise) {
             // returns control back to raft replication thread
             response.promise->set_value(true);
+            response.promise = nullptr;
         }
+
         destroy_request_response(&request, &response);
         return;
     }
@@ -603,7 +634,7 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
     if (req->res.status == 0) {
-        //LOG(INFO) << "h2o_start_response";
+        LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header;
         response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
         req->res.status = response.status_code;
         req->res.reason = http_res::get_status_reason(response.status_code);
@@ -613,20 +644,20 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
         h2o_start_response(req, &custom_generator->super);
     }
 
-    //LOG(INFO) << "stream_response, body_size: " << response.body.size();
+    LOG(INFO) << "stream_response, body_size: " << response.body.size() << ", response_final="
+              << custom_generator->response->final;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
     response.body = "";
 
-    // FIXME: should this be moved outside?
-    custom_generator->response->final = request.last_chunk_aggregate;
-
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
 
-    if(response.promise) {
+    // for intermediate responses, promise fulfillment will be handled by `response_proceed`
+    if(custom_generator->response->final && response.promise) {
         // returns control back to raft replication thread
         response.promise->set_value(true);
+        response.promise = nullptr;
     }
 }
 
@@ -727,8 +758,23 @@ uint64_t HttpServer::node_state() const {
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
-    //LOG(INFO) << "on_stream_response_message";
+    LOG(INFO) << "on_stream_response_message";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
     stream_response(*req_res->req, *req_res->res);
+    return true;
+}
+
+bool HttpServer::on_request_proceed_message(void *data) {
+    LOG(INFO) << "on_request_proceed_message";
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
+    auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+
+    size_t written = req_res->req->chunk_len;
+    req_res->req->chunk_len = 0;
+
+    if(req_res->req->_req->proceed_req) {
+        req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+    }
+
     return true;
 }
