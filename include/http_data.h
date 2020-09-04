@@ -36,8 +36,8 @@ struct http_res {
 
     h2o_generator_t* generator = nullptr;
 
-    // for async requests, automatically progresses request body on response proceed
-    bool proceed_req_after_write = true;
+    // indicates whether follower is proxying this response stream from leader
+    bool proxied_stream = false;
 
     http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true) {
 
@@ -321,8 +321,11 @@ struct http_message_dispatcher {
             h2o_multithread_message_t *message = H2O_STRUCT_FROM_MEMBER(h2o_multithread_message_t, link, messages->next);
             h2o_custom_res_message_t *custom_message = reinterpret_cast<h2o_custom_res_message_t*>(message);
 
-            if(custom_message->message_handlers->count(custom_message->type) != 0) {
-                auto handler = custom_message->message_handlers->at(custom_message->type);
+            const std::map<std::string, bool (*)(void*)>::const_iterator handler_itr =
+                    custom_message->message_handlers->find(custom_message->type);
+
+            if(handler_itr != custom_message->message_handlers->end()) {
+                auto handler = handler_itr->second;
                 (handler)(custom_message->data);
             }
 

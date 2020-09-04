@@ -92,6 +92,10 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 }
 
 void ReplicationState::write(http_req* request, http_res* response) {
+    if(!node) {
+        return ;
+    }
+
     if (!node->is_leader()) {
         return follower_write(request, response);
     }
@@ -125,11 +129,6 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
 
     LOG(INFO) << "follower_write_count: " << follower_write_count;
 
-    if(follower_write_count == 1) {
-        //LOG(INFO) << "follower_write, will sleep for 10 seconds...";
-        //std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
-
     if(node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
@@ -159,7 +158,10 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
     const std::string & leader_addr = node->leader_id().to_string();
     LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
-    thread_pool->enqueue([leader_addr, request, response, this]() {
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
+    HttpServer* server = custom_generator->h2o_handler->http_server;
+
+    thread_pool->enqueue([leader_addr, request, response, server, this]() {
         auto raw_req = request->_req;
         std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
         std::vector<std::string> addr_parts;
@@ -176,9 +178,15 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
 
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
-                response->proceed_req_after_write = false;
+                response->proxied_stream = true;
+                long status = HttpClient::post_response_async(url, request, response, server);
 
-                long status = HttpClient::post_response_async(url, request, response);
+                // must manage life cycle for forwarded requests
+                delete request;
+                delete response;
+
+                LOG(INFO) << "Import call done.";
+
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
                     response->set_500("");
@@ -259,10 +267,17 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         std::promise<bool> promise;
         std::future<bool> future = promise.get_future();
         auto replication_arg = new AsyncIndexArg{request, response, &promise};
+
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+
         LOG(INFO) << "Raft write waiting for future";
         future.get();
         LOG(INFO) << "Raft write got the future";
+
+        if(shut_down) {
+            iter.set_error_and_rollback();
+            return;
+        }
     }
 }
 
@@ -410,10 +425,10 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 }
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
-                                   bool create_init_db_snapshot):
+                                   bool create_init_db_snapshot, std::atomic<bool>& quit_service):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher), init_readiness_count(0),
-        create_init_db_snapshot(create_init_db_snapshot) {
+        create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
 
 }
 
