@@ -525,6 +525,8 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
     h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
 
+    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.promise: " << res.promise;
+
     if(exit_loop && res.promise) {
         // otherwise, replication thread could be stuck waiting on a future
         res.promise->set_value(true);
@@ -569,11 +571,20 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
     LOG(INFO) << "response_abort called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
+    custom_generator->request->_req = nullptr;
+    custom_generator->response->final = true;
+
     if(custom_generator->response->promise) {
         // returns control back to caller (raft replication or follower forward)
-        LOG(INFO) << "response_abort: fulfilling promise.";
+        LOG(INFO) << "response: fulfilling promise.";
         custom_generator->response->promise->set_value(true);
         custom_generator->response->promise = nullptr;
+    }
+
+    if(custom_generator->request->promise) {
+        LOG(INFO) << "request: fulfilling promise.";
+        custom_generator->request->promise->set_value(true);
+        custom_generator->request->promise = nullptr;
     }
 }
 
@@ -588,9 +599,9 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
         custom_generator->response->promise = nullptr;
     }
 
-    LOG(INFO) << "proceed_req_after_write: " << custom_generator->response->proceed_req_after_write;
-    if(!custom_generator->response->proceed_req_after_write) {
-        // request progression is not tied to response generation
+    LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
+    if(custom_generator->response->proxied_stream) {
+        // request progression should not be tied to response generation
         LOG(INFO) << "Ignoring request proceed";
         return ;
     }
@@ -617,7 +628,7 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 void HttpServer::stream_response(http_req& request, http_res& response) {
     LOG(INFO) << "stream_response called";
     if(request._req == nullptr) {
-        // raft log replay
+        // raft log replay or when underlying request is aborted
         LOG(INFO) << "request._req == nullptr";
 
         if(response.promise) {
@@ -667,8 +678,18 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
         delete deferred_req_res;
     }
 
-    delete request;
-    delete response;
+    response->final = true;
+    request->_req = nullptr;
+
+    if(response->proxied_stream) {
+        // lifecycle of proxied resources are managed by curl client proxying the transfer
+        // we will just nullify _req to indicate that original request is dead
+        LOG(INFO) << "Ignoring request/response cleanup since response is proxied.";
+    } else {
+        LOG(INFO) << "destroy_request_response: deleting req/res";
+        delete request;
+        delete response;
+    }
 }
 
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
@@ -717,6 +738,7 @@ HttpServer::~HttpServer() {
     }
 
     h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);
+    h2o_timerwheel_destroy(ctx.loop->_timeouts);
 
     h2o_context_dispose(&ctx);
 
@@ -772,9 +794,13 @@ bool HttpServer::on_request_proceed_message(void *data) {
     size_t written = req_res->req->chunk_len;
     req_res->req->chunk_len = 0;
 
-    if(req_res->req->_req->proceed_req) {
+    if(req_res->req->_req && req_res->req->_req->proceed_req) {
         req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
     }
 
     return true;
+}
+
+bool HttpServer::has_exited() const {
+    return exit_loop;
 }

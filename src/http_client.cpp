@@ -18,9 +18,9 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl, res_headers);
 }
 
-long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response) {
-    request_response* req_res = new request_response{request, response};
-    std::unique_ptr<request_response> req_res_guard(req_res);
+long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response, HttpServer* server) {
+    deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
+    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
 
     CURL *curl = init_curl_async(url, req_res);
     if(curl == nullptr) {
@@ -120,7 +120,13 @@ void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std:
 
 size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
     // callback for request body to be sent to remote host
-    request_response* req_res = static_cast<request_response *>(userdata);
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(userdata);
+
+    if(req_res->req->_req == nullptr) {
+        // underlying client request is dead, don't proxy anymore data to upstream (leader)
+        return 0;
+    }
+
     size_t max_req_bytes = (size * nitems);
 
     const char* total_body_buf = req_res->req->body.c_str();
@@ -143,8 +149,7 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
         req_res->req->body_index = 0;
         req_res->req->body = "";
 
-        h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(req_res->res->generator);
-        HttpServer *server = custom_generator->h2o_handler->http_server;
+        HttpServer *server = req_res->server;
 
         if(req_res->req->last_chunk_aggregate) {
             LOG(INFO) << "Request forwarding done.";
@@ -169,17 +174,54 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
     return bytes_to_read;
 }
 
+size_t HttpClient::curl_header(char *buffer, size_t size, size_t nmemb, void *context) {
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
+    size_t header_size = size * nmemb;
+
+    std::string header(buffer, header_size);
+
+    if(header.rfind("HTTP", 0) == 0) {
+        // status field, e.g. "HTTP/1.1 404 Not Found"
+        std::vector<std::string> parts;
+        StringUtils::split(header, parts, " ");
+        if(parts.size() >= 2 && StringUtils::is_uint32_t(parts[1])) {
+            req_res->res->status_code = std::stoi(parts[1]);
+        } else {
+            req_res->res->status_code = 500;
+        }
+    } else if(header.rfind("content-type", 0) == 0) {
+        // e.g. "content-type: application/json; charset=utf-8"
+        std::vector<std::string> parts;
+        StringUtils::split(header, parts, ":");
+        if(parts.size() == 2) {
+            req_res->res->content_type_header = parts[1];
+        } else {
+            req_res->res->content_type_header = "application/json; charset=utf-8";
+        }
+    }
+
+    LOG(INFO) << "header:|" << header << "|";
+
+    return header_size;
+}
+
 size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, void *context) {
     // callback for response body to be sent back to client
     LOG(INFO) << "curl_write_async";
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
-    request_response* req_res = static_cast<request_response *>(context);
+    if(req_res->req->_req == nullptr) {
+        // underlying client request is dead, don't try to send anymore data
+        return 0;
+    }
+
     size_t res_size = size * nmemb;
 
     // FIXME: use header from remote response
     // we've got response from remote host: write to client and ask for more request body
     req_res->res->content_type_header = "text/plain; charset=utf8";
     req_res->res->status_code = 200;
+
     req_res->res->body = std::string(buffer, res_size);
     req_res->res->final = false;
 
@@ -189,9 +231,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(req_res->res->generator);
-    HttpServer *server = custom_generator->h2o_handler->http_server;
-    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until response is sent
     LOG(INFO) << "Waiting for response to be sent";
@@ -206,18 +246,16 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     LOG(INFO) << "curl_write_async_done";
 
-    request_response* req_res = static_cast<request_response *>(context);
+    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
     req_res->res->body = "";
     req_res->res->final = true;
 
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(req_res->res->generator);
-    HttpServer *server = custom_generator->h2o_handler->http_server;
-    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     return 0;
 }
 
-CURL *HttpClient::init_curl_async(const std::string& url, request_response* req_res) {
+CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -249,6 +287,9 @@ CURL *HttpClient::init_curl_async(const std::string& url, request_response* req_
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+    //curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_header);
+    //curl_easy_setopt(curl, CURLOPT_HEADERDATA, req_res);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);
@@ -292,4 +333,3 @@ size_t HttpClient::curl_write(char *contents, size_t size, size_t nmemb, std::st
     s->append(contents, size*nmemb);
     return size*nmemb;
 }
-

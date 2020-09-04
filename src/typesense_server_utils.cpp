@@ -37,7 +37,6 @@ void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
     quit_raft_service = true;
-    server->stop();
 }
 
 void catch_crash(int sig) {
@@ -261,6 +260,9 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     raft_server.Join();
 
     LOG(INFO) << "Typesense peering service has quit.";
+
+    server->stop();
+
     return 0;
 }
 
@@ -354,7 +356,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     // first we start the peering service
 
     ThreadPool thread_pool(32);
-    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(), create_init_db_snapshot);
+    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
+                                       create_init_db_snapshot, quit_raft_service);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
         std::string path_to_nodes = config.get_nodes();
@@ -369,7 +372,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // we are out of the event loop here
 
-    LOG(INFO) << "Typesense API service has quit. Stopping peering service...";
+    LOG(INFO) << "Typesense API service has quit.";
     quit_raft_service = true;
     raft_thread.join();
 

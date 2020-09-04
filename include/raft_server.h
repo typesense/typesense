@@ -90,6 +90,8 @@ private:
 
     bool create_init_db_snapshot;
 
+    std::atomic<bool>& shut_down;
+
 public:
 
     static constexpr const char* log_dir_name = "log";
@@ -97,7 +99,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool create_init_db_snapshot);
+                     bool create_init_db_snapshot, std::atomic<bool>& quit_service);
 
     ~ReplicationState() {
         delete node;
@@ -131,6 +133,8 @@ public:
 
     // Shut this node down.
     void shutdown() {
+        LOG(INFO) << "Replication state shutdown.";
+        shut_down = true;
         if (node) {
             node->shutdown(nullptr);
         }
@@ -140,6 +144,7 @@ public:
     void join() {
         if (node) {
             node->join();
+            node = nullptr;
         }
     }
 

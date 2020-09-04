@@ -26,7 +26,7 @@ struct h2o_custom_req_handler_t {
 struct h2o_custom_generator_t {
     h2o_generator_t super;
     h2o_custom_req_handler_t* h2o_handler;
-    route_path *rpath;
+    route_path* rpath;
     http_req* request;
     http_res* response;
 };
@@ -57,8 +57,11 @@ private:
 
     bool exit_loop = false;
 
+private:
+
     std::string version;
 
+    // must be a vector since order of routes matter
     std::vector<std::pair<uint64_t, route_path>> routes;
 
     const std::string listen_address;
@@ -143,6 +146,8 @@ public:
     int run(ReplicationState* replication_state);
 
     void stop();
+
+    bool has_exited() const;
 
     void clear_timeouts(const std::vector<h2o_timer_t*> & timers, bool trigger_callback = true);
 
