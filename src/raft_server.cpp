@@ -122,13 +122,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     return node->apply(task);
 }
 
-size_t follower_write_count = 0;
-
 void ReplicationState::follower_write(http_req *request, http_res *response) const {
-    follower_write_count++;
-
-    LOG(INFO) << "follower_write_count: " << follower_write_count;
-
     if(node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
