@@ -1348,9 +1348,9 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // record with duplicate IDs
 
-    more_records = {"{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+    more_records = {"{\"id\": \"id2\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                     "\"cast\": [\"Tom Skerritt\"] }",
-                    "{\"id\": \"id2\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                    "{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                     "\"cast\": [\"Tom Skerritt\"] }"};
 
     import_response = coll_mul_fields->add_many(more_records);
@@ -1360,12 +1360,12 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     import_results = import_res_to_json(more_records);
     ASSERT_EQ(2, import_results.size());
-    ASSERT_FALSE(import_results[0]["success"].get<bool>());
-    ASSERT_TRUE(import_results[1]["success"].get<bool>());
+    ASSERT_TRUE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
 
-    ASSERT_STREQ("A document with id id1 already exists.", import_results[0]["error"].get<std::string>().c_str());
-    ASSERT_STREQ("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, \"cast\": [\"Tom Skerritt\"] }",
-            import_results[0]["document"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id id1 already exists.", import_results[1]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("{\"cast\":[\"Tom Skerritt\"],\"id\":\"id1\",\"points\":12,\"starring\":\"Rand Fish\",\"title\":\"Test1\"}",
+                 import_results[1]["document"].get<std::string>().c_str());
 
     // handle bad import json
 
