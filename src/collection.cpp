@@ -206,6 +206,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
         nlohmann::json document;
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 
+        const uint32_t seq_id = doc_seq_id_op.get();
+        index_record record(i, seq_id, document);
+
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
         if(!doc_seq_id_op.ok()) {
@@ -213,9 +216,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             index_res["error"] = doc_seq_id_op.error();
             index_res["success"] = false;
             index_res["document"] = json_line;
-
             json_lines[i] = index_res.dump();
-            continue;
+            record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         }
 
         // check for memory threshold before allowing subsequent batches
@@ -228,13 +230,10 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             index_res["error"] = "Max memory ratio exceeded.";
             index_res["success"] = false;
             index_res["document"] = json_line;
-
             json_lines[i] = index_res.dump();
-            continue;
+            record.index_failure(500, "Max memory ratio exceeded.");
         }
 
-        const uint32_t seq_id = doc_seq_id_op.get();
-        index_record record(i, seq_id, document);
         iter_batch[seq_id % this->get_num_memory_shards()].emplace_back(record);
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
