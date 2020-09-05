@@ -20,8 +20,6 @@ private:
 
     static size_t curl_write(char *contents, size_t size, size_t nmemb, std::string *s);
 
-    static size_t curl_header(char *buffer, size_t size, size_t nmemb, void* context);
-
     static size_t curl_write_async(char *buffer, size_t size, size_t nmemb, void* context);
 
     static size_t curl_write_async_done(void* context, curl_socket_t item);

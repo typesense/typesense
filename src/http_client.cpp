@@ -174,37 +174,6 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
     return bytes_to_read;
 }
 
-size_t HttpClient::curl_header(char *buffer, size_t size, size_t nmemb, void *context) {
-    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
-    size_t header_size = size * nmemb;
-
-    std::string header(buffer, header_size);
-
-    if(header.rfind("HTTP", 0) == 0) {
-        // status field, e.g. "HTTP/1.1 404 Not Found"
-        std::vector<std::string> parts;
-        StringUtils::split(header, parts, " ");
-        if(parts.size() >= 2 && StringUtils::is_uint32_t(parts[1])) {
-            req_res->res->status_code = std::stoi(parts[1]);
-        } else {
-            req_res->res->status_code = 500;
-        }
-    } else if(header.rfind("content-type", 0) == 0) {
-        // e.g. "content-type: application/json; charset=utf-8"
-        std::vector<std::string> parts;
-        StringUtils::split(header, parts, ":");
-        if(parts.size() == 2) {
-            req_res->res->content_type_header = parts[1];
-        } else {
-            req_res->res->content_type_header = "application/json; charset=utf-8";
-        }
-    }
-
-    LOG(INFO) << "header:|" << header << "|";
-
-    return header_size;
-}
-
 size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, void *context) {
     // callback for response body to be sent back to client
     LOG(INFO) << "curl_write_async";
@@ -217,10 +186,20 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     size_t res_size = size * nmemb;
 
-    // FIXME: use header from remote response
+    // set headers if not already set
+    if(req_res->res->status_code == 0) {
+        CURL* curl = req_res->req->data;
+        long http_code = 500;
+        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        char* content_type;
+        curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+
+        req_res->res->status_code = http_code;
+        req_res->res->content_type_header = content_type;
+    }
+
     // we've got response from remote host: write to client and ask for more request body
-    req_res->res->content_type_header = "text/plain; charset=utf8";
-    req_res->res->status_code = 200;
 
     req_res->res->body = std::string(buffer, res_size);
     req_res->res->final = false;
@@ -287,9 +266,6 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-    //curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, curl_header);
-    //curl_easy_setopt(curl, CURLOPT_HEADERDATA, req_res);
 
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpClient::curl_write_async);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, req_res);

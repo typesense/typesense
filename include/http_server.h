@@ -47,6 +47,7 @@ private:
     h2o_socket_t* listener_socket;
 
     static const size_t ACTIVE_STREAM_WINDOW_SIZE = 196605;
+    static const size_t REQ_TIMEOUT_MS = 60000;
 
     static const uint64_t SSL_REFRESH_INTERVAL_MS = 8 * 60 * 60 * 1000;
     h2o_custom_timer_t ssl_refresh_timer;
