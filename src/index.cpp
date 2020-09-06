@@ -710,10 +710,11 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 for(size_t j = 0; j < fhashes.size(); j++) {
                     if(fhashes[j] != FACET_ARRAY_DELIMETER) {
                         uint64_t ftoken_hash = fhashes[j];
+                        field_token_index++;
 
                         // reference: https://stackoverflow.com/a/4182771/131050
-                        combined_hash *= (1779033703 + 2*ftoken_hash);
-                        field_token_index++;
+                        // we also include token index to maintain orderliness
+                        combined_hash *= (1779033703 + 2*ftoken_hash*(field_token_index+1));
 
                         // ftoken_hash is the raw value for numeric fields
                         if(should_compute_stats) {
