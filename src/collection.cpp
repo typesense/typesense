@@ -610,12 +610,21 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
 
         } else if(_field.is_string()) {
-            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+            size_t filter_value_index = 0;
+            NUM_COMPARATOR str_comparator = EQUALS;
+
+            if(raw_value[0] == '~') {
+                // string filter should be evaluated in "contains" mode
+                str_comparator = CONTAINS;
+                while(raw_value[++filter_value_index] == ' ');
+            }
+
+            if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-                f = {field_name, filter_values, EQUALS};
+                f = {field_name, filter_values, str_comparator};
             } else {
-                f = {field_name, {raw_value}, EQUALS};
+                f = {field_name, {raw_value}, str_comparator};
             }
         } else {
             return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Unidentified field type.");

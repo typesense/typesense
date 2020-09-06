@@ -236,7 +236,7 @@ public:
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
                        spp::sparse_hash_set<uint64_t>& groups_processed,
-                       const uint32_t *result_ids, const size_t result_size) const;
+                       const uint32_t *result_ids, const size_t result_size);
 
     static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
@@ -288,5 +288,11 @@ public:
     static int64_t float_to_in64_t(float n);
 
     uint64_t get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id, const uint32_t seq_id) const;
+
+    void get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index);
+
+    void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
+                             const std::vector<art_leaf *> &query_suggestion,
+                             uint32_t *exact_strt_ids, size_t& exact_strt_size) const;
 };
 

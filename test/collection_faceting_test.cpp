@@ -140,6 +140,23 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
     ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
 
+    // facet with filter on string array field must fail when partial token is used
+    facets.clear();
+    facets.push_back("tags");
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // partial token should be used along with ~
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:~ PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // or when tokens match facet value exactly
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
     // facet with wildcard query
     facets.clear();
     facets.push_back("tags");
