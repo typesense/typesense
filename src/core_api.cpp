@@ -550,6 +550,7 @@ bool get_export_documents(http_req & req, http_res & res) {
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
             res.body += "\n";
             req.last_chunk_aggregate = false;
+            res.final = false;
         } else {
             req.last_chunk_aggregate = true;
             res.final = true;
