@@ -7,10 +7,11 @@
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
 
-    for(const auto c: str) {
-        bool should_remove = ( (int)(c) >= 0 &&  // check for ASCII range
-                                !std::isalnum(c) );
-        if(!should_remove) {
+    for(char c : str) {
+        bool is_ascii = ((int)(c) >= 0);
+        bool keep_char = !is_ascii || std::isalnum(c);
+
+        if(keep_char) {
             ss << (char) std::tolower(c);
         }
     }

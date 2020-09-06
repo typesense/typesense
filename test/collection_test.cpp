@@ -847,7 +847,7 @@ TEST_F(CollectionTest, MultipleFields) {
 
     // filtering on unfaceted multi-valued string field
     query_fields = {"title"};
-    results = coll_mul_fields->search("captain", query_fields, "cast: chris", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("captain", query_fields, "cast:~ chris", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ids = {"6"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
@@ -928,7 +928,7 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
 
     // filtering on facet field should be possible (supports partial word search but without typo tolerance)
     query_fields = {"title"};
-    result_op = coll_mul_fields->search("*", query_fields, "cast: chris", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("*", query_fields, "cast:~ chris", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(true, result_op.ok());
     results = result_op.get();
