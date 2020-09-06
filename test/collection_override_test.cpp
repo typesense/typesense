@@ -228,10 +228,10 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     ASSERT_EQ(9, results["found"].get<size_t>());
 
     // "count" would be `2` without exclusion
-    ASSERT_EQ("<mark>Scott</mark> Glenn", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
+    ASSERT_EQ("Kristin <mark>Scott</mark> Thomas", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
 
-    ASSERT_EQ("Kristin <mark>Scott</mark> Thomas", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>());
+    ASSERT_EQ("<mark>Scott</mark> Glenn", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
 
     // ensure per_page is respected
