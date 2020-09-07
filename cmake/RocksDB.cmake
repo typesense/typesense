@@ -32,7 +32,10 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a AND BUILD_DEPS STREQU
     set(ENV{ROCKSDB_DISABLE_BACKTRACE} 1)
     set(ENV{ROCKSDB_DISABLE_PG} 1)
 
+    message(STATUS "Cleaning...")
     execute_process(COMMAND make "clean" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
+
+    message(STATUS "Building static library...")
     execute_process(COMMAND make "static_lib" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/
             RESULT_VARIABLE ROCKSDB_BUILD)
     if(NOT ROCKSDB_BUILD EQUAL 0)

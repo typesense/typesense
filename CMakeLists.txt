@@ -16,6 +16,9 @@ if(NOT EXISTS ${DEP_ROOT_DIR})
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR})
 endif()
 
+# Needed to enable Snappy on RocksDB
+add_definitions(-DSNAPPY)
+
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
     add_definitions(-D__GLIBCXX__)

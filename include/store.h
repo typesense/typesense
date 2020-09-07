@@ -64,6 +64,7 @@ public:
         options.max_write_buffer_number = 2;
         options.merge_operator.reset(new UInt64AddOperator);
         options.compression = rocksdb::CompressionType::kSnappyCompression;
+        //options.bottommost_compression = rocksdb::CompressionType::kSnappyCompression;
 
         // these need to be high for replication scenarios
         options.WAL_ttl_seconds = wal_ttl_secs;
