@@ -229,9 +229,9 @@ public:
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
-                                         spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
+                                         std::vector<uint32_t*>& leaf_to_indices,
                                          size_t result_index,
-                                         std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions);
+                                         std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> &array_token_positions);
 
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
@@ -279,9 +279,6 @@ public:
     bool terminate;   // used for interrupting the thread during tear down
 
     search_args* search_params;
-
-    static void populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
-                                               const art_leaf *token_leaf, uint32_t doc_index);
 
     int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
 
