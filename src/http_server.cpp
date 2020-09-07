@@ -742,7 +742,6 @@ HttpServer::~HttpServer() {
     }
 
     h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);
-    h2o_timerwheel_destroy(ctx.loop->_timeouts);
 
     h2o_context_dispose(&ctx);
 

@@ -101,10 +101,6 @@ public:
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool create_init_db_snapshot, std::atomic<bool>& quit_service);
 
-    ~ReplicationState() {
-        delete node;
-    }
-
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_interval_s,
@@ -144,6 +140,7 @@ public:
     void join() {
         if (node) {
             node->join();
+            delete node;
             node = nullptr;
         }
     }
