@@ -58,6 +58,14 @@ struct field {
                type == field_types::INT64 || type == field_types::INT64_ARRAY);
     }
 
+    bool is_int32() const {
+        return (type == field_types::INT32 || type == field_types::INT32_ARRAY);
+    }
+
+    bool is_int64() const {
+        return (type == field_types::INT64 || type == field_types::INT64_ARRAY);
+    }
+
     bool is_float() const {
         return (type == field_types::FLOAT || type == field_types::FLOAT_ARRAY);
     }

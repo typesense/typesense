@@ -169,6 +169,16 @@ struct StringUtils {
         return (*p == 0) && ull <= std::numeric_limits<uint64_t>::max();
     }
 
+    static bool is_int64_t(const std::string &s) {
+        if(s.empty()) {
+            return false;
+        }
+
+        char * p ;
+        long long val = strtoll(s.c_str(), &p, 10);
+        return (*p == 0) && val >= std::numeric_limits<int64_t>::min() && val <= std::numeric_limits<int64_t>::max();
+    }
+
     static bool is_uint32_t(const std::string &s) {
         if(s.empty()) {
             return false;
@@ -177,6 +187,16 @@ struct StringUtils {
         char * p ;
         unsigned long ul = strtoul(s.c_str(), &p, 10);
         return (*p == 0) && ul <= std::numeric_limits<uint32_t>::max();
+    }
+
+    static bool is_int32_t(const std::string &s) {
+        if(s.empty()) {
+            return false;
+        }
+
+        char * p ;
+        long val = strtol(s.c_str(), &p, 10);
+        return (*p == 0) && val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max();
     }
 
     static void toupper(std::string& str) {
