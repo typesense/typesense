@@ -1030,18 +1030,18 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
 }
 
 void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
-                                const std::vector<art_leaf *> &query_suggestion, uint32_t *exact_strt_ids,
+                                const std::vector<art_leaf *>& query_suggestion, uint32_t *exact_strt_ids,
                                 size_t& exact_strt_size) const {
-    spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
+    std::vector<uint32_t*> leaf_to_indices;
     for (art_leaf *token_leaf: query_suggestion) {
         if(token_leaf == nullptr) {
-            leaf_to_indices.emplace(token_leaf, nullptr);
+            leaf_to_indices.push_back(nullptr);
             continue;
         }
 
         uint32_t *indices = new uint32_t[strt_ids_size];
         token_leaf->values->ids.indexOf(strt_ids, strt_ids_size, indices);
-        leaf_to_indices.emplace(token_leaf, indices);
+        leaf_to_indices.push_back(indices);
     }
 
     // e.g. First In First Out => hash([0, 1, 0, 2])
@@ -1059,12 +1059,12 @@ void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
     }
 
     for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
-        std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
+        std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
         populate_token_positions(query_suggestion, leaf_to_indices, strt_ids_index, array_token_positions);
         // iterate array_token_positions and compute hash
 
-        for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
-            auto& token_positions = array_token_positions[array_index];
+        for(const auto& kv: array_token_positions) {
+            const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
             size_t this_hash = 1;
 
             for(size_t token_index = 0; token_index < token_positions.size(); token_index++) {
@@ -1506,11 +1506,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           spp::sparse_hash_set<uint64_t>& groups_processed,
                           const uint32_t *result_ids, const size_t result_size) {
 
-    spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
-    for (art_leaf *token_leaf : query_suggestion) {
+    std::vector<uint32_t*> leaf_to_indices;
+    for (art_leaf *token_leaf: query_suggestion) {
         uint32_t *indices = new uint32_t[result_size];
         token_leaf->values->ids.indexOf(result_ids, result_size, indices);
-        leaf_to_indices.emplace(token_leaf, indices);
+        leaf_to_indices.push_back(indices);
     }
 
     std::unordered_map<std::string, size_t> facet_to_index;
@@ -1543,10 +1543,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         if(query_suggestion.size() <= 1) {
             match_score = single_token_match_score;
         } else {
-            std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
+            std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
 
-            for(const std::vector<std::vector<uint16_t>> & token_positions: array_token_positions) {
+            for(const auto& kv: array_token_positions) {
+                const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
                 if(token_positions.empty()) {
                     continue;
                 }
@@ -1623,9 +1624,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
 
-    for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
-        delete [] it->second;
-        it->second = nullptr;
+    for(uint32_t* leaf_indices: leaf_to_indices) {
+        delete [] leaf_indices;
     }
 }
 
@@ -1649,10 +1649,10 @@ uint64_t Index::get_distinct_id(const std::unordered_map<std::string, size_t> &f
     return distinct_id;
 }
 
-void Index::populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
-                                     spp::sparse_hash_map<const art_leaf *, uint32_t *> &leaf_to_indices,
+void Index::populate_token_positions(const std::vector<art_leaf *>& query_suggestion,
+                                     std::vector<uint32_t*>& leaf_to_indices,
                                      size_t result_index,
-                                     std::vector<std::vector<std::vector<uint16_t>>> &array_token_positions) {
+                                     std::unordered_map<size_t, std::vector<std::vector<uint16_t>>>& array_token_positions) {
     if(query_suggestion.empty()) {
         return ;
     }
@@ -1660,91 +1660,51 @@ void Index::populate_token_positions(const std::vector<art_leaf *> &query_sugges
     // array_token_positions:
     // for every element in a potential array, for every token in query suggestion, get the positions
 
-    // first ascertain the size of the array
-    size_t array_size = 0;
+    for(size_t i = 0; i < query_suggestion.size(); i++) {
+        const art_leaf* token_leaf = query_suggestion[i];
+        uint32_t doc_index = leaf_to_indices[i][result_index];
 
-    for (const art_leaf *token_leaf : query_suggestion) {
-        size_t this_array_size = 1;
-
-        uint32_t doc_index = leaf_to_indices.at(token_leaf)[result_index];
+        // it's possible for a query token to not appear in a resulting document
         if(doc_index == token_leaf->values->ids.getLength()) {
             continue;
         }
+
+        // Array offset storage format:
+        // a) last element is array_index b) second and third last elements will be largest offset
+        // (last element is repeated to indicate end of offsets for a given array index)
 
         uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
         uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
                               token_leaf->values->offsets.getLength() :
                               token_leaf->values->offset_index.at(doc_index+1);
 
-        if(end_offset - start_offset < 3) {
-            this_array_size = 1; // can only be a string since array needs atleast 3 positions for storage
-        } else {
-            // Could be either an array or a string.
-            // Array offset storage format:
-            // a) last element is array_index b) second and third last elements will be largest offset
+        std::vector<uint16_t> positions;
+        int prev_pos = -1;
 
-            auto last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 1);
-            auto second_last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 2);
-            auto third_last_val = (uint16_t) token_leaf->values->offsets.at(end_offset - 3);
+        while(start_offset < end_offset) {
+            int pos = token_leaf->values->offsets.at(start_offset);
+            start_offset++;
 
-            if(second_last_val != third_last_val) {
-                // guarantees that this is a string
-                this_array_size = 1;
-            } else {
-                this_array_size = last_val + 1;
-            }
-        }
+            if(pos == prev_pos) {  // indicates end of array index
+                if(!positions.empty()) {
+                    size_t array_index = (size_t) token_leaf->values->offsets.at(start_offset);
+                    array_token_positions[array_index].push_back(positions);
+                    positions.clear();
+                }
 
-        array_size = std::max(array_size, this_array_size);
-    }
-
-    // initialize array_token_positions
-    array_token_positions = std::vector<std::vector<std::vector<uint16_t>>>(array_size);
-
-    // for each token in the query, find the positions that it appears in the array
-    for (const art_leaf *token_leaf : query_suggestion) {
-        uint32_t doc_index = leaf_to_indices.at(token_leaf)[result_index];
-        if(doc_index == token_leaf->values->ids.getLength()) {
-            continue;
-        }
-
-        populate_array_token_positions(array_token_positions, token_leaf, doc_index);
-    }
-}
-
-void Index::populate_array_token_positions(std::vector<std::vector<std::vector<uint16_t>>> & array_token_positions,
-                                           const art_leaf *token_leaf, uint32_t doc_index) {
-    uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-    uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                          token_leaf->values->offsets.getLength() :
-                          token_leaf->values->offset_index.at(doc_index+1);
-
-    std::vector<uint16_t> positions;
-    uint16_t prev_pos = -1;
-
-    while(start_offset < end_offset) {
-        auto pos = (uint16_t) token_leaf->values->offsets.at(start_offset);
-        start_offset++;
-
-        if(pos == prev_pos) {  // indicates end of array index
-            if(!positions.empty()) {
-                size_t array_index = (uint16_t) token_leaf->values->offsets.at(start_offset);
-                array_token_positions[array_index].push_back(positions);
-                positions.clear();
+                start_offset++;  // skip current value which is the array index
+                prev_pos = -1;
+                continue;
             }
 
-            start_offset++;  // skip current value which is array index
-            prev_pos = -1;
-            continue;
+            prev_pos = pos;
+            positions.push_back((uint16_t)pos);
         }
 
-        prev_pos = pos;
-        positions.push_back(pos);
-    }
-
-    if(!positions.empty()) {
-        // for plain string fields
-        array_token_positions[0].push_back(positions);
+        if(!positions.empty()) {
+            // for plain string fields
+            array_token_positions[0].push_back(positions);
+        }
     }
 }
 

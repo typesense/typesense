@@ -1214,7 +1214,7 @@ void Collection::highlight_result(const field &search_field,
                                   bool highlighted_fully,
                                   highlight_t & highlight) {
 
-    spp::sparse_hash_map<const art_leaf*, uint32_t*> leaf_to_indices;
+    std::vector<uint32_t*> leaf_to_indices;
     std::vector<art_leaf *> query_suggestion;
 
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
@@ -1228,7 +1228,7 @@ void Collection::highlight_result(const field &search_field,
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
             auto doc_indices = new uint32_t[1];
             doc_indices[0] = doc_index;
-            leaf_to_indices.emplace(actual_leaf, doc_indices);
+            leaf_to_indices.push_back(doc_indices);
         }
     }
 
@@ -1239,13 +1239,14 @@ void Collection::highlight_result(const field &search_field,
     }
 
     // positions in the field of each token in the query
-    std::vector<std::vector<std::vector<uint16_t>>> array_token_positions;
+    std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
     Index::populate_token_positions(query_suggestion, leaf_to_indices, 0, array_token_positions);
 
     std::vector<match_index_t> match_indices;
 
-    for(size_t array_index = 0; array_index < array_token_positions.size(); array_index++) {
-        const std::vector<std::vector<uint16_t>> & token_positions = array_token_positions[array_index];
+    for(const auto& kv: array_token_positions) {
+        const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
+        size_t array_index = kv.first;
 
         if(token_positions.empty()) {
             continue;
@@ -1346,10 +1347,9 @@ void Collection::highlight_result(const field &search_field,
     free_leaf_indices(leaf_to_indices);
 }
 
-void Collection::free_leaf_indices(spp::sparse_hash_map<const art_leaf *, uint32_t *>& leaf_to_indices) const {
-    for (auto it = leaf_to_indices.begin(); it != leaf_to_indices.end(); it++) {
-        delete [] it->second;
-        it->second = nullptr;
+void Collection::free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const {
+    for(uint32_t* leaf_indices: leaf_to_indices) {
+        delete [] leaf_indices;
     }
 }
 
