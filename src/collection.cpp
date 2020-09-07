@@ -547,12 +547,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
 
                 for(const std::string & filter_value: filter_values) {
-                    if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
-                        return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                    if(_field.is_int32()) {
+                        if(!StringUtils::is_int32_t(filter_value)) {
+                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+                        }
                     }
 
-                    if(_field.is_float() && !StringUtils::is_float(filter_value)) {
-                        return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not a float.");
+                    else if(_field.is_int64()) {
+                        if(!StringUtils::is_int64_t(filter_value)) {
+                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+                        }
+                    }
+
+                    else if(_field.is_float()) {
+                        if(!StringUtils::is_float(filter_value)) {
+                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                        }
                     }
                 }
 
@@ -560,7 +570,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             } else {
                 Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
                 if(!op_comparator.ok()) {
-                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: " + op_comparator.error());
+                    return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
                 }
 
                 // extract numerical value
@@ -576,12 +586,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
                 filter_value = StringUtils::trim(filter_value);
 
-                if(_field.is_integer() && !StringUtils::is_integer(filter_value)) {
-                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not an integer.");
+                if(_field.is_int32()) {
+                    if(!StringUtils::is_int32_t(filter_value)) {
+                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+                    }
                 }
 
-                if(_field.is_float() && !StringUtils::is_float(filter_value)) {
-                    return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Not a float.");
+                else if(_field.is_int64()) {
+                    if(!StringUtils::is_int64_t(filter_value)) {
+                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+                    }
+                }
+
+                else if(_field.is_float()) {
+                    if(!StringUtils::is_float(filter_value)) {
+                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                    }
                 }
 
                 f = {field_name, {filter_value}, op_comparator.get()};
@@ -593,7 +613,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
                 for(std::string & filter_value: filter_values) {
                     if(filter_value != "true" && filter_value != "false") {
-                        return Option<nlohmann::json>(400, "Values of field `" + _field.name +
+                        return Option<nlohmann::json>(400, "Values of filter field `" + _field.name +
                                                       "`: must be `true` or `false`.");
                     }
 
@@ -603,7 +623,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 f = {field_name, filter_values, EQUALS};
             } else {
                 if(raw_value != "true" && raw_value != "false") {
-                    return Option<nlohmann::json>(400, "Value of field `" + _field.name + "`: must be `true` or `false`.");
+                    return Option<nlohmann::json>(400, "Value of filter field `" + _field.name + "`: must be `true` or `false`.");
                 }
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
                 f = {field_name, {bool_value}, EQUALS};
@@ -627,7 +647,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 f = {field_name, {raw_value}, str_comparator};
             }
         } else {
-            return Option<nlohmann::json>(400, "Error with field `" + _field.name + "`: Unidentified field type.");
+            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Unidentified field type.");
         }
 
         filters.push_back(f);

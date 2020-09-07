@@ -950,19 +950,40 @@ TEST_F(CollectionTest, FilterAndQueryFieldRestrictions) {
     result_op = coll_mul_fields->search("captain", query_fields, "points: \"100\"", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
-    ASSERT_STREQ("Error with field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
+    ASSERT_STREQ("Error with filter field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
 
     // bad filter value type - equaling float on an integer field
     result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
-    ASSERT_STREQ("Error with field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
+    ASSERT_STREQ("Error with filter field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
 
     // bad filter value type - less than float on an integer field
     result_op = coll_mul_fields->search("captain", query_fields, "points: <100.0", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
-    ASSERT_STREQ("Error with field `points`: Not an integer.", result_op.error().c_str());
+    ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
+
+    // when an int32 field is queried with a 64-bit number
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <2230070399", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+    ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
+
+    // using a string filter value against an integer field
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <sdsdfsdf", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+
+    // large negative number
+    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230070399", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(false, result_op.ok());
+
+    // but should allow small negative number
+    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230", facets, sort_fields, 0, 10, 1,
+                                        FREQUENCY, false);
+    ASSERT_EQ(true, result_op.ok());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
