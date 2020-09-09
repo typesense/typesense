@@ -119,11 +119,13 @@ void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std:
 }
 
 size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    //LOG(INFO) << "curl_req_send_callback";
     // callback for request body to be sent to remote host
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(userdata);
 
     if(req_res->req->_req == nullptr) {
         // underlying client request is dead, don't proxy anymore data to upstream (leader)
+        //LOG(INFO) << "req_res->req->_req is: null";
         return 0;
     }
 
@@ -156,17 +158,11 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
         } else {
             LOG(INFO) << "Pausing forwarding and requesting more input.";
-            std::promise<bool> promise;
-            std::future<bool> future = promise.get_future();
-            req_res->req->promise = &promise;
-
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
             LOG(INFO) << "Waiting for request body to be ready";
-            future.get();
+            req_res->req->await.wait();
             LOG(INFO) << "Request body is ready";
-
-            req_res->req->promise = nullptr;
             LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
         }
     }
@@ -204,20 +200,14 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     req_res->res->body = std::string(buffer, res_size);
     req_res->res->final = false;
 
-    std::promise<bool> promise;
-    std::future<bool> future = promise.get_future();
-    req_res->res->promise = &promise;
-
     LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until response is sent
     LOG(INFO) << "Waiting for response to be sent";
-    future.get();
+    req_res->res->await.wait();
     LOG(INFO) << "Response sent";
-
-    req_res->res->promise = nullptr;
 
     return res_size;
 }
@@ -230,6 +220,9 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->res->final = true;
 
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    // wait until final response is flushed or response object will be destroyed by caller
+    req_res->res->await.wait();
 
     return 0;
 }
@@ -246,7 +239,13 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     struct curl_slist *chunk = nullptr;
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());
+
+    // set content length
+    std::string content_length_header = std::string("content-length: ") + std::to_string(req_res->req->_req->content_length);
+    chunk = curl_slist_append(chunk, content_length_header.c_str());
+
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+    //curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // callback called every time request body is needed
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, HttpClient::curl_req_send_callback);

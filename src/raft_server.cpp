@@ -127,11 +127,10 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
 
-        if(request->_req->proceed_req && request->promise) {
+        if(request->_req->proceed_req) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
-            request->promise->set_value(true);
-            request->promise = nullptr;
+            request->await.notify();
             return ;
         }
 
@@ -141,11 +140,10 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
         return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     }
 
-    if (request->_req->proceed_req && request->promise) {
+    if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
         LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
-        request->promise->set_value(true);
-        request->promise = nullptr;
+        request->await.notify();
         return ;
     }
 
@@ -173,6 +171,7 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
                 response->proxied_stream = true;
+                response->auto_dispose = false;
                 long status = HttpClient::post_response_async(url, request, response, server);
 
                 // must manage life cycle for forwarded requests
@@ -257,16 +256,18 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // Now that the log has been parsed, perform the actual operation
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
-
-        std::promise<bool> promise;
-        std::future<bool> future = promise.get_future();
-        auto replication_arg = new AsyncIndexArg{request, response, &promise};
-
+        response->auto_dispose = false;
+        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        LOG(INFO) << "Raft write waiting for future";
-        future.get();
-        LOG(INFO) << "Raft write got the future";
+        LOG(INFO) << "Raft write waiting to proceed";
+        response->await.wait();
+        LOG(INFO) << "Raft write ready to proceed, response->final=" << response->final;
+
+        if(response->final) {
+            delete request;
+            delete response;
+        }
 
         if(shut_down) {
             iter.set_error_and_rollback();

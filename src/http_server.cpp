@@ -400,6 +400,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     if(req->proceed_req == nullptr) {
         // Full request body is already available, so we don't care if handler is async or not
+        //LOG(INFO) << "Full request body is already available: " << req->entity.len;
         request->last_chunk_aggregate = true;
         return process_request(request, response, rpath, h2o_handler);
     } else {
@@ -529,12 +530,11 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
     h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
 
-    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.promise: " << res.promise;
+    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.await: " << res.await;
 
-    if(exit_loop && res.promise) {
+    if(exit_loop) {
         // otherwise, replication thread could be stuck waiting on a future
-        res.promise->set_value(true);
-        res.promise = nullptr;
+        res.await.notify();
     }
 }
 
@@ -554,6 +554,8 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
 }
 
 void HttpServer::send_response(http_req* request, http_res* response) {
+    LOG(INFO) << "send_response, request->_req=" << request->_req;
+
     if(request->_req == nullptr) {
         // indicates serialized request and response -- lifecycle must be managed here
         return destroy_request_response(request, response);
@@ -578,32 +580,21 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
     custom_generator->request->_req = nullptr;
     custom_generator->response->final = true;
 
-    if(custom_generator->response->promise) {
-        // returns control back to caller (raft replication or follower forward)
-        LOG(INFO) << "response: fulfilling promise.";
-        custom_generator->response->promise->set_value(true);
-        custom_generator->response->promise = nullptr;
-    }
-
-    if(custom_generator->request->promise) {
-        LOG(INFO) << "request: fulfilling promise.";
-        custom_generator->request->promise->set_value(true);
-        custom_generator->request->promise = nullptr;
-    }
+    // returns control back to caller (raft replication or follower forward)
+    LOG(INFO) << "response_abort: fulfilling req & res proceed.";
+    custom_generator->response->await.notify();
+    custom_generator->request->await.notify();
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     LOG(INFO) << "response_proceed called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
-    if(custom_generator->response->promise) {
-        // returns control back to caller (raft replication or follower forward)
-        LOG(INFO) << "response_proceed: fulfilling promise.";
-        custom_generator->response->promise->set_value(true);
-        custom_generator->response->promise = nullptr;
-    }
+    custom_generator->response->await.notify();
 
     LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
+    LOG(INFO) << "response.final: " <<  custom_generator->response->final;
+
     if(custom_generator->response->proxied_stream) {
         // request progression should not be tied to response generation
         LOG(INFO) << "Ignoring request proceed";
@@ -634,13 +625,6 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     if(request._req == nullptr) {
         // raft log replay or when underlying request is aborted
         LOG(INFO) << "request._req == nullptr";
-
-        if(response.promise) {
-            // returns control back to raft replication thread
-            response.promise->set_value(true);
-            response.promise = nullptr;
-        }
-
         destroy_request_response(&request, &response);
         return;
     }
@@ -649,7 +633,8 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
     if (req->res.status == 0) {
-        LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header;
+        LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
+                  << ",response.status_code=" << response.status_code;
         response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
         req->res.status = response.status_code;
         req->res.reason = http_res::get_status_reason(response.status_code);
@@ -667,32 +652,29 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
 
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
-
-    // for intermediate responses, promise fulfillment will be handled by `response_proceed`
-    if(custom_generator->response->final && response.promise) {
-        // returns control back to raft replication thread
-        response.promise->set_value(true);
-        response.promise = nullptr;
-    }
 }
 
 void HttpServer::destroy_request_response(http_req* request, http_res* response) {
     if(request->defer_timer.data != nullptr) {
         deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(request->defer_timer.data);
+        h2o_timer_unlink(&request->defer_timer.timer);
         delete deferred_req_res;
     }
 
-    response->final = true;
-    request->_req = nullptr;
+    LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
+              << ", request->_req=" << request->_req << ", response->await=" << &response->await;
 
-    if(response->proxied_stream) {
-        // lifecycle of proxied resources are managed by curl client proxying the transfer
-        // we will just nullify _req to indicate that original request is dead
-        LOG(INFO) << "Ignoring request/response cleanup since response is proxied.";
-    } else {
+    if(response->auto_dispose) {
         LOG(INFO) << "destroy_request_response: deleting req/res";
         delete request;
         delete response;
+    } else {
+        // lifecycle of proxied/replicated resources are managed externally
+        // we will just nullify _req to indicate that original request is dead
+        LOG(INFO) << "Ignoring request/response cleanup since auto_dispose is false.";
+        response->final = true;
+        request->_req = nullptr;
+        response->await.notify();
     }
 }
 
