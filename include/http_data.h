@@ -8,6 +8,7 @@
 #include <chrono>
 #include "json.hpp"
 #include "string_utils.h"
+#include "logger.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -25,6 +26,37 @@ struct h2o_custom_timer_t {
     }
 };
 
+enum class ROUTE_CODES {
+    NOT_FOUND = 1,
+    ALREADY_HANDLED = 2,
+};
+
+class await_t {
+private:
+
+    std::mutex mcv;
+    std::condition_variable cv;
+    bool ready;
+
+public:
+
+    await_t(): ready(false) {}
+
+    void notify() {
+        {
+            std::lock_guard<std::mutex> lk(mcv);
+            ready = true;
+        }
+        cv.notify_all();
+    }
+
+    void wait() {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        cv.wait(lk, [&] { return ready; });
+        ready = false;
+    }
+};
+
 struct http_res {
     uint32_t status_code;
     std::string content_type_header;
@@ -32,12 +64,16 @@ struct http_res {
     bool final;
 
     // fulfilled by an async response handler to pass control back for further writes
-    std::promise<bool>* promise = nullptr;
+    // use `mark_proceed` and `wait_proceed` instead of accessing this directly
+    await_t await;
 
     h2o_generator_t* generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
     bool proxied_stream = false;
+
+    // indicates whether this object is eligible for disposal at the end of req/res cycle
+    bool auto_dispose = true;
 
     http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true) {
 
@@ -125,11 +161,6 @@ struct http_res {
     }
 };
 
-enum class ROUTE_CODES {
-    NOT_FOUND = 1,
-    ALREADY_HANDLED = 2,
-};
-
 struct http_req {
     h2o_req_t* _req;
     std::string http_method;
@@ -147,14 +178,15 @@ struct http_req {
     void* data;
 
     // used during forwarding of requests from follower to leader
-    std::promise<bool>* promise = nullptr;
+    // use `mark_proceed` and `wait_proceed` instead of accessing this directly
+    await_t await;
 
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), promise(nullptr) {
+                chunk_len(0), body_index(0), data(nullptr) {
 
     }
 
@@ -162,7 +194,7 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), route_hash(route_hash), params(params),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), promise(nullptr) {
+            chunk_len(0), body(body), body_index(0), data(nullptr) {
 
     }
 
@@ -347,5 +379,5 @@ struct http_message_dispatcher {
 struct AsyncIndexArg {
     http_req* req;
     http_res* res;
-    std::promise<bool>* promise;
+    await_t* await;
 };

@@ -1074,7 +1074,7 @@ bool del_key(http_req &req, http_res &res) {
 }
 
 bool raft_write_send_response(void *data) {
-    //LOG(INFO) << "raft_write_send_response called";
+    LOG(INFO) << "raft_write_send_response called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
@@ -1087,27 +1087,20 @@ bool raft_write_send_response(void *data) {
         route_path* found_rpath = nullptr;
         bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
         if(route_found) {
-            // for an async response handler, we need to assign the promise
             async_res = found_rpath->async_res;
-            if(async_res) {
-                index_arg->res->promise = index_arg->promise;
-            }
-
-            // now we can call the request handler
             found_rpath->handler(*index_arg->req, *index_arg->res);
         } else {
             index_arg->res->set_404();
         }
     }
 
-    if(!async_res) {
-        // only handle synchronous responses as async ones are handled by their handlers
-        server->send_response(index_arg->req, index_arg->res);
+    LOG(INFO) << "raft_write_send_response, async_res=" << async_res;
 
-        if(index_arg->promise != nullptr) {
-            index_arg->promise->set_value(true);  // returns control back to raft replication thread
-            index_arg->promise = nullptr;
-        }
+    // only handle synchronous responses as async ones are handled by their handlers
+    if(!async_res) {
+        // send response and return control back to raft replication thread
+        LOG(INFO) << "raft_write_send_response: sending response";
+        server->send_response(index_arg->req, index_arg->res);
     }
 
     return true;
