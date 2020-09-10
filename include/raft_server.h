@@ -209,7 +209,7 @@ private:
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
-        LOG(INFO) << "Node start following " << ctx;
+        LOG(INFO) << "Node starts following " << ctx;
         init_readiness_count++;
     }
 

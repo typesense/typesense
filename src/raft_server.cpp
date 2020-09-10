@@ -34,7 +34,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     }
 
     // do snapshot only when the gap between applied index and last snapshot index is >= this number
-    braft::FLAGS_raft_do_snapshot_min_index_gap = 20;
+    braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
 
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
@@ -327,6 +327,7 @@ void* ReplicationState::save_snapshot(void* arg) {
 }
 
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
+    LOG(INFO) << "on_snapshot_save";
     // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
     SnapshotArg* arg = new SnapshotArg;
     arg->db = store->_get_db_unsafe();
