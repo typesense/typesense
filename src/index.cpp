@@ -475,7 +475,7 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
         float f = std::stof(token);
         reinterpret_cast<float&>(hash) = f;  // store as int without loss of precision
     } else if(a_field.is_integer() || a_field.is_bool()) {
-        hash = atol(token.c_str());
+        hash = atoll(token.c_str());
     } else {
         // string field
         hash = StringUtils::hash_wy(token.c_str(), token.size());
@@ -983,24 +983,63 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                     }
                 }
 
-                if(a_filter.compare_operator == EQUALS) {
-                    // need to do exact match (unlike CONTAINS) by iterating the result ids and calculating scores
-                    if(query_suggestion.size() == str_tokens.size()) {
-                        uint32_t *exact_strt_ids = new uint32_t[strt_ids_size];
-                        size_t exact_strt_size = 0;
+                if(a_filter.compare_operator == EQUALS && f.is_facet()) {
+                    // need to do exact match (unlike CONTAINS) by using the facet index
+                    // field being a facet is already enforced upstream
+                    uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
+                    size_t exact_strt_size = 0;
+                    
+                    size_t facet_id = facet_to_index[f.name];
+                    for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
+                        uint32_t seq_id = strt_ids[strt_ids_index];
+                        const std::vector<uint64_t> &fvalues = facet_index_v2[seq_id][facet_id];
+                        bool found_filter = false;
 
-                        eq_str_filter_plain(strt_ids, strt_ids_size, query_suggestion, exact_strt_ids, exact_strt_size);
+                        if(!f.is_array()) {
+                            found_filter = (str_tokens.size() == fvalues.size());
+                        } else {
+                            uint64_t filter_hash = 1;
 
-                        delete[] strt_ids;
-                        strt_ids = exact_strt_ids;
-                        strt_ids_size = exact_strt_size;
+                            for(size_t sindex=0; sindex < str_tokens.size(); sindex++) {
+                                auto& str_token = str_tokens[sindex];
+                                uint64_t thash = facet_token_hash(f, str_token);
+                                filter_hash *= (1779033703 + 2*thash*(sindex+1));
+                            }
+
+                            uint64_t all_fvalue_hash = 1;
+                            size_t ftindex = 0;
+
+                            for(size_t findex=0; findex < fvalues.size(); findex++) {
+                                auto fhash = fvalues[findex];
+                                if(fhash == FACET_ARRAY_DELIMETER) {
+                                    // end of array, check hash
+                                    if(all_fvalue_hash == filter_hash) {
+                                        found_filter = true;
+                                        break;
+                                    }
+                                    all_fvalue_hash = 1;
+                                    ftindex = 0;
+                                } else {
+                                    all_fvalue_hash *= (1779033703 + 2*fhash*(ftindex + 1));
+                                    ftindex++;
+                                }
+                            }
+                        }
+
+                        if(found_filter) {
+                            exact_strt_ids[exact_strt_size] = seq_id;
+                            exact_strt_size++;
+                        }
                     }
+
+                    delete[] strt_ids;
+                    strt_ids = exact_strt_ids;
+                    strt_ids_size = exact_strt_size;
                 }
 
-                // (NOT implemented) if the query is wrapped by double quotes, ensure exact match
-                // bool exact_match = (filter_value.front() == '"' && filter_value.back() == '"');
-
                 // Otherwise, we just ensure that given record contains tokens in the filter query
+                // (NOT implemented) if the query is wrapped by double quotes, ensure phrase match
+                // bool exact_match = (filter_value.front() == '"' && filter_value.back() == '"');
                 uint32_t* out = nullptr;
                 ids_size = ArrayUtils::or_scalar(ids, ids_size, strt_ids, strt_ids_size, &out);
                 delete[] strt_ids;
