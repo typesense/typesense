@@ -623,7 +623,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 f = {field_name, filter_values, EQUALS};
             } else {
                 if(raw_value != "true" && raw_value != "false") {
-                    return Option<nlohmann::json>(400, "Value of filter field `" + _field.name + "`: must be `true` or `false`.");
+                    return Option<nlohmann::json>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
                 }
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
                 f = {field_name, {bool_value}, EQUALS};
@@ -631,20 +631,26 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         } else if(_field.is_string()) {
             size_t filter_value_index = 0;
-            NUM_COMPARATOR str_comparator = EQUALS;
+            NUM_COMPARATOR str_comparator = CONTAINS;
 
-            if(raw_value[0] == '~') {
-                // string filter should be evaluated in "contains" mode
-                str_comparator = CONTAINS;
+            if(raw_value[0] == '=') {
+                if(!_field.facet) {
+                    // EQUALS filtering on string is possible only on facet fields
+                    return Option<nlohmann::json>(400, "To perform exact filtering, filter field `" +
+                           _field.name + "` must be a facet field.");
+                }
+
+                // string filter should be evaluated in strict "equals" mode
+                str_comparator = EQUALS;
                 while(raw_value[++filter_value_index] == ' ');
             }
 
             if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+                StringUtils::split(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values, ",");
                 f = {field_name, filter_values, str_comparator};
             } else {
-                f = {field_name, {raw_value}, str_comparator};
+                f = {field_name, {raw_value.substr(filter_value_index)}, str_comparator};
             }
         } else {
             return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Unidentified field type.");
