@@ -9,6 +9,9 @@
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
 
+namespace braft {
+    DECLARE_int32(raft_do_snapshot_min_index_gap);
+}
 
 void ReplicationClosure::Run() {
     // nothing much to do here since responding to client is handled upstream
@@ -29,6 +32,9 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         LOG(ERROR) << "Failed to parse nodes configuration `" << nodes << "`";
         return -1;
     }
+
+    // do snapshot only when the gap between applied index and last snapshot index is >= this number
+    braft::FLAGS_raft_do_snapshot_min_index_gap = 20;
 
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
