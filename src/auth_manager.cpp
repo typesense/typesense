@@ -130,8 +130,7 @@ uint32_t AuthManager::get_next_api_key_id() {
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
                                const std::string& collection, std::map<std::string, std::string>& params) {
 
-    // FIXME:
-    LOG(INFO) << "AuthManager::authenticate()";
+    //LOG(INFO) << "AuthManager::authenticate()";
 
     if(req_api_key.size() > KEY_LEN) {
         // scoped API key: validate and if valid, extract params
@@ -170,8 +169,7 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
         return true;
     }
 
-    // FIXME:
-    LOG(INFO) << "api_keys.size() = " << api_keys.size();
+    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
 
     if(api_keys.count(req_api_key) == 0) {
         return false;

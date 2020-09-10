@@ -273,7 +273,7 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
-    LOG(INFO) << "on_res_generator_dispose fires";
+    //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
     destroy_request_response(res_generator->request, res_generator->response);
 }
@@ -554,7 +554,7 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
 }
 
 void HttpServer::send_response(http_req* request, http_res* response) {
-    LOG(INFO) << "send_response, request->_req=" << request->_req;
+    //LOG(INFO) << "send_response, request->_req=" << request->_req;
 
     if(request->_req == nullptr) {
         // indicates serialized request and response -- lifecycle must be managed here
@@ -661,17 +661,17 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
         delete deferred_req_res;
     }
 
-    LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
-              << ", request->_req=" << request->_req << ", response->await=" << &response->await;
+    /*LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
+              << ", request->_req=" << request->_req << ", response->await=" << &response->await;*/
 
     if(response->auto_dispose) {
-        LOG(INFO) << "destroy_request_response: deleting req/res";
+        //LOG(INFO) << "destroy_request_response: deleting req/res";
         delete request;
         delete response;
     } else {
         // lifecycle of proxied/replicated resources are managed externally
         // we will just nullify _req to indicate that original request is dead
-        LOG(INFO) << "Ignoring request/response cleanup since auto_dispose is false.";
+        //LOG(INFO) << "Ignoring request/response cleanup since auto_dispose is false.";
         response->final = true;
         request->_req = nullptr;
         response->await.notify();
