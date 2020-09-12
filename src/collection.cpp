@@ -160,9 +160,9 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
         return Option<nlohmann::json>(doc_seq_id_op.code(), doc_seq_id_op.error());
     }
 
-    if(is_exceeding_memory_threshold()) {
+    /*if(is_exceeding_memory_threshold()) {
         return Option<nlohmann::json>(403, "Max memory ratio exceeded.");
-    }
+    }*/
 
     const uint32_t seq_id = doc_seq_id_op.get();
     const std::string seq_id_str = std::to_string(seq_id);
@@ -220,6 +220,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         }
 
+        /*
         // check for memory threshold before allowing subsequent batches
         if(is_exceeding_memory_threshold()) {
             exceeds_memory_limit = true;
@@ -233,6 +234,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
             json_lines[i] = index_res.dump();
             record.index_failure(500, "Max memory ratio exceeded.");
         }
+        */
 
         iter_batch[seq_id % this->get_num_memory_shards()].emplace_back(record);
 

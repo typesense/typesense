@@ -63,7 +63,7 @@ public:
 
     Option<bool> load(const size_t init_batch_size=1000);
 
-    // frees in-memory data structures when server is shutdown - helps us run a memory leak detecter properly
+    // frees in-memory data structures when server is shutdown - helps us run a memory leak detector properly
     void dispose();
 
     Collection* init_collection(const nlohmann::json & collection_meta, const uint32_t collection_next_seq_id);
@@ -84,7 +84,7 @@ public:
 
     std::vector<Collection*> get_collections();
 
-    Option<bool> drop_collection(std::string collection_name, const bool remove_from_store = true);
+    Option<bool> drop_collection(const std::string& collection_name, const bool remove_from_store = true);
 
     uint32_t get_next_collection_id();
 

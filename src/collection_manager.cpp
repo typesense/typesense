@@ -191,6 +191,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         }
 
         add_to_collections(collection);
+        LOG(INFO) << "Loaded " << num_docs_read << " documents into collection " << collection->get_name();
     }
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
@@ -343,7 +344,7 @@ std::vector<Collection*> CollectionManager::get_collections() {
     return collection_vec;
 }
 
-Option<bool> CollectionManager::drop_collection(std::string collection_name, const bool remove_from_store) {
+Option<bool> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
     Collection* collection = get_collection(collection_name);
     if(collection == nullptr) {
         return Option<bool>(404, "No collection with name `" + collection_name + "` found.");
@@ -352,8 +353,7 @@ Option<bool> CollectionManager::drop_collection(std::string collection_name, con
     if(remove_from_store) {
         const std::string &collection_id_str = std::to_string(collection->get_collection_id());
 
-        // Note: The following order of dropping documents first before dropping collection meta is important for
-        // replication to work properly!
+        // Note: The order of dropping documents first before dropping collection meta is important for replication
         rocksdb::Iterator* iter = store->scan(collection_id_str);
         while(iter->Valid() && iter->key().starts_with(collection_id_str)) {
             store->remove(iter->key().ToString());
