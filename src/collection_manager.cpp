@@ -67,6 +67,7 @@ void CollectionManager::init(Store *store,
 }
 
 Option<bool> CollectionManager::load(const size_t init_batch_size) {
+    // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
     Option<bool> auth_init_op = auth_manager.init(store);
@@ -119,6 +120,12 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
                                           StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
 
+        if(get_collection(this_collection_name)) {
+            // To maintain idempotency, if the collection already exists in-memory, drop it from memory
+            LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
+            drop_collection(this_collection_name, false);
+        }
+
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
         LOG(INFO) << "Loading collection " << collection->get_name();
@@ -146,9 +153,14 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             iter_batch.push_back(std::vector<index_record>());
         }
 
-        int num_docs_read = 0;
+        size_t num_found_docs = 0;
+        size_t num_valid_docs = 0;
+        size_t num_indexed_docs = 0;
+
+        auto begin = std::chrono::high_resolution_clock::now();
 
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+            num_found_docs++;
             const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
 
             nlohmann::json document;
@@ -160,8 +172,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
                 return Option<bool>(false, "Bad JSON.");
             }
 
-            num_docs_read++;
-
+            num_valid_docs++;
             iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document));
 
             // Peek and check for last record right here so that we handle batched indexing correctly
@@ -169,7 +180,10 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             iter->Next();
             bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
-            if((num_docs_read % init_batch_size == 0) || last_record) {
+            // batch must match atleast the number of shards
+            const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
+
+            if((num_valid_docs % batch_size == 0) || last_record) {
                 std::vector<size_t> indexed_counts;
                 indexed_counts.reserve(iter_batch.size());
 
@@ -186,12 +200,25 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
                         }
                     }
                     iter_batch[i].clear();
+                    num_indexed_docs += num_indexed;
                 }
+            }
+
+            auto time_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            auto throttle_time_millis = uint64_t((LOAD_THROTTLE_PERCENT/100) * time_millis);
+
+            if(throttle_time_millis != 0) {
+                // we throttle only when we have accumulated atleast 1 ms worth of throttling time
+                begin = std::chrono::high_resolution_clock::now();
+                std::this_thread::sleep_for(std::chrono::milliseconds(throttle_time_millis));
             }
         }
 
         add_to_collections(collection);
-        LOG(INFO) << "Loaded " << num_docs_read << " documents into collection " << collection->get_name();
+        LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
+                  << " documents into collection " << collection->get_name();
     }
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
@@ -369,7 +396,6 @@ Option<bool> CollectionManager::drop_collection(const std::string& collection_na
     collection_id_names.erase(collection->get_collection_id());
 
     delete collection;
-    collection = nullptr;
 
     return Option<bool>(true);
 }
