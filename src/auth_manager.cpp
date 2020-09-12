@@ -4,6 +4,7 @@
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 
 Option<bool> AuthManager::init(Store *store) {
+    // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "AuthManager::init()";
 
     this->store = store;

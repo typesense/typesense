@@ -32,9 +32,11 @@ private:
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
 
     std::string bootstrap_auth_key;
-    std::string bootstrap_search_only_auth_key;
 
     float max_memory_ratio;
+
+    /// During load, sleep `LOAD_THROTTLE_PERCENT`% of time taken for indexing to prevent CPU saturation
+    float LOAD_THROTTLE_PERCENT = 10;
 
     CollectionManager();
 
