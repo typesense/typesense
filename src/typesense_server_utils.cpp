@@ -222,7 +222,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Reference: https://github.com/apache/incubator-brpc/blob/122770d/docs/en/client.md#timeout
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, 600, state_dir,
+    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, 3600, state_dir,
                                 nodes_config_op.get()) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
