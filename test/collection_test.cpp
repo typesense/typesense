@@ -1056,6 +1056,13 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "age:24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
+    // alternative `:=` syntax
+    results = coll_array_fields->search("Jeremy", query_fields, "age:=24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "age:= 24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
     // Searching a number against an int32 array field
     results = coll_array_fields->search("Jeremy", query_fields, "years:>2002", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
@@ -1102,6 +1109,10 @@ TEST_F(CollectionTest, FilterOnNumericFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // alternative `:=` syntax
+    results = coll_array_fields->search("Jeremy", query_fields, "age:= [21, 24, 63]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
 
     // multiple search values against an int32 array field - also use extra padding between symbols
     results = coll_array_fields->search("Jeremy", query_fields, "years : [ 2015, 1985 , 1999]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
@@ -1459,6 +1470,10 @@ TEST_F(CollectionTest, QueryBoolFields) {
         std::string id = ids.at(i);
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    // alternative `:=` syntax
+    results = coll_bool->search("the", query_fields, "popular:=true", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
 
     results = coll_bool->search("the", query_fields, "popular:false", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
