@@ -542,6 +542,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         std::string & raw_value = expression_parts[1];
         filter f;
 
+        // skip past optional `:=` operator, which has no meaning for non-string fields
+        if(!_field.is_string() && raw_value[0] == '=') {
+            size_t filter_value_index = 0;
+            while(raw_value[++filter_value_index] == ' ');
+            raw_value = raw_value.substr(filter_value_index);
+        }
+
         if(_field.is_integer() || _field.is_float()) {
             // could be a single value or a list
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {

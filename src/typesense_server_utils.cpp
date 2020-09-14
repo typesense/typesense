@@ -57,7 +57,7 @@ void catch_crash(int sig) {
 
 Option<std::string> fetch_file_contents(const std::string & file_path) {
     if(!file_exists(file_path)) {
-        return Option<std::string>(404, "File does not exist.");
+        return Option<std::string>(404, std::string("File does not exist at: ") + file_path);
     }
 
     std::ifstream infile(file_path);
