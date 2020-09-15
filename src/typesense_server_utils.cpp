@@ -87,6 +87,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add("enable-cors", '\0', "Enable CORS requests.");
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
+    options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
 
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
@@ -178,7 +179,8 @@ Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
 }
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
-                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port) {
+                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port,
+                      int snapshot_interval_seconds) {
 
     if(path_to_nodes.empty()) {
         LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
@@ -222,13 +224,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Reference: https://github.com/apache/incubator-brpc/blob/122770d/docs/en/client.md#timeout
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, 3600, state_dir,
+    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_interval_seconds, state_dir,
                                 nodes_config_op.get()) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
     }
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
+    LOG(INFO) << "Snapshot interval configured as: " << snapshot_interval_seconds << "s";
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
@@ -362,7 +365,10 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::thread raft_thread([&replication_state, &config, &state_dir]() {
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
-                          config.get_peering_address(), config.get_peering_port(), config.get_api_port());
+                          config.get_peering_address(),
+                          config.get_peering_port(),
+                          config.get_api_port(),
+                          config.get_snapshot_interval_seconds());
     });
 
     LOG(INFO) << "Starting API service...";
