@@ -30,6 +30,7 @@ private:
     bool enable_cors;
 
     float max_memory_ratio;
+    int snapshot_interval_seconds;
 
     std::string config_file;
     int config_file_validity;
@@ -42,6 +43,7 @@ public:
         this->peering_port = 8107;
         this->enable_cors = false;
         this->max_memory_ratio = 1.0f;
+        this->snapshot_interval_seconds = 3600;
     }
 
     // setters
@@ -150,6 +152,10 @@ public:
         return this->max_memory_ratio;
     }
 
+    int get_snapshot_interval_seconds() const {
+        return this->snapshot_interval_seconds;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -204,6 +210,10 @@ public:
 
         if(!get_env("TYPESENSE_MAX_MEMORY_RATIO").empty()) {
             this->max_memory_ratio = std::stof(get_env("TYPESENSE_MAX_MEMORY_RATIO"));
+        }
+
+        if(!get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS").empty()) {
+            this->snapshot_interval_seconds = std::stoi(get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS"));
         }
     }
 
@@ -290,6 +300,10 @@ public:
         if(reader.Exists("server", "max-memory-ratio")) {
             this->max_memory_ratio = (float) reader.GetReal("server", "max-memory-ratio", 1.0f);
         }
+
+        if(reader.Exists("server", "snapshot-interval-seconds")) {
+            this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -356,6 +370,10 @@ public:
 
         if(options.exist("max-memory-ratio")) {
             this->max_memory_ratio = options.get<float>("max-memory-ratio");
+        }
+
+        if(options.exist("snapshot-interval-seconds")) {
+            this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
         }
     }
 

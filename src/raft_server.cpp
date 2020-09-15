@@ -133,7 +133,7 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
 
-        if(request->_req->proceed_req) {
+        if(request->_req->proceed_req && response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
             request->await.notify();
