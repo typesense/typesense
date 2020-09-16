@@ -46,9 +46,34 @@ cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-bu
 sed -i 's#%dir "/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 
+SPEC_FILE="/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-1.spec"
+SPEC_FILE_COPY="/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-copy.spec"
+
+cp $SPEC_FILE $SPEC_FILE_COPY
+
+PRE_LINE=`grep -n "%pre" $SPEC_FILE_COPY | cut -f1 -d:`
+START_LINE=`expr $PRE_LINE - 1`
+
+head -$START_LINE $SPEC_FILE_COPY > $SPEC_FILE
+
+echo "%prep" >> $SPEC_FILE
+echo "cat >/tmp/find_requires.sh <<EOF
+#!/bin/sh
+%{__find_requires} | grep -v GLIBC_PRIVATE
+exit 0
+EOF" >> $SPEC_FILE
+
+echo "chmod +x /tmp/find_requires.sh" >> $SPEC_FILE
+echo "%define _use_internal_dependency_generator 0" >> $SPEC_FILE
+echo "%define __find_requires /tmp/find_requires.sh" >> $SPEC_FILE
+
+tail -n+$START_LINE $SPEC_FILE_COPY >> $SPEC_FILE
+
+rm $SPEC_FILE_COPY
+
 cd /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} && \
   rpmbuild --target=x86_64 --buildroot /tmp/typesense-rpm-build/typesense-server-${TS_VERSION} -bb \
-  /tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-1.spec
+  $SPEC_FILE
 
 cp "/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-amd64.deb" /typesense-core
 cp "/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}-1.x86_64.rpm" /typesense-core
