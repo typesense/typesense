@@ -58,6 +58,8 @@ private:
 
     bool exit_loop = false;
 
+    bool ssl_enabled = false;
+
 private:
 
     std::string version;
@@ -171,4 +173,8 @@ public:
     static void on_deferred_process_request(h2o_timer_t *entry);
 
     void defer_processing(http_req& req, http_res& res, size_t timeout_ms);
+
+    bool is_ssl_enabled() {
+        return ssl_enabled;
+    }
 };

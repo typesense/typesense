@@ -86,7 +86,10 @@ private:
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
-    std::atomic<size_t> init_readiness_count;
+    const size_t catch_up_threshold_percentage;
+    std::atomic<bool> caught_up;
+
+    const bool api_uses_ssl;
 
     bool create_init_db_snapshot;
 
@@ -99,6 +102,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+                     bool api_uses_ssl, size_t catch_up_threshold_percentage,
                      bool create_init_db_snapshot, std::atomic<bool>& quit_service);
 
     // Starts this node
@@ -120,7 +124,7 @@ public:
     }
 
     bool is_ready() const {
-        return init_readiness_count >= 2;
+        return caught_up;
     }
 
     bool is_alive() const;
@@ -148,8 +152,6 @@ public:
     int init_db();
 
     void reset_db();
-
-    size_t get_init_readiness_count() const;
 
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
@@ -185,8 +187,6 @@ private:
             write(request, response);
         }
 
-        init_readiness_count++;
-
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
@@ -210,7 +210,6 @@ private:
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
         LOG(INFO) << "Node starts following " << ctx;
-        init_readiness_count++;
     }
 
     void on_stop_following(const ::braft::LeaderChangeContext& ctx) {

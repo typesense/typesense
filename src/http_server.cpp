@@ -112,6 +112,7 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     }
 
     h2o_ssl_register_alpn_protocols(accept_ctx->ssl_ctx, h2o_http2_alpn_protocols);
+    ssl_enabled = true;
     return 0;
 }
 
@@ -326,7 +327,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // Except for health check, wait for replicating state to be ready before allowing requests
     // Follower or leader must have started AND data must also have been loaded
-    if(path_without_query != "/health" && !h2o_handler->http_server->get_replication_state()->is_ready()) {
+    if(path_without_query != "/health" && path_without_query != "/sequence" &&
+        !h2o_handler->http_server->get_replication_state()->is_ready()) {
         std::string message = "{ \"message\": \"Not Ready\"}";
         return send_response(req, 503, message);
     }

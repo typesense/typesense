@@ -32,6 +32,8 @@ private:
     float max_memory_ratio;
     int snapshot_interval_seconds;
 
+    size_t catch_up_threshold_percentage;
+
     std::string config_file;
     int config_file_validity;
 
@@ -44,6 +46,7 @@ public:
         this->enable_cors = false;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
+        this->catch_up_threshold_percentage = 95;
     }
 
     // setters
@@ -156,6 +159,10 @@ public:
         return this->snapshot_interval_seconds;
     }
 
+    int get_catch_up_threshold_percentage() const {
+        return this->catch_up_threshold_percentage;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -214,6 +221,10 @@ public:
 
         if(!get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS").empty()) {
             this->snapshot_interval_seconds = std::stoi(get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS"));
+        }
+
+        if(!get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE").empty()) {
+            this->catch_up_threshold_percentage = std::stoi(get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE"));
         }
     }
 
@@ -304,6 +315,10 @@ public:
         if(reader.Exists("server", "snapshot-interval-seconds")) {
             this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
         }
+
+        if(reader.Exists("server", "catch-up-threshold-percentage")) {
+            this->catch_up_threshold_percentage = (int) reader.GetInteger("server", "catch-up-threshold-percentage", 95);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -374,6 +389,10 @@ public:
 
         if(options.exist("snapshot-interval-seconds")) {
             this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
+        }
+
+        if(options.exist("catch-up-threshold-percentage")) {
+            this->catch_up_threshold_percentage = options.get<int>("catch-up-threshold-percentage");
         }
     }
 

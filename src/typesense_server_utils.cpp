@@ -88,6 +88,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
+    options.add<int>("catch-up-threshold-percentage", '\0', "The threshold at which a follower is deemed to have caught up with leader.", false, 95);
 
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
@@ -236,8 +237,8 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
     while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
-        // pre-increment to ensure that we don't refresh right away on a fresh boot
-        if(++raft_counter % 10 == 0) {
+        // post-increment to ensure that we refresh right away on a fresh boot
+        if(raft_counter++ % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
@@ -360,6 +361,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     ThreadPool thread_pool(32);
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
+                                       server->is_ssl_enabled(), config.get_catch_up_threshold_percentage(),
                                        create_init_db_snapshot, quit_raft_service);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {

@@ -33,6 +33,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         return -1;
     }
 
+    this->caught_up = false;
+
     // do snapshot only when the gap between applied index and last snapshot index is >= this number
     braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
 
@@ -361,8 +363,6 @@ int ReplicationState::init_db() {
         return 1;
     }
 
-    init_readiness_count++;
-
     return 0;
 }
 
@@ -407,39 +407,82 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(new_conf, refresh_nodes_done);
-    } else if(node->leader_id().is_empty()) {
-        // When node is not a leader, does not have a leader and is also a single-node cluster,
-        // we forcefully reset its peers.
-        // NOTE: `reset_peers()` is not a safe call to make as we give up on consistency and consensus guarantees.
-        // We are doing this solely to handle single node cluster whose IP changes.
-        // Examples: Docker container IP change, local DHCP leased IP change etc.
+        this->caught_up = true;
+    } else {
+        if(node->leader_id().is_empty()) {
+            // When node is not a leader, does not have a leader and is also a single-node cluster,
+            // we forcefully reset its peers.
+            // NOTE: `reset_peers()` is not a safe call to make as we give up on consistency and consensus guarantees.
+            // We are doing this solely to handle single node cluster whose IP changes.
+            // Examples: Docker container IP change, local DHCP leased IP change etc.
 
-        std::vector<braft::PeerId> latest_nodes;
-        new_conf.list_peers(&latest_nodes);
+            std::vector<braft::PeerId> latest_nodes;
+            new_conf.list_peers(&latest_nodes);
 
-        if(latest_nodes.size() == 1) {
-            LOG(WARNING) << "Single-node with no leader. Resetting peers.";
-            node->reset_peers(new_conf);
-        } else {
-            LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
+            if(latest_nodes.size() == 1) {
+                LOG(WARNING) << "Single-node with no leader. Resetting peers.";
+                node->reset_peers(new_conf);
+            } else {
+                LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
+            }
+
+            this->caught_up = false;
+            return ;
         }
+
+        // update catch up status
+        thread_pool->enqueue([this]() {
+            auto seq_num = this->store->get_latest_seq_number();
+            const std::string & leader_addr = node->leader_id().to_string();
+
+            std::vector<std::string> addr_parts;
+            StringUtils::split(leader_addr, addr_parts, ":");
+            std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
+            std::string protocol = this->api_uses_ssl ? "https" : "http";
+            std::string seq_url = protocol + "://" + leader_host_port + "/sequence";
+
+            std::string api_res;
+            std::map<std::string, std::string> res_headers;
+            long status = HttpClient::get_response(seq_url, api_res, res_headers);
+
+            if(status != 500) {
+                if(!StringUtils::is_uint64_t(api_res)) {
+                    LOG(ERROR) << "Invalid API response when fetching sequence number: " << api_res;
+                    this->caught_up = false;
+                    return ;
+                }
+
+                uint64_t leader_seq = std::atoll(api_res.c_str());
+                if(leader_seq < seq_num) {
+                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
+                    this->caught_up = false;
+                    return ;
+                }
+
+                if(leader_seq == 0) {
+                    this->caught_up = true;
+                    return ;
+                }
+
+                float seq_progress = (float(seq_num) / leader_seq) * 100;
+                LOG(INFO) << "Follower progress percentage: " << seq_progress;
+                this->caught_up = (seq_progress >= catch_up_threshold_percentage);
+            }
+        });
     }
 }
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
+                                   bool api_uses_ssl, size_t catch_up_threshold_percentage,
                                    bool create_init_db_snapshot, std::atomic<bool>& quit_service):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
-        message_dispatcher(message_dispatcher), init_readiness_count(0),
-        create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
+        message_dispatcher(message_dispatcher), catch_up_threshold_percentage(catch_up_threshold_percentage),
+        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
 
 }
 
 void ReplicationState::reset_db() {
     store->close();
-}
-
-size_t ReplicationState::get_init_readiness_count() const {
-    return init_readiness_count.load();
 }
 
 bool ReplicationState::is_alive() const {
