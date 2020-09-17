@@ -67,6 +67,8 @@ bool get_health(http_req& req, http_res& res);
 
 bool get_metrics_json(http_req& req, http_res& res);
 
+bool get_log_sequence(http_req& req, http_res& res);
+
 // Misc helpers
 
 bool raft_write_send_response(void *data);

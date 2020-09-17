@@ -213,6 +213,15 @@ bool get_metrics_json(http_req &req, http_res &res) {
     return true;
 }
 
+
+bool get_log_sequence(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const uint64_t seq_num = collectionManager.get_store()->get_latest_seq_number();
+    res.content_type_header = "text/plain; charset=utf8";
+    res.set_body(200, std::to_string(seq_num));
+    return true;
+}
+
 bool get_search(http_req & req, http_res & res) {
     auto begin = std::chrono::high_resolution_clock::now();
 

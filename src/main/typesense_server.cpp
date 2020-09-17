@@ -48,21 +48,7 @@ void master_server_routes() {
     server->get("/metrics.json", get_metrics_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);
-}
-
-void replica_server_routes() {
-    // collection management
-    server->get("/collections", get_collections);
-    server->get("/collections/:collection", get_collection_summary);
-
-    // document management - `/documents/:id` end-points must be placed last in the list
-    server->get("/collections/:collection/documents/search", get_search);
-    server->get("/collections/:collection/documents/export", get_export_documents, true);
-    server->get("/collections/:collection/documents/:id", get_fetch_document);
-
-    // meta
-    server->get("/debug", get_debug);
-    server->get("/health", get_health);
+    server->get("/sequence", get_log_sequence);
 }
 
 int main(int argc, char **argv) {
