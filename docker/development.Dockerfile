@@ -76,15 +76,15 @@ RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/bld && cd /opt/incubator-brpc-0.9.7-
     make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/incubator-brpc-0.9.7-rc03/bld/output/bin
 
-ADD https://github.com/baidu/braft/archive/22b0d4e.tar.gz /opt/braft-22b0d4e.tar.gz
-RUN tar -C /opt -xf /opt/braft-22b0d4e.tar.gz
-COPY patches/braft_cmakelists.txt /opt/braft-22b0d4ec45a2abdaceeb2216e668130a839ed931/src/CMakeLists.txt
-RUN chown root:root /opt/braft-22b0d4ec45a2abdaceeb2216e668130a839ed931/src/CMakeLists.txt
-RUN mkdir -p /opt/braft-22b0d4ec45a2abdaceeb2216e668130a839ed931/bld && \
-    cd /opt/braft-22b0d4ec45a2abdaceeb2216e668130a839ed931/bld && \
+ADD https://github.com/typesense/braft/archive/c649789.tar.gz /opt/braft-c649789.tar.gz
+RUN tar -C /opt -xf /opt/braft-c649789.tar.gz
+COPY patches/braft_cmakelists.txt /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
+RUN chown root:root /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
+RUN mkdir -p /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
+    cd /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j8 && \
     make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/braft-22b0d4ec45a2abdaceeb2216e668130a839ed931/bld/output/bin
+    rm -rf /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld/output/bin
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++
