@@ -357,11 +357,13 @@ int run_server(const Config & config, const std::string & version, void (*master
     server->on(HttpServer::STREAM_RESPONSE_MESSAGE, HttpServer::on_stream_response_message);
     server->on(HttpServer::REQUEST_PROCEED_MESSAGE, HttpServer::on_request_proceed_message);
 
+    bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
+
     // first we start the peering service
 
     ThreadPool thread_pool(32);
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
-                                       server->is_ssl_enabled(), config.get_catch_up_threshold_percentage(),
+                                       ssl_enabled, config.get_catch_up_threshold_percentage(),
                                        create_init_db_snapshot, quit_raft_service);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {

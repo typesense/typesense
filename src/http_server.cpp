@@ -112,7 +112,6 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     }
 
     h2o_ssl_register_alpn_protocols(accept_ctx->ssl_ctx, h2o_http2_alpn_protocols);
-    ssl_enabled = true;
     return 0;
 }
 
