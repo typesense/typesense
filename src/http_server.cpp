@@ -432,8 +432,8 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     request->body += chunk_str;
     request->chunk_len += chunk.len;
 
-    LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len << ", aggr_chunk_len=" << request->chunk_len
-              << ", is_end_stream=" << is_end_stream;
+    //LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len << ", aggr_chunk_len=" << request->chunk_len
+    //          << ", is_end_stream=" << is_end_stream;
 
     //LOG(INFO) << "request->body.size(): " << request->body.size() << ", request->chunk_len=" << request->chunk_len;
 
@@ -588,17 +588,17 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
-    LOG(INFO) << "response_proceed called";
+    //LOG(INFO) << "response_proceed called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
     custom_generator->response->await.notify();
 
-    LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
-    LOG(INFO) << "response.final: " <<  custom_generator->response->final;
+    //LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
+    //LOG(INFO) << "response.final: " <<  custom_generator->response->final;
 
     if(custom_generator->response->proxied_stream) {
         // request progression should not be tied to response generation
-        LOG(INFO) << "Ignoring request proceed";
+        //LOG(INFO) << "Ignoring request proceed";
         return ;
     }
 
@@ -611,7 +611,7 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
         custom_generator->request->chunk_len = 0;
 
         if(custom_generator->request->_req->proceed_req) {
-            LOG(INFO) << "response_proceed: proceeding req";
+            //LOG(INFO) << "response_proceed: proceeding req";
             custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, stream_state);
         }
     } else {
@@ -622,10 +622,10 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 }
 
 void HttpServer::stream_response(http_req& request, http_res& response) {
-    LOG(INFO) << "stream_response called";
+    //LOG(INFO) << "stream_response called";
     if(request._req == nullptr) {
         // raft log replay or when underlying request is aborted
-        LOG(INFO) << "request._req == nullptr";
+        //LOG(INFO) << "request._req == nullptr";
         destroy_request_response(&request, &response);
         return;
     }
@@ -634,8 +634,8 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
 
     if (req->res.status == 0) {
-        LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
-                  << ",response.status_code=" << response.status_code;
+        //LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
+        //          << ",response.status_code=" << response.status_code;
         response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
         req->res.status = response.status_code;
         req->res.reason = http_res::get_status_reason(response.status_code);
@@ -645,8 +645,8 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
         h2o_start_response(req, &custom_generator->super);
     }
 
-    LOG(INFO) << "stream_response, body_size: " << response.body.size() << ", response_final="
-              << custom_generator->response->final;
+    //LOG(INFO) << "stream_response, body_size: " << response.body.size() << ", response_final="
+    //          << custom_generator->response->final;
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
     response.body = "";
@@ -766,14 +766,14 @@ uint64_t HttpServer::node_state() const {
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
-    LOG(INFO) << "on_stream_response_message";
+    //LOG(INFO) << "on_stream_response_message";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
     stream_response(*req_res->req, *req_res->res);
     return true;
 }
 
 bool HttpServer::on_request_proceed_message(void *data) {
-    LOG(INFO) << "on_request_proceed_message";
+    //LOG(INFO) << "on_request_proceed_message";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
     auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
 
