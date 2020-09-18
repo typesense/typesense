@@ -77,6 +77,7 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
+    static const size_t CATCHUP_MIN_SEQUENCE_DIFF = 3000;  // ~ actual 1K documents
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
