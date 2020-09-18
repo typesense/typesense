@@ -459,7 +459,9 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
                     return ;
                 }
 
-                if(leader_seq == 0) {
+                const uint64_t seq_diff = leader_seq - seq_num;
+
+                if(seq_diff < CATCHUP_MIN_SEQUENCE_DIFF) {
                     this->caught_up = true;
                     return ;
                 }
