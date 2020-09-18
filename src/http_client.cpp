@@ -141,12 +141,12 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
     req_res->req->body_index += bytes_to_read;
 
-    LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
-    LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index;
-    LOG(INFO) << "req_res->req->body.size(): " << req_res->req->body.size();
+    //LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
+    //LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index;
+    //LOG(INFO) << "req_res->req->body.size(): " << req_res->req->body.size();
 
     if(req_res->req->body_index == req_res->req->body.size()) {
-        LOG(INFO) << "Current body buffer has been consumed fully.";
+        //LOG(INFO) << "Current body buffer has been consumed fully.";
 
         req_res->req->body_index = 0;
         req_res->req->body = "";
@@ -154,16 +154,16 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
         HttpServer *server = req_res->server;
 
         if(req_res->req->last_chunk_aggregate) {
-            LOG(INFO) << "Request forwarding done.";
+            //LOG(INFO) << "Request forwarding done.";
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
         } else {
-            LOG(INFO) << "Pausing forwarding and requesting more input.";
+            //LOG(INFO) << "Pausing forwarding and requesting more input.";
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
-            LOG(INFO) << "Waiting for request body to be ready";
+            //LOG(INFO) << "Waiting for request body to be ready";
             req_res->req->await.wait();
-            LOG(INFO) << "Request body is ready";
-            LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
+            //LOG(INFO) << "Request body is ready";
+            //LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
         }
     }
 
@@ -172,7 +172,7 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
 size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, void *context) {
     // callback for response body to be sent back to client
-    LOG(INFO) << "curl_write_async";
+    //LOG(INFO) << "curl_write_async";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
     if(req_res->req->_req == nullptr) {
@@ -200,20 +200,20 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     req_res->res->body = std::string(buffer, res_size);
     req_res->res->final = false;
 
-    LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
+    //LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until response is sent
-    LOG(INFO) << "Waiting for response to be sent";
+    //LOG(INFO) << "Waiting for response to be sent";
     req_res->res->await.wait();
-    LOG(INFO) << "Response sent";
+    //LOG(INFO) << "Response sent";
 
     return res_size;
 }
 
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
-    LOG(INFO) << "curl_write_async_done";
+    //LOG(INFO) << "curl_write_async_done";
 
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
     req_res->res->body = "";

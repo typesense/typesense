@@ -124,7 +124,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     // To avoid ABA problem
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
-    LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
+    //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
     // Now the task is applied to the group, waiting for the result.
     return node->apply(task);
@@ -150,7 +150,7 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
 
     if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
-        LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
+        //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
         request->await.notify();
         return ;
     }
@@ -186,7 +186,7 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
                 delete request;
                 delete response;
 
-                LOG(INFO) << "Import call done.";
+                //LOG(INFO) << "Import call done.";
 
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
@@ -223,7 +223,7 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
 }
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
-    LOG(INFO) << "ReplicationState::on_apply";
+    //LOG(INFO) << "ReplicationState::on_apply";
 
     // NOTE: this is executed on a different thread and runs concurrent to http thread
     // A batch of tasks are committed, which must be processed through
@@ -268,9 +268,9 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         auto replication_arg = new AsyncIndexArg{request, response, nullptr};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        LOG(INFO) << "Raft write waiting to proceed";
+        //LOG(INFO) << "Raft write waiting to proceed";
         response->await.wait();
-        LOG(INFO) << "Raft write ready to proceed, response->final=" << response->final;
+        //LOG(INFO) << "Raft write ready to proceed, response->final=" << response->final;
 
         if(response->final) {
             delete request;

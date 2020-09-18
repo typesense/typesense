@@ -601,7 +601,7 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(req.body_index == 0) {
         // will log for every major chunk of request body
-        LOG(INFO) << "Import, req.body.size=" << req.body.size() << ", batch_size=" << IMPORT_BATCH_SIZE;
+        //LOG(INFO) << "Import, req.body.size=" << req.body.size() << ", batch_size=" << IMPORT_BATCH_SIZE;
         //int nminusten_pos = std::max(0, int(req.body.size())-10);
         //LOG(INFO) << "Last 10 chars: " << req.body.substr(nminusten_pos);
     }
@@ -998,7 +998,7 @@ bool get_keys(http_req &req, http_res &res) {
 }
 
 bool post_create_key(http_req &req, http_res &res) {
-    LOG(INFO) << "post_create_key";
+    //LOG(INFO) << "post_create_key";
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     AuthManager &auth_manager = collectionManager.getAuthManager();
@@ -1083,7 +1083,7 @@ bool del_key(http_req &req, http_res &res) {
 }
 
 bool raft_write_send_response(void *data) {
-    LOG(INFO) << "raft_write_send_response called";
+    //LOG(INFO) << "raft_write_send_response called";
     AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
     std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
 
@@ -1103,12 +1103,12 @@ bool raft_write_send_response(void *data) {
         }
     }
 
-    LOG(INFO) << "raft_write_send_response, async_res=" << async_res;
+    //LOG(INFO) << "raft_write_send_response, async_res=" << async_res;
 
     // only handle synchronous responses as async ones are handled by their handlers
     if(!async_res) {
         // send response and return control back to raft replication thread
-        LOG(INFO) << "raft_write_send_response: sending response";
+        //LOG(INFO) << "raft_write_send_response: sending response";
         server->send_response(index_arg->req, index_arg->res);
     }
 
