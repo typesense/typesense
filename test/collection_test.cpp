@@ -1375,7 +1375,7 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_STREQ("Field `title` must be a string.", import_results[1]["error"].get<std::string>().c_str());
     ASSERT_STREQ("Field `starring` has been declared in the schema, but is not found in the document.",
                  import_results[3]["error"].get<std::string>().c_str());
-    ASSERT_STREQ("{\"cast\":[\"Tom Skerritt\"],\"id\":\"19\",\"points\":23,\"starring\":\"Jazz Gosh\",\"title\":123}",
+    ASSERT_STREQ("{\"title\": 123, \"starring\": \"Jazz Gosh\", \"points\": 23, \"cast\": [\"Tom Skerritt\"] }",
                  import_results[1]["document"].get<std::string>().c_str());
 
     // record with duplicate IDs
@@ -1396,11 +1396,12 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_FALSE(import_results[1]["success"].get<bool>());
 
     ASSERT_STREQ("A document with id id1 already exists.", import_results[1]["error"].get<std::string>().c_str());
-    ASSERT_STREQ("{\"cast\":[\"Tom Skerritt\"],\"id\":\"id1\",\"points\":12,\"starring\":\"Rand Fish\",\"title\":\"Test1\"}",
-                 import_results[1]["document"].get<std::string>().c_str());
+    ASSERT_STREQ("{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
+                 "\"cast\": [\"Tom Skerritt\"] }",import_results[1]["document"].get<std::string>().c_str());
 
     // handle bad import json
 
+    // valid JSON but not a document
     more_records = {"[]"};
     import_response = coll_mul_fields->add_many(more_records);
 
@@ -1413,6 +1414,22 @@ TEST_F(CollectionTest, ImportDocuments) {
     ASSERT_EQ(false, import_results[0]["success"].get<bool>());
     ASSERT_STREQ("Bad JSON: not a properly formed document.", import_results[0]["error"].get<std::string>().c_str());
     ASSERT_STREQ("[]", import_results[0]["document"].get<std::string>().c_str());
+
+    // invalid JSON
+    more_records = {"{"};
+    import_response = coll_mul_fields->add_many(more_records);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_EQ(1, import_results.size());
+
+    ASSERT_EQ(false, import_results[0]["success"].get<bool>());
+    ASSERT_STREQ("Bad JSON: [json.exception.parse_error.101] parse error at line 1, column 2: syntax error "
+                 "while parsing object key - unexpected end of input; expected string literal",
+                 import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("{", import_results[0]["document"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
