@@ -206,17 +206,12 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
         nlohmann::json document;
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 
-        const uint32_t seq_id = doc_seq_id_op.get();
+        const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get() : 0;
         index_record record(i, seq_id, document);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
         if(!doc_seq_id_op.ok()) {
-            nlohmann::json index_res;
-            index_res["error"] = doc_seq_id_op.error();
-            index_res["success"] = false;
-            index_res["document"] = json_line;
-            json_lines[i] = index_res.dump();
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         }
 
@@ -281,16 +276,14 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                     // remove from in-memory store to keep the state synced
                     remove_document(index_record.document, index_record.seq_id, false);
                 }
-            }
 
-            if(index_record.indexed.ok()) {
                 json_out[index_record.position] = R"({"success": true})";
                 num_indexed++;
             } else {
                 nlohmann::json res;
                 res["success"] = false;
                 res["error"] = index_record.indexed.error();
-                res["document"] = index_record.document.dump();
+                res["document"] = json_out[index_record.position];
                 json_out[index_record.position] = res.dump();
             }
         }
@@ -1290,6 +1283,10 @@ void Collection::highlight_result(const field &search_field,
         const Match & this_match = Match(field_order_kv->key, token_positions);
         uint64_t this_match_score = this_match.get_match_score(1, field_order_kv->field_id);
         match_indices.emplace_back(this_match, this_match_score, array_index);
+
+        /*LOG(INFO) << "doc_id: " << document["id"]   << ", words_present: " << size_t(this_match.words_present)
+                                               << ", match_score: " << this_match_score
+                                               << ", match.distance: " << size_t(this_match.distance);*/
     }
 
     if(match_indices.empty()) {

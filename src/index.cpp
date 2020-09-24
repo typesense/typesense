@@ -1603,7 +1603,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                    << ", match_score: " << match_score
                    << ", match.distance: " << match.distance
                    << ", seq_id: " << seq_id << std::endl;
-                std::cout << os.str();*/
+                LOG(INFO) << os.str();*/
             }
         }
 
