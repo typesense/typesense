@@ -12,6 +12,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Detailed Guide](#detailed-guide)
+- [Search UIs](#search-uis)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
 - [Help](#help)
@@ -19,16 +20,18 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 ## Features
 
 - **Typo tolerant:** Handles typographical errors elegantly.
-- **Simple and delightful:** Simple to set-up and manage.
+- **Simple and delightful:** Simple to set-up, manage and scale.
 - **Tunable ranking:** Easy to tailor your search results to perfection.
 - **Fast:** Meticulously designed and optimized for speed.
 
 ## Install
 
-You can download the [binary packages](https://typesense.org/downloads) that we publish for 
+**Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for 
 Linux (x86-64) and Mac.
 
-You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense):
+**Option 2:** You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense).
+
+**Option 3:** Spin up a cluster with [Typesense Cloud](https://cloud.typesense.org).
 
 ## Quick Start
 
@@ -104,6 +107,13 @@ client.collections['companies'].documents.search(search_parameters)
 
 A detailed guide is available on [Typesense website](https://typesense.org/guide). 
 
+## Search UIs
+
+You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
+to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
+
+Here's how: [https://typesense.org/docs/0.15.0/guide/#search-ui](https://typesense.org/docs/0.15.0/guide/#search-ui) 
+
 ## Build from source
 
 **Building with Docker**
@@ -137,12 +147,40 @@ The first build will take some time since other third-party libraries are pulled
 
 **How does this differ from using Elasticsearch?**
 
-Elasticsearch is better suited for larger teams who have the bandwidth to administer, scale and fine-tune it and 
-especially when have a need to store billions of documents and scale horizontally. 
+Elasticsearch is better suited for large teams who have the bandwidth to administer, scale and fine-tune it and 
+especially when they have a need to store billions of documents and scale horizontally. 
 
 Typesense is built specifically for decreasing the "time to market" for a delightful search experience. This means 
-focusing on developer productivity and experience with a clean API, clear semantics and smart defaults so that it just 
+focusing on Developer Productivity and Experience with a clean API, clear semantics and smart defaults so that it just 
 works without turning many knobs.
+
+**How does this differ from using Algolia?**
+
+Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
+fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
+
+Typesense on the other hand is an open-source product that you can run on your own infrastructure or
+use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org). 
+The open source version is free to use (besides of course your own infra costs). 
+With Typesense Cloud we do not charge by records or search operations. Instead, you get a dedicated cluster
+and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges 
+for it, depending on the configuration your choose, similar to most modern cloud platforms. 
+
+From a product perspective, Typesense is closer in spirit to Algolia than Elasticsearch. 
+However, we've addressed some important limitations with Algolia: 
+
+Algolia requires separate indices for each sort order, which counts towards your plan limits. Most of the index settings like 
+fields to search, fields to facet, fields to group by, ranking settings, etc 
+are defined upfront when the index is created vs being able to set them on the fly at query time.
+
+With Typesense, these settings can be configured at search time via query parameters which makes it very flexible
+and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
+This helps reduce memory consumption.
+
+Algolia offers the following features that Typesense does not have currently: 
+synonyms, geo spatial searches, personalization & server-based search analytics.
+With Typesense, we intend to bridge this gap, but in the meantime, please let us know
+if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
 
 **Speed is great, but what about the memory footprint?**
 
