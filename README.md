@@ -12,6 +12,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Step-by-step Walk-through](#step-by-step-walk-through)
+- [API Documentation](#api-documentation)
 - [Search UIs](#search-uis)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
@@ -106,7 +107,15 @@ client.collections['companies'].documents.search(search_parameters)
 
 ## Step-by-step Walk-through
 
-A step-by-step walk-through is available on our [website](https://typesense.org/guide). 
+A step-by-step walk-through is available on our website [here](https://typesense.org/guide). 
+
+This will guide you through the process of starting up a Typesense server, indexing data in it and querying the data set. 
+
+## API Documentation
+
+Here's our official API documentation, available on our website: [https://typesense.org/api](https://typesense.org/api).
+
+If you notice any issues with the documentation or walk-through, please let us know or send us a PR here: [https://github.com/typesense/typesense-website](https://github.com/typesense/typesense-website).
 
 ## Search UIs
 
@@ -146,7 +155,7 @@ The first build will take some time since other third-party libraries are pulled
 
 ## FAQ
 
-**How does this differ from using Elasticsearch?**
+**How does this differ from Elasticsearch?**
 
 Elasticsearch is better suited for large teams who have the bandwidth to administer, scale and fine-tune it and 
 especially when they have a need to store billions of documents and scale horizontally. 
@@ -155,7 +164,7 @@ Typesense is built specifically for decreasing the "time to market" for a deligh
 focusing on Developer Productivity and Experience with a clean API, clear semantics and smart defaults so that it just 
 works without turning many knobs.
 
-**How does this differ from using Algolia?**
+**How does this differ from Algolia?**
 
 Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
 fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
