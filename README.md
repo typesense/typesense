@@ -15,7 +15,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Search UIs](#search-uis)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
-- [Help](#help)
+- [Support](#support)
 
 ## Features
 
@@ -192,8 +192,20 @@ Hacker News titles are indexed along with their points, Typesense consumes 165 M
 on disk in JSON format is 88 MB. We hope to add better benchmarks on a variety of different data sets soon. 
 In the mean time, if you have any numbers from your own datasets, please send us a PR!
 
-## Help
+## Support
 
-If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
+If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
+
+We strive to provide good support through our issue trackers on Github. 
+
+However, if you'd like to receive private & prioritized support with:
+
+- Guaranteed SLAs
+- Phone / video calls to discuss your specific use case and suggest best practices
+- Private discussions over Slack
+- Guidance around deployment, ops and scaling best practices
+
+We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
+
 
 &copy; 2016-2020 Typesense Inc.
