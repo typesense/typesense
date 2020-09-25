@@ -11,11 +11,12 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Features](#features)
 - [Install](#install)
 - [Quick Start](#quick-start)
-- [Detailed Guide](#detailed-guide)
+- [Step-by-step Walk-through](#step-by-step-walk-through)
 - [Search UIs](#search-uis)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
 - [Support](#support)
+- [Getting Latest Updates](#getting-latest-updates)
 
 ## Features
 
@@ -103,9 +104,9 @@ client.collections['companies'].documents.search(search_parameters)
 
 **Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
 
-## Detailed Guide
+## Step-by-step Walk-through
 
-A detailed guide is available on [Typesense website](https://typesense.org/guide). 
+A step-by-step walk-through is available on our [website](https://typesense.org/guide). 
 
 ## Search UIs
 
@@ -196,9 +197,7 @@ In the mean time, if you have any numbers from your own datasets, please send us
 
 If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
-We strive to provide good support through our issue trackers on Github. 
-
-However, if you'd like to receive private & prioritized support with:
+We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
 
 - Guaranteed SLAs
 - Phone / video calls to discuss your specific use case and get recommendations on best practices
@@ -207,5 +206,12 @@ However, if you'd like to receive private & prioritized support with:
 
 We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
 
+## Getting Latest Updates
 
+If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
+
+We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
+
+
+---
 &copy; 2016-2020 Typesense Inc.
