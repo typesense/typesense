@@ -111,21 +111,23 @@ Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json
         return Option<uint32_t>(400, "Bad JSON: not a properly formed document.");
     }
 
-    uint32_t seq_id = get_next_seq_id();
-    std::string seq_id_str = std::to_string(seq_id);
-
     if(document.count("id") == 0) {
-        document["id"] = seq_id_str;
-    } else if(!document["id"].is_string()) {
-        return Option<uint32_t>(400, "Document's `id` field should be a string.");
-    }
+        uint32_t seq_id = get_next_seq_id();
+        document["id"] = std::to_string(seq_id);
+        return Option<uint32_t>(seq_id);
+    } else {
+        if(!document["id"].is_string()) {
+            return Option<uint32_t>(400, "Document's `id` field should be a string.");
+        }
 
-    const std::string& doc_id = document["id"];
-    if(doc_exists(doc_id)) {
-        return Option<uint32_t>(409, std::string("A document with id ") + doc_id + " already exists.");
-    }
+        const std::string& doc_id = document["id"];
+        if(doc_exists(doc_id)) {
+            return Option<uint32_t>(409, std::string("A document with id ") + doc_id + " already exists.");
+        }
 
-    return Option<uint32_t>(seq_id);
+        uint32_t seq_id = get_next_seq_id();
+        return Option<uint32_t>(seq_id);
+    }
 }
 
 nlohmann::json Collection::get_summary_json() {
