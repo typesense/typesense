@@ -201,7 +201,7 @@ We strive to provide good support through our issue trackers on Github.
 However, if you'd like to receive private & prioritized support with:
 
 - Guaranteed SLAs
-- Phone / video calls to discuss your specific use case and suggest best practices
+- Phone / video calls to discuss your specific use case and get recommendations on best practices
 - Private discussions over Slack
 - Guidance around deployment, ops and scaling best practices
 
