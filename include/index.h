@@ -79,15 +79,22 @@ struct search_args {
     };
 };
 
+enum index_operation_t {
+    CREATE,
+    UPDATE,
+    DELETE
+};
+
 struct index_record {
     size_t position;         // position of record in the original request
     uint32_t seq_id;
     nlohmann::json document;
+    index_operation_t operation;
 
     Option<bool> indexed;     // indicates if the indexing operation was a success
 
-    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc):
-            position(record_pos), seq_id(seq_id), document(doc), indexed(true) {
+    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation):
+            position(record_pos), seq_id(seq_id), document(doc), operation(operation), indexed(true) {
 
     }
 

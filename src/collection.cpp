@@ -8,7 +8,6 @@
 #include <art.h>
 #include <thread>
 #include <future>
-#include <chrono>
 #include <rocksdb/write_batch.h>
 #include <system_metrics.h>
 #include "topster.h"
@@ -209,7 +208,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
         Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get() : 0;
-        index_record record(i, seq_id, document);
+        index_record record(i, seq_id, document, CREATE);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
