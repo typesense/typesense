@@ -56,8 +56,8 @@ Index::~Index() {
     sort_index.clear();
 }
 
-int32_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
-    int32_t points = 0;
+int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
+    int64_t points = 0;
 
     if(!default_sorting_field.empty()) {
         if(document[default_sorting_field].is_number_float()) {
@@ -86,7 +86,7 @@ int64_t Index::float_to_in64_t(float f) {
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                         const std::string & default_sorting_field) {
-    int32_t points = get_points_from_doc(document, default_sorting_field);
+    int64_t points = get_points_from_doc(document, default_sorting_field);
 
     std::unordered_map<std::string, size_t> facet_to_id;
     size_t i_facet = 0;
@@ -344,7 +344,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
     return num_indexed;
 }
 
-void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
+void Index::insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                        const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const {
     for(auto & kv: token_to_offsets) {
         art_document art_doc;
@@ -375,7 +375,7 @@ void Index::insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
     }
 }
 
-void Index::index_int32_field(const int32_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
+void Index::index_int32_field(const int32_t value, int64_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 8;
     unsigned char key[KEY_LEN];
 
@@ -398,7 +398,7 @@ void Index::index_int32_field(const int32_t value, uint32_t score, art_tree *t, 
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
-void Index::index_int64_field(const int64_t value, uint32_t score, art_tree *t, uint32_t seq_id) const {
+void Index::index_int64_field(const int64_t value, int64_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 8;
     unsigned char key[KEY_LEN];
 
@@ -421,7 +421,7 @@ void Index::index_int64_field(const int64_t value, uint32_t score, art_tree *t, 
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
-void Index::index_bool_field(const bool value, const uint32_t score, art_tree *t, uint32_t seq_id) const {
+void Index::index_bool_field(const bool value, const int64_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 1;
     unsigned char key[KEY_LEN];
     key[0] = value ? '1' : '0';
@@ -443,7 +443,7 @@ void Index::index_bool_field(const bool value, const uint32_t score, art_tree *t
     art_insert(t, key, KEY_LEN, &art_doc, num_hits);
 }
 
-void Index::index_float_field(const float value, uint32_t score, art_tree *t, uint32_t seq_id) const {
+void Index::index_float_field(const float value, int64_t score, art_tree *t, uint32_t seq_id) const {
     const int KEY_LEN = 8;
     unsigned char key[KEY_LEN];
 
@@ -484,7 +484,7 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
     return hash;
 }
 
-void Index::index_string_field(const std::string & text, const uint32_t score, art_tree *t,
+void Index::index_string_field(const std::string & text, const int64_t score, art_tree *t,
                                     uint32_t seq_id, int facet_id, const field & a_field) {
     std::vector<std::string> tokens;
     StringUtils::split(text, tokens, " ");
@@ -513,7 +513,7 @@ void Index::index_string_field(const std::string & text, const uint32_t score, a
     }
 }
 
-void Index::index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
+void Index::index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                           uint32_t seq_id, int facet_id, const field & a_field) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
 
@@ -565,28 +565,28 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
     insert_doc(score, t, seq_id, token_positions);
 }
 
-void Index::index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t,
+void Index::index_int32_array_field(const std::vector<int32_t> & values, const int64_t score, art_tree *t,
                                          uint32_t seq_id) const {
     for(const int32_t value: values) {
         index_int32_field(value, score, t, seq_id);
     }
 }
 
-void Index::index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t,
+void Index::index_int64_array_field(const std::vector<int64_t> & values, const int64_t score, art_tree *t,
                                          uint32_t seq_id) const {
     for(const int64_t value: values) {
         index_int64_field(value, score, t, seq_id);
     }
 }
 
-void Index::index_bool_array_field(const std::vector<bool> & values, const uint32_t score, art_tree *t,
+void Index::index_bool_array_field(const std::vector<bool> & values, const int64_t score, art_tree *t,
                                    uint32_t seq_id) const {
     for(const bool value: values) {
         index_bool_field(value, score, t, seq_id);
     }
 }
 
-void Index::index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t,
+void Index::index_float_array_field(const std::vector<float> & values, const int64_t score, art_tree *t,
                              uint32_t seq_id) const {
     for(const float value: values) {
         index_float_field(value, score, t, seq_id);
