@@ -154,30 +154,30 @@ private:
                            size_t & all_result_ids_len,
                            const size_t typo_tokens_threshold);
 
-    void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
+    void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
+    void index_string_field(const std::string & text, const int64_t score, art_tree *t, uint32_t seq_id,
                             int facet_id, const field & a_field);
 
-    void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
+    void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                   uint32_t seq_id, int facet_id, const field & a_field);
 
-    void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int32_field(const int32_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int64_field(const int64_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int64_field(const int64_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_float_field(const float value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_float_field(const float value, const int64_t score, art_tree *t, uint32_t seq_id) const;
     
-    void index_bool_field(const bool value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_bool_field(const bool value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int32_array_field(const std::vector<int32_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int64_array_field(const std::vector<int64_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_float_array_field(const std::vector<float> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
     
-    void index_bool_array_field(const std::vector<bool> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_bool_array_field(const std::vector<bool> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
     void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
                                        const uint32_t indices_length);
@@ -238,7 +238,7 @@ public:
                        spp::sparse_hash_set<uint64_t>& groups_processed,
                        const uint32_t *result_ids, const size_t result_size);
 
-    static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
+    static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
                                      const std::string & default_sorting_field);
