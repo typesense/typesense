@@ -85,8 +85,15 @@ int64_t Index::float_to_in64_t(float f) {
 }
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
-                                        const std::string & default_sorting_field) {
-    int64_t points = get_points_from_doc(document, default_sorting_field);
+                                        const std::string & default_sorting_field, bool is_update) {
+
+    int64_t points = 0;
+
+    if(is_update && document.count(default_sorting_field) == 0) {
+        points = sort_index[default_sorting_field]->at(seq_id);
+    } else {
+        points = get_points_from_doc(document, default_sorting_field);
+    }
 
     std::unordered_map<std::string, size_t> facet_to_id;
     size_t i_facet = 0;
@@ -104,7 +111,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
-        if(field_pair.second.optional && document.count(field_name) == 0) {
+        if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -212,17 +219,22 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
-                                                 const std::map<std::string, field> & facet_schema) {
-    if(document.count(default_sorting_field) == 0) {
+                                                 const std::map<std::string, field> & facet_schema,
+                                                 bool is_update) {
+
+    bool has_default_sort_field = (document.count(default_sorting_field) != 0);
+
+    if(!has_default_sort_field && !is_update) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
 
-    if(!document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
+    if(has_default_sort_field &&
+        !document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a single valued numerical field.");
     }
 
-    if(search_schema.at(default_sorting_field).is_single_float() &&
+    if(has_default_sort_field && search_schema.at(default_sorting_field).is_single_float() &&
        document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
@@ -230,7 +242,7 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     for(const std::pair<std::string, field> & field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
-        if(field_pair.second.optional && document.count(field_name) == 0) {
+        if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -325,14 +337,14 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
         if(index_rec.operation == CREATE) {
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.document, index_rec.seq_id,
                                                                       default_sorting_field,
-                                                                      search_schema, facet_schema);
+                                                                      search_schema, facet_schema, false);
 
             if(!validation_op.ok()) {
                 index_rec.index_failure(validation_op.code(), validation_op.error());
                 continue;
             }
 
-            Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.document, index_rec.seq_id, default_sorting_field);
+            Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.document, index_rec.seq_id, default_sorting_field, false);
             if(!index_mem_op.ok()) {
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
@@ -1803,73 +1815,75 @@ void Index::remove_and_shift_offset_index(sorted_array &offset_index, const uint
 }
 
 Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document) {
+    std::unordered_map<std::string, size_t> facet_to_index;
+    get_facet_to_index(facet_to_index);
+
     for(const auto& it: document.items()) {
         const std::string& field_name = it.key();
-        const auto& name_field = search_schema.find(field_name);
-
-        if(name_field == search_schema.end()) {
+        const auto& search_field = search_schema.find(field_name);
+        if(search_field == search_schema.end()) {
             continue;
         }
 
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> tokens;
-        if(name_field->second.type == field_types::STRING) {
-            StringUtils::split(document[name_field->first], tokens, " ");
-        } else if(name_field->second.type == field_types::STRING_ARRAY) {
-            std::vector<std::string> values = document[name_field->first].get<std::vector<std::string>>();
+        if(search_field->second.type == field_types::STRING) {
+            StringUtils::split(document[search_field->first], tokens, " ");
+        } else if(search_field->second.type == field_types::STRING_ARRAY) {
+            std::vector<std::string> values = document[search_field->first].get<std::vector<std::string>>();
             for(const std::string & value: values) {
                 StringUtils::split(value, tokens, " ");
             }
-        } else if(name_field->second.type == field_types::INT32) {
+        } else if(search_field->second.type == field_types::INT32) {
             const int KEY_LEN = 8;
             unsigned char key[KEY_LEN];
-            int32_t value = document[name_field->first].get<int32_t>();
+            int32_t value = document[search_field->first].get<int32_t>();
             encode_int32(value, key);
             tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(name_field->second.type == field_types::INT32_ARRAY) {
-            std::vector<int32_t> values = document[name_field->first].get<std::vector<int32_t>>();
+        } else if(search_field->second.type == field_types::INT32_ARRAY) {
+            std::vector<int32_t> values = document[search_field->first].get<std::vector<int32_t>>();
             for(const int32_t value: values) {
                 const int KEY_LEN = 8;
                 unsigned char key[KEY_LEN];
                 encode_int32(value, key);
                 tokens.emplace_back((char*)key, KEY_LEN);
             }
-        } else if(name_field->second.type == field_types::INT64) {
+        } else if(search_field->second.type == field_types::INT64) {
             const int KEY_LEN = 8;
             unsigned char key[KEY_LEN];
-            int64_t value = document[name_field->first].get<int64_t>();
+            int64_t value = document[search_field->first].get<int64_t>();
             encode_int64(value, key);
             tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(name_field->second.type == field_types::INT64_ARRAY) {
-            std::vector<int64_t> values = document[name_field->first].get<std::vector<int64_t>>();
+        } else if(search_field->second.type == field_types::INT64_ARRAY) {
+            std::vector<int64_t> values = document[search_field->first].get<std::vector<int64_t>>();
             for(const int64_t value: values) {
                 const int KEY_LEN = 8;
                 unsigned char key[KEY_LEN];
                 encode_int64(value, key);
                 tokens.emplace_back((char*)key, KEY_LEN);
             }
-        } else if(name_field->second.type == field_types::FLOAT) {
+        } else if(search_field->second.type == field_types::FLOAT) {
             const int KEY_LEN = 8;
             unsigned char key[KEY_LEN];
-            int64_t value = document[name_field->first].get<int64_t>();
+            int64_t value = document[search_field->first].get<int64_t>();
             encode_float(value, key);
             tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(name_field->second.type == field_types::FLOAT_ARRAY) {
-            std::vector<float> values = document[name_field->first].get<std::vector<float>>();
+        } else if(search_field->second.type == field_types::FLOAT_ARRAY) {
+            std::vector<float> values = document[search_field->first].get<std::vector<float>>();
             for(const float value: values) {
                 const int KEY_LEN = 8;
                 unsigned char key[KEY_LEN];
                 encode_float(value, key);
                 tokens.emplace_back((char*)key, KEY_LEN);
             }
-        } else if(name_field->second.type == field_types::BOOL) {
+        } else if(search_field->second.type == field_types::BOOL) {
             const int KEY_LEN = 1;
             unsigned char key[KEY_LEN];
-            bool value = document[name_field->first].get<bool>();
+            bool value = document[search_field->first].get<bool>();
             key[0] = value ? '1' : '0';
             tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(name_field->second.type == field_types::BOOL_ARRAY) {
-            std::vector<bool> values = document[name_field->first].get<std::vector<bool>>();
+        } else if(search_field->second.type == field_types::BOOL_ARRAY) {
+            std::vector<bool> values = document[search_field->first].get<std::vector<bool>>();
             for(const bool value: values) {
                 const int KEY_LEN = 1;
                 unsigned char key[KEY_LEN];
@@ -1882,7 +1896,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
             const unsigned char *key;
             int key_len;
 
-            if(name_field->second.type == field_types::STRING_ARRAY || name_field->second.type == field_types::STRING) {
+            if(search_field->second.type == field_types::STRING_ARRAY || search_field->second.type == field_types::STRING) {
                 string_utils.unicode_normalize(token);
                 key = (const unsigned char *) token.c_str();
                 key_len = (int) (token.length() + 1);
@@ -1891,7 +1905,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 key_len = (int) (token.length());
             }
 
-            art_leaf* leaf = (art_leaf *) art_search(search_index.at(name_field->first), key, key_len);
+            art_leaf* leaf = (art_leaf *) art_search(search_index.at(search_field->first), key, key_len);
             if(leaf != nullptr) {
                 uint32_t seq_id_values[1] = {seq_id};
                 uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
@@ -1919,19 +1933,23 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 LOG(INFO) << "----";*/
 
                 if(leaf->values->ids.getLength() == 0) {
-                    art_values* values = (art_values*) art_delete(search_index.at(name_field->first), key, key_len);
+                    art_values* values = (art_values*) art_delete(search_index.at(search_field->first), key, key_len);
                     delete values;
                 }
             }
         }
-    }
 
-    // remove facets if any
-    facet_index_v2.erase(seq_id);
+        // remove facets
+        if(facet_to_index.count(field_name) != 0 && facet_index_v2.count(seq_id) != 0) {
+            size_t facet_index = facet_to_index[field_name];
+            std::vector<std::vector<uint64_t>>& facet_values = facet_index_v2[seq_id];
+            facet_values[facet_index].clear();
+        }
 
-    // remove sort index if any
-    for(auto & field_doc_value_map: sort_index) {
-        field_doc_value_map.second->erase(seq_id);
+        // remove sort field
+        if(sort_index.count(field_name) != 0) {
+            sort_index[field_name]->erase(seq_id);
+        }
     }
 
     return Option<uint32_t>(seq_id);

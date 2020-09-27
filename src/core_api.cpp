@@ -1044,7 +1044,7 @@ bool get_key(http_req &req, http_res &res) {
     AuthManager &auth_manager = collectionManager.getAuthManager();
 
     const std::string& key_id_str = req.params["id"];
-    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
 
     const Option<api_key_t>& key_op = auth_manager.get_key(key_id);
 
@@ -1066,7 +1066,7 @@ bool del_key(http_req &req, http_res &res) {
     AuthManager &auth_manager = collectionManager.getAuthManager();
 
     const std::string& key_id_str = req.params["id"];
-    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
 
     const Option<api_key_t> &del_op = auth_manager.remove_key(key_id);
 

@@ -92,6 +92,11 @@ struct override_t {
     }
 };
 
+struct doc_seq_id_t {
+    uint32_t seq_id;
+    bool is_new;
+};
+
 class Collection {
 private:
 
@@ -217,11 +222,11 @@ public:
 
     std::string get_default_sorting_field();
 
-    Option<uint32_t> to_doc(const std::string & json_str, nlohmann::json & document);
+    Option<doc_seq_id_t> to_doc(const std::string & json_str, nlohmann::json & document, bool upsert);
 
     nlohmann::json get_summary_json();
 
-    Option<nlohmann::json> add(const std::string & json_str);
+    Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false);
 
     nlohmann::json add_many(std::vector<std::string>& json_lines);
 
@@ -263,7 +268,7 @@ public:
 
     Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document);
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, bool is_update);
 
     size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
 
