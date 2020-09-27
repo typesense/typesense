@@ -98,7 +98,8 @@ void Collection::increment_next_seq_id_field() {
     next_seq_id++;
 }
 
-Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json & document, bool upsert) {
+Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json & document,
+                                        bool upsert, const std::string& id) {
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
@@ -108,6 +109,10 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
 
     if(!document.is_object()) {
         return Option<doc_seq_id_t>(400, "Bad JSON: not a properly formed document.");
+    }
+
+    if(upsert && document.count("id") == 0 && !id.empty()) {
+        document["id"] = id;
     }
 
     if(document.count("id") == 0) {
@@ -174,9 +179,9 @@ nlohmann::json Collection::get_summary_json() {
     return json_response;
 }
 
-Option<nlohmann::json> Collection::add(const std::string & json_str, const bool upsert) {
+Option<nlohmann::json> Collection::add(const std::string & json_str, const bool upsert, const std::string& id) {
     nlohmann::json document;
-    Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_str, document, upsert);
+    Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_str, document, upsert, id);
 
     if(!doc_seq_id_op.ok()) {
         return Option<nlohmann::json>(doc_seq_id_op.code(), doc_seq_id_op.error());

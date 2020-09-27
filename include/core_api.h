@@ -23,6 +23,8 @@ bool get_export_documents(http_req& req, http_res& res);
 
 bool post_add_document(http_req& req, http_res& res);
 
+bool put_upsert_document(http_req& req, http_res& res);
+
 bool post_import_documents(http_req& req, http_res& res);
 
 bool get_fetch_document(http_req& req, http_res& res);

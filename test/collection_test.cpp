@@ -2303,6 +2303,20 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(99, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // id can be passed by param
+    nlohmann::json doc4;
+    doc4["points"] = 105;
+
+    add_op = coll1->add(doc4.dump(), true, "100");
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
 }
 
 TEST_F(CollectionTest, SearchHighlightFieldFully) {
