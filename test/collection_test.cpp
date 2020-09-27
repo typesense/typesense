@@ -2213,6 +2213,98 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocument) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc["tags"] = {"NEWS", "LAZY"};
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.",
+            res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // try changing the title and searching for an older token
+    doc["title"] = "The quick brown fox.";
+    add_op = coll1->add(doc.dump(), true);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search("quick", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("The quick brown fox.", res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // try to change tags without `id`
+    nlohmann::json doc2;
+    doc2["tags"] = {"SENTENCE"};
+    add_op = coll1->add(doc2.dump(), true);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_STREQ("For update, the `id` key must be present.", add_op.error().c_str());
+
+    // now change tags with id
+    doc2["id"] = "100";
+    add_op = coll1->add(doc2.dump(), true);
+    ASSERT_TRUE(add_op.ok());
+
+    // check for old tag
+    res = coll1->search("NEWS", {"tags"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    // now check for new tag and also try faceting on that field
+    res = coll1->search("SENTENCE", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("SENTENCE", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // try changing points
+    nlohmann::json doc3;
+    doc3["points"] = 99;
+    doc3["id"] = "100";
+
+    add_op = coll1->add(doc3.dump(), true);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 90", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(99, res["hits"][0]["document"]["points"].get<size_t>());
+}
+
 TEST_F(CollectionTest, SearchHighlightFieldFully) {
     Collection *coll1;
 

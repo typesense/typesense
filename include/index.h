@@ -248,12 +248,13 @@ public:
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field);
+                                     const std::string & default_sorting_field, bool is_update);
 
     static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::map<std::string, field> & facet_schema);
+                                                     const std::map<std::string, field> & facet_schema,
+                                                     bool is_update);
 
     static size_t batch_memory_index(Index *index,
                                         std::vector<index_record> & iter_batch,

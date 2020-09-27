@@ -98,34 +98,55 @@ void Collection::increment_next_seq_id_field() {
     next_seq_id++;
 }
 
-Option<uint32_t> Collection::to_doc(const std::string & json_str, nlohmann::json & document) {
+Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json & document, bool upsert) {
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
         LOG(ERROR) << "JSON error: " << e.what();
-        return Option<uint32_t>(400, std::string("Bad JSON: ") + e.what());
+        return Option<doc_seq_id_t>(400, std::string("Bad JSON: ") + e.what());
     }
 
     if(!document.is_object()) {
-        return Option<uint32_t>(400, "Bad JSON: not a properly formed document.");
+        return Option<doc_seq_id_t>(400, "Bad JSON: not a properly formed document.");
     }
 
     if(document.count("id") == 0) {
+        if(upsert) {
+            return Option<doc_seq_id_t>(400, "For update, the `id` key must be present.");
+        }
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
-        return Option<uint32_t>(seq_id);
+        return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
     } else {
         if(!document["id"].is_string()) {
-            return Option<uint32_t>(400, "Document's `id` field should be a string.");
+            return Option<doc_seq_id_t>(400, "Document's `id` field should be a string.");
         }
 
         const std::string& doc_id = document["id"];
+
+        if(upsert) {
+            // try to get the corresponding sequence id from disk if present
+            std::string seq_id_str;
+            StoreStatus seq_id_status = store->get(get_doc_id_key(doc_id), seq_id_str);
+
+            if(seq_id_status == StoreStatus::ERROR) {
+                return Option<doc_seq_id_t>(500, "Error fetching the sequence key for document with id: " + doc_id);
+            }
+
+            if(seq_id_status == StoreStatus::FOUND) {
+                uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
+                return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false});
+            }
+
+            // if key is not found, we will fallback to the "insert" workflow
+        }
+
         if(doc_exists(doc_id)) {
-            return Option<uint32_t>(409, std::string("A document with id ") + doc_id + " already exists.");
+            return Option<doc_seq_id_t>(409, std::string("A document with id ") + doc_id + " already exists.");
         }
 
         uint32_t seq_id = get_next_seq_id();
-        return Option<uint32_t>(seq_id);
+        return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
     }
 }
 
@@ -153,9 +174,9 @@ nlohmann::json Collection::get_summary_json() {
     return json_response;
 }
 
-Option<nlohmann::json> Collection::add(const std::string & json_str) {
+Option<nlohmann::json> Collection::add(const std::string & json_str, const bool upsert) {
     nlohmann::json document;
-    Option<uint32_t> doc_seq_id_op = to_doc(json_str, document);
+    Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_str, document, upsert);
 
     if(!doc_seq_id_op.ok()) {
         return Option<nlohmann::json>(doc_seq_id_op.code(), doc_seq_id_op.error());
@@ -165,28 +186,68 @@ Option<nlohmann::json> Collection::add(const std::string & json_str) {
         return Option<nlohmann::json>(403, "Max memory ratio exceeded.");
     }*/
 
-    const uint32_t seq_id = doc_seq_id_op.get();
+    const bool is_update = !doc_seq_id_op.get().is_new;
+    const uint32_t seq_id = doc_seq_id_op.get().seq_id;
     const std::string seq_id_str = std::to_string(seq_id);
 
-    const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id);
+    if(is_update) {
+        // fetch original doc from store, create new doc and write it back
+        nlohmann::json old_doc;
+        get_document_from_store(get_seq_id_key(seq_id), old_doc);
 
-    if(!index_memory_op.ok()) {
-        return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
+        nlohmann::json new_doc;
+
+        for(const auto& it: old_doc.items()) {
+            new_doc[it.key()] = it.value();
+        }
+
+        nlohmann::json changed_doc; // to identify changed fields
+
+        for(const auto& it: document.items()) {
+            new_doc[it.key()] = it.value();
+            if(old_doc.count(it.key()) != 0) {
+                changed_doc[it.key()] = old_doc[it.key()];
+            }
+        }
+
+        remove_document(changed_doc, seq_id, false);
+
+        const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id, is_update);
+        if(!index_memory_op.ok()) {
+            return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
+        }
+
+        const std::string& serialized_json = new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+        bool write_ok = store->insert(get_seq_id_key(seq_id), serialized_json);
+
+        if(!write_ok) {
+            // we will attempt to reindex the old doc on a best-effort basis
+            remove_document(new_doc, seq_id, false);
+            index_in_memory(old_doc, seq_id, false);
+            return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
+        }
+
+        return Option<nlohmann::json>(new_doc);
+
+    } else {
+        const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id, is_update);
+        if(!index_memory_op.ok()) {
+            return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
+        }
+
+        const std::string& serialized_json = document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+        rocksdb::WriteBatch batch;
+        batch.Put(get_doc_id_key(document["id"]), seq_id_str);
+        batch.Put(get_seq_id_key(seq_id), serialized_json);
+        bool write_ok = store->batch_write(batch);
+
+        if(!write_ok) {
+            remove_document(document, seq_id, false);
+            return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
+        }
+
+        return Option<nlohmann::json>(document);
     }
-
-    const std::string& serialized_json = document.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-
-    rocksdb::WriteBatch batch;
-    batch.Put(get_doc_id_key(document["id"]), seq_id_str);
-    batch.Put(get_seq_id_key(seq_id), serialized_json);
-    bool write_ok = store->batch_write(batch);
-
-    if(!write_ok) {
-        remove_document(document, seq_id, false);  // remove from in-memory store too
-        return Option<nlohmann::json>(500, "Could not write to on-disk storage.");
-    }
-
-    return Option<nlohmann::json>(document);
 }
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
@@ -205,9 +266,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
         nlohmann::json document;
-        Option<uint32_t> doc_seq_id_op = to_doc(json_line, document);
+        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, false);
 
-        const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get() : 0;
+        const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
         index_record record(i, seq_id, document, CREATE);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
@@ -291,16 +352,16 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
     }
 }
 
-Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id) {
+Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id, bool is_update) {
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, facet_schema);
+                                                                     search_schema, facet_schema, is_update);
 
     if(!validation_op.ok()) {
         return validation_op;
     }
 
     Index* index = indices[seq_id % num_memory_shards];
-    index->index_in_memory(document, seq_id, default_sorting_field);
+    index->index_in_memory(document, seq_id, default_sorting_field, is_update);
 
     num_documents += 1;
     return Option<>(200);
@@ -1317,6 +1378,10 @@ void Collection::highlight_result(const field &search_field,
             if(match.offsets[i].offset != MAX_DISPLACEMENT) {
                 size_t token_index = (size_t)(match.offsets[i].offset);
                 token_indices.push_back(token_index);
+                if(token_index >= tokens.size()) {
+                    LOG(ERROR) << "Highlight token index " << token_index << " is greater than length of store field.";
+                    continue;
+                }
                 std::string token = tokens[token_index];
                 string_utils.unicode_normalize(token);
                 token_hits.insert(token);
@@ -1402,7 +1467,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
         return Option<nlohmann::json>(500, "Error while fetching the document.");
     }
 
-    uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
+    uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
 
     std::string parsed_document;
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
@@ -1451,7 +1516,7 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
         return Option<std::string>(500, "Error while fetching the document.");
     }
 
-    uint32_t seq_id = (uint32_t) std::stol(seq_id_str);
+    uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
 
     std::string parsed_document;
     StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
