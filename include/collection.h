@@ -222,11 +222,12 @@ public:
 
     std::string get_default_sorting_field();
 
-    Option<doc_seq_id_t> to_doc(const std::string & json_str, nlohmann::json & document, bool upsert);
+    Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document, bool upsert,
+                                const std::string& id="");
 
     nlohmann::json get_summary_json();
 
-    Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false);
+    Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false, const std::string& id="");
 
     nlohmann::json add_many(std::vector<std::string>& json_lines);
 

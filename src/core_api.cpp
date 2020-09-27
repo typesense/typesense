@@ -717,6 +717,28 @@ bool post_add_document(http_req & req, http_res & res) {
     return true;
 }
 
+bool put_upsert_document(http_req & req, http_res & res) {
+    std::string doc_id = req.params["id"];
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, true, doc_id);
+
+    if(!upserted_doc_op.ok()) {
+        res.set(upserted_doc_op.code(), upserted_doc_op.error());
+        return false;
+    }
+
+    res.set_201(upserted_doc_op.get().dump());
+    return true;
+}
+
 bool get_fetch_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
