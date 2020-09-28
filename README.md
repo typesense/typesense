@@ -1,6 +1,7 @@
 <a href="https://typesense.org"><img src="assets/typesense_medium.png?raw=true" alt="Typesense" width="298" /></a> 
 
 [![CircleCI](https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa)](https://circleci.com/gh/typesense/typesense)
+![Docker Pulls](https://img.shields.io/docker/pulls/typesense/typesense)
 
 Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
 
