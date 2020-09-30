@@ -7,7 +7,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 
-## Menu
+## Quick Links
 
 - [Features](#features)
 - [Install](#install)
