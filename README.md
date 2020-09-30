@@ -178,12 +178,17 @@ The first build will take some time since other third-party libraries are pulled
 
 **How does this differ from Elasticsearch?**
 
-Elasticsearch is better suited for large teams who have the bandwidth to administer, scale and fine-tune it and 
-especially when they have a need to store billions of documents and scale horizontally. 
+Elasticsearch is a large piece of software, that takes non-trivial amount of effort to setup, administer, scale and fine-tune. 
+It offers you a few thousand configuration parameters to get to your ideal configuration. So it's better suited for large teams 
+who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store 
+billions of documents and petabytes of data (eg: logs).
 
-Typesense is built specifically for decreasing the "time to market" for a delightful search experience. This means 
-focusing on Developer Productivity and Experience with a clean API, clear semantics and smart defaults so that it just 
-works without turning many knobs.
+Typesense is built specifically for decreasing the "time to market" for a delightful search experience. We aim for it to be a light-weight
+yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics 
+and smart defaults so it just works well out-of-the-box, without you having to turn many knobs.
+
+Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand, 
+is a single light-weight self-contained native binary, so it's simple to setup and operate.
 
 **How does this differ from Algolia?**
 
