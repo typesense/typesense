@@ -14,7 +14,8 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Quick Start](#quick-start)
 - [Step-by-step Walk-through](#step-by-step-walk-through)
 - [API Documentation](#api-documentation)
-- [Search UIs](#search-uis)
+- [API Clients](#api-clients)
+- [Search UI Components](#search-ui-components)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
 - [Support](#support)
@@ -51,7 +52,9 @@ Let's begin by starting the Typesense server via Docker:
 docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.15.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
-Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
+We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
+
+Install the Python client for Typesense:
  
 ```
 pip install typesense
@@ -123,7 +126,19 @@ Here's our official API documentation, available on our website: [https://typese
 
 If you notice any issues with the documentation or walk-through, please let us know or send us a PR here: [https://github.com/typesense/typesense-website](https://github.com/typesense/typesense-website).
 
-## Search UIs
+## API Clients
+
+While you can definitely use CURL to interact with Typesense Server directly, we offer official API clients to simplify using Typesense from your language of choice. The API Clients also have a smart retry strategy to ensure that API calls made via them are resilient.
+
+- [typesense-js](https://github.com/typesense/typesense-js)
+- [typesense-python](https://github.com/typesense/typesense-python)
+- [typesense-ruby](https://github.com/typesense/typesense-ruby)
+
+If we don't offer an API client in your language, you can still use any popular HTTP client library to access Typesense's APIs directly. 
+
+We welcome community contributions to add more official client libraries. Please reach out to us at contact@typsense.org or open an issue on Github to collaborate with us on the architecture. 🙏
+
+## Search UI Components
 
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
