@@ -1010,7 +1010,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                         bool found_filter = false;
 
                         if(!f.is_array()) {
-                            found_filter = (str_tokens.size() == fvalues.size());
+                            found_filter = (query_suggestion.size() == fvalues.size());
                         } else {
                             uint64_t filter_hash = 1;
 
