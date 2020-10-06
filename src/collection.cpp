@@ -485,6 +485,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t max_facet_values,
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
+                                  const size_t highlight_affix_num_tokens,
                                   const std::string & highlight_full_fields,
                                   size_t typo_tokens_threshold,
                                   const std::map<size_t, std::vector<std::string>>& pinned_hits,
@@ -1059,7 +1060,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                     bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
                     highlight_t highlight;
                     highlight_result(search_field, searched_queries, field_order_kv, document,
-                                     string_utils, snippet_threshold, highlighted_fully, highlight);
+                                     string_utils, snippet_threshold, highlight_affix_num_tokens,
+                                     highlighted_fully, highlight);
 
                     if(!highlight.snippets.empty()) {
                         highlights.push_back(highlight);
@@ -1305,7 +1307,9 @@ void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
                                   const KV* field_order_kv, const nlohmann::json & document,
-                                  StringUtils & string_utils, size_t snippet_threshold,
+                                  StringUtils & string_utils,
+                                  const size_t snippet_threshold,
+                                  const size_t highlight_affix_num_tokens,
                                   bool highlighted_fully,
                                   highlight_t & highlight) {
 
@@ -1395,12 +1399,15 @@ void Collection::highlight_result(const field &search_field,
 
         auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
 
+        size_t prefix_length = highlight_affix_num_tokens;
+        size_t suffix_length = highlight_affix_num_tokens + 1;
+
         // For longer strings, pick surrounding tokens within 4 tokens of min_index and max_index for the snippet
         const size_t start_index = (tokens.size() <= snippet_threshold) ? 0 :
-                                   std::max(0, (int)(*(minmax.first) - 4));
+                                   std::max(0, (int)(*(minmax.first) - prefix_length));
 
         const size_t end_index = (tokens.size() <= snippet_threshold) ? tokens.size() :
-                                 std::min((int)tokens.size(), (int)(*(minmax.second) + 5));
+                                 std::min((int)tokens.size(), (int)(*(minmax.second) + suffix_length));
 
         std::stringstream snippet_stream;
         for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {

@@ -558,14 +558,14 @@ TEST_F(CollectionTest, TypoTokensThreshold) {
     // Query expansion should happen only based on the `typo_tokens_threshold` value
     auto results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                       spp::sparse_hash_set<std::string>(), 10, "", 5, "", 0).get();
+                       spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 0).get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<size_t>());
 
     results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
                                 token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                                spp::sparse_hash_set<std::string>(), 10, "", 5, "", 10).get();
+                                spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
 
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<size_t>());
@@ -2210,6 +2210,22 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
     ASSERT_STREQ("fox jumped over the <mark>lazy</mark> dog and ran straight",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
+    // specify the number of surrounding tokens to return
+    size_t highlight_affix_num_tokens = 2;
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, highlight_affix_num_tokens).get();
+    ASSERT_STREQ("over the <mark>lazy</mark> dog and",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    highlight_affix_num_tokens = 0;
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, highlight_affix_num_tokens).get();
+    ASSERT_STREQ("<mark>lazy</mark>",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -2238,7 +2254,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                              token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                             spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                             spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.",
@@ -2251,13 +2267,13 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(0, res["hits"].size());
 
     res = coll1->search("quick", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("The quick brown fox.", res["hits"][0]["document"]["title"].get<std::string>().c_str());
@@ -2277,14 +2293,14 @@ TEST_F(CollectionTest, UpdateDocument) {
     // check for old tag
     res = coll1->search("NEWS", {"tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(0, res["hits"].size());
 
     // now check for new tag and also try faceting on that field
     res = coll1->search("SENTENCE", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("SENTENCE", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
@@ -2299,7 +2315,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     res = coll1->search("*", {"tags"}, "points: > 90", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(99, res["hits"][0]["document"]["points"].get<size_t>());
@@ -2313,7 +2329,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
@@ -2346,7 +2362,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2355,14 +2371,14 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     // should not return value key when highlight_full_fields is not specified
     res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"][0].size());
 
     // query multiple fields
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title, tags").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2375,7 +2391,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        excluded_fields, 10, "", 5, "title, tags").get();
+                        excluded_fields, 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(1, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2385,7 +2401,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     excluded_fields = {"tags", "title"};
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        excluded_fields, 10, "", 5, "title, tags").get();
+                        excluded_fields, 10, "", 5, 5, "title, tags").get();
     ASSERT_EQ(0, res["hits"][0]["highlights"].size());
 
     collectionManager.drop_collection("coll1");
