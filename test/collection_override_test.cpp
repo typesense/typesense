@@ -271,7 +271,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
                                            pinned_hits, {}).get();
 
@@ -289,7 +289,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
                                       pinned_hits, hidden_hits).get();
 
@@ -305,7 +305,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 2, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
                                       pinned_hits, hidden_hits).get();
 
@@ -341,7 +341,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
-                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
                                       {}, {hidden_hits}).get();
 
@@ -362,7 +362,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
-                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
                                            pinned_hits, {}).get();
 
@@ -383,7 +383,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                             false, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30,
+                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                             "", 10,
                             pinned_hits, {}, {"cast"}, 2).get();
 

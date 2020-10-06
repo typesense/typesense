@@ -254,6 +254,9 @@ bool get_search(http_req & req, http_res & res) {
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
 
+    // the number of tokens that should surround the highlighted text
+    const char *HIGHLIGHT_AFFIX_NUM_TOKENS = "highlight_affix_num_tokens";
+
     // list of fields which will be highlighted fully without snippeting
     const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
 
@@ -288,6 +291,10 @@ bool get_search(http_req & req, http_res & res) {
 
     if(req.params.count(SNIPPET_THRESHOLD) == 0) {
         req.params[SNIPPET_THRESHOLD] = "30";
+    }
+
+    if(req.params.count(HIGHLIGHT_AFFIX_NUM_TOKENS) == 0) {
+        req.params[HIGHLIGHT_AFFIX_NUM_TOKENS] = "4";
     }
 
     if(req.params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
@@ -359,6 +366,11 @@ bool get_search(http_req & req, http_res & res) {
 
     if(!StringUtils::is_uint32_t(req.params[SNIPPET_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
+        return false;
+    }
+
+    if(!StringUtils::is_uint32_t(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])) {
+        res.set_400("Parameter `" + std::string(HIGHLIGHT_AFFIX_NUM_TOKENS) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -474,6 +486,7 @@ bool get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stol(req.params[MAX_FACET_VALUES])),
                                                           req.params[FACET_QUERY],
                                                           static_cast<size_t>(std::stol(req.params[SNIPPET_THRESHOLD])),
+                                                          static_cast<size_t>(std::stol(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
                                                           typo_tokens_threshold,
                                                           pinned_hits,

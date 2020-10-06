@@ -155,7 +155,9 @@ private:
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const KV* field_order_kv, const nlohmann::json &document,
-                          StringUtils & string_utils, size_t snippet_threshold,
+                          StringUtils & string_utils,
+                          const size_t snippet_threshold,
+                          const size_t highlight_affix_num_tokens,
                           bool highlighted_fully,
                           highlight_t &highlight);
 
@@ -242,6 +244,7 @@ public:
                           size_t max_facet_values=10,
                           const std::string & simple_facet_query = "",
                           const size_t snippet_threshold = 30,
+                          const size_t highlight_affix_num_tokens = 4,
                           const std::string & highlight_full_fields = "",
                           size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
                           const std::map<size_t, std::vector<std::string>>& pinned_hits={},
