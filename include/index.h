@@ -86,15 +86,20 @@ enum index_operation_t {
 };
 
 struct index_record {
-    size_t position;         // position of record in the original request
+    size_t position;                    // position of record in the original request
     uint32_t seq_id;
-    nlohmann::json document;
+
+    nlohmann::json doc;
+    nlohmann::json old_doc;
+    nlohmann::json new_doc;
+    nlohmann::json changed_doc;
+
     index_operation_t operation;
 
-    Option<bool> indexed;     // indicates if the indexing operation was a success
+    Option<bool> indexed;               // indicates if the indexing operation was a success
 
     index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation):
-            position(record_pos), seq_id(seq_id), document(doc), operation(operation), indexed(true) {
+            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), indexed(false) {
 
     }
 
@@ -102,7 +107,7 @@ struct index_record {
         indexed = Option<bool>(err_code, err_msg);
     }
 
-    void index_success(const index_record & record) {
+    void index_success() {
         indexed = Option<bool>(true);
     }
 };
@@ -257,10 +262,10 @@ public:
                                                      bool is_update);
 
     static size_t batch_memory_index(Index *index,
-                                        std::vector<index_record> & iter_batch,
-                                        const std::string & default_sorting_field,
-                                        const std::unordered_map<std::string, field> & search_schema,
-                                        const std::map<std::string, field> & facet_schema);
+                                     std::vector<index_record> & iter_batch,
+                                     const std::string & default_sorting_field,
+                                     const std::unordered_map<std::string, field> & search_schema,
+                                     const std::map<std::string, field> & facet_schema);
 
     const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
 

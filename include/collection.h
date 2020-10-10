@@ -231,7 +231,7 @@ public:
 
     Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false, const std::string& id="");
 
-    nlohmann::json add_many(std::vector<std::string>& json_lines);
+    nlohmann::json add_many(std::vector<std::string>& json_lines, const bool upsert=false);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
@@ -305,5 +305,9 @@ public:
                      size_t &num_indexed);
 
     bool is_exceeding_memory_threshold() const;
+
+    void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
+                         nlohmann::json &new_doc,
+                         nlohmann::json &changed_doc);
 };
 

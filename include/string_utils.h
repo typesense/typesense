@@ -199,6 +199,14 @@ struct StringUtils {
         return (*p == 0) && val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max();
     }
 
+    static bool is_bool(const std::string &s) {
+        if(s.empty()) {
+            return false;
+        }
+
+        return s == "true" || s == "false";
+    }
+
     static void toupper(std::string& str) {
         std::transform(str.begin(), str.end(), str.begin(), ::toupper);
     }

@@ -196,29 +196,29 @@ Option<nlohmann::json> Collection::add(const std::string & json_str, const bool 
     const std::string seq_id_str = std::to_string(seq_id);
 
     if(is_update) {
+        // validate first
+        Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+                                                                         search_schema, facet_schema, is_update);
+
+        if(!validation_op.ok()) {
+            return Option<nlohmann::json>(validation_op.code(), validation_op.error());
+        }
+
         // fetch original doc from store, create new doc and write it back
         nlohmann::json old_doc;
-        get_document_from_store(get_seq_id_key(seq_id), old_doc);
-
         nlohmann::json new_doc;
-
-        for(const auto& it: old_doc.items()) {
-            new_doc[it.key()] = it.value();
-        }
-
         nlohmann::json changed_doc; // to identify changed fields
 
-        for(const auto& it: document.items()) {
-            new_doc[it.key()] = it.value();
-            if(old_doc.count(it.key()) != 0) {
-                changed_doc[it.key()] = old_doc[it.key()];
-            }
-        }
+        get_document_from_store(get_seq_id_key(seq_id), old_doc);
+        get_doc_changes(document, old_doc, new_doc, changed_doc);
+
+        //LOG(INFO) << "changed_doc: " << changed_doc;
 
         remove_document(changed_doc, seq_id, false);
 
         const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id, is_update);
         if(!index_memory_op.ok()) {
+            index_in_memory(changed_doc, seq_id, true);
             return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
         }
 
@@ -255,7 +255,22 @@ Option<nlohmann::json> Collection::add(const std::string & json_str, const bool 
     }
 }
 
-nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
+void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
+                                 nlohmann::json &new_doc, nlohmann::json &changed_doc) {
+
+    for(const auto& it: old_doc.items()) {
+        new_doc[it.key()] = it.value();
+    }
+
+    for(const auto& it: document.items()) {
+        new_doc[it.key()] = it.value();
+        if(old_doc.count(it.key()) != 0) {
+            changed_doc[it.key()] = old_doc[it.key()];
+        }
+    }
+}
+
+nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, const bool upsert) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
 
     std::vector<std::vector<index_record>> iter_batch;
@@ -271,15 +286,24 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines) {
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
         nlohmann::json document;
-        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, false);
+        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, upsert);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
         index_record record(i, seq_id, document, CREATE);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
+        bool is_update = false;
+
         if(!doc_seq_id_op.ok()) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
+        } else {
+            is_update = !doc_seq_id_op.get().is_new;
+            if(is_update) {
+                record.operation = UPDATE;
+                get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
+                get_doc_changes(document, record.old_doc, record.new_doc, record.changed_doc);
+            }
         }
 
         /*
@@ -328,41 +352,68 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
     // store only documents that were indexed in-memory successfully
     for(auto& index_batch: index_batches) {
         for(auto& index_record: index_batch) {
+            nlohmann::json res;
+
             if(index_record.indexed.ok()) {
-                const std::string& seq_id_str = std::to_string(index_record.seq_id);
-                const std::string& serialized_json = index_record.document.dump(-1, ' ', false,
-                                                                                nlohmann::detail::error_handler_t::ignore);
+                if(index_record.operation == UPDATE) {
+                    const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                    bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
-                rocksdb::WriteBatch batch;
-                batch.Put(get_doc_id_key(index_record.document["id"]), seq_id_str);
-                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
-                bool write_ok = store->batch_write(batch);
+                    if(!write_ok) {
+                        // we will attempt to reindex the old doc on a best-effort basis
+                        remove_document(index_record.new_doc, index_record.seq_id, false);
+                        index_in_memory(index_record.old_doc, index_record.seq_id, false);
+                        index_record.index_failure(500, "Could not write to on-disk storage.");
+                    } else {
+                        num_indexed++;
+                        index_record.index_success();
+                    }
 
-                if(!write_ok) {
-                    index_record.indexed = Option<bool>(500, "Could not write to on-disk storage.");;
-                    // remove from in-memory store to keep the state synced
-                    remove_document(index_record.document, index_record.seq_id, false);
+                } else if(index_record.operation == CREATE) {
+                    const std::string& seq_id_str = std::to_string(index_record.seq_id);
+                    const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
+                                                                               nlohmann::detail::error_handler_t::ignore);
+
+                    rocksdb::WriteBatch batch;
+                    batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
+                    batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+                    bool write_ok = store->batch_write(batch);
+
+                    if(!write_ok) {
+                        // remove from in-memory store to keep the state synced
+                        remove_document(index_record.doc, index_record.seq_id, false);
+                        index_record.index_failure(500, "Could not write to on-disk storage.");
+                    } else {
+                        num_indexed++;
+                        index_record.index_success();
+                    }
                 }
 
-                json_out[index_record.position] = R"({"success": true})";
-                num_indexed++;
+                res["success"] = index_record.indexed.ok();
+                if(!index_record.indexed.ok()) {
+                    res["document"] = json_out[index_record.position];
+                    res["error"] = index_record.indexed.error();
+                }
             } else {
-                nlohmann::json res;
                 res["success"] = false;
-                res["error"] = index_record.indexed.error();
                 res["document"] = json_out[index_record.position];
-                json_out[index_record.position] = res.dump();
+                res["error"] = index_record.indexed.error();
             }
+
+            json_out[index_record.position] = res.dump();
         }
     }
 }
 
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id, bool is_update) {
-    Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, facet_schema, is_update);
+    if(!is_update) {
+        // for update, validation should be done prior
+        Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+                                                                         search_schema, facet_schema, is_update);
 
-    if(!validation_op.ok()) {
-        return validation_op;
+        if(!validation_op.ok()) {
+            return validation_op;
+        }
     }
 
     Index* index = indices[seq_id % num_memory_shards];

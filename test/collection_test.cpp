@@ -1296,6 +1296,97 @@ std::vector<nlohmann::json> import_res_to_json(const std::vector<std::string>& i
     return out;
 }
 
+TEST_F(CollectionTest, ImportDocumentsUpsert) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::stringstream strstream;
+    strstream << infile.rdbuf();
+    infile.close();
+
+    std::vector<std::string> import_records;
+    StringUtils::split(strstream.str(), import_records, "\n");
+
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, false),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
+    }
+
+    // try importing records
+
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(18, import_response["num_imported"].get<int>());
+
+    // import some new records along with updates
+    std::vector<std::string> more_records = {R"({"id": "0", "title": "Wake up, Harry"})",
+                                            R"({"id": "2", "cast": ["Kim Werrel", "Random Wake"]})",
+                                            R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
+                                            R"({"id": "6", "points": 77})"};
+
+    import_response = coll_mul_fields->add_many(more_records, true);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(4, import_response["num_imported"].get<int>());
+
+    std::vector<nlohmann::json> import_results = import_res_to_json(more_records);
+    ASSERT_EQ(4, import_results.size());
+
+    for(size_t i=0; i<4; i++) {
+        ASSERT_TRUE(import_results[i]["success"].get<bool>());
+        ASSERT_EQ(1, import_results[i].size());
+    }
+
+    auto results = coll_mul_fields->search("burgundy", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_mul_fields->search("harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll_mul_fields->search("captain america", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(77, results["hits"][0]["document"]["points"].get<size_t>());
+
+    // updates mixed with errors
+    more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
+                    R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",  // error due to missing fields
+                    R"({"id": "5", "points": 60})",
+                    R"({"id": "24", "points": 11})"};                          // error due to missing fields
+
+    import_response = coll_mul_fields->add_many(more_records, true);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_FALSE(import_results[3]["success"].get<bool>());
+    ASSERT_STREQ("Field `points` has been declared as a default sorting field, but is not found in the document.", import_results[1]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("Field `title` has been declared in the schema, but is not found in the document.", import_results[3]["error"].get<std::string>().c_str());
+
+    // try to update without upsert option
+
+    more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
+                    R"({"id": "5", "points": 60})"};
+
+    import_response = coll_mul_fields->add_many(more_records, false);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("A document with id 1 already exists.", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id 5 already exists.", import_results[1]["error"].get<std::string>().c_str());
+}
+
 TEST_F(CollectionTest, ImportDocuments) {
     Collection *coll_mul_fields;
 
@@ -2326,6 +2417,18 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     add_op = coll1->add(doc4.dump(), true, "100");
     ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // try to change a field with bad value and verify that old document is put back
+    doc4["points"] = "abc";
+    add_op = coll1->add(doc4.dump(), true, "100");
+    ASSERT_FALSE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
