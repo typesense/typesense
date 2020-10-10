@@ -592,9 +592,14 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "post_import_documents";
     //LOG(INFO) << "req.first_chunk=" << req.first_chunk_aggregate << ", last_chunk=" << req.last_chunk_aggregate;
     const char *BATCH_SIZE = "batch_size";
+    const char *UPSERT = "upsert";
 
     if(req.params.count(BATCH_SIZE) == 0) {
         req.params[BATCH_SIZE] = "40";
+    }
+
+    if(req.params.count(UPSERT) == 0) {
+        req.params[UPSERT] = "false";
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
@@ -605,7 +610,16 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
+    if(!StringUtils::is_bool(req.params[UPSERT])) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400("Parameter `" + std::string(UPSERT) + "` must be a boolean.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
     const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
+    const bool upsert = (req.params[UPSERT] == "true");
 
     if(IMPORT_BATCH_SIZE == 0) {
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
@@ -681,7 +695,7 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
     if(!single_partial_record_body) {
-        nlohmann::json json_res = collection->add_many(json_lines);
+        nlohmann::json json_res = collection->add_many(json_lines, upsert);
         //const std::string& import_summary_json = json_res.dump();
         //response_stream << import_summary_json << "\n";
 

@@ -334,23 +334,31 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             continue;
         }
 
-        if(index_rec.operation == CREATE) {
-            Option<uint32_t> validation_op = validate_index_in_memory(index_rec.document, index_rec.seq_id,
+        bool is_update = (index_rec.operation == UPDATE);
+
+        if(index_rec.operation == CREATE || index_rec.operation == UPDATE) {
+            Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
-                                                                      search_schema, facet_schema, false);
+                                                                      search_schema, facet_schema, is_update);
 
             if(!validation_op.ok()) {
                 index_rec.index_failure(validation_op.code(), validation_op.error());
                 continue;
             }
 
-            Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.document, index_rec.seq_id, default_sorting_field, false);
+            if(is_update) {
+                index->remove(index_rec.seq_id, index_rec.changed_doc);
+            }
+
+            Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id,
+                                                                   default_sorting_field, is_update);
             if(!index_mem_op.ok()) {
+                index->index_in_memory(index_rec.changed_doc, index_rec.seq_id, default_sorting_field, true);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
 
-            index_rec.index_success(index_rec);
+            index_rec.index_success();
             num_indexed++;
         }
     }
