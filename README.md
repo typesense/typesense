@@ -128,9 +128,10 @@ If you notice any issues with the documentation or walk-through, please let us k
 
 ## API Clients
 
-While you can definitely use CURL to interact with Typesense Server directly, we offer official API clients to simplify using Typesense from your language of choice. The API Clients also have a smart retry strategy to ensure that API calls made via them are resilient.
+While you can definitely use CURL to interact with Typesense Server directly, we offer official API clients to simplify using Typesense from your language of choice. The API Clients come built-in with a smart retry strategy to ensure that API calls made via them are resilient, especially in an HA setup.
 
 - [typesense-js](https://github.com/typesense/typesense-js)
+- [typesense-php](https://github.com/typesense/typesense-php)
 - [typesense-python](https://github.com/typesense/typesense-python)
 - [typesense-ruby](https://github.com/typesense/typesense-ruby)
 
