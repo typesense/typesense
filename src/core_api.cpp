@@ -695,7 +695,8 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
     if(!single_partial_record_body) {
-        nlohmann::json json_res = collection->add_many(json_lines, upsert);
+        nlohmann::json document;
+        nlohmann::json json_res = collection->add_many(json_lines, document, upsert);
         //const std::string& import_summary_json = json_res.dump();
         //response_stream << import_summary_json << "\n";
 
