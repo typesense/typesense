@@ -211,6 +211,7 @@ void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json 
         new_doc[it.key()] = it.value();
         if(old_doc.count(it.key()) != 0) {
             // key exists in the stored doc, so it must be reindexed
+            // we need to check for this because a field can be optional
             del_doc[it.key()] = old_doc[it.key()];
         }
     }

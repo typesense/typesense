@@ -322,10 +322,12 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
 }
 
 void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
-    for (auto it = del_doc.begin(); it != del_doc.end(); ++it) {
+    auto it = del_doc.cbegin();
+    while(it != del_doc.cend()) {
         const std::string& field_name = it.key();
         const auto& search_field_it = search_schema.find(field_name);
         if(search_field_it == search_schema.end()) {
+            ++it;
             continue;
         }
 
@@ -338,6 +340,7 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
         tokenize_doc_field(old_doc, field_name, search_field, old_tokens);
 
         if(old_tokens.size() != reindex_tokens.size()) {
+            ++it;
             continue;
         }
 
@@ -353,7 +356,9 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
         }
 
         if(exact_match) {
-            del_doc.erase(field_name);
+            it = del_doc.erase(it);
+        } else {
+            ++it;
         }
     }
 }
