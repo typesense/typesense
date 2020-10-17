@@ -1320,8 +1320,8 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     }
 
     // try importing records
-
-    nlohmann::json import_response = coll_mul_fields->add_many(import_records);
+    nlohmann::json document;
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records, document);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
@@ -1331,7 +1331,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
                                             R"({"id": "6", "points": 77})"};
 
-    import_response = coll_mul_fields->add_many(more_records, true);
+    import_response = coll_mul_fields->add_many(more_records, document, true);
 
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(4, import_response["num_imported"].get<int>());
@@ -1367,11 +1367,11 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     // updates mixed with errors
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
-                    R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",  // error due to missing fields
+                    R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",                     // missing fields
                     R"({"id": "5", "points": 60})",
-                    R"({"id": "24", "points": 11})"};                          // error due to missing fields
+                    R"({"id": "24", "starring": "John", "cast": ["John Kim"], "points": 11})"};   // missing fields
 
-    import_response = coll_mul_fields->add_many(more_records, true);
+    import_response = coll_mul_fields->add_many(more_records, document, true);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
@@ -1387,7 +1387,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
                     R"({"id": "5", "points": 60})"};
 
-    import_response = coll_mul_fields->add_many(more_records, false);
+    import_response = coll_mul_fields->add_many(more_records, document, false);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
@@ -1402,7 +1402,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                         "points":70,"starring":"Robin Williams","starring_facet":"Robin Williams",
                         "title":"Good Will Hunting"})"};
 
-    import_response = coll_mul_fields->add_many(more_records, true);
+    import_response = coll_mul_fields->add_many(more_records, document, true);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
@@ -1434,8 +1434,8 @@ TEST_F(CollectionTest, ImportDocuments) {
     }
 
     // try importing records
-
-    nlohmann::json import_response = coll_mul_fields->add_many(import_records);
+    nlohmann::json document;
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records, document);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
@@ -1460,7 +1460,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // verify that empty import is handled gracefully
     std::vector<std::string> empty_records;
-    import_response = coll_mul_fields->add_many(empty_records);
+    import_response = coll_mul_fields->add_many(empty_records, document);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
@@ -1474,7 +1474,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1499,7 +1499,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                     "{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                     "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
@@ -1517,7 +1517,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // valid JSON but not a document
     more_records = {"[]"};
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
@@ -1531,7 +1531,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // invalid JSON
     more_records = {"{"};
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
@@ -1870,7 +1870,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
         sample_collection = collectionManager.create_collection("sample_collection", 4, fields, "age").get();
     }
 
-    const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
+    const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 29, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op1.ok());
     ASSERT_STREQ("Field `tags` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op1.error().c_str());

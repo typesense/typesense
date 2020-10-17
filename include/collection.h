@@ -231,7 +231,8 @@ public:
 
     Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false, const std::string& id="");
 
-    nlohmann::json add_many(std::vector<std::string>& json_lines, const bool upsert=false);
+    nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
+                            const bool upsert=false, const std::string& id="");
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
