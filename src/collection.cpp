@@ -207,18 +207,17 @@ Option<nlohmann::json> Collection::add(const std::string & json_str, const bool 
         // fetch original doc from store, create new doc and write it back
         nlohmann::json old_doc;
         nlohmann::json new_doc;
-        nlohmann::json changed_doc; // to identify changed fields
+        nlohmann::json del_doc; // to identify fields that should be potentially removed
 
         get_document_from_store(get_seq_id_key(seq_id), old_doc);
-        get_doc_changes(document, old_doc, new_doc, changed_doc);
+        get_doc_changes(document, old_doc, new_doc, del_doc);
 
-        //LOG(INFO) << "changed_doc: " << changed_doc;
-
-        remove_document(changed_doc, seq_id, false);
+        //LOG(INFO) << "del_doc: " << del_doc;
+        remove_document(del_doc, seq_id, false);
 
         const Option<uint32_t> & index_memory_op = index_in_memory(document, seq_id, is_update);
         if(!index_memory_op.ok()) {
-            index_in_memory(changed_doc, seq_id, true);
+            index_in_memory(del_doc, seq_id, true);
             return Option<nlohmann::json>(index_memory_op.code(), index_memory_op.error());
         }
 
@@ -256,16 +255,17 @@ Option<nlohmann::json> Collection::add(const std::string & json_str, const bool 
 }
 
 void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                                 nlohmann::json &new_doc, nlohmann::json &changed_doc) {
+                                 nlohmann::json &new_doc, nlohmann::json &del_doc) {
 
-    for(const auto& it: old_doc.items()) {
+    for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
         new_doc[it.key()] = it.value();
     }
 
-    for(const auto& it: document.items()) {
+    for(auto it = document.begin(); it != document.end(); ++it) {
         new_doc[it.key()] = it.value();
         if(old_doc.count(it.key()) != 0) {
-            changed_doc[it.key()] = old_doc[it.key()];
+            // key exists in the stored doc, so it must be reindexed
+            del_doc[it.key()] = old_doc[it.key()];
         }
     }
 }
@@ -302,7 +302,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, const 
             if(is_update) {
                 record.operation = UPDATE;
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
-                get_doc_changes(document, record.old_doc, record.new_doc, record.changed_doc);
+                get_doc_changes(document, record.old_doc, record.new_doc, record.del_doc);
             }
         }
 

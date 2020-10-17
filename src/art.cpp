@@ -39,6 +39,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                            NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
+static void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets);
+
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
     return a->values->ids.getLength() > b->values->ids.getLength();
 }
@@ -408,13 +410,40 @@ art_leaf* art_maximum(art_tree *t) {
 
 static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
     leaf->max_score = MAX(leaf->max_score, document->score);
-    leaf->values->ids.append(document->id);
-    uint32_t curr_index = leaf->values->offsets.getLength();
-    leaf->values->offset_index.append(curr_index);
+    size_t inserted_index = leaf->values->ids.append(document->id);
 
-    for(uint32_t i=0; i<document->offsets_len; i++) {
-        leaf->values->offsets.append(document->offsets[i]);
+    if(inserted_index == leaf->values->ids.getLength()-1) {
+        // treat as appends
+        uint32_t curr_index = leaf->values->offsets.getLength();
+        leaf->values->offset_index.append(curr_index);
+        for(uint32_t i=0; i<document->offsets_len; i++) {
+            leaf->values->offsets.append(document->offsets[i]);
+        }
+    } else {
+        uint32_t existing_offset_index = leaf->values->offset_index.at(inserted_index);
+        insert_and_shift_offset_index(leaf->values->offset_index, inserted_index, document->offsets_len);
+        leaf->values->offsets.insert(existing_offset_index, document->offsets, document->offsets_len);
     }
+}
+
+void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets) {
+    uint32_t existing_offset_index = offset_index.at(index);
+    uint32_t length = offset_index.getLength();
+    uint32_t new_length = length + 1;
+    uint32_t *curr_array = offset_index.uncompress(new_length);
+
+    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length - index));
+    curr_array[index] = existing_offset_index;
+
+    uint32_t curr_index = index + 1;
+    while(curr_index < new_length) {
+        curr_array[curr_index] += num_offsets;
+        curr_index++;
+    }
+
+    offset_index.load(curr_array, new_length);
+
+    delete [] curr_array;
 }
 
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {

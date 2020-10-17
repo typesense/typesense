@@ -1316,7 +1316,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
     if(coll_mul_fields == nullptr) {
-        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 1, fields, "points").get();
     }
 
     // try importing records
@@ -1326,8 +1326,8 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
     // import some new records along with updates
-    std::vector<std::string> more_records = {R"({"id": "0", "title": "Wake up, Harry"})",
-                                            R"({"id": "2", "cast": ["Kim Werrel", "Random Wake"]})",
+    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry"})",
+                                            R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
                                             R"({"id": "6", "points": 77})"};
 
@@ -1344,7 +1344,18 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
         ASSERT_EQ(1, import_results[i].size());
     }
 
-    auto results = coll_mul_fields->search("burgundy", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    auto results = coll_mul_fields->search("*", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(19, results["hits"].size());
+
+    ASSERT_EQ(19, coll_mul_fields->get_num_documents());
+
+    results = coll_mul_fields->search("fifth", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("The <mark>Fifth</mark> Harry", results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("The Woman in the <mark>Fifth</mark> from Kristin", results["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("burgundy", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     results = coll_mul_fields->search("harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
@@ -1385,6 +1396,18 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_FALSE(import_results[1]["success"].get<bool>());
     ASSERT_STREQ("A document with id 1 already exists.", import_results[0]["error"].get<std::string>().c_str());
     ASSERT_STREQ("A document with id 5 already exists.", import_results[1]["error"].get<std::string>().c_str());
+
+    // update document with verbatim fields, except for points
+    more_records = {R"({"id": "3", "cast":["Matt Damon","Ben Affleck","Minnie Driver"],
+                        "points":70,"starring":"Robin Williams","starring_facet":"Robin Williams",
+                        "title":"Good Will Hunting"})"};
+
+    import_response = coll_mul_fields->add_many(more_records, true);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(70, results["hits"][0]["document"]["points"].get<uint32_t>());
 }
 
 TEST_F(CollectionTest, ImportDocuments) {
@@ -2355,6 +2378,8 @@ TEST_F(CollectionTest, UpdateDocument) {
     doc["title"] = "The quick brown fox.";
     add_op = coll1->add(doc.dump(), true);
     ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
 
     res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),

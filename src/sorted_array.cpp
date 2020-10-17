@@ -1,5 +1,6 @@
 #include "sorted_array.h"
 #include "array_utils.h"
+#include "logger.h"
 
 void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_length) {
     min = array_length != 0 ? sorted_array[0] : 0;
@@ -18,28 +19,82 @@ void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_lengt
     length_bytes = actual_size;
 }
 
-bool sorted_array::append(uint32_t value) {
+size_t sorted_array::append(uint32_t value) {
     uint32_t size_required = sorted_append_size_required(value, length+1);
+    size_t min_expected_size = size_required + FOR_ELE_SIZE;
 
-    if(size_required+FOR_ELE_SIZE > size_bytes) {
-        // grow the array first
-        size_t new_size = (size_t) (size_required * FOR_GROWTH_FACTOR);
-        uint8_t *new_location = (uint8_t *) realloc(in, new_size);
-        if(new_location == NULL) {
-            abort();
+    /*LOG(INFO) << "value: " << value << ", new_length: " << length+1 << ", size_bytes: " << size_bytes
+              << ", size_required: " << size_required << ", min_expected_size: " << min_expected_size;
+
+    if(value == 0 && size_bytes == 28) {
+        uint32_t* arr = uncompress();
+        for(size_t i=0; i<length; i++) {
+            LOG(INFO) << "ele: " << arr[i];
         }
-        in = new_location;
-        size_bytes = (uint32_t) new_size;
+
+        delete [] arr;
+    }*/
+
+    if(value < max) {
+        // we will have to re-encode the whole sequence again
+        uint32_t* arr = uncompress(length+1);
+        size_t i = 0;
+        while(i < length+1) {
+            if(value < arr[i]) {
+                break;
+            }
+            i++;
+        }
+
+        for(size_t j=length; j>i; j--) {
+            arr[j] = arr[j-1];
+        }
+
+        arr[i] = value;
+
+        load(arr, length+1);
+        delete [] arr;
+
+        return i;
+    } else {
+        if(size_bytes < min_expected_size) {
+            // grow the array first
+            size_t new_size = min_expected_size * FOR_GROWTH_FACTOR;
+            uint8_t *new_location = (uint8_t *) realloc(in, new_size);
+            if(new_location == NULL) {
+                abort();
+            }
+            in = new_location;
+            size_bytes = (uint32_t) new_size;
+
+            //LOG(INFO) << "new_size: " << new_size;
+        }
+
+        uint32_t new_length_bytes = for_append_sorted(in, length, value);
+        if(new_length_bytes == 0) return false;
+
+        length_bytes = new_length_bytes;
+        length++;
+
+        if(value < min) min = value;
+        if(value > max) max = value;
+
+        return length-1;
+    }
+}
+
+bool sorted_array::insert(size_t index, uint32_t value) {
+    if(index >= length) {
+        return false;
     }
 
-    uint32_t new_length_bytes = for_append_sorted(in, length, value);
-    if(new_length_bytes == 0) return false;
+    uint32_t *curr_array = uncompress(length+1);
+    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length-index));
+    curr_array[index] = value;
 
-    length_bytes = new_length_bytes;
-    length++;
+    load(curr_array, length+1);
 
-    if(value < min) min = value;
-    if(value > max) max = value;
+    delete [] curr_array;
 
     return true;
 }
@@ -150,20 +205,18 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
     binary_search_indices(values, head, tail, low_index, high_index, base, bits, indices);
 }
 
-void sorted_array::remove_values(uint32_t *sorted_values, uint32_t values_length) {
+void sorted_array::remove_values(uint32_t *sorted_values, uint32_t sorted_values_length) {
     uint32_t *curr_array = uncompress();
 
     uint32_t *new_array = new uint32_t[length];
     uint32_t new_index = 0;
-    uint32_t curr_index = 0;
+
     uint32_t sorted_values_index = 0;
+    uint32_t curr_index = 0;
 
     while(curr_index < length) {
-        if(sorted_values_index < values_length && curr_array[curr_index] >= sorted_values[sorted_values_index]) {
-            // skip copying
-            if(curr_array[curr_index] == sorted_values[sorted_values_index]) {
-                curr_index++;
-            }
+        if(sorted_values_index < sorted_values_length && sorted_values[sorted_values_index] == curr_array[curr_index]) {
+            curr_index++;
             sorted_values_index++;
         } else {
             new_array[new_index++] = curr_array[curr_index++];
