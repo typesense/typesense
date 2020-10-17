@@ -321,6 +321,43 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     return Option<>(200);
 }
 
+void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
+    for (auto it = del_doc.begin(); it != del_doc.end(); ++it) {
+        const std::string& field_name = it.key();
+        const auto& search_field_it = search_schema.find(field_name);
+        if(search_field_it == search_schema.end()) {
+            continue;
+        }
+
+        const auto& search_field = search_field_it->second;
+
+        // Go through all the field names and find the keys+values so that they can be removed from in-memory index
+        std::vector<std::string> reindex_tokens;
+        std::vector<std::string> old_tokens;
+        tokenize_doc_field(update_doc, field_name, search_field, reindex_tokens);
+        tokenize_doc_field(old_doc, field_name, search_field, old_tokens);
+
+        if(old_tokens.size() != reindex_tokens.size()) {
+            continue;
+        }
+
+        bool exact_match = true;
+
+        for(size_t i=0; i<reindex_tokens.size(); i++) {
+            const std::string& reindex_val = reindex_tokens[i];
+            const std::string& old_val = old_tokens[i];
+            if(reindex_val != old_val) {
+                exact_match = false;
+                break;
+            }
+        }
+
+        if(exact_match) {
+            del_doc.erase(field_name);
+        }
+    }
+}
+
 size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
@@ -347,19 +384,24 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             }
 
             if(is_update) {
-                index->remove(index_rec.seq_id, index_rec.changed_doc);
+                // scrub string fields to reduce delete ops
+                index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
+                index->remove(index_rec.seq_id, index_rec.del_doc);
             }
 
             Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                    default_sorting_field, is_update);
             if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.changed_doc, index_rec.seq_id, default_sorting_field, true);
+                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, true);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
 
             index_rec.index_success();
-            num_indexed++;
+
+            if(!is_update) {
+                num_indexed++;
+            }
         }
     }
 
@@ -391,6 +433,7 @@ void Index::insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
             art_doc.offsets[i] = kv.second[i];
         }
 
+        //LOG(INFO) << "key: " << key << ", art_doc.id: " << art_doc.id;
         art_insert(t, key, key_len, &art_doc, num_hits);
         delete [] art_doc.offsets;
         art_doc.offsets = nullptr;
@@ -527,6 +570,10 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
 
         token_to_offsets[token].push_back(i);
     }
+
+    /*if(seq_id == 0) {
+        LOG(INFO) << "field name: " << a_field.name;
+    }*/
 
     insert_doc(score, t, seq_id, token_to_offsets);
 
@@ -1734,6 +1781,11 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
         // a) last element is array_index b) second and third last elements will be largest offset
         // (last element is repeated to indicate end of offsets for a given array index)
 
+        /*uint32_t* offsets = token_leaf->values->offsets.uncompress();
+        for(size_t ii=0; ii < token_leaf->values->offsets.getLength(); ii++) {
+            LOG(INFO) << "offset: " << offsets[ii];
+        }*/
+
         uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
         uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
                               token_leaf->values->offsets.getLength() :
@@ -1789,8 +1841,8 @@ inline std::vector<art_leaf *> Index::next_suggestion(const std::vector<token_ca
     return query_suggestion;
 }
 
-void Index::remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
-                                               const uint32_t indices_length) {
+void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
+                                         const uint32_t indices_length) {
     uint32_t *curr_array = offset_index.uncompress();
     uint32_t *new_array = new uint32_t[offset_index.getLength()];
 
@@ -1826,85 +1878,24 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
     std::unordered_map<std::string, size_t> facet_to_index;
     get_facet_to_index(facet_to_index);
 
-    for(const auto& it: document.items()) {
+    for(auto it = document.begin(); it != document.end(); ++it) {
         const std::string& field_name = it.key();
-        const auto& search_field = search_schema.find(field_name);
-        if(search_field == search_schema.end()) {
+        const auto& search_field_it = search_schema.find(field_name);
+        if(search_field_it == search_schema.end()) {
             continue;
         }
 
+        const auto& search_field = search_field_it->second;
+
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> tokens;
-        if(search_field->second.type == field_types::STRING) {
-            StringUtils::split(document[search_field->first], tokens, " ");
-        } else if(search_field->second.type == field_types::STRING_ARRAY) {
-            std::vector<std::string> values = document[search_field->first].get<std::vector<std::string>>();
-            for(const std::string & value: values) {
-                StringUtils::split(value, tokens, " ");
-            }
-        } else if(search_field->second.type == field_types::INT32) {
-            const int KEY_LEN = 8;
-            unsigned char key[KEY_LEN];
-            int32_t value = document[search_field->first].get<int32_t>();
-            encode_int32(value, key);
-            tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(search_field->second.type == field_types::INT32_ARRAY) {
-            std::vector<int32_t> values = document[search_field->first].get<std::vector<int32_t>>();
-            for(const int32_t value: values) {
-                const int KEY_LEN = 8;
-                unsigned char key[KEY_LEN];
-                encode_int32(value, key);
-                tokens.emplace_back((char*)key, KEY_LEN);
-            }
-        } else if(search_field->second.type == field_types::INT64) {
-            const int KEY_LEN = 8;
-            unsigned char key[KEY_LEN];
-            int64_t value = document[search_field->first].get<int64_t>();
-            encode_int64(value, key);
-            tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(search_field->second.type == field_types::INT64_ARRAY) {
-            std::vector<int64_t> values = document[search_field->first].get<std::vector<int64_t>>();
-            for(const int64_t value: values) {
-                const int KEY_LEN = 8;
-                unsigned char key[KEY_LEN];
-                encode_int64(value, key);
-                tokens.emplace_back((char*)key, KEY_LEN);
-            }
-        } else if(search_field->second.type == field_types::FLOAT) {
-            const int KEY_LEN = 8;
-            unsigned char key[KEY_LEN];
-            int64_t value = document[search_field->first].get<int64_t>();
-            encode_float(value, key);
-            tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(search_field->second.type == field_types::FLOAT_ARRAY) {
-            std::vector<float> values = document[search_field->first].get<std::vector<float>>();
-            for(const float value: values) {
-                const int KEY_LEN = 8;
-                unsigned char key[KEY_LEN];
-                encode_float(value, key);
-                tokens.emplace_back((char*)key, KEY_LEN);
-            }
-        } else if(search_field->second.type == field_types::BOOL) {
-            const int KEY_LEN = 1;
-            unsigned char key[KEY_LEN];
-            bool value = document[search_field->first].get<bool>();
-            key[0] = value ? '1' : '0';
-            tokens.emplace_back((char*)key, KEY_LEN);
-        } else if(search_field->second.type == field_types::BOOL_ARRAY) {
-            std::vector<bool> values = document[search_field->first].get<std::vector<bool>>();
-            for(const bool value: values) {
-                const int KEY_LEN = 1;
-                unsigned char key[KEY_LEN];
-                key[0] = value ? '1' : '0';
-                tokens.emplace_back((char*)key, KEY_LEN);
-            }
-        }
+        tokenize_doc_field(document, field_name, search_field, tokens);
 
         for(auto & token: tokens) {
             const unsigned char *key;
             int key_len;
 
-            if(search_field->second.type == field_types::STRING_ARRAY || search_field->second.type == field_types::STRING) {
+            if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
                 string_utils.unicode_normalize(token);
                 key = (const unsigned char *) token.c_str();
                 key_len = (int) (token.length() + 1);
@@ -1913,7 +1904,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 key_len = (int) (token.length());
             }
 
-            art_leaf* leaf = (art_leaf *) art_search(search_index.at(search_field->first), key, key_len);
+            art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
             if(leaf != nullptr) {
                 uint32_t seq_id_values[1] = {seq_id};
                 uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
@@ -1941,7 +1932,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 LOG(INFO) << "----";*/
 
                 if(leaf->values->ids.getLength() == 0) {
-                    art_values* values = (art_values*) art_delete(search_index.at(search_field->first), key, key_len);
+                    art_values* values = (art_values*) art_delete(search_index.at(field_name), key, key_len);
                     delete values;
                 }
             }
@@ -1961,6 +1952,74 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
     }
 
     return Option<uint32_t>(seq_id);
+}
+
+void Index::tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
+                               std::vector<std::string>& tokens) {
+    if(search_field.type == field_types::STRING) {
+        StringUtils::split(document[field_name], tokens, " ");
+    } else if(search_field.type == field_types::STRING_ARRAY) {
+        const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
+        for(const std::string & value: values) {
+            StringUtils::split(value, tokens, " ");
+        }
+    } else if(search_field.type == field_types::INT32) {
+        const int KEY_LEN = 8;
+        unsigned char key[KEY_LEN];
+        const int32_t& value = document[field_name].get<int32_t>();
+        encode_int32(value, key);
+        tokens.emplace_back((char*)key, KEY_LEN);
+    } else if(search_field.type == field_types::INT32_ARRAY) {
+        const std::vector<int32_t>& values = document[field_name].get<std::vector<int32_t>>();
+        for(const int32_t value: values) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            encode_int32(value, key);
+            tokens.emplace_back((char*)key, KEY_LEN);
+        }
+    } else if(search_field.type == field_types::INT64) {
+        const int KEY_LEN = 8;
+        unsigned char key[KEY_LEN];
+        const int64_t& value = document[field_name].get<int64_t>();
+        encode_int64(value, key);
+        tokens.emplace_back((char*)key, KEY_LEN);
+    } else if(search_field.type == field_types::INT64_ARRAY) {
+        const std::vector<int64_t>& values = document[field_name].get<std::vector<int64_t>>();
+        for(const int64_t value: values) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            encode_int64(value, key);
+            tokens.emplace_back((char*)key, KEY_LEN);
+        }
+    } else if(search_field.type == field_types::FLOAT) {
+        const int KEY_LEN = 8;
+        unsigned char key[KEY_LEN];
+        const int64_t& value = document[field_name].get<int64_t>();
+        encode_float(value, key);
+        tokens.emplace_back((char*)key, KEY_LEN);
+    } else if(search_field.type == field_types::FLOAT_ARRAY) {
+        const std::vector<float>& values = document[field_name].get<std::vector<float>>();
+        for(const float value: values) {
+            const int KEY_LEN = 8;
+            unsigned char key[KEY_LEN];
+            encode_float(value, key);
+            tokens.emplace_back((char*)key, KEY_LEN);
+        }
+    } else if(search_field.type == field_types::BOOL) {
+        const int KEY_LEN = 1;
+        unsigned char key[KEY_LEN];
+        const bool& value = document[field_name].get<bool>();
+        key[0] = value ? '1' : '0';
+        tokens.emplace_back((char*)key, KEY_LEN);
+    } else if(search_field.type == field_types::BOOL_ARRAY) {
+        const std::vector<bool>& values = document[field_name].get<std::vector<bool>>();
+        for(const bool value: values) {
+            const int KEY_LEN = 1;
+            unsigned char key[KEY_LEN];
+            key[0] = value ? '1' : '0';
+            tokens.emplace_back((char*)key, KEY_LEN);
+        }
+    }
 }
 
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {

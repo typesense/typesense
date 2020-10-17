@@ -308,6 +308,6 @@ public:
 
     void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
                          nlohmann::json &new_doc,
-                         nlohmann::json &changed_doc);
+                         nlohmann::json &del_doc);
 };
 

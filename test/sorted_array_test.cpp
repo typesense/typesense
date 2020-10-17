@@ -33,6 +33,72 @@ TEST(SortedArrayTest, Append) {
     EXPECT_EQ(arr_small.at(0), 100);
 }
 
+TEST(SortedArrayTest, AppendOutOfOrder) {
+    sorted_array arr;
+    for(size_t i=5; i<=10; i++) {
+        arr.append(i);
+    }
+
+    EXPECT_EQ(6, arr.getLength());
+
+    arr.append(1);
+    arr.append(3);
+    arr.append(2);
+    arr.append(4);
+    arr.append(11);
+    arr.append(14);
+    arr.append(12);
+
+    EXPECT_EQ(13, arr.getLength());
+}
+
+TEST(SortedArrayTest, InsertAtIndex) {
+    std::vector<uint32_t> eles;
+    sorted_array arr;
+    for(size_t i=5; i<=9; i++) {
+        arr.append(i);
+    }
+
+    arr.append(11);
+    eles = {5, 6, 7, 8, 9, 11};
+
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+
+    arr.insert(0, 1);
+    eles = { 1, 5, 6, 7, 8, 9, 11 };
+
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+
+    ASSERT_EQ(1, arr.at(0));
+    ASSERT_EQ(5, arr.at(1));
+
+    arr.insert(1, 2);
+    eles = {1, 2, 5, 6, 7, 8, 9, 11};
+    ASSERT_EQ(1, arr.at(0));
+    ASSERT_EQ(2, arr.at(1));
+    ASSERT_EQ(8, arr.getLength());
+
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+
+    arr.insert(7, 10);
+    eles = { 1, 2, 5, 6, 7, 8, 9, 10, 11};
+    ASSERT_EQ(10, arr.at(7));
+    ASSERT_EQ(11, arr.at(8));
+    ASSERT_EQ(9, arr.getLength());
+
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+
+    ASSERT_FALSE(arr.insert(9, 12));  // index out of range
+}
+
 TEST(SortedArrayTest, Load) {
     sorted_array arr;
 

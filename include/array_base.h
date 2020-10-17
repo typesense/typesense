@@ -36,7 +36,8 @@ public:
         in = nullptr;
     }
 
-    uint32_t* uncompress();
+    // len determines length of output buffer (default: length of input)
+    uint32_t* uncompress(uint32_t len=0);
 
     uint32_t getSizeInBytes();
 

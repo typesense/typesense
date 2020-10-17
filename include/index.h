@@ -92,7 +92,7 @@ struct index_record {
     nlohmann::json doc;
     nlohmann::json old_doc;
     nlohmann::json new_doc;
-    nlohmann::json changed_doc;
+    nlohmann::json del_doc;
 
     index_operation_t operation;
 
@@ -191,7 +191,7 @@ private:
     
     void index_bool_array_field(const std::vector<bool> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
+    void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
                                        const uint32_t indices_length);
 
     uint32_t* collate_leaf_ids(const std::vector<const art_leaf *> &leaves, size_t& result_ids_len) const;
@@ -304,5 +304,10 @@ public:
     void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
                              const std::vector<art_leaf *> &query_suggestion,
                              uint32_t *exact_strt_ids, size_t& exact_strt_size) const;
+
+    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
+
+    void tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
+                            std::vector<std::string>& tokens);
 };
 
