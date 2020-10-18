@@ -20,21 +20,6 @@ void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_lengt
 }
 
 size_t sorted_array::append(uint32_t value) {
-    uint32_t size_required = sorted_append_size_required(value, length+1);
-    size_t min_expected_size = size_required + FOR_ELE_SIZE;
-
-    /*LOG(INFO) << "value: " << value << ", new_length: " << length+1 << ", size_bytes: " << size_bytes
-              << ", size_required: " << size_required << ", min_expected_size: " << min_expected_size;
-
-    if(value == 0 && size_bytes == 28) {
-        uint32_t* arr = uncompress();
-        for(size_t i=0; i<length; i++) {
-            LOG(INFO) << "ele: " << arr[i];
-        }
-
-        delete [] arr;
-    }*/
-
     if(value < max) {
         // we will have to re-encode the whole sequence again
         uint32_t* arr = uncompress(length+1);
@@ -57,6 +42,9 @@ size_t sorted_array::append(uint32_t value) {
 
         return i;
     } else {
+        uint32_t size_required = sorted_append_size_required(value, length+1);
+        size_t min_expected_size = size_required + FOR_ELE_SIZE;
+
         if(size_bytes < min_expected_size) {
             // grow the array first
             size_t new_size = min_expected_size * FOR_GROWTH_FACTOR;
