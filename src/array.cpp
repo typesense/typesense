@@ -66,7 +66,7 @@ bool array::insert(size_t index, const uint32_t* values, size_t num_values) {
     uint32_t *curr_array = uncompress(length+num_values);
     memmove(&curr_array[index+num_values], &curr_array[index], sizeof(uint32_t)*(length-index));
 
-    uint32_t m, M;
+    uint32_t m = min, M = max;
 
     for(size_t i=0; i<num_values; i++) {
         uint32_t value = values[i];
