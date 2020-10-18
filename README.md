@@ -26,7 +26,7 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 - **Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
 - **Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
-- **Blazing Fast:** Meticulously architected from the ground-up for low-latency instant searches.
+- **Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
 - **Tunable Ranking:** Easy to tailor your search results to perfection.
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety of results.
