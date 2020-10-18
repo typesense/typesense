@@ -16,10 +16,11 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [API Documentation](#api-documentation)
 - [API Clients](#api-clients)
 - [Search UI Components](#search-ui-components)
-- [Build from Source](#build-from-source)
+- [Benchmarks](#benchmarks)
 - [FAQ](#faq)
 - [Support](#support)
 - [Getting Latest Updates](#getting-latest-updates)
+- [Build from Source](#build-from-source)
 
 ## Features
 
@@ -146,6 +147,86 @@ to quickly build powerful search experiences, complete with filtering, sorting, 
 
 Here's how: [https://typesense.org/docs/0.15.0/guide/#search-ui](https://typesense.org/docs/0.15.0/guide/#search-ui) 
 
+## FAQ
+
+### How does this differ from Elasticsearch?
+
+Elasticsearch is a large piece of software, that takes non-trivial amount of effort to setup, administer, scale and fine-tune. 
+It offers you a few thousand configuration parameters to get to your ideal configuration. So it's better suited for large teams 
+who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store 
+billions of documents and petabytes of data (eg: logs).
+
+Typesense is built specifically for decreasing the "time to market" for a delightful search experience. It is a light-weight
+yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics 
+and smart defaults so it just works well out-of-the-box, without you having to turn many knobs.
+
+Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand, 
+is a single light-weight self-contained native binary, so it's simple to setup and operate.
+
+### How does this differ from Algolia?
+
+Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
+fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
+
+Typesense on the other hand is an open-source product that you can run on your own infrastructure or
+use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org). 
+The open source version is free to use (besides of course your own infra costs). 
+With Typesense Cloud we do not charge by records or search operations. Instead, you get a dedicated cluster
+and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges 
+for it, depending on the configuration your choose, similar to most modern cloud platforms. 
+
+From a product perspective, Typesense is closer in spirit to Algolia than Elasticsearch. 
+However, we've addressed some important limitations with Algolia: 
+
+Algolia requires separate indices for each sort order, which counts towards your plan limits. Most of the index settings like 
+fields to search, fields to facet, fields to group by, ranking settings, etc 
+are defined upfront when the index is created vs being able to set them on the fly at query time.
+
+With Typesense, these settings can be configured at search time via query parameters which makes it very flexible
+and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
+This helps reduce memory consumption.
+
+Algolia offers the following features that Typesense does not have currently: 
+synonyms, geo spatial searches, personalization & server-based search analytics.
+With Typesense, we intend to bridge this gap, but in the meantime, please let us know
+if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
+
+### Speed is great, but what about the memory footprint?
+
+A fresh Typesense server will consume about 30 MB of memory. As you start indexing documents, the memory use will 
+increase correspondingly. How much it increases depends on the number and type of fields you index. 
+
+We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million 
+Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data 
+on disk in JSON format is 88 MB. If you have any numbers from your own datasets that we can add to this section, please send us a PR!
+
+## Benchmarks
+
+We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB, 8-vCPU 3-node Typesense cluster. 
+
+We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
+
+We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
+
+## Support
+
+If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
+
+We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
+
+- Guaranteed SLAs
+- Phone / video calls to discuss your specific use case and get recommendations on best practices
+- Private discussions over Slack
+- Guidance around deployment, ops and scaling best practices
+
+We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
+
+## Getting Latest Updates
+
+If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
+
+We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
+
 ## Build from source
 
 **Building with Docker**
@@ -174,80 +255,6 @@ Typesense requires the following dependencies:
 ```
 
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
-
-## FAQ
-
-**How does this differ from Elasticsearch?**
-
-Elasticsearch is a large piece of software, that takes non-trivial amount of effort to setup, administer, scale and fine-tune. 
-It offers you a few thousand configuration parameters to get to your ideal configuration. So it's better suited for large teams 
-who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store 
-billions of documents and petabytes of data (eg: logs).
-
-Typesense is built specifically for decreasing the "time to market" for a delightful search experience. It is a light-weight
-yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics 
-and smart defaults so it just works well out-of-the-box, without you having to turn many knobs.
-
-Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand, 
-is a single light-weight self-contained native binary, so it's simple to setup and operate.
-
-**How does this differ from Algolia?**
-
-Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
-fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
-
-Typesense on the other hand is an open-source product that you can run on your own infrastructure or
-use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org). 
-The open source version is free to use (besides of course your own infra costs). 
-With Typesense Cloud we do not charge by records or search operations. Instead, you get a dedicated cluster
-and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges 
-for it, depending on the configuration your choose, similar to most modern cloud platforms. 
-
-From a product perspective, Typesense is closer in spirit to Algolia than Elasticsearch. 
-However, we've addressed some important limitations with Algolia: 
-
-Algolia requires separate indices for each sort order, which counts towards your plan limits. Most of the index settings like 
-fields to search, fields to facet, fields to group by, ranking settings, etc 
-are defined upfront when the index is created vs being able to set them on the fly at query time.
-
-With Typesense, these settings can be configured at search time via query parameters which makes it very flexible
-and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
-This helps reduce memory consumption.
-
-Algolia offers the following features that Typesense does not have currently: 
-synonyms, geo spatial searches, personalization & server-based search analytics.
-With Typesense, we intend to bridge this gap, but in the meantime, please let us know
-if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
-
-**Speed is great, but what about the memory footprint?**
-
-A fresh Typesense server will consume about 30 MB of memory. As you start indexing documents, the memory use will 
-increase correspondingly. How much it increases depends on the number and type of fields you index. 
-
-We've strived to keep the in-memory data structures lean. To give you a rough idea: when 1 million 
-Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data 
-on disk in JSON format is 88 MB. We hope to add better benchmarks on a variety of different data sets soon. 
-In the mean time, if you have any numbers from your own datasets, please send us a PR!
-
-## Support
-
-If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
-
-We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
-
-- Guaranteed SLAs
-- Phone / video calls to discuss your specific use case and get recommendations on best practices
-- Private discussions over Slack
-- Guidance around deployment, ops and scaling best practices
-
-We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
-
-## Getting Latest Updates
-
-If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
-
-We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
-
 
 ---
 &copy; 2016-2020 Typesense Inc.
