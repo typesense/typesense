@@ -14,6 +14,9 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<sort_by> sort_fields;
 
+    // used for generating random text
+    std::vector<std::string> words;
+
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/collection";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -48,6 +51,12 @@ protected:
         }
 
         infile.close();
+
+        std::ifstream words_file(std::string(ROOT_DIR)+"test/resources/common100_english.txt");
+        std::stringstream strstream;
+        strstream << words_file.rdbuf();
+        words_file.close();
+        StringUtils::split(strstream.str(), words, "\n");
     }
 
     virtual void SetUp() {
@@ -58,6 +67,18 @@ protected:
         collectionManager.drop_collection("collection");
         collectionManager.dispose();
         delete store;
+    }
+
+    std::string get_text(size_t num_words) {
+        time_t t;
+        srand((unsigned) time(&t));
+        std::vector<std::string> strs;
+
+        for(size_t i = 0 ; i < num_words ; i++ ) {
+            int word_index = rand() % 100;
+            strs.push_back(words[word_index]);
+        }
+        return StringUtils::join(strs, " ");
     }
 };
 
@@ -1408,6 +1429,90 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(70, results["hits"][0]["document"]["points"].get<uint32_t>());
+}
+
+
+TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
+    Collection *coll1;
+    std::vector<field> fields = {
+            field("title", field_types::STRING_ARRAY, false, true),
+            field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    std::vector<std::string> records;
+
+    size_t NUM_RECORDS = 1000;
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["points"] = i;
+        records.push_back(doc.dump());
+    }
+
+    // import records without title
+
+    nlohmann::json document;
+    nlohmann::json import_response = coll1->add_many(records, document, false);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // upsert documents with title
+
+    records.clear();
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json updoc;
+        updoc["id"] = std::to_string(i);
+        updoc["title"] = {
+            get_text(10),
+            get_text(10),
+            get_text(10),
+            get_text(10),
+        };
+        records.push_back(updoc.dump());
+    }
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    import_response = coll1->add_many(records, document, true);
+    auto time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+    
+    //LOG(INFO) << "Time taken for first upsert: " << time_micros;
+    
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // run upsert again with title override
+
+    records.clear();
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json updoc;
+        updoc["id"] = std::to_string(i);
+        updoc["title"] = {
+            get_text(10),
+            get_text(10),
+            get_text(10),
+            get_text(10),
+        };
+        records.push_back(updoc.dump());
+    }
+
+    begin = std::chrono::high_resolution_clock::now();
+    import_response = coll1->add_many(records, document, true);
+    time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+
+    //LOG(INFO) << "Time taken for second upsert: " << time_micros;
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
 }
 
 TEST_F(CollectionTest, ImportDocuments) {

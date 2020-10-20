@@ -12,7 +12,8 @@ TEST(SortedArrayTest, Append) {
     EXPECT_EQ(arr.indexOf(100), 0);  // when not found must be equal to length (0 in this case)
 
     for(uint32_t i=0; i < SIZE; i++) {
-        arr.append(i);
+        size_t appended_index = arr.append(i);
+        ASSERT_EQ(i, appended_index);
     }
 
     EXPECT_EQ(arr.getLength(), SIZE);
@@ -28,7 +29,8 @@ TEST(SortedArrayTest, Append) {
     EXPECT_EQ(arr.indexOf(SIZE+1), SIZE);
 
     sorted_array arr_small;
-    arr_small.append(100);
+    size_t appended_index = arr_small.append(100);
+    EXPECT_EQ(0, appended_index);
     EXPECT_EQ(arr_small.getLength(), 1);
     EXPECT_EQ(arr_small.at(0), 100);
 }
@@ -36,18 +38,34 @@ TEST(SortedArrayTest, Append) {
 TEST(SortedArrayTest, AppendOutOfOrder) {
     sorted_array arr;
     for(size_t i=5; i<=10; i++) {
-        arr.append(i);
+        size_t appended_index = arr.append(i);
+        ASSERT_EQ(i-5, appended_index);
     }
 
     EXPECT_EQ(6, arr.getLength());
 
-    arr.append(1);
-    arr.append(3);
-    arr.append(2);
-    arr.append(4);
-    arr.append(11);
-    arr.append(14);
-    arr.append(12);
+    int appended_index = -1;
+
+    appended_index = arr.append(1);
+    ASSERT_EQ(0, appended_index);
+
+    appended_index = arr.append(3);
+    ASSERT_EQ(1, appended_index);
+
+    appended_index = arr.append(2);
+    ASSERT_EQ(1, appended_index);
+
+    appended_index = arr.append(4);
+    ASSERT_EQ(3, appended_index);
+
+    appended_index = arr.append(11);
+    ASSERT_EQ(10, appended_index);
+
+    appended_index = arr.append(14);
+    ASSERT_EQ(11, appended_index);
+
+    appended_index = arr.append(12);
+    ASSERT_EQ(11, appended_index);
 
     EXPECT_EQ(13, arr.getLength());
 }
@@ -134,6 +152,32 @@ TEST(SortedArrayTest, Uncompress) {
     }
 
     delete[] raw_sorted_arr;
+}
+
+TEST(SortedArrayTest, RemoveValue) {
+    sorted_array arr;
+
+    const size_t SIZE = 10*1000;
+    for(size_t i=0; i<SIZE; i++) {
+        arr.append(i);
+    }
+
+    uint32_t values[5] = {0, 100, 1000, 2000, SIZE-1};
+
+    for(size_t i=0; i<5; i++) {
+        arr.remove_value(values[i]);
+    }
+
+    ASSERT_EQ(arr.getLength(), SIZE-5);
+
+    for(size_t i=0; i<SIZE-5; i++) {
+        uint32_t value = arr.at(i);
+        ASSERT_FALSE(value == 0);
+        ASSERT_FALSE(value == 100);
+        ASSERT_FALSE(value == 1000);
+        ASSERT_FALSE(value == 2000);
+        ASSERT_FALSE(value == SIZE-1);
+    }
 }
 
 TEST(SortedArrayTest, RemoveValues) {
