@@ -52,5 +52,7 @@ public:
 
     bool insert(size_t index, uint32_t value);
 
+    void remove_value(uint32_t value);
+
     void remove_values(uint32_t *sorted_values, uint32_t sorted_values_length);
 };

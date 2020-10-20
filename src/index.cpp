@@ -1911,7 +1911,6 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
 
             art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
             if(leaf != nullptr) {
-                uint32_t seq_id_values[1] = {seq_id};
                 uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
 
                 if(doc_index == leaf->values->ids.getLength()) {
@@ -1928,7 +1927,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
 
                 leaf->values->offsets.remove_index(start_offset, end_offset);
-                leaf->values->ids.remove_values(seq_id_values, 1);
+                leaf->values->ids.remove_value(seq_id);
 
                 /*len = leaf->values->offset_index.getLength();
                 for(auto i=0; i<len; i++) {

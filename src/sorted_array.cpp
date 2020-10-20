@@ -23,24 +23,21 @@ size_t sorted_array::append(uint32_t value) {
     if(value < max) {
         // we will have to re-encode the whole sequence again
         uint32_t* arr = uncompress(length+1);
-        size_t i = 0;
-        while(i < length+1) {
-            if(value < arr[i]) {
-                break;
-            }
-            i++;
-        }
 
-        for(size_t j=length; j>i; j--) {
+        // find the index of the element which is >= to `value`
+        uint32_t found_val;
+        uint32_t gte_index = for_lower_bound_search(in, length, value, &found_val);
+
+        for(size_t j=length; j>gte_index; j--) {
             arr[j] = arr[j-1];
         }
 
-        arr[i] = value;
+        arr[gte_index] = value;
 
         load(arr, length+1);
         delete [] arr;
 
-        return i;
+        return gte_index;
     } else {
         uint32_t size_required = sorted_append_size_required(value, length+1);
         size_t min_expected_size = size_required + FOR_ELE_SIZE;
@@ -104,7 +101,11 @@ uint32_t sorted_array::indexOf(uint32_t value) {
 
     uint32_t actual;
     uint32_t index = for_lower_bound_search(in, length, value, &actual);
-    if(actual == value) return index;
+
+    if(actual == value) {
+        return index;
+    }
+
     return length;
 }
 
@@ -191,6 +192,28 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
 
     // recursively search within the bounds for all values
     binary_search_indices(values, head, tail, low_index, high_index, base, bits, indices);
+}
+
+void sorted_array::remove_value(uint32_t value) {
+    // A lower bound search returns the first element in the sequence that is >= `value`
+    // So, `found_val` will be either equal or greater than `value`
+    uint32_t found_val;
+    uint32_t found_index = for_lower_bound_search(in, length, value, &found_val);
+
+    if(found_val != value) {
+        return ;
+    }
+
+    uint32_t *curr_array = uncompress();
+
+    if(found_index + 1 < length) {
+        memmove(&curr_array[found_index], &curr_array[found_index+1], sizeof(uint32_t) * (length - found_index - 1));
+    }
+
+    size_t new_length = (length == 0) ? 0 : (length - 1);
+    load(curr_array, new_length);
+
+    delete [] curr_array;
 }
 
 void sorted_array::remove_values(uint32_t *sorted_values, uint32_t sorted_values_length) {
