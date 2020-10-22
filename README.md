@@ -149,6 +149,14 @@ to quickly build powerful search experiences, complete with filtering, sorting, 
 
 Here's how: [https://typesense.org/docs/0.15.0/guide/#search-ui](https://typesense.org/docs/0.15.0/guide/#search-ui) 
 
+## Benchmarks
+
+We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB, 8-vCPU 3-node Typesense cluster. 
+
+We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
+
+We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
+
 ## FAQ
 
 ### How does this differ from Elasticsearch?
@@ -202,13 +210,21 @@ We've strived to keep the in-memory data structures lean. To give you a rough id
 Hacker News titles are indexed along with their points, Typesense consumes 165 MB of memory. The same size of that data 
 on disk in JSON format is 88 MB. If you have any numbers from your own datasets that we can add to this section, please send us a PR!
 
-## Benchmarks
+### Why the GPL license?
 
-We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB, 8-vCPU 3-node Typesense cluster. 
+From our experience companies are generally concerned when **libraries** they use are GPL licensed, since library code is directly integrated into their code and will lead to derivative work and trigger GPL compliance. However, Typesense Server is **server software** and we expect users to typically run it as a separate daemon, and not integrate it with their own code. GPL covers and allows for this use case generously **(eg: Linux is GPL licensed)**. Now, AGPL is what makes server software accessed over a network result in derivative work and not GPL. And for that reason we’ve opted to not use AGPL for Typesense. 
 
-We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
+Now, if someone makes modifications to Typesense server, GPL actually allows you to still keep the modifications to yourself as long as you don't distribute the modified code. So a company can for example modify Typesense server and run the modified code internally and still not have to open source their modifications, as long as they make the modified code available to everyone who has access to the modified software.
 
-We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
+Now, if someone makes modifications to Typesense server and distributes the modifications, that's where GPL kicks in. Given that we’ve published our work to the community, we'd like for others' modifications to also be made open to the community in the spirit of open source. **We use GPL for this purpose.** Other licenses would allow our open source work to be modified, made closed source and distributed, which we want to avoid with Typesense for the project’s long term sustainability.
+
+Here's more background on why GPL, as described by Discourse: https://meta.discourse.org/t/why-gnu-license/2531. Many of the points mentioned there resonate with us.
+
+Now, all of the above only apply to Typesense Server. Our client libraries are indeed meant to be integrated into our users’ code and so they use Apache license.
+
+So in summary, AGPL is what is usually problematic for server software and we’ve opted not to use it. We believe GPL for Typesense Server captures the essence of what we want for this open source project. GPL has a long history of successfully being used by popular open source projects. Our libraries are still Apache licensed.
+
+If you have specifics that prevent you from using Typesense due to a licensing issue, we're happy to explore this topic further with you. Please reach out to us.
 
 ## Support
 
