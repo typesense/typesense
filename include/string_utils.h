@@ -199,11 +199,12 @@ struct StringUtils {
         return (*p == 0) && val >= std::numeric_limits<int32_t>::min() && val <= std::numeric_limits<int32_t>::max();
     }
 
-    static bool is_bool(const std::string &s) {
+    static bool is_bool(std::string &s) {
         if(s.empty()) {
             return false;
         }
 
+        StringUtils::tolowercase(s);
         return s == "true" || s == "false";
     }
 
