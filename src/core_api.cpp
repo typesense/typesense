@@ -736,11 +736,6 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    std::string doc_id;
-    if(req.params.count("id") != 0) {
-        doc_id = req.params["id"];
-    }
-
     const bool upsert = (req.params[UPSERT] == "true");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -751,7 +746,7 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, upsert, doc_id);
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, upsert);
 
     if(!inserted_doc_op.ok()) {
         res.set(inserted_doc_op.code(), inserted_doc_op.error());
@@ -763,10 +758,7 @@ bool post_add_document(http_req & req, http_res & res) {
 }
 
 bool put_upsert_document(http_req & req, http_res & res) {
-    std::string doc_id;
-    if(req.params.count("id") != 0) {
-        doc_id = req.params["id"];
-    }
+    std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
