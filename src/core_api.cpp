@@ -776,7 +776,7 @@ bool put_upsert_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, true, doc_id);
+    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, false, doc_id);
 
     if(!upserted_doc_op.ok()) {
         res.set(upserted_doc_op.code(), upserted_doc_op.error());
