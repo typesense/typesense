@@ -21,7 +21,7 @@ void master_server_routes() {
 
     // document management - `/documents/:id` end-points must be placed last in the list
     server->post("/collections/:collection/documents", post_add_document);
-    server->put("/collections/:collection/documents/:id", put_upsert_document);
+    server->patch("/collections/:collection/documents/:id", patch_update_document);
     server->get("/collections/:collection/documents/search", get_search);
 
     server->post("/collections/:collection/documents/import", post_import_documents, true, true);

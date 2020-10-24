@@ -706,6 +706,13 @@ void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
+void HttpServer::patch(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+    std::vector<std::string> path_parts;
+    StringUtils::split(path, path_parts, "/");
+    route_path rpath("PATCH", path_parts, handler, async_req, async_res);
+    routes.emplace_back(rpath.route_hash(), rpath);
+}
+
 void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
