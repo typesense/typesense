@@ -98,8 +98,8 @@ void Collection::increment_next_seq_id_field() {
     next_seq_id++;
 }
 
-Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json & document,
-                                        bool upsert, const std::string& id) {
+Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json& document,
+                                        const index_operation_t& operation, const std::string& id) {
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
@@ -111,14 +111,18 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         return Option<doc_seq_id_t>(400, "Bad JSON: not a properly formed document.");
     }
 
-    if(upsert && document.count("id") == 0 && !id.empty()) {
+    // operation could be: insert, upsert or delete and we have to validate based on that
+
+    if(document.count("id") == 0 && !id.empty()) {
+        // use the explicit ID (usually from a PUT request) if document body does not have it
         document["id"] = id;
     }
 
     if(document.count("id") == 0) {
-        if(upsert) {
-            return Option<doc_seq_id_t>(400, "For update, the `id` key must be present.");
+        if(operation == UPDATE) {
+            return Option<doc_seq_id_t>(400, "For update, the `id` key must be provided.");
         }
+        // for UPSERT or CREATE, if a document does not have an ID, we will treat it as a new doc
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
         return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
@@ -129,29 +133,33 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
 
         const std::string& doc_id = document["id"];
 
-        if(upsert) {
-            // try to get the corresponding sequence id from disk if present
-            std::string seq_id_str;
-            StoreStatus seq_id_status = store->get(get_doc_id_key(doc_id), seq_id_str);
+        // try to get the corresponding sequence id from disk if present
+        std::string seq_id_str;
+        StoreStatus seq_id_status = store->get(get_doc_id_key(doc_id), seq_id_str);
 
-            if(seq_id_status == StoreStatus::ERROR) {
-                return Option<doc_seq_id_t>(500, "Error fetching the sequence key for document with id: " + doc_id);
-            }
-
-            if(seq_id_status == StoreStatus::FOUND) {
-                uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
-                return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false});
-            }
-
-            // if key is not found, we will fallback to the "insert" workflow
+        if(seq_id_status == StoreStatus::ERROR) {
+            return Option<doc_seq_id_t>(500, "Error fetching the sequence key for document with id: " + doc_id);
         }
 
-        if(doc_exists(doc_id)) {
-            return Option<doc_seq_id_t>(409, std::string("A document with id ") + doc_id + " already exists.");
-        }
+        if(seq_id_status == StoreStatus::FOUND) {
+            if(operation == CREATE) {
+                return Option<doc_seq_id_t>(409, std::string("A document with id ") + doc_id + " already exists.");
+            }
 
-        uint32_t seq_id = get_next_seq_id();
-        return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
+            // UPSERT or UPDATE
+            uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
+            return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false});
+
+        } else {
+            if(operation == UPDATE) {
+                // for UPDATE, a document with given ID must be found
+                return Option<doc_seq_id_t>(400, "Could not find a document with id: " + doc_id);
+            } else {
+                // for UPSERT or CREATE, if a document with given ID is not found, we will treat it as a new doc
+                uint32_t seq_id = get_next_seq_id();
+                return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
+            }
+        }
     }
 }
 
@@ -179,10 +187,11 @@ nlohmann::json Collection::get_summary_json() {
     return json_response;
 }
 
-Option<nlohmann::json> Collection::add(const std::string & json_str, const bool upsert, const std::string& id) {
+Option<nlohmann::json> Collection::add(const std::string & json_str,
+                                       const index_operation_t& operation, const std::string& id) {
     nlohmann::json document;
     std::vector<std::string> json_lines = {json_str};
-    const nlohmann::json& res = add_many(json_lines, document, upsert, id);
+    const nlohmann::json& res = add_many(json_lines, document, operation, id);
 
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
@@ -218,7 +227,7 @@ void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json 
 }
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
-                                    const bool upsert, const std::string& id) {
+                                    const index_operation_t& operation, const std::string& id) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<std::vector<index_record>> iter_batch;
 
@@ -232,21 +241,20 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
-        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, upsert, id);
+        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, id);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
-        index_record record(i, seq_id, document, CREATE);
+        index_record record(i, seq_id, document, operation);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
-        bool is_update = false;
+        record.is_update = false;
 
         if(!doc_seq_id_op.ok()) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         } else {
-            is_update = !doc_seq_id_op.get().is_new;
-            if(is_update) {
-                record.operation = UPDATE;
+            record.is_update = !doc_seq_id_op.get().is_new;
+            if(record.is_update) {
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
                 get_doc_changes(document, record.old_doc, record.new_doc, record.del_doc);
             }
@@ -301,7 +309,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
             nlohmann::json res;
 
             if(index_record.indexed.ok()) {
-                if(index_record.operation == UPDATE) {
+                if(index_record.operation == UPDATE || index_record.operation == UPSERT) {
                     const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                     bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 

@@ -694,9 +694,11 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
+    const index_operation_t operation = upsert ? index_operation_t::UPSERT : index_operation_t::CREATE;
+
     if(!single_partial_record_body) {
         nlohmann::json document;
-        nlohmann::json json_res = collection->add_many(json_lines, document, upsert);
+        nlohmann::json json_res = collection->add_many(json_lines, document, operation);
         //const std::string& import_summary_json = json_res.dump();
         //response_stream << import_summary_json << "\n";
 
@@ -746,7 +748,8 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, upsert);
+    index_operation_t operation = upsert ? index_operation_t::UPSERT : index_operation_t::CREATE;
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation);
 
     if(!inserted_doc_op.ok()) {
         res.set(inserted_doc_op.code(), inserted_doc_op.error());
@@ -768,7 +771,7 @@ bool put_upsert_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, false, doc_id);
+    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, index_operation_t::UPDATE, doc_id);
 
     if(!upserted_doc_op.ok()) {
         res.set(upserted_doc_op.code(), upserted_doc_op.error());
