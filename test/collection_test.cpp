@@ -1352,7 +1352,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
                                             R"({"id": "6", "points": 77})"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, true);
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
 
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(4, import_response["num_imported"].get<int>());
@@ -1392,7 +1392,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                     R"({"id": "5", "points": 60})",
                     R"({"id": "24", "starring": "John", "cast": ["John Kim"], "points": 11})"};   // missing fields
 
-    import_response = coll_mul_fields->add_many(more_records, document, true);
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
@@ -1403,12 +1403,12 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_STREQ("Field `points` has been declared as a default sorting field, but is not found in the document.", import_results[1]["error"].get<std::string>().c_str());
     ASSERT_STREQ("Field `title` has been declared in the schema, but is not found in the document.", import_results[3]["error"].get<std::string>().c_str());
 
-    // try to update without upsert option
+    // try to add without upsert option
 
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
                     R"({"id": "5", "points": 60})"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, false);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
@@ -1423,7 +1423,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                         "points":70,"starring":"Robin Williams","starring_facet":"Robin Williams",
                         "title":"Good Will Hunting"})"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, true);
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
@@ -1458,7 +1458,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     // import records without title
 
     nlohmann::json document;
-    nlohmann::json import_response = coll1->add_many(records, document, false);
+    nlohmann::json import_response = coll1->add_many(records, document, CREATE);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1000, import_response["num_imported"].get<int>());
 
@@ -1479,7 +1479,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     }
 
     auto begin = std::chrono::high_resolution_clock::now();
-    import_response = coll1->add_many(records, document, true);
+    import_response = coll1->add_many(records, document, UPSERT);
     auto time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
     
@@ -1505,7 +1505,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     }
 
     begin = std::chrono::high_resolution_clock::now();
-    import_response = coll1->add_many(records, document, true);
+    import_response = coll1->add_many(records, document, UPSERT);
     time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
 
@@ -2481,7 +2481,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     // try changing the title and searching for an older token
     doc["title"] = "The quick brown fox.";
-    add_op = coll1->add(doc.dump(), true);
+    add_op = coll1->add(doc.dump(), UPSERT);
     ASSERT_TRUE(add_op.ok());
 
     ASSERT_EQ(1, coll1->get_num_documents());
@@ -2499,16 +2499,16 @@ TEST_F(CollectionTest, UpdateDocument) {
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("The quick brown fox.", res["hits"][0]["document"]["title"].get<std::string>().c_str());
 
-    // try to change tags without `id`
+    // try to update document tags without `id`
     nlohmann::json doc2;
     doc2["tags"] = {"SENTENCE"};
-    add_op = coll1->add(doc2.dump(), true);
+    add_op = coll1->add(doc2.dump(), UPDATE);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_STREQ("For update, the `id` key must be present.", add_op.error().c_str());
+    ASSERT_STREQ("For update, the `id` key must be provided.", add_op.error().c_str());
 
     // now change tags with id
     doc2["id"] = "100";
-    add_op = coll1->add(doc2.dump(), true);
+    add_op = coll1->add(doc2.dump(), UPDATE);
     ASSERT_TRUE(add_op.ok());
 
     // check for old tag
@@ -2531,7 +2531,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     doc3["points"] = 99;
     doc3["id"] = "100";
 
-    add_op = coll1->add(doc3.dump(), true);
+    add_op = coll1->add(doc3.dump(), UPDATE);
     ASSERT_TRUE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 90", {}, sort_fields, 0, 10, 1,
@@ -2545,7 +2545,8 @@ TEST_F(CollectionTest, UpdateDocument) {
     nlohmann::json doc4;
     doc4["points"] = 105;
 
-    add_op = coll1->add(doc4.dump(), true, "100");
+    add_op = coll1->add(doc4.dump(), UPSERT, "100");
+    LOG(INFO) << add_op.error();
     ASSERT_TRUE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
@@ -2557,7 +2558,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     // try to change a field with bad value and verify that old document is put back
     doc4["points"] = "abc";
-    add_op = coll1->add(doc4.dump(), true, "100");
+    add_op = coll1->add(doc4.dump(), UPSERT, "100");
     ASSERT_FALSE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,

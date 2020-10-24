@@ -376,26 +376,24 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             continue;
         }
 
-        bool is_update = (index_rec.operation == UPDATE);
-
-        if(index_rec.operation == CREATE || index_rec.operation == UPDATE) {
+        if(index_rec.operation != DELETE) {
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
-                                                                      search_schema, facet_schema, is_update);
+                                                                      search_schema, facet_schema, index_rec.is_update);
 
             if(!validation_op.ok()) {
                 index_rec.index_failure(validation_op.code(), validation_op.error());
                 continue;
             }
 
-            if(is_update) {
+            if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
                 index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 index->remove(index_rec.seq_id, index_rec.del_doc);
             }
 
             Option<uint32_t> index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id,
-                                                                   default_sorting_field, is_update);
+                                                                   default_sorting_field, index_rec.is_update);
             if(!index_mem_op.ok()) {
                 index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, true);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
@@ -404,7 +402,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
 
             index_rec.index_success();
 
-            if(!is_update) {
+            if(!index_rec.is_update) {
                 num_indexed++;
             }
         }

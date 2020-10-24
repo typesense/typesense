@@ -224,15 +224,16 @@ public:
 
     std::string get_default_sorting_field();
 
-    Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document, bool upsert,
-                                const std::string& id="");
+    Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
+                                const index_operation_t& operation, const std::string& id="");
 
     nlohmann::json get_summary_json();
 
-    Option<nlohmann::json> add(const std::string & json_str, const bool upsert=false, const std::string& id="");
+    Option<nlohmann::json> add(const std::string & json_str,
+                               const index_operation_t& operation=CREATE, const std::string& id="");
 
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
-                            const bool upsert=false, const std::string& id="");
+                            const index_operation_t& operation=CREATE, const std::string& id="");
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,

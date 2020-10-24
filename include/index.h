@@ -81,6 +81,7 @@ struct search_args {
 
 enum index_operation_t {
     CREATE,
+    UPSERT,
     UPDATE,
     DELETE
 };
@@ -95,6 +96,7 @@ struct index_record {
     nlohmann::json del_doc;
 
     index_operation_t operation;
+    bool is_update;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
