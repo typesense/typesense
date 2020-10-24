@@ -27,6 +27,18 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
     return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req_params);
 }
 
+index_operation_t get_index_operation(const std::string& action) {
+    if(action == "create") {
+        return CREATE;
+    } else if(action == "update") {
+        return UPDATE;
+    } else if(action == "upsert") {
+        return UPSERT;
+    }
+
+    return CREATE;
+}
+
 bool get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<Collection*> collections = collectionManager.get_collections();
@@ -592,14 +604,14 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "post_import_documents";
     //LOG(INFO) << "req.first_chunk=" << req.first_chunk_aggregate << ", last_chunk=" << req.last_chunk_aggregate;
     const char *BATCH_SIZE = "batch_size";
-    const char *UPSERT = "upsert";
+    const char *ACTION = "action";
 
     if(req.params.count(BATCH_SIZE) == 0) {
         req.params[BATCH_SIZE] = "40";
     }
 
-    if(req.params.count(UPSERT) == 0) {
-        req.params[UPSERT] = "false";
+    if(req.params.count(ACTION) == 0) {
+        req.params[ACTION] = "create";
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
@@ -610,16 +622,15 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
-    if(!StringUtils::is_bool(req.params[UPSERT])) {
+    if(req.params[ACTION] != "create" || req.params[ACTION] != "update" || req.params[ACTION] != "upsert") {
         req.last_chunk_aggregate = true;
         res.final = true;
-        res.set_400("Parameter `" + std::string(UPSERT) + "` must be a boolean.");
+        res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         HttpServer::stream_response(req, res);
         return false;
     }
 
     const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
-    const bool upsert = (req.params[UPSERT] == "true");
 
     if(IMPORT_BATCH_SIZE == 0) {
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
@@ -694,7 +705,7 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
-    const index_operation_t operation = upsert ? index_operation_t::UPSERT : index_operation_t::CREATE;
+    const index_operation_t operation = get_index_operation(req.params[ACTION]);
 
     if(!single_partial_record_body) {
         nlohmann::json document;
@@ -728,17 +739,15 @@ bool post_import_documents(http_req& req, http_res& res) {
 }
 
 bool post_add_document(http_req & req, http_res & res) {
-    const char *UPSERT = "upsert";
-    if(req.params.count(UPSERT) == 0) {
-        req.params[UPSERT] = "false";
+    const char *ACTION = "action";
+    if(req.params.count(ACTION) == 0) {
+        req.params[ACTION] = "create";
     }
 
-    if(!StringUtils::is_bool(req.params[UPSERT])) {
-        res.set_400("Parameter `" + std::string(UPSERT) + "` must be a boolean.");
+    if(req.params[ACTION] != "create" || req.params[ACTION] != "update" || req.params[ACTION] != "upsert") {
+        res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         return false;
     }
-
-    const bool upsert = (req.params[UPSERT] == "true");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
@@ -748,7 +757,7 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    index_operation_t operation = upsert ? index_operation_t::UPSERT : index_operation_t::CREATE;
+    const index_operation_t operation = get_index_operation(req.params[ACTION]);
     Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation);
 
     if(!inserted_doc_op.ok()) {
@@ -760,7 +769,7 @@ bool post_add_document(http_req & req, http_res & res) {
     return true;
 }
 
-bool put_upsert_document(http_req & req, http_res & res) {
+bool patch_update_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
