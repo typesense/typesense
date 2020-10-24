@@ -101,7 +101,7 @@ struct index_record {
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
     index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation):
-            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), indexed(false) {
+            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), is_update(false), indexed(false) {
 
     }
 

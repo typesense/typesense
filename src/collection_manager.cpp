@@ -195,7 +195,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
                     if(num_indexed != num_records) {
                         const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                        if(index_error_op.ok()) {
+                        if(!index_error_op.ok()) {
                             return Option<bool>(false, index_error_op.get());
                         }
                     }
