@@ -622,7 +622,7 @@ bool post_import_documents(http_req& req, http_res& res) {
         return false;
     }
 
-    if(req.params[ACTION] != "create" || req.params[ACTION] != "update" || req.params[ACTION] != "upsert") {
+    if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
         req.last_chunk_aggregate = true;
         res.final = true;
         res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
@@ -744,7 +744,7 @@ bool post_add_document(http_req & req, http_res & res) {
         req.params[ACTION] = "create";
     }
 
-    if(req.params[ACTION] != "create" || req.params[ACTION] != "update" || req.params[ACTION] != "upsert") {
+    if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
         res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         return false;
     }
