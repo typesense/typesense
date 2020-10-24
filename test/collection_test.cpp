@@ -1329,10 +1329,10 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     StringUtils::split(strstream.str(), import_records, "\n");
 
     std::vector<field> fields = {
-            field("title", field_types::STRING, false),
-            field("starring", field_types::STRING, false),
-            field("cast", field_types::STRING_ARRAY, false),
-            field("points", field_types::INT32, false)
+        field("title", field_types::STRING, false),
+        field("starring", field_types::STRING, false),
+        field("cast", field_types::STRING_ARRAY, false),
+        field("points", field_types::INT32, false)
     };
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
@@ -1346,7 +1346,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
-    // import some new records along with updates
+    // update + upsert records
     std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry"})",
                                             R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
@@ -1386,7 +1386,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(77, results["hits"][0]["document"]["points"].get<size_t>());
 
-    // updates mixed with errors
+    // upserting with some bad docs
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
                     R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",                     // missing fields
                     R"({"id": "5", "points": 60})",
@@ -1403,7 +1403,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_STREQ("Field `points` has been declared as a default sorting field, but is not found in the document.", import_results[1]["error"].get<std::string>().c_str());
     ASSERT_STREQ("Field `title` has been declared in the schema, but is not found in the document.", import_results[3]["error"].get<std::string>().c_str());
 
-    // try to add without upsert option
+    // try to duplicate records without upsert option
 
     more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
                     R"({"id": "5", "points": 60})"};
@@ -1423,12 +1423,42 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
                         "points":70,"starring":"Robin Williams","starring_facet":"Robin Williams",
                         "title":"Good Will Hunting"})"};
 
-    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
+    import_response = coll_mul_fields->add_many(more_records, document, UPDATE);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
     results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(70, results["hits"][0]["document"]["points"].get<uint32_t>());
+
+    // updating a document that does not exist should fail, others should succeed
+    more_records = {R"({"id": "20", "points": 51})",
+                    R"({"id": "1", "points": 64})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, UPDATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_TRUE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("Could not find a document with id: 20", import_results[0]["error"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("wake up harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(64, results["hits"][0]["document"]["points"].get<uint32_t>());
+
+    // trying to create documents with existing IDs should fail
+    more_records = {R"({"id": "2", "points": 51})",
+                    R"({"id": "1", "points": 64})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("A document with id 2 already exists.", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id 1 already exists.", import_results[1]["error"].get<std::string>().c_str());
 }
 
 
