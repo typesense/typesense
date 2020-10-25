@@ -112,7 +112,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
     }
 
     if(document.count("id") != 0 && id != "" && document["id"] != id) {
-        return Option<doc_seq_id_t>(400, "The `id` of the resource does not match the `id` on the JSON body.");
+        return Option<doc_seq_id_t>(400, "The `id` of the resource does not match the `id` in the JSON body.");
     }
 
     if(document.count("id") == 0 && !id.empty()) {
