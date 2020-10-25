@@ -1370,6 +1370,11 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     ASSERT_EQ(19, coll_mul_fields->get_num_documents());
 
+    results = coll_mul_fields->search("back again forest", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("Back Again Forest", coll_mul_fields->get("18").get()["title"].get<std::string>().c_str());
+
     results = coll_mul_fields->search("fifth", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
@@ -1442,6 +1447,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_FALSE(import_results[0]["success"].get<bool>());
     ASSERT_TRUE(import_results[1]["success"].get<bool>());
     ASSERT_STREQ("Could not find a document with id: 20", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_EQ(404, import_results[0]["code"].get<size_t>());
 
     results = coll_mul_fields->search("wake up harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(64, results["hits"][0]["document"]["points"].get<uint32_t>());
@@ -1459,6 +1465,9 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_FALSE(import_results[1]["success"].get<bool>());
     ASSERT_STREQ("A document with id 2 already exists.", import_results[0]["error"].get<std::string>().c_str());
     ASSERT_STREQ("A document with id 1 already exists.", import_results[1]["error"].get<std::string>().c_str());
+
+    ASSERT_EQ(409, import_results[0]["code"].get<size_t>());
+    ASSERT_EQ(409, import_results[1]["code"].get<size_t>());
 }
 
 

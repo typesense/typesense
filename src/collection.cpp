@@ -153,7 +153,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         } else {
             if(operation == UPDATE) {
                 // for UPDATE, a document with given ID must be found
-                return Option<doc_seq_id_t>(400, "Could not find a document with id: " + doc_id);
+                return Option<doc_seq_id_t>(404, "Could not find a document with id: " + doc_id);
             } else {
                 // for UPSERT or CREATE, if a document with given ID is not found, we will treat it as a new doc
                 uint32_t seq_id = get_next_seq_id();
@@ -309,7 +309,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
             nlohmann::json res;
 
             if(index_record.indexed.ok()) {
-                if(index_record.operation == UPDATE || index_record.operation == UPSERT) {
+                if(index_record.is_update) {
                     const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                     bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
@@ -323,7 +323,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                         index_record.index_success();
                     }
 
-                } else if(index_record.operation == CREATE) {
+                } else {
                     const std::string& seq_id_str = std::to_string(index_record.seq_id);
                     const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
                                                                                nlohmann::detail::error_handler_t::ignore);
