@@ -45,6 +45,31 @@ TEST(ArrayTest, Append) {
     }
 }
 
+TEST(ArrayTest, InsertValues) {
+    std::vector<uint32_t> eles = {10, 1, 4, 5, 7};
+    array arr;
+
+    for(size_t i=0; i < eles.size(); i++) {
+        arr.append(eles[i]);
+    }
+
+    uint32_t insert_arr[2] = {2, 3};
+    arr.insert(2, insert_arr, 2);
+    eles = {10, 1, 2, 3, 4, 5, 7};
+
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+
+    uint32_t insert_arr2[2] = {20, 25};
+    arr.insert(6, insert_arr2, 2);
+
+    eles = {10, 1, 2, 3, 4, 5, 20, 25, 7};
+    for(size_t i=0; i < eles.size(); i++) {
+        ASSERT_EQ(eles[i], arr.at(i));
+    }
+}
+
 TEST(ArrayTest, Uncompress) {
     const size_t SIZE = 10*1000;
 

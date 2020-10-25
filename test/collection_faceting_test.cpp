@@ -71,6 +71,11 @@ TEST_F(CollectionFacetingTest, FacetFieldStringFiltering) {
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<size_t>());
 
+    // multiple tokens but with a typo on one of them
+    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
     // same should succeed when verbatim filter is made
     results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
@@ -82,6 +87,11 @@ TEST_F(CollectionFacetingTest, FacetFieldStringFiltering) {
     ASSERT_EQ(2, results["found"].get<size_t>());
 
     results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // contains when only 1 token matches
+    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
@@ -129,6 +139,9 @@ TEST_F(CollectionFacetingTest, FacetFieldStringArrayFiltering) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // partial token filter should be made without "=" operator

@@ -79,15 +79,29 @@ struct search_args {
     };
 };
 
+enum index_operation_t {
+    CREATE,
+    UPSERT,
+    UPDATE,
+    DELETE
+};
+
 struct index_record {
-    size_t position;         // position of record in the original request
+    size_t position;                    // position of record in the original request
     uint32_t seq_id;
-    nlohmann::json document;
 
-    Option<bool> indexed;     // indicates if the indexing operation was a success
+    nlohmann::json doc;
+    nlohmann::json old_doc;
+    nlohmann::json new_doc;
+    nlohmann::json del_doc;
 
-    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc):
-            position(record_pos), seq_id(seq_id), document(doc), indexed(true) {
+    index_operation_t operation;
+    bool is_update;
+
+    Option<bool> indexed;               // indicates if the indexing operation was a success
+
+    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation):
+            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), is_update(false), indexed(false) {
 
     }
 
@@ -95,7 +109,7 @@ struct index_record {
         indexed = Option<bool>(err_code, err_msg);
     }
 
-    void index_success(const index_record & record) {
+    void index_success() {
         indexed = Option<bool>(true);
     }
 };
@@ -154,32 +168,32 @@ private:
                            size_t & all_result_ids_len,
                            const size_t typo_tokens_threshold);
 
-    void insert_doc(const uint32_t score, art_tree *t, uint32_t seq_id,
+    void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    void index_string_field(const std::string & text, const uint32_t score, art_tree *t, uint32_t seq_id,
+    void index_string_field(const std::string & text, const int64_t score, art_tree *t, uint32_t seq_id,
                             int facet_id, const field & a_field);
 
-    void index_string_array_field(const std::vector<std::string> & strings, const uint32_t score, art_tree *t,
+    void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                   uint32_t seq_id, int facet_id, const field & a_field);
 
-    void index_int32_field(const int32_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int32_field(const int32_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int64_field(const int64_t value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int64_field(const int64_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_float_field(const float value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_float_field(const float value, const int64_t score, art_tree *t, uint32_t seq_id) const;
     
-    void index_bool_field(const bool value, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_bool_field(const bool value, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int32_array_field(const std::vector<int32_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int32_array_field(const std::vector<int32_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_int64_array_field(const std::vector<int64_t> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_int64_array_field(const std::vector<int64_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void index_float_array_field(const std::vector<float> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_float_array_field(const std::vector<float> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
     
-    void index_bool_array_field(const std::vector<bool> & values, const uint32_t score, art_tree *t, uint32_t seq_id) const;
+    void index_bool_array_field(const std::vector<bool> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
 
-    void remove_and_shift_offset_index(sorted_array &offset_index, const uint32_t *indices_sorted,
+    void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
                                        const uint32_t indices_length);
 
     uint32_t* collate_leaf_ids(const std::vector<const art_leaf *> &leaves, size_t& result_ids_len) const;
@@ -238,21 +252,22 @@ public:
                        spp::sparse_hash_set<uint64_t>& groups_processed,
                        const uint32_t *result_ids, const size_t result_size);
 
-    static int32_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
+    static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field);
+                                     const std::string & default_sorting_field, bool is_update);
 
     static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::map<std::string, field> & facet_schema);
+                                                     const std::map<std::string, field> & facet_schema,
+                                                     bool is_update);
 
     static size_t batch_memory_index(Index *index,
-                                        std::vector<index_record> & iter_batch,
-                                        const std::string & default_sorting_field,
-                                        const std::unordered_map<std::string, field> & search_schema,
-                                        const std::map<std::string, field> & facet_schema);
+                                     std::vector<index_record> & iter_batch,
+                                     const std::string & default_sorting_field,
+                                     const std::unordered_map<std::string, field> & search_schema,
+                                     const std::map<std::string, field> & facet_schema);
 
     const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
 
@@ -291,5 +306,10 @@ public:
     void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
                              const std::vector<art_leaf *> &query_suggestion,
                              uint32_t *exact_strt_ids, size_t& exact_strt_size) const;
+
+    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
+
+    void tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
+                            std::vector<std::string>& tokens);
 };
 
