@@ -1,6 +1,7 @@
-<a href="https://typesense.org"><img src="assets/typesense_medium.png?raw=true" alt="Typesense" width="298" /></a> 
+<a href="https://typesense.org"><img src="https://typesense.org/assets/images/typesense_logo.svg" alt="Typesense" width="298" /></a> 
 
 [![CircleCI](https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa)](https://circleci.com/gh/typesense/typesense)
+![Docker Pulls](https://img.shields.io/docker/pulls/typesense/typesense)
 
 Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
 
@@ -11,11 +12,13 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 - [Features](#features)
 - [Install](#install)
 - [Quick Start](#quick-start)
-- [Detailed Guide](#detailed-guide)
+- [Step-by-step Walk-through](#step-by-step-walk-through)
+- [API Documentation](#api-documentation)
 - [Search UIs](#search-uis)
 - [Build from Source](#build-from-source)
 - [FAQ](#faq)
-- [Help](#help)
+- [Support](#support)
+- [Getting Latest Updates](#getting-latest-updates)
 
 ## Features
 
@@ -103,9 +106,17 @@ client.collections['companies'].documents.search(search_parameters)
 
 **Did you notice the typo in the query text?** No big deal. Typesense handles typographic errors out-of-the-box!
 
-## Detailed Guide
+## Step-by-step Walk-through
 
-A detailed guide is available on [Typesense website](https://typesense.org/guide). 
+A step-by-step walk-through is available on our website [here](https://typesense.org/guide). 
+
+This will guide you through the process of starting up a Typesense server, indexing data in it and querying the data set. 
+
+## API Documentation
+
+Here's our official API documentation, available on our website: [https://typesense.org/api](https://typesense.org/api).
+
+If you notice any issues with the documentation or walk-through, please let us know or send us a PR here: [https://github.com/typesense/typesense-website](https://github.com/typesense/typesense-website).
 
 ## Search UIs
 
@@ -145,7 +156,7 @@ The first build will take some time since other third-party libraries are pulled
 
 ## FAQ
 
-**How does this differ from using Elasticsearch?**
+**How does this differ from Elasticsearch?**
 
 Elasticsearch is better suited for large teams who have the bandwidth to administer, scale and fine-tune it and 
 especially when they have a need to store billions of documents and scale horizontally. 
@@ -154,7 +165,7 @@ Typesense is built specifically for decreasing the "time to market" for a deligh
 focusing on Developer Productivity and Experience with a clean API, clear semantics and smart defaults so that it just 
 works without turning many knobs.
 
-**How does this differ from using Algolia?**
+**How does this differ from Algolia?**
 
 Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
 fast growing sites and apps quickly run into search & indexing limits, accompanied by expensive plan upgrades as they scale.
@@ -192,8 +203,25 @@ Hacker News titles are indexed along with their points, Typesense consumes 165 M
 on disk in JSON format is 88 MB. We hope to add better benchmarks on a variety of different data sets soon. 
 In the mean time, if you have any numbers from your own datasets, please send us a PR!
 
-## Help
+## Support
 
-If you've any questions or run into any problems, please create a Github issue and we'll try our best to help.
+If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
 
+We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
+
+- Guaranteed SLAs
+- Phone / video calls to discuss your specific use case and get recommendations on best practices
+- Private discussions over Slack
+- Guidance around deployment, ops and scaling best practices
+
+We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
+
+## Getting Latest Updates
+
+If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
+
+We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
+
+
+---
 &copy; 2016-2020 Typesense Inc.
