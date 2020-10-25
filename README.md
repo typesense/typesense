@@ -40,7 +40,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.15.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.16.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 Install the Python client for Typesense (we have [clients](https://typesense.org/api/#api-clients) for other languages too):
@@ -112,7 +112,7 @@ A detailed guide is available on [Typesense website](https://typesense.org/guide
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.15.0/guide/#search-ui](https://typesense.org/docs/0.15.0/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/0.16.0/guide/#search-ui](https://typesense.org/docs/0.16.0/guide/#search-ui)
 
 ## Build from source
 
