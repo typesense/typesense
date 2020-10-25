@@ -2616,7 +2616,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     add_op = coll1->add(doc5.dump(), UPSERT, "799");
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
-    ASSERT_STREQ("The `id` of the resource does not match the `id` on the JSON body.", add_op.error().c_str());
+    ASSERT_STREQ("The `id` of the resource does not match the `id` in the JSON body.", add_op.error().c_str());
 
     // passing an empty id should not succeed
     nlohmann::json doc6;
