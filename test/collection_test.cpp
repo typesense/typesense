@@ -2585,7 +2585,6 @@ TEST_F(CollectionTest, UpdateDocument) {
     doc4["points"] = 105;
 
     add_op = coll1->add(doc4.dump(), UPSERT, "100");
-    LOG(INFO) << add_op.error();
     ASSERT_TRUE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
@@ -2606,6 +2605,30 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // when explicit path id does not match doc id, error should be returned
+    nlohmann::json doc5;
+    doc5["id"] = "800";
+    doc5["title"] = "The Secret Seven";
+    doc5["points"] = 250;
+    doc5["tags"] = {"BOOK", "ENID BLYTON"};
+
+    add_op = coll1->add(doc5.dump(), UPSERT, "799");
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_STREQ("The `id` of the resource does not match the `id` on the JSON body.", add_op.error().c_str());
+
+    // passing an empty id should not succeed
+    nlohmann::json doc6;
+    doc6["id"] = "";
+    doc6["title"] = "The Secret Seven";
+    doc6["points"] = 250;
+    doc6["tags"] = {"BOOK", "ENID BLYTON"};
+
+    add_op = coll1->add(doc6.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_STREQ("The `id` should not be empty.", add_op.error().c_str());
 }
 
 TEST_F(CollectionTest, SearchHighlightFieldFully) {

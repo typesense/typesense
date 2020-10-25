@@ -111,11 +111,17 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         return Option<doc_seq_id_t>(400, "Bad JSON: not a properly formed document.");
     }
 
-    // operation could be: insert, upsert or delete and we have to validate based on that
+    if(document.count("id") != 0 && id != "" && document["id"] != id) {
+        return Option<doc_seq_id_t>(400, "The `id` of the resource does not match the `id` on the JSON body.");
+    }
 
     if(document.count("id") == 0 && !id.empty()) {
         // use the explicit ID (usually from a PUT request) if document body does not have it
         document["id"] = id;
+    }
+
+    if(document.count("id") != 0 && document["id"] == "") {
+        return Option<doc_seq_id_t>(400, "The `id` should not be empty.");
     }
 
     if(document.count("id") == 0) {
