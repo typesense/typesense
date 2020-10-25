@@ -127,6 +127,8 @@ public:
 
     void put(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
+    void patch(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+
     void del(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
     void on(const std::string & message, bool (*handler)(void*));

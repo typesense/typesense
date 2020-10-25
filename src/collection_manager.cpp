@@ -173,7 +173,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             }
 
             num_valid_docs++;
-            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document));
+            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE));
 
             // Peek and check for last record right here so that we handle batched indexing correctly
             // Without doing this, the "last batch" would have to be indexed outside the loop.
@@ -195,7 +195,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
                     if(num_indexed != num_records) {
                         const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                        if(index_error_op.ok()) {
+                        if(!index_error_op.ok()) {
                             return Option<bool>(false, index_error_op.get());
                         }
                     }

@@ -27,6 +27,18 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
     return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req_params);
 }
 
+index_operation_t get_index_operation(const std::string& action) {
+    if(action == "create") {
+        return CREATE;
+    } else if(action == "update") {
+        return UPDATE;
+    } else if(action == "upsert") {
+        return UPSERT;
+    }
+
+    return CREATE;
+}
+
 bool get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<Collection*> collections = collectionManager.get_collections();
@@ -254,6 +266,9 @@ bool get_search(http_req & req, http_res & res) {
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
 
+    // the number of tokens that should surround the highlighted text
+    const char *HIGHLIGHT_AFFIX_NUM_TOKENS = "highlight_affix_num_tokens";
+
     // list of fields which will be highlighted fully without snippeting
     const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
 
@@ -288,6 +303,10 @@ bool get_search(http_req & req, http_res & res) {
 
     if(req.params.count(SNIPPET_THRESHOLD) == 0) {
         req.params[SNIPPET_THRESHOLD] = "30";
+    }
+
+    if(req.params.count(HIGHLIGHT_AFFIX_NUM_TOKENS) == 0) {
+        req.params[HIGHLIGHT_AFFIX_NUM_TOKENS] = "4";
     }
 
     if(req.params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
@@ -359,6 +378,11 @@ bool get_search(http_req & req, http_res & res) {
 
     if(!StringUtils::is_uint32_t(req.params[SNIPPET_THRESHOLD])) {
         res.set_400("Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
+        return false;
+    }
+
+    if(!StringUtils::is_uint32_t(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])) {
+        res.set_400("Parameter `" + std::string(HIGHLIGHT_AFFIX_NUM_TOKENS) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -474,6 +498,7 @@ bool get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stol(req.params[MAX_FACET_VALUES])),
                                                           req.params[FACET_QUERY],
                                                           static_cast<size_t>(std::stol(req.params[SNIPPET_THRESHOLD])),
+                                                          static_cast<size_t>(std::stol(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
                                                           typo_tokens_threshold,
                                                           pinned_hits,
@@ -579,15 +604,28 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "post_import_documents";
     //LOG(INFO) << "req.first_chunk=" << req.first_chunk_aggregate << ", last_chunk=" << req.last_chunk_aggregate;
     const char *BATCH_SIZE = "batch_size";
+    const char *ACTION = "action";
 
     if(req.params.count(BATCH_SIZE) == 0) {
         req.params[BATCH_SIZE] = "40";
+    }
+
+    if(req.params.count(ACTION) == 0) {
+        req.params[ACTION] = "create";
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
         req.last_chunk_aggregate = true;
         res.final = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         HttpServer::stream_response(req, res);
         return false;
     }
@@ -667,8 +705,11 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     //LOG(INFO) << "single_partial_record_body: " << single_partial_record_body;
 
+    const index_operation_t operation = get_index_operation(req.params[ACTION]);
+
     if(!single_partial_record_body) {
-        nlohmann::json json_res = collection->add_many(json_lines);
+        nlohmann::json document;
+        nlohmann::json json_res = collection->add_many(json_lines, document, operation);
         //const std::string& import_summary_json = json_res.dump();
         //response_stream << import_summary_json << "\n";
 
@@ -698,6 +739,16 @@ bool post_import_documents(http_req& req, http_res& res) {
 }
 
 bool post_add_document(http_req & req, http_res & res) {
+    const char *ACTION = "action";
+    if(req.params.count(ACTION) == 0) {
+        req.params[ACTION] = "create";
+    }
+
+    if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
+        res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
+        return false;
+    }
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
@@ -706,7 +757,8 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> inserted_doc_op = collection->add(req.body);
+    const index_operation_t operation = get_index_operation(req.params[ACTION]);
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation);
 
     if(!inserted_doc_op.ok()) {
         res.set(inserted_doc_op.code(), inserted_doc_op.error());
@@ -714,6 +766,28 @@ bool post_add_document(http_req & req, http_res & res) {
     }
 
     res.set_201(inserted_doc_op.get().dump());
+    return true;
+}
+
+bool patch_update_document(http_req & req, http_res & res) {
+    std::string doc_id = req.params["id"];
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, index_operation_t::UPDATE, doc_id);
+
+    if(!upserted_doc_op.ok()) {
+        res.set(upserted_doc_op.code(), upserted_doc_op.error());
+        return false;
+    }
+
+    res.set_201(upserted_doc_op.get().dump());
     return true;
 }
 
@@ -1044,7 +1118,7 @@ bool get_key(http_req &req, http_res &res) {
     AuthManager &auth_manager = collectionManager.getAuthManager();
 
     const std::string& key_id_str = req.params["id"];
-    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
 
     const Option<api_key_t>& key_op = auth_manager.get_key(key_id);
 
@@ -1066,7 +1140,7 @@ bool del_key(http_req &req, http_res &res) {
     AuthManager &auth_manager = collectionManager.getAuthManager();
 
     const std::string& key_id_str = req.params["id"];
-    uint32_t key_id = (uint32_t) std::stol(key_id_str);
+    uint32_t key_id = (uint32_t) std::stoul(key_id_str);
 
     const Option<api_key_t> &del_op = auth_manager.remove_key(key_id);
 

@@ -92,6 +92,11 @@ struct override_t {
     }
 };
 
+struct doc_seq_id_t {
+    uint32_t seq_id;
+    bool is_new;
+};
+
 class Collection {
 private:
 
@@ -150,7 +155,9 @@ private:
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const KV* field_order_kv, const nlohmann::json &document,
-                          StringUtils & string_utils, size_t snippet_threshold,
+                          StringUtils & string_utils,
+                          const size_t snippet_threshold,
+                          const size_t highlight_affix_num_tokens,
                           bool highlighted_fully,
                           highlight_t &highlight);
 
@@ -217,13 +224,16 @@ public:
 
     std::string get_default_sorting_field();
 
-    Option<uint32_t> to_doc(const std::string & json_str, nlohmann::json & document);
+    Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
+                                const index_operation_t& operation, const std::string& id="");
 
     nlohmann::json get_summary_json();
 
-    Option<nlohmann::json> add(const std::string & json_str);
+    Option<nlohmann::json> add(const std::string & json_str,
+                               const index_operation_t& operation=CREATE, const std::string& id="");
 
-    nlohmann::json add_many(std::vector<std::string>& json_lines);
+    nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
+                            const index_operation_t& operation=CREATE, const std::string& id="");
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                           const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
@@ -236,6 +246,7 @@ public:
                           size_t max_facet_values=10,
                           const std::string & simple_facet_query = "",
                           const size_t snippet_threshold = 30,
+                          const size_t highlight_affix_num_tokens = 4,
                           const std::string & highlight_full_fields = "",
                           size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
                           const std::map<size_t, std::vector<std::string>>& pinned_hits={},
@@ -263,7 +274,7 @@ public:
 
     Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document);
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id);
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, bool is_update);
 
     size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
 
@@ -296,5 +307,9 @@ public:
                      size_t &num_indexed);
 
     bool is_exceeding_memory_threshold() const;
+
+    void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
+                         nlohmann::json &new_doc,
+                         nlohmann::json &del_doc);
 };
 

@@ -41,6 +41,47 @@ bool array::append(uint32_t value) {
     return true;
 }
 
+void array::load(const uint32_t *sorted_array, const uint32_t array_length, const uint32_t m, const uint32_t M) {
+    min = m;
+    max = M;
+
+    uint32_t size_required = (uint32_t) (unsorted_append_size_required(max, array_length) * FOR_GROWTH_FACTOR);
+    uint8_t *out = (uint8_t *) malloc(size_required * sizeof *out);
+    uint32_t actual_size = for_compress_unsorted(sorted_array, out, array_length);
+
+    free(in);
+    in = nullptr;
+
+    in = out;
+    length = array_length;
+    size_bytes = size_required;
+    length_bytes = actual_size;
+}
+
+bool array::insert(size_t index, const uint32_t* values, size_t num_values) {
+    if(index >= length) {
+        return false;
+    }
+
+    uint32_t *curr_array = uncompress(length+num_values);
+    memmove(&curr_array[index+num_values], &curr_array[index], sizeof(uint32_t)*(length-index));
+
+    uint32_t m = min, M = max;
+
+    for(size_t i=0; i<num_values; i++) {
+        uint32_t value = values[i];
+        if(value < m) m = value;
+        if(value > M) M = value;
+        curr_array[index+i] = value;
+    }
+
+    load(curr_array, length+num_values, m, M);
+
+    delete [] curr_array;
+
+    return true;
+}
+
 void array::remove_index(uint32_t start_index, uint32_t end_index) {
     uint32_t *curr_array = uncompress();
 

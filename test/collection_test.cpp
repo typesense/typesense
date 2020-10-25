@@ -14,6 +14,9 @@ protected:
     CollectionManager & collectionManager = CollectionManager::get_instance();
     std::vector<sort_by> sort_fields;
 
+    // used for generating random text
+    std::vector<std::string> words;
+
     void setupCollection() {
         std::string state_dir_path = "/tmp/typesense_test/collection";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
@@ -48,6 +51,12 @@ protected:
         }
 
         infile.close();
+
+        std::ifstream words_file(std::string(ROOT_DIR)+"test/resources/common100_english.txt");
+        std::stringstream strstream;
+        strstream << words_file.rdbuf();
+        words_file.close();
+        StringUtils::split(strstream.str(), words, "\n");
     }
 
     virtual void SetUp() {
@@ -58,6 +67,18 @@ protected:
         collectionManager.drop_collection("collection");
         collectionManager.dispose();
         delete store;
+    }
+
+    std::string get_text(size_t num_words) {
+        time_t t;
+        srand((unsigned) time(&t));
+        std::vector<std::string> strs;
+
+        for(size_t i = 0 ; i < num_words ; i++ ) {
+            int word_index = rand() % 100;
+            strs.push_back(words[word_index]);
+        }
+        return StringUtils::join(strs, " ");
     }
 };
 
@@ -558,14 +579,14 @@ TEST_F(CollectionTest, TypoTokensThreshold) {
     // Query expansion should happen only based on the `typo_tokens_threshold` value
     auto results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                       spp::sparse_hash_set<std::string>(), 10, "", 5, "", 0).get();
+                       spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 0).get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<size_t>());
 
     results = collection->search("launch", {"title"}, "", {}, sort_fields, 2, 10, 1,
                                 token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                                spp::sparse_hash_set<std::string>(), 10, "", 5, "", 10).get();
+                                spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "", 10).get();
 
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<size_t>());
@@ -1296,6 +1317,243 @@ std::vector<nlohmann::json> import_res_to_json(const std::vector<std::string>& i
     return out;
 }
 
+TEST_F(CollectionTest, ImportDocumentsUpsert) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::stringstream strstream;
+    strstream << infile.rdbuf();
+    infile.close();
+
+    std::vector<std::string> import_records;
+    StringUtils::split(strstream.str(), import_records, "\n");
+
+    std::vector<field> fields = {
+        field("title", field_types::STRING, false),
+        field("starring", field_types::STRING, false),
+        field("cast", field_types::STRING_ARRAY, false),
+        field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 1, fields, "points").get();
+    }
+
+    // try importing records
+    nlohmann::json document;
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records, document);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(18, import_response["num_imported"].get<int>());
+
+    // update + upsert records
+    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry"})",
+                                            R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",
+                                            R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
+                                            R"({"id": "6", "points": 77})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(4, import_response["num_imported"].get<int>());
+
+    std::vector<nlohmann::json> import_results = import_res_to_json(more_records);
+    ASSERT_EQ(4, import_results.size());
+
+    for(size_t i=0; i<4; i++) {
+        ASSERT_TRUE(import_results[i]["success"].get<bool>());
+        ASSERT_EQ(1, import_results[i].size());
+    }
+
+    auto results = coll_mul_fields->search("*", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(19, results["hits"].size());
+
+    ASSERT_EQ(19, coll_mul_fields->get_num_documents());
+
+    results = coll_mul_fields->search("back again forest", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("Back Again Forest", coll_mul_fields->get("18").get()["title"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("fifth", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("The <mark>Fifth</mark> Harry", results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("The Woman in the <mark>Fifth</mark> from Kristin", results["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("burgundy", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_mul_fields->search("harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll_mul_fields->search("captain america", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(77, results["hits"][0]["document"]["points"].get<size_t>());
+
+    // upserting with some bad docs
+    more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
+                    R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",                     // missing fields
+                    R"({"id": "5", "points": 60})",
+                    R"({"id": "24", "starring": "John", "cast": ["John Kim"], "points": 11})"};   // missing fields
+
+    import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_FALSE(import_results[3]["success"].get<bool>());
+    ASSERT_STREQ("Field `points` has been declared as a default sorting field, but is not found in the document.", import_results[1]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("Field `title` has been declared in the schema, but is not found in the document.", import_results[3]["error"].get<std::string>().c_str());
+
+    // try to duplicate records without upsert option
+
+    more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
+                    R"({"id": "5", "points": 60})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("A document with id 1 already exists.", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id 5 already exists.", import_results[1]["error"].get<std::string>().c_str());
+
+    // update document with verbatim fields, except for points
+    more_records = {R"({"id": "3", "cast":["Matt Damon","Ben Affleck","Minnie Driver"],
+                        "points":70,"starring":"Robin Williams","starring_facet":"Robin Williams",
+                        "title":"Good Will Hunting"})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(70, results["hits"][0]["document"]["points"].get<uint32_t>());
+
+    // updating a document that does not exist should fail, others should succeed
+    more_records = {R"({"id": "20", "points": 51})",
+                    R"({"id": "1", "points": 64})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, UPDATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_TRUE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("Could not find a document with id: 20", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_EQ(404, import_results[0]["code"].get<size_t>());
+
+    results = coll_mul_fields->search("wake up harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(64, results["hits"][0]["document"]["points"].get<uint32_t>());
+
+    // trying to create documents with existing IDs should fail
+    more_records = {R"({"id": "2", "points": 51})",
+                    R"({"id": "1", "points": 64})"};
+
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(more_records);
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+    ASSERT_FALSE(import_results[1]["success"].get<bool>());
+    ASSERT_STREQ("A document with id 2 already exists.", import_results[0]["error"].get<std::string>().c_str());
+    ASSERT_STREQ("A document with id 1 already exists.", import_results[1]["error"].get<std::string>().c_str());
+
+    ASSERT_EQ(409, import_results[0]["code"].get<size_t>());
+    ASSERT_EQ(409, import_results[1]["code"].get<size_t>());
+}
+
+
+TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
+    Collection *coll1;
+    std::vector<field> fields = {
+            field("title", field_types::STRING_ARRAY, false, true),
+            field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    std::vector<std::string> records;
+
+    size_t NUM_RECORDS = 1000;
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["points"] = i;
+        records.push_back(doc.dump());
+    }
+
+    // import records without title
+
+    nlohmann::json document;
+    nlohmann::json import_response = coll1->add_many(records, document, CREATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // upsert documents with title
+
+    records.clear();
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json updoc;
+        updoc["id"] = std::to_string(i);
+        updoc["title"] = {
+            get_text(10),
+            get_text(10),
+            get_text(10),
+            get_text(10),
+        };
+        records.push_back(updoc.dump());
+    }
+
+    auto begin = std::chrono::high_resolution_clock::now();
+    import_response = coll1->add_many(records, document, UPSERT);
+    auto time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+    
+    //LOG(INFO) << "Time taken for first upsert: " << time_micros;
+    
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // run upsert again with title override
+
+    records.clear();
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json updoc;
+        updoc["id"] = std::to_string(i);
+        updoc["title"] = {
+            get_text(10),
+            get_text(10),
+            get_text(10),
+            get_text(10),
+        };
+        records.push_back(updoc.dump());
+    }
+
+    begin = std::chrono::high_resolution_clock::now();
+    import_response = coll1->add_many(records, document, UPSERT);
+    time_micros = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::high_resolution_clock::now() - begin).count();
+
+    //LOG(INFO) << "Time taken for second upsert: " << time_micros;
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+}
+
 TEST_F(CollectionTest, ImportDocuments) {
     Collection *coll_mul_fields;
 
@@ -1320,8 +1578,8 @@ TEST_F(CollectionTest, ImportDocuments) {
     }
 
     // try importing records
-
-    nlohmann::json import_response = coll_mul_fields->add_many(import_records);
+    nlohmann::json document;
+    nlohmann::json import_response = coll_mul_fields->add_many(import_records, document);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
@@ -1346,7 +1604,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // verify that empty import is handled gracefully
     std::vector<std::string> empty_records;
-    import_response = coll_mul_fields->add_many(empty_records);
+    import_response = coll_mul_fields->add_many(empty_records, document);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
 
@@ -1360,7 +1618,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1385,7 +1643,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                     "{\"id\": \"id1\", \"title\": \"Test1\", \"starring\": \"Rand Fish\", \"points\": 12, "
                     "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
@@ -1403,7 +1661,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // valid JSON but not a document
     more_records = {"[]"};
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
@@ -1417,7 +1675,7 @@ TEST_F(CollectionTest, ImportDocuments) {
 
     // invalid JSON
     more_records = {"{"};
-    import_response = coll_mul_fields->add_many(more_records);
+    import_response = coll_mul_fields->add_many(more_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
@@ -1756,7 +2014,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
         sample_collection = collectionManager.create_collection("sample_collection", 4, fields, "age").get();
     }
 
-    const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"namezz\": \"foo\", \"age\": 29, \"average\": 78}");
+    const Option<nlohmann::json> & search_fields_missing_op1 = sample_collection->add("{\"name\": \"foo\", \"age\": 29, \"average\": 78}");
     ASSERT_FALSE(search_fields_missing_op1.ok());
     ASSERT_STREQ("Field `tags` has been declared in the schema, but is not found in the document.",
                  search_fields_missing_op1.error().c_str());
@@ -2210,7 +2468,167 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
     ASSERT_STREQ("fox jumped over the <mark>lazy</mark> dog and ran straight",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
+    // specify the number of surrounding tokens to return
+    size_t highlight_affix_num_tokens = 2;
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, highlight_affix_num_tokens).get();
+    ASSERT_STREQ("over the <mark>lazy</mark> dog and",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    highlight_affix_num_tokens = 0;
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, highlight_affix_num_tokens).get();
+    ASSERT_STREQ("<mark>lazy</mark>",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, UpdateDocument) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc["tags"] = {"NEWS", "LAZY"};
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.",
+            res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // try changing the title and searching for an older token
+    doc["title"] = "The quick brown fox.";
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    res = coll1->search("quick", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("The quick brown fox.", res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // try to update document tags without `id`
+    nlohmann::json doc2;
+    doc2["tags"] = {"SENTENCE"};
+    add_op = coll1->add(doc2.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_STREQ("For update, the `id` key must be provided.", add_op.error().c_str());
+
+    // now change tags with id
+    doc2["id"] = "100";
+    add_op = coll1->add(doc2.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // check for old tag
+    res = coll1->search("NEWS", {"tags"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(0, res["hits"].size());
+
+    // now check for new tag and also try faceting on that field
+    res = coll1->search("SENTENCE", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("SENTENCE", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+
+    // try changing points
+    nlohmann::json doc3;
+    doc3["points"] = 99;
+    doc3["id"] = "100";
+
+    add_op = coll1->add(doc3.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 90", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(99, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // id can be passed by param
+    nlohmann::json doc4;
+    doc4["points"] = 105;
+
+    add_op = coll1->add(doc4.dump(), UPSERT, "100");
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // try to change a field with bad value and verify that old document is put back
+    doc4["points"] = "abc";
+    add_op = coll1->add(doc4.dump(), UPSERT, "100");
+    ASSERT_FALSE(add_op.ok());
+
+    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(105, res["hits"][0]["document"]["points"].get<size_t>());
+
+    // when explicit path id does not match doc id, error should be returned
+    nlohmann::json doc5;
+    doc5["id"] = "800";
+    doc5["title"] = "The Secret Seven";
+    doc5["points"] = 250;
+    doc5["tags"] = {"BOOK", "ENID BLYTON"};
+
+    add_op = coll1->add(doc5.dump(), UPSERT, "799");
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_STREQ("The `id` of the resource does not match the `id` in the JSON body.", add_op.error().c_str());
+
+    // passing an empty id should not succeed
+    nlohmann::json doc6;
+    doc6["id"] = "";
+    doc6["title"] = "The Secret Seven";
+    doc6["points"] = 250;
+    doc6["tags"] = {"BOOK", "ENID BLYTON"};
+
+    add_op = coll1->add(doc6.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ(400, add_op.code());
+    ASSERT_STREQ("The `id` should not be empty.", add_op.error().c_str());
 }
 
 TEST_F(CollectionTest, SearchHighlightFieldFully) {
@@ -2240,7 +2658,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2249,14 +2667,14 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     // should not return value key when highlight_full_fields is not specified
     res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"][0].size());
 
     // query multiple fields
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 5, "title, tags").get();
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2269,7 +2687,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        excluded_fields, 10, "", 5, "title, tags").get();
+                        excluded_fields, 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(1, res["hits"][0]["highlights"].size());
     ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
@@ -2279,7 +2697,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
     excluded_fields = {"tags", "title"};
     res = coll1->search("lazy", {"title", "tags"}, "", {}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        excluded_fields, 10, "", 5, "title, tags").get();
+                        excluded_fields, 10, "", 5, 5, "title, tags").get();
     ASSERT_EQ(0, res["hits"][0]["highlights"].size());
 
     collectionManager.drop_collection("coll1");

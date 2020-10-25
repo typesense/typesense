@@ -129,6 +129,7 @@ int HttpServer::create_listener() {
     ctx.globalconf->server_name = h2o_strdup(nullptr, "", SIZE_MAX);
     ctx.globalconf->http2.active_stream_window_size = ACTIVE_STREAM_WINDOW_SIZE;
     ctx.globalconf->http2.idle_timeout = REQ_TIMEOUT_MS;
+    ctx.globalconf->max_request_entity_size = (1024 * 1024 * 1024); // 1 GB
 
     ctx.globalconf->http1.req_timeout = REQ_TIMEOUT_MS;
     ctx.globalconf->http1.req_io_timeout = REQ_TIMEOUT_MS;
@@ -702,6 +703,13 @@ void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("PUT", path_parts, handler, async_req, async_res);
+    routes.emplace_back(rpath.route_hash(), rpath);
+}
+
+void HttpServer::patch(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+    std::vector<std::string> path_parts;
+    StringUtils::split(path, path_parts, "/");
+    route_path rpath("PATCH", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 

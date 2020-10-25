@@ -96,9 +96,9 @@ typedef struct {
  * of arbitrary size, as they include the key.
  */
 typedef struct {
-    art_values* values;
-    int32_t max_score;
     uint32_t key_len;
+    int64_t max_score;
+    art_values* values;
     unsigned char key[];
 } art_leaf;
 

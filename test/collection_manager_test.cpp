@@ -213,7 +213,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
     collectionManager2.init(store, 1.0, "auth_key");
-    collectionManager2.load();
+    auto load_op = collectionManager2.load();
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
 
     collection1 = collectionManager2.get_collection("collection1");
     ASSERT_NE(nullptr, collection1);

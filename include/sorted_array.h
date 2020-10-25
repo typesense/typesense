@@ -8,6 +8,7 @@
 #include <limits>
 #include <iostream>
 #include "array_base.h"
+#include "logger.h"
 
 class sorted_array: public array_base {
 private:
@@ -16,7 +17,15 @@ private:
         uint32_t m = std::min(min, value);
         uint32_t M = std::max(max, value);
         uint32_t bnew = required_bits(M - m);
-        return METADATA_OVERHEAD + 4 + for_compressed_size_bits(new_length, bnew);
+        uint32_t size_bits = for_compressed_size_bits(new_length, bnew);
+
+
+        /*if(new_length == 15) {
+            LOG(INFO) << "value: " << value << ", m: " << m << ", M: " << M << ", bnew: "
+                      << bnew << ", size_bits: " << size_bits;
+        }*/
+
+        return METADATA_OVERHEAD + 4 + size_bits;
     }
 
     uint32_t lower_bound_search_bits(const uint8_t *in, uint32_t imin, uint32_t imax, uint32_t base,
@@ -39,7 +48,11 @@ public:
     void indexOf(const uint32_t *values, const size_t values_len, uint32_t* indices);
 
     // returns false if malloc fails
-    bool append(uint32_t value);
+    size_t append(uint32_t value);
 
-    void remove_values(uint32_t *sorted_values, uint32_t values_length);
+    bool insert(size_t index, uint32_t value);
+
+    void remove_value(uint32_t value);
+
+    void remove_values(uint32_t *sorted_values, uint32_t sorted_values_length);
 };

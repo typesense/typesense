@@ -18,6 +18,8 @@ private:
     }
 
 public:
+    void load(const uint32_t *sorted_array, uint32_t array_length, uint32_t m, uint32_t M);
+
     uint32_t at(uint32_t index);
 
     bool contains(uint32_t value);
@@ -25,6 +27,8 @@ public:
     uint32_t indexOf(uint32_t value);
 
     bool append(uint32_t value);
+
+    bool insert(size_t index, const uint32_t* values, size_t num_values);
 
     void remove_index(uint32_t start_index, uint32_t end_index);
 };

@@ -5,7 +5,7 @@ constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 
 Option<bool> AuthManager::init(Store *store) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
-    LOG(INFO) << "AuthManager::init()";
+    //LOG(INFO) << "AuthManager::init()";
 
     this->store = store;
 
@@ -157,7 +157,7 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
         }
 
         // enrich params with values from embedded_params
-        for (const auto& it: embedded_params.items()){
+        for(auto it = embedded_params.begin(); it != embedded_params.end(); ++it) {
             if(params.count(it.key()) == 0) {
                 params[it.key()] = it.value();
             } else if(it.key() == "filter_by") {
