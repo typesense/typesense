@@ -6,3 +6,5 @@ Please add to this file and send us a PR:
 
 - [typesense.org](typesense.org) - Search demo on Typesense home page
 - [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) - Instant Search speeches of US Presidential Candidates side-by-side.
+- [Grafikart](https://www.grafikart.fr/) - Learning resources library
+- [New York University Databrary](https://nyu.databrary.org/) - Video documentation library
