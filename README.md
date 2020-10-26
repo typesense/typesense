@@ -24,17 +24,17 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 ## Features
 
-- **Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
-- **Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
-- **Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
-- **Tunable Ranking:** Easy to tailor your search results to perfection.
-- **Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
-- **Faceting & Filtering:** Drill down and refine results.
-- **Grouping & Distinct:** Group similar results together to show more variety.
-- **Scoped API Keys:** Generate API keys that only allow access to certain records.
-- **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
-- **Raft-based Clustering:** Setup a distributed cluster that is highly available.
-- **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
+- **⌨️ Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
+- **✨ Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
+- **⚡ Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
+- **🥇 Tunable Ranking:** Easy to tailor your search results to perfection.
+- **📑 Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
+- **🗂️ Faceting & Filtering:** Drill down and refine results.
+- **🏘️ Grouping & Distinct:** Group similar results together to show more variety.
+- **🔑 Scoped API Keys:** Generate API keys that only allow access to certain records.
+- **🔮 Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
+- **🔗 Raft-based Clustering:** Setup a distributed cluster that is highly available.
+- **🌱 Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 
 ## Install
 
