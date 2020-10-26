@@ -1,11 +1,17 @@
-<a href="https://typesense.org"><img src="https://typesense.org/assets/images/typesense_logo.svg" alt="Typesense" width="298" /></a> 
+<p align="center">
+  <a href="https://typesense.org"><img src="https://typesense.org/assets/images/typesense_logo.svg" alt="Typesense" width="298" /></a> 
+</p>
 
-[![CircleCI](https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa)](https://circleci.com/gh/typesense/typesense)
-![Docker Pulls](https://img.shields.io/docker/pulls/typesense/typesense)
+<p align="center">
+ <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
+ <a href="https://circleci.com/gh/typesense/typesense"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>  
+</p>
 
-Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
+<p align="center">
+  Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
 
-<img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
+  <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
+</p>
 
 ## Quick Links
 
@@ -24,17 +30,17 @@ Typesense is a fast, typo-tolerant search engine for building delightful search 
 
 ## Features
 
-- **⌨️ Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
-- **✨ Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
-- **⚡ Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
-- **🥇 Tunable Ranking:** Easy to tailor your search results to perfection.
-- **📑 Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
-- **🗂️ Faceting & Filtering:** Drill down and refine results.
-- **🏘️ Grouping & Distinct:** Group similar results together to show more variety.
-- **🔑 Scoped API Keys:** Generate API keys that only allow access to certain records.
-- **🔮 Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
-- **🔗 Raft-based Clustering:** Setup a distributed cluster that is highly available.
-- **🌱 Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
+- **Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
+- **Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
+- **Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
+- **Tunable Ranking:** Easy to tailor your search results to perfection.
+- **Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
+- **Faceting & Filtering:** Drill down and refine results.
+- **Grouping & Distinct:** Group similar results together to show more variety.
+- **Scoped API Keys:** Generate API keys that only allow access to certain records.
+- **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
+- **Raft-based Clustering:** Setup a distributed cluster that is highly available.
+- **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 
 ## Install
 
