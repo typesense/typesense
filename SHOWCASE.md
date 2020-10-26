@@ -9,3 +9,4 @@ Please add to this file and send us a PR:
 - [Grafikart](https://www.grafikart.fr/) - Learning resources library
 - [New York University Databrary](https://nyu.databrary.org/) - Video documentation library
 - [ElbiseBul](https://www.elbisebul.com/) - E-commerce
+- [datarequests.org](https://www.datarequests.org/) - Search backend for the [company database](https://www.datarequests.org/company) that allows users to easily find the contact details for privacy-related requests
