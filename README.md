@@ -9,7 +9,7 @@
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>  
 </p>
-
+<br>
 <p align="center">
   <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 </p>
