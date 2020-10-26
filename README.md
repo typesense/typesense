@@ -43,7 +43,9 @@ Linux (x86-64) and Mac.
 
 **Option 2:** You can also run Typesense from our [official Docker image](https://hub.docker.com/r/typesense/typesense).
 
-**Option 3:** Spin up a managed cluster with [Typesense Cloud](https://cloud.typesense.org).
+**Option 3:** Spin up a managed cluster with [Typesense Cloud](https://cloud.typesense.org):
+
+<a href="https://cloud.typesense.org"><img src="assets/deploy_with_typesense_cloud.svg?raw=true" alt="Deploy with Typesense Cloud" height="60" /></a> 
 
 ## Quick Start
 
