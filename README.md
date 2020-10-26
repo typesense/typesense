@@ -1,6 +1,9 @@
 <p align="center">
   <a href="https://typesense.org"><img src="https://typesense.org/assets/images/typesense_logo.svg" alt="Typesense" width="298" /></a> 
 </p>
+<p align="center">
+  Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
+</p>
 
 <p align="center">
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
@@ -8,8 +11,6 @@
 </p>
 
 <p align="center">
-  Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
-
   <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 </p>
 
