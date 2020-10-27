@@ -9,6 +9,10 @@
 #include <execinfo.h>
 #include <http_client.h>
 
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <ifaddrs.h>
+
 #include "core_api.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
@@ -179,6 +183,49 @@ Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
     return Option<std::string>(nodes_config);
 }
 
+bool is_private_ip(uint32_t ip) {
+    uint8_t b1, b2, b3, b4;
+    b1 = (uint8_t) (ip >> 24);
+    b2 = (uint8_t) ((ip >> 16) & 0x0ff);
+    b3 = (uint8_t) ((ip >> 8) & 0x0ff);
+    b4 = (uint8_t) (ip & 0x0ff);
+
+    // 10.x.y.z
+    if (b1 == 10) {
+        return true;
+    }
+
+    // 172.16.0.0 - 172.31.255.255
+    if ((b1 == 172) && (b2 >= 16) && (b2 <= 31)) {
+        return true;
+    }
+
+    // 192.168.0.0 - 192.168.255.255
+    if ((b1 == 192) && (b2 == 168)) {
+        return true;
+    }
+
+    return false;
+}
+
+const char* get_internal_ip() {
+    struct ifaddrs *ifap;
+    getifaddrs(&ifap);
+
+    for(auto ifa = ifap; ifa; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr && ifa->ifa_addr->sa_family==AF_INET) {
+            auto sa = (struct sockaddr_in *) ifa->ifa_addr;
+            if(is_private_ip(ntohl(sa->sin_addr.s_addr))) {
+                freeifaddrs(ifap);
+                return inet_ntoa(sa->sin_addr);
+            }
+        }
+    }
+
+    freeifaddrs(ifap);
+    return "127.0.0.1";
+}
+
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, uint32_t api_port,
                       int snapshot_interval_seconds) {
@@ -195,14 +242,18 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     }
 
     butil::ip_t peering_ip;
+    int ip_conv_status = 0;
+
     if(!peering_address.empty()) {
-        int ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
-        if(ip_conv_status != 0) {
-            LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
-            return -1;
-        }
+        ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
     } else {
-        peering_ip = butil::my_ip();
+        const char* internal_ip = get_internal_ip();
+        ip_conv_status = butil::str2ip(internal_ip, &peering_ip);
+    }
+
+    if(ip_conv_status != 0) {
+        LOG(ERROR) << "Failed to parse peering address `" << peering_address << "`";
+        return -1;
     }
 
     butil::EndPoint peering_endpoint(peering_ip, peering_port);
