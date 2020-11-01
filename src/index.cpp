@@ -705,19 +705,37 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     std::unordered_map<std::string, size_t> facet_to_index;
     get_facet_to_index(facet_to_index);
 
-    // assumed that facet fields have already been validated upstream
-    for(auto & a_facet: facets) {
-        spp::sparse_hash_map<uint64_t, token_pos_cost_t> fhash_qtoken_pos;  // facet hash => token position in the query
+    struct facet_info_t {
+        // facet hash => token position in the query
+        spp::sparse_hash_map<uint64_t, token_pos_cost_t> fhash_qtoken_pos;
+
         bool use_facet_query = false;
-        const field & facet_field = facet_schema.at(a_facet.field_name);
+        bool should_compute_stats = false;
+        field facet_field{"", "", false};
+    };
+
+    std::vector<facet_info_t> facet_infos(facets.size());
+
+    for(size_t findex=0; findex < facets.size(); findex++) {
+        const auto& a_facet = facets[findex];
+
+        facet_infos[findex].use_facet_query = false;
+
+        const field &facet_field = facet_schema.at(a_facet.field_name);
+        facet_infos[findex].facet_field = facet_field;
+
+        facet_infos[findex].should_compute_stats = (facet_field.type != field_types::STRING &&
+                                     facet_field.type != field_types::BOOL &&
+                                     facet_field.type != field_types::STRING_ARRAY &&
+                                     facet_field.type != field_types::BOOL_ARRAY);
 
         if(a_facet.field_name == facet_query.field_name && !facet_query.query.empty()) {
-            use_facet_query = true;
+            facet_infos[findex].use_facet_query = true;
 
-            if(facet_field.is_bool()) {
-                if(facet_query.query == "true") {
+            if (facet_field.is_bool()) {
+                if (facet_query.query == "true") {
                     facet_query.query = "1";
-                } else if(facet_query.query == "false") {
+                } else if (facet_query.query == "false") {
                     facet_query.query = "0";
                 }
             }
@@ -728,122 +746,132 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             // for non-string fields, `faceted_name` returns their aliased stringified field name
             art_tree *t = search_index.at(facet_field.faceted_name());
 
-            for(size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
-                auto & q = query_tokens[qtoken_index];
-                if(facet_field.is_string()) {
+            for (size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
+                auto &q = query_tokens[qtoken_index];
+                if (facet_field.is_string()) {
                     string_utils.unicode_normalize(q);
                 }
 
                 int bounded_cost = (q.size() < 3) ? 0 : 1;
-                bool prefix_search = (qtoken_index == (query_tokens.size()-1)); // only last token must be used as prefix
+                bool prefix_search = (qtoken_index ==
+                                      (query_tokens.size() - 1)); // only last token must be used as prefix
 
-                std::vector<art_leaf*> leaves;
+                std::vector<art_leaf *> leaves;
 
                 art_fuzzy_search(t, (const unsigned char *) q.c_str(),
                                  q.size(), 0, bounded_cost, 10000,
                                  token_ordering::MAX_SCORE, prefix_search, leaves);
 
-                for(size_t i = 0; i < leaves.size(); i++) {
-                    const auto & leaf = leaves[i];
+                for (size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
+                    const auto &leaf = leaves[leaf_index];
                     // calculate hash without terminating null char
-                    std::string key_str((const char*)leaf->key, leaf->key_len-1);
+                    std::string key_str((const char *) leaf->key, leaf->key_len - 1);
                     uint64_t hash = facet_token_hash(facet_field, key_str);
 
                     token_pos_cost_t token_pos_cost = {qtoken_index, 0};
-                    fhash_qtoken_pos.emplace(hash, token_pos_cost);
+                    facet_infos[findex].fhash_qtoken_pos.emplace(hash, token_pos_cost);
                     //printf("%.*s - %llu\n", leaf->key_len, leaf->key, hash);
                 }
             }
         }
+    }
 
-        size_t facet_id = facet_to_index[a_facet.field_name];
+    for(size_t i = 0; i < results_size; i++) {
+        uint32_t doc_seq_id = result_ids[i];
 
-        bool should_compute_stats = (facet_field.type != field_types::STRING &&
-                                     facet_field.type != field_types::BOOL &&
-                                     facet_field.type != field_types::STRING_ARRAY &&
-                                     facet_field.type != field_types::BOOL_ARRAY);
+        auto doc_facet_index_it = facet_index_v2.find(doc_seq_id);
 
-        for(size_t i = 0; i < results_size; i++) {
-            uint32_t doc_seq_id = result_ids[i];
+        if(doc_facet_index_it == facet_index_v2.end()) {
+            continue;
+        }
 
-            if(facet_index_v2.count(doc_seq_id) != 0) {
-                // FORMAT OF VALUES
-                // String: h1 h2 h3
-                // String array: h1 h2 h3 0 h1 0 h1 h2 0
-                const std::vector<uint64_t> & fhashes = facet_index_v2[doc_seq_id][facet_id];
+        const std::vector<std::vector<uint64_t>>& doc_facet_index = doc_facet_index_it->second;
+        const uint64_t distinct_id = search_params->group_limit ? get_distinct_id(facet_to_index, doc_seq_id) : 0;
 
-                int array_pos = 0;
-                bool fvalue_found = false;
-                uint64_t combined_hash = 1;  // for hashing the entire facet value (multiple tokens)
+        // assumed that facet fields have already been validated upstream
+        for(size_t findex=0; findex < facets.size(); findex++) {
+            auto& a_facet = facets[findex];
+            size_t facet_id = facet_to_index[a_facet.field_name];
+            const auto& facet_field = facet_infos[findex].facet_field;
+            const bool use_facet_query = facet_infos[findex].use_facet_query;
+            const auto& fhash_qtoken_pos = facet_infos[findex].fhash_qtoken_pos;
+            const bool should_compute_stats = facet_infos[findex].should_compute_stats;
 
-                spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_positions;
-                size_t field_token_index = -1;
+            // FORMAT OF VALUES
+            // String: h1 h2 h3
+            // String array: h1 h2 h3 0 h1 0 h1 h2 0
+            const std::vector<uint64_t> & fhashes = doc_facet_index[facet_id];
 
-                for(size_t j = 0; j < fhashes.size(); j++) {
-                    if(fhashes[j] != FACET_ARRAY_DELIMETER) {
-                        uint64_t ftoken_hash = fhashes[j];
-                        field_token_index++;
+            int array_pos = 0;
+            bool fvalue_found = false;
+            uint64_t combined_hash = 1;  // for hashing the entire facet value (multiple tokens)
 
-                        // reference: https://stackoverflow.com/a/4182771/131050
-                        // we also include token index to maintain orderliness
-                        combined_hash *= (1779033703 + 2*ftoken_hash*(field_token_index+1));
+            spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_positions;
+            size_t field_token_index = -1;
 
-                        // ftoken_hash is the raw value for numeric fields
-                        if(should_compute_stats) {
-                            compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
-                        }
+            for(size_t j = 0; j < fhashes.size(); j++) {
+                if(fhashes[j] != FACET_ARRAY_DELIMETER) {
+                    uint64_t ftoken_hash = fhashes[j];
+                    field_token_index++;
 
-                        // not using facet query or this particular facet value is found in facet filter
-                        if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
-                            fvalue_found = true;
+                    // reference: https://stackoverflow.com/a/4182771/131050
+                    // we also include token index to maintain orderliness
+                    combined_hash *= (1779033703 + 2*ftoken_hash*(field_token_index+1));
 
-                            if(use_facet_query) {
-                                // map token index to query index (used for highlighting later on)
-                                token_pos_cost_t qtoken_pos = fhash_qtoken_pos[ftoken_hash];
+                    // ftoken_hash is the raw value for numeric fields
+                    if(should_compute_stats) {
+                        compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
+                    }
 
-                                // if the query token has already matched another token in the string
-                                // we will replace the position only if the cost is lower
-                                if(query_token_positions.find(qtoken_pos.pos) == query_token_positions.end() ||
-                                   query_token_positions[qtoken_pos.pos].cost >= qtoken_pos.cost ) {
-                                    token_pos_cost_t ftoken_pos_cost = {field_token_index, qtoken_pos.cost};
-                                    query_token_positions.emplace(qtoken_pos.pos, ftoken_pos_cost);
-                                }
+                    // not using facet query or this particular facet value is found in facet filter
+                    if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
+                        fvalue_found = true;
+
+                        if(use_facet_query) {
+                            // map token index to query index (used for highlighting later on)
+                            token_pos_cost_t qtoken_pos = fhash_qtoken_pos.at(ftoken_hash);
+
+                            // if the query token has already matched another token in the string
+                            // we will replace the position only if the cost is lower
+                            if(query_token_positions.find(qtoken_pos.pos) == query_token_positions.end() ||
+                               query_token_positions[qtoken_pos.pos].cost >= qtoken_pos.cost ) {
+                                token_pos_cost_t ftoken_pos_cost = {field_token_index, qtoken_pos.cost};
+                                query_token_positions.emplace(qtoken_pos.pos, ftoken_pos_cost);
                             }
                         }
                     }
+                }
 
-                    // 0 indicates separator, while the second condition checks for non-array string
-                    if(fhashes[j] == FACET_ARRAY_DELIMETER || (fhashes.back() != FACET_ARRAY_DELIMETER && j == fhashes.size() - 1)) {
-                        if(!use_facet_query || fvalue_found) {
-                            uint64_t fhash = combined_hash;
+                // 0 indicates separator, while the second condition checks for non-array string
+                if(fhashes[j] == FACET_ARRAY_DELIMETER || (fhashes.back() != FACET_ARRAY_DELIMETER && j == fhashes.size() - 1)) {
+                    if(!use_facet_query || fvalue_found) {
+                        uint64_t fhash = combined_hash;
 
-                            if(a_facet.result_map.count(fhash) == 0) {
-                                a_facet.result_map[fhash] = facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
-                                                                          doc_seq_id, 0,
-                                                                          spp::sparse_hash_map<uint32_t, token_pos_cost_t>()};
-                            }
-
-                            a_facet.result_map[fhash].doc_id = doc_seq_id;
-                            a_facet.result_map[fhash].array_pos = array_pos;
-
-                            if(search_params->group_limit) {
-                                uint64_t distinct_id = get_distinct_id(facet_to_index, doc_seq_id);
-                                a_facet.result_map[fhash].groups.emplace(distinct_id);
-                            } else {
-                                a_facet.result_map[fhash].count += 1;
-                            }
-
-                            if(use_facet_query) {
-                                a_facet.result_map[fhash].query_token_pos = query_token_positions;
-                            }
+                        if(a_facet.result_map.count(fhash) == 0) {
+                            a_facet.result_map[fhash] = facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
+                                                                      doc_seq_id, 0,
+                                                                      spp::sparse_hash_map<uint32_t, token_pos_cost_t>()};
                         }
 
-                        array_pos++;
-                        fvalue_found = false;
-                        combined_hash = 1;
-                        spp::sparse_hash_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
-                        field_token_index = -1;
+                        a_facet.result_map[fhash].doc_id = doc_seq_id;
+                        a_facet.result_map[fhash].array_pos = array_pos;
+
+                        if(search_params->group_limit) {
+                            a_facet.result_map[fhash].groups.emplace(distinct_id);
+                        } else {
+                            a_facet.result_map[fhash].count += 1;
+                        }
+
+                        if(use_facet_query) {
+                            a_facet.result_map[fhash].query_token_pos = query_token_positions;
+                        }
                     }
+
+                    array_pos++;
+                    fvalue_found = false;
+                    combined_hash = 1;
+                    spp::sparse_hash_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
+                    field_token_index = -1;
                 }
             }
         }

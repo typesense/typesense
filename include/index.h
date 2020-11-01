@@ -86,6 +86,7 @@ enum index_operation_t {
     DELETE
 };
 
+
 struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
