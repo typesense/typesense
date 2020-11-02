@@ -14,6 +14,8 @@
   <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 </p>
 
+Here's a live demo showing Typesense in action on a songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
+
 ## Quick Links
 
 - [Features](#features)
