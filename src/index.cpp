@@ -104,11 +104,12 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
     // initialize facet index since it will be updated as well during search indexing
     // even if a field is optional, a facet position will be available in the vector for that field
+    // NOTE: Use of `emplace()` means that we will not replace existing facet values.
     std::vector<std::vector<uint64_t>> values(facet_schema.size());
     facet_index_v2.emplace(seq_id, values);
 
     // assumes that validation has already been done
-    for(const std::pair<std::string, field> & field_pair: search_schema) {
+    for(const auto& field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
         if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
@@ -239,8 +240,8 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
         return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
 
-    for(const std::pair<std::string, field> & field_pair: search_schema) {
-        const std::string & field_name = field_pair.first;
+    for(const auto& field_pair: search_schema) {
+        const std::string& field_name = field_pair.first;
 
         if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
             continue;
@@ -357,6 +358,7 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
 
         if(exact_match) {
             it = del_doc.erase(it);
+            update_doc.erase(field_name);
         } else {
             ++it;
         }
@@ -836,7 +838,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                             if(query_token_positions.find(qtoken_pos.pos) == query_token_positions.end() ||
                                query_token_positions[qtoken_pos.pos].cost >= qtoken_pos.cost ) {
                                 token_pos_cost_t ftoken_pos_cost = {field_token_index, qtoken_pos.cost};
-                                query_token_positions.emplace(qtoken_pos.pos, ftoken_pos_cost);
+                                query_token_positions[qtoken_pos.pos] = ftoken_pos_cost;
                             }
                         }
                     }

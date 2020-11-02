@@ -224,7 +224,10 @@ void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json 
 
     for(auto it = document.begin(); it != document.end(); ++it) {
         new_doc[it.key()] = it.value();
-        if(old_doc.count(it.key()) != 0) {
+
+        // if the update document contains a field that exists in old, we record that (for delete + reindex)
+        bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
+        if(field_exists_in_old_doc) {
             // key exists in the stored doc, so it must be reindexed
             // we need to check for this because a field can be optional
             del_doc[it.key()] = old_doc[it.key()];
@@ -1173,7 +1176,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
 
             std::string value;
-            facet_value_to_string(a_facet, facet_count, document, value);
+            bool facet_found = facet_value_to_string(a_facet, facet_count, document, value);
+
+            if(!facet_found) {
+                continue;
+            }
 
             std::vector<std::string> tokens;
             StringUtils::split(value, tokens, " ");
@@ -1281,8 +1288,26 @@ void Collection::aggregate_topster(size_t query_index, Topster &topster, Topster
     }
 }
 
-void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
+bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
                                        const nlohmann::json &document, std::string &value) {
+
+    if(document.count(a_facet.field_name) == 0) {
+        LOG(ERROR) << "Could not find field " << a_facet.field_name << " in document during faceting.";
+        LOG(ERROR) << "Facet field type: " << facet_schema.at(a_facet.field_name).type;
+        LOG(ERROR) << "Actual document: " << document;
+        return false;
+    }
+
+    if(facet_schema.at(a_facet.field_name).is_array()) {
+        size_t array_sz = document[a_facet.field_name].size();
+        if(facet_count.array_pos >= array_sz) {
+            LOG(ERROR) << "Facet field array size " << array_sz << " lesser than array pos " <<  facet_count.array_pos
+                       << " for facet field " << a_facet.field_name;
+            LOG(ERROR) << "Facet field type: " << facet_schema.at(a_facet.field_name).type;
+            LOG(ERROR) << "Actual document: " << document;
+            return false;
+        }
+    }
 
     if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
         value =  document[a_facet.field_name];
@@ -1315,6 +1340,8 @@ void Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
         value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<bool>());
         value = (value == "1") ? "true" : "false";
     }
+
+    return true;
 }
 
 void Collection::highlight_result(const field &search_field,

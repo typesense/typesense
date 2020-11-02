@@ -1330,7 +1330,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     std::vector<field> fields = {
         field("title", field_types::STRING, false),
-        field("starring", field_types::STRING, false),
+        field("starring", field_types::STRING, true),
         field("cast", field_types::STRING_ARRAY, false),
         field("points", field_types::INT32, false)
     };
@@ -1365,17 +1365,17 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
         ASSERT_EQ(1, import_results[i].size());
     }
 
-    auto results = coll_mul_fields->search("*", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    auto results = coll_mul_fields->search("*", query_fields, "", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
     ASSERT_EQ(19, results["hits"].size());
 
     ASSERT_EQ(19, coll_mul_fields->get_num_documents());
 
-    results = coll_mul_fields->search("back again forest", query_fields, "", {}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("back again forest", query_fields, "", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     ASSERT_STREQ("Back Again Forest", coll_mul_fields->get("18").get()["title"].get<std::string>().c_str());
 
-    results = coll_mul_fields->search("fifth", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("fifth", query_fields, "", {"starring"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     ASSERT_STREQ("The <mark>Fifth</mark> Harry", results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
@@ -1432,7 +1432,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
-    results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("Good Will Hunting", query_fields, "", {"starring"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(70, results["hits"][0]["document"]["points"].get<uint32_t>());
 
     // updating a document that does not exist should fail, others should succeed
@@ -1449,7 +1449,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_STREQ("Could not find a document with id: 20", import_results[0]["error"].get<std::string>().c_str());
     ASSERT_EQ(404, import_results[0]["code"].get<size_t>());
 
-    results = coll_mul_fields->search("wake up harry", query_fields, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("wake up harry", query_fields, "", {"starring"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(64, results["hits"][0]["document"]["points"].get<uint32_t>());
 
     // trying to create documents with existing IDs should fail
@@ -2510,13 +2510,32 @@ TEST_F(CollectionTest, UpdateDocument) {
     auto add_op = coll1->add(doc.dump());
     ASSERT_TRUE(add_op.ok());
 
-    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+    auto res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, 0, 10, 1,
                              token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.",
             res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // reindex the document entirely again verbatim and try querying
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_STREQ("tags", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("NEWS", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][1]["count"]);
 
     // try changing the title and searching for an older token
     doc["title"] = "The quick brown fox.";
@@ -2525,13 +2544,13 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     ASSERT_EQ(1, coll1->get_num_documents());
 
-    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
     ASSERT_EQ(0, res["hits"].size());
 
-    res = coll1->search("quick", {"title"}, "", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("quick", {"title"}, "", {"title"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
@@ -2551,7 +2570,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     ASSERT_TRUE(add_op.ok());
 
     // check for old tag
-    res = coll1->search("NEWS", {"tags"}, "", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("NEWS", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
@@ -2573,7 +2592,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     add_op = coll1->add(doc3.dump(), UPDATE);
     ASSERT_TRUE(add_op.ok());
 
-    res = coll1->search("*", {"tags"}, "points: > 90", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("*", {"tags"}, "points: > 90", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
@@ -2587,7 +2606,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     add_op = coll1->add(doc4.dump(), UPSERT, "100");
     ASSERT_TRUE(add_op.ok());
 
-    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("*", {"tags"}, "points: > 101", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
@@ -2599,7 +2618,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     add_op = coll1->add(doc4.dump(), UPSERT, "100");
     ASSERT_FALSE(add_op.ok());
 
-    res = coll1->search("*", {"tags"}, "points: > 101", {}, sort_fields, 0, 10, 1,
+    res = coll1->search("*", {"tags"}, "points: > 101", {"tags"}, sort_fields, 0, 10, 1,
                         token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
 
@@ -2629,6 +2648,66 @@ TEST_F(CollectionTest, UpdateDocument) {
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ(400, add_op.code());
     ASSERT_STREQ("The `id` should not be empty.", add_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, UpdateDocumentSorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "100";
+    doc1["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc1["tags"] = {"NEWS", "LAZY"};
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "101";
+    doc2["title"] = "The random sentence.";
+    doc2["tags"] = {"RANDOM"};
+    doc2["points"] = 101;
+
+    auto add_op = coll1->add(doc1.dump());
+    coll1->add(doc2.dump());
+
+    auto res = coll1->search("*", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(101, res["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_STREQ("101", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(100, res["hits"][1]["document"]["points"].get<size_t>());
+    ASSERT_STREQ("100", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // now update doc1 points from 100 -> 1000 and it should bubble up
+    doc1["points"] = 1000;
+    coll1->add(doc1.dump(), UPDATE);
+
+    res = coll1->search("*", {"tags"}, "", {"tags"}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(1000, res["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_STREQ("100", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(101, res["hits"][1]["document"]["points"].get<size_t>());
+    ASSERT_STREQ("101", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionTest, SearchHighlightFieldFully) {
