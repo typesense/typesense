@@ -78,11 +78,11 @@ We can now initialize the client and create a `companies` collection:
 import typesense
 
 client = typesense.Client({
+  'api_key': 'Hu52dwsas2AdxdE',
   'nodes': [{
     'host': 'localhost',
     'port': '8108',
-    'protocol': 'http',
-    'api_key': 'Hu52dwsas2AdxdE'
+    'protocol': 'http'
   }],
   'connection_timeout_seconds': 2
 })
