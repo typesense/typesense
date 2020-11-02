@@ -130,8 +130,6 @@ struct Topster {
                 // erase current min heap key from kv_map
                 kv_map.erase(old_min_heap_kv.distinct_key);
 
-                // kv will be copied into the pointer at heap_op_index
-                kv_map.emplace(kv->distinct_key, kvs[heap_op_index]);
             } else {
                 // kv is guaranteed to be > current min heap: kvs[0]
                 // create fresh topster for this distinct group key since it does not exist
@@ -159,10 +157,10 @@ struct Topster {
                     group_kv_map.erase(kvs[heap_op_index]->distinct_key);
                     kv_map.erase(kvs[heap_op_index]->distinct_key);
                 }
-
-                // kv will be copied into the pointer at heap_op_index
-                kv_map.emplace(kv->distinct_key, kvs[heap_op_index]);
             }
+
+            // kv will be copied into the pointer at heap_op_index
+            kv_map.emplace(kv->distinct_key, kvs[heap_op_index]);
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
@@ -191,9 +189,6 @@ struct Topster {
                 // replace existing kv and sift down
                 heap_op_index = existing_kv->array_index;
                 kv_map.erase(kvs[heap_op_index]->key);
-
-                // kv will be copied into the pointer at heap_op_index
-                kv_map.emplace(kv->key, kvs[heap_op_index]);
             } else {  // not duplicate
 
                 if(size < MAX_SIZE) {
@@ -208,10 +203,10 @@ struct Topster {
                     heap_op_index = 0;
                     kv_map.erase(kvs[heap_op_index]->key);
                 }
-
-                // kv will be copied into the pointer at heap_op_index
-                kv_map.emplace(kv->key, kvs[heap_op_index]);
             }
+
+            // kv will be copied into the pointer at heap_op_index
+            kv_map.emplace(kv->key, kvs[heap_op_index]);
         }
 
         // we have to replace the existing element in the heap and sift down

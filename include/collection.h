@@ -296,7 +296,7 @@ public:
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 
-    void facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
+    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value);
 
     void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const;
