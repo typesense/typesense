@@ -547,7 +547,7 @@ bool get_collection_summary(http_req & req, http_res & res) {
     }
 
     nlohmann::json json_response = collection->get_summary_json();
-    res.set_200(json_response.dump());
+    res.set_200(json_response.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
 
     return true;
 }
