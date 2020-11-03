@@ -1603,7 +1603,7 @@ Option<uint32_t> Collection::add_override(const override_t & override) {
         return Option<uint32_t>(500, "Error while storing the override on disk.");
     }
 
-    overrides.emplace(override.id, override);
+    overrides[override.id] = override;
     return Option<uint32_t>(200);
 }
 
