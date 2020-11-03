@@ -258,6 +258,11 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
+    // should be able to replace existing override
+    override_include.rule.query = "found";
+    coll_mul_fields->add_override(override_include);
+    ASSERT_STREQ("found", coll_mul_fields->get_overrides()["include-rule"].rule.query.c_str());
+
     coll_mul_fields->remove_override("include-rule");
 }
 
