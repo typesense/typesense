@@ -604,19 +604,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::vector<filter> filters;
     for(const std::string & filter_block: filter_blocks) {
         // split into [field_name, value]
-        std::vector<std::string> expression_parts;
-        StringUtils::split(filter_block, expression_parts, ":");
-        if(expression_parts.size() != 2) {
+        size_t found_index = filter_block.find(':');
+
+        if(found_index == std::string::npos) {
             return Option<nlohmann::json>(400, "Could not parse the filter query.");
         }
 
-        const std::string & field_name = expression_parts[0];
+        std::string&& field_name = filter_block.substr(0, found_index);
+        StringUtils::trim(field_name);
+
         if(search_schema.count(field_name) == 0) {
             return Option<nlohmann::json>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
         }
 
         field _field = search_schema.at(field_name);
-        std::string & raw_value = expression_parts[1];
+        std::string&& raw_value = filter_block.substr(found_index+1, std::string::npos);
+        StringUtils::trim(raw_value);
         filter f;
 
         // skip past optional `:=` operator, which has no meaning for non-string fields
