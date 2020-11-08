@@ -521,7 +521,7 @@ bool get_search(http_req & req, http_res & res) {
     nlohmann::json result = result_op.get();
     result["search_time_ms"] = timeMillis;
     result["page"] = std::stoi(req.params[PAGE]);
-    const std::string & results_json_str = result.dump();
+    const std::string & results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //struct rusage r_usage;
     //getrusage(RUSAGE_SELF,&r_usage);
@@ -765,7 +765,7 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    res.set_201(inserted_doc_op.get().dump());
+    res.set_201(inserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -787,7 +787,7 @@ bool patch_update_document(http_req & req, http_res & res) {
         return false;
     }
 
-    res.set_201(upserted_doc_op.get().dump());
+    res.set_201(upserted_doc_op.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -808,7 +808,7 @@ bool get_fetch_document(http_req & req, http_res & res) {
         return false;
     }
 
-    res.set_200(doc_option.get().dump());
+    res.set_200(doc_option.get().dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -837,7 +837,7 @@ bool del_remove_document(http_req & req, http_res & res) {
     }
 
     nlohmann::json doc = doc_option.get();
-    res.set_200(doc.dump());
+    res.set_200(doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
@@ -1152,7 +1152,7 @@ bool del_key(http_req &req, http_res &res) {
     nlohmann::json res_json;
     res_json["id"] = del_op.get().id;
 
-    res.set_200(res_json.dump());
+    res.set_200(res_json.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore));
     return true;
 }
 
