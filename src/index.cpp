@@ -557,12 +557,16 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
 void Index::index_string_field(const std::string & text, const int64_t score, art_tree *t,
                                     uint32_t seq_id, int facet_id, const field & a_field) {
     std::vector<std::string> tokens;
-    StringUtils::split(text, tokens, " ");
+    StringUtils::split(text, tokens, " ", a_field.is_string());
 
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    for(uint32_t i=0; i<tokens.size(); i++) {
+    for(size_t i=0; i<tokens.size(); i++) {
         auto & token = tokens[i];
+
+        if(token.empty()) {
+            continue;
+        }
 
         if(a_field.is_string()) {
             string_utils.unicode_normalize(token);
@@ -595,13 +599,17 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         const std::string & str = strings[array_index];
         std::vector<std::string> tokens;
         std::string delim = " ";
-        StringUtils::split(str, tokens, delim);
+        StringUtils::split(str, tokens, delim, a_field.is_string());
 
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
         // iterate and append offset positions
         for(size_t i=0; i<tokens.size(); i++) {
             auto & token = tokens[i];
+
+            if(token.empty()) {
+                continue;
+            }
 
             if(a_field.is_string()) {
                 string_utils.unicode_normalize(token);
@@ -903,7 +911,12 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
 
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
-        std::vector<art_leaf *> query_suggestion = next_suggestion(token_candidates_vec, n);
+        std::vector<art_leaf*> query_suggestion(token_candidates_vec.size());
+
+        // actual query suggestion preserves original order of tokens in query
+        std::vector<art_leaf*> actual_query_suggestion(token_candidates_vec.size());
+
+        next_suggestion(token_candidates_vec, n, actual_query_suggestion, query_suggestion);
 
         /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < query_suggestion.size(); i++) {
@@ -978,7 +991,7 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             delete[] result_ids;
         }
 
-        searched_queries.push_back(query_suggestion);
+        searched_queries.push_back(actual_query_suggestion);
 
         //LOG(INFO) << "all_result_ids_len: " << all_result_ids_len << ", typo_tokens_threshold: " << typo_tokens_threshold;
         if(all_result_ids_len >= typo_tokens_threshold) {
@@ -1854,14 +1867,15 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
     }
 }
 
-inline std::vector<art_leaf *> Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
-                                                      long long int n) {
-    std::vector<art_leaf*> query_suggestion(token_candidates_vec.size());
-
+inline void Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
+                                   long long int n,
+                                   std::vector<art_leaf *>& actual_query_suggestion,
+                                   std::vector<art_leaf *>& query_suggestion) {
     // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
     for(long long i = 0 ; i < (long long) token_candidates_vec.size(); i++) {
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
+        actual_query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
     }
 
@@ -1870,8 +1884,6 @@ inline std::vector<art_leaf *> Index::next_suggestion(const std::vector<token_ca
     sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
         return left->values->ids.getLength() < right->values->ids.getLength();
     });
-
-    return query_suggestion;
 }
 
 void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
@@ -1989,11 +2001,11 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
 void Index::tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
                                std::vector<std::string>& tokens) {
     if(search_field.type == field_types::STRING) {
-        StringUtils::split(document[field_name], tokens, " ");
+        StringUtils::split(document[field_name], tokens, " ", true);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            StringUtils::split(value, tokens, " ");
+            StringUtils::split(value, tokens, " ", true);
         }
     } else if(search_field.type == field_types::INT32) {
         const int KEY_LEN = 8;

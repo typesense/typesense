@@ -507,7 +507,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                   const std::vector<std::string>& hidden_hits,
                                   const std::vector<std::string>& group_by_fields,
-                                  const size_t group_limit) {
+                                  const size_t group_limit,
+                                  const std::string& highlight_start_tag,
+                                  const std::string& highlight_end_tag) {
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
@@ -1080,7 +1082,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                     highlight_t highlight;
                     highlight_result(search_field, searched_queries, field_order_kv, document,
                                      string_utils, snippet_threshold, highlight_affix_num_tokens,
-                                     highlighted_fully, highlight);
+                                     highlighted_fully, highlight_start_tag, highlight_end_tag, highlight);
 
                     if(!highlight.snippets.empty()) {
                         highlights.push_back(highlight);
@@ -1096,13 +1098,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 bool highlight_fully = (fields_highlighted_fully.find(highlight.field) != fields_highlighted_fully.end());
 
                 if(!highlight.indices.empty()) {
+                    h_json["matched_tokens"] = highlight.matched_tokens;
                     h_json["indices"] = highlight.indices;
                     h_json["snippets"] = highlight.snippets;
                     if(highlight_fully) {
                         h_json["values"] = highlight.values;
                     }
-
                 } else {
+                    h_json["matched_tokens"] = highlight.matched_tokens[0];
                     h_json["snippet"] = highlight.snippets[0];
                     if(highlight_fully) {
                         h_json["value"] = highlight.values[0];
@@ -1205,7 +1208,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                     // handle query token being larger than actual token (typo correction)
                     query_token_len = std::min(query_token_len, tokens[i].size());
                     const std::string & unmarked = tokens[i].substr(query_token_len, std::string::npos);
-                    highlightedss << "<mark>" + tokens[i].substr(0, query_token_len) + "</mark>" + unmarked;
+                    highlightedss << highlight_start_tag +
+                                    tokens[i].substr(0, query_token_len) +
+                                    highlight_end_tag + unmarked;
                 } else {
                     highlightedss << tokens[i];
                 }
@@ -1354,10 +1359,12 @@ void Collection::highlight_result(const field &search_field,
                                   const size_t snippet_threshold,
                                   const size_t highlight_affix_num_tokens,
                                   bool highlighted_fully,
+                                  const std::string& highlight_start_tag,
+                                  const std::string& highlight_end_tag,
                                   highlight_t & highlight) {
 
     std::vector<uint32_t*> leaf_to_indices;
-    std::vector<art_leaf *> query_suggestion;
+    std::vector<art_leaf*> query_suggestion;
 
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
@@ -1418,9 +1425,9 @@ void Collection::highlight_result(const field &search_field,
 
         std::vector<std::string> tokens;
         if(search_field.type == field_types::STRING) {
-            StringUtils::split(document[search_field.name], tokens, " ");
+            StringUtils::split(document[search_field.name], tokens, " ", true);
         } else {
-            StringUtils::split(document[search_field.name][match_index.index], tokens, " ");
+            StringUtils::split(document[search_field.name][match_index.index], tokens, " ", true);
         }
 
         std::vector<size_t> token_indices;
@@ -1445,7 +1452,7 @@ void Collection::highlight_result(const field &search_field,
         size_t prefix_length = highlight_affix_num_tokens;
         size_t suffix_length = highlight_affix_num_tokens + 1;
 
-        // For longer strings, pick surrounding tokens within 4 tokens of min_index and max_index for the snippet
+        // For longer strings, pick surrounding tokens within `prefix_length` of min_index and max_index for snippet
         const size_t start_index = (tokens.size() <= snippet_threshold) ? 0 :
                                    std::max(0, (int)(*(minmax.first) - prefix_length));
 
@@ -1453,6 +1460,10 @@ void Collection::highlight_result(const field &search_field,
                                  std::min((int)tokens.size(), (int)(*(minmax.second) + suffix_length));
 
         std::stringstream snippet_stream;
+
+        highlight.matched_tokens.emplace_back();
+        std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+
         for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
             if(snippet_index != start_index) {
                 snippet_stream << " ";
@@ -1462,7 +1473,8 @@ void Collection::highlight_result(const field &search_field,
             string_utils.unicode_normalize(token);
 
             if(token_hits.count(token) != 0) {
-                snippet_stream << "<mark>" + tokens[snippet_index] + "</mark>";
+                snippet_stream << highlight_start_tag << tokens[snippet_index] << highlight_end_tag;
+                matched_tokens.push_back(tokens[snippet_index]);
             } else {
                 snippet_stream << tokens[snippet_index];
             }
@@ -1484,7 +1496,7 @@ void Collection::highlight_result(const field &search_field,
                 string_utils.unicode_normalize(token);
 
                 if(token_hits.count(token) != 0) {
-                    value_stream << "<mark>" + tokens[value_index] + "</mark>";
+                    value_stream << highlight_start_tag << tokens[value_index] << highlight_end_tag;
                 } else {
                     value_stream << tokens[value_index];
                 }

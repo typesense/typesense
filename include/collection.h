@@ -106,6 +106,7 @@ private:
         std::vector<std::string> values;
         std::vector<size_t> indices;
         uint64_t match_score;
+        std::vector<std::vector<std::string>> matched_tokens;
 
         highlight_t() {
 
@@ -159,6 +160,8 @@ private:
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
                           bool highlighted_fully,
+                          const std::string& highlight_start_tag,
+                          const std::string& highlight_end_tag,
                           highlight_t &highlight);
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
@@ -252,7 +255,9 @@ public:
                           const std::map<size_t, std::vector<std::string>>& pinned_hits={},
                           const std::vector<std::string>& hidden_hits={},
                           const std::vector<std::string>& group_by_fields={},
-                          const size_t group_limit = 0);
+                          const size_t group_limit = 0,
+                          const std::string& highlight_start_tag="<mark>",
+                          const std::string& highlight_end_tag="</mark>");
 
     Option<nlohmann::json> get(const std::string & id);
 

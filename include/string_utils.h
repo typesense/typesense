@@ -290,4 +290,6 @@ struct StringUtils {
     static std::string randstring(size_t length);
 
     static std::string hmac(const std::string& key, const std::string& msg);
+
+    static size_t unicode_length(const std::string& bytes);
 };
