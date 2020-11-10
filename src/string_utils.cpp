@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <random>
+#include <codecvt>
 
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
@@ -29,6 +30,8 @@ void StringUtils::unicode_normalize(std::string & str) const {
     for (char *s = &str[0]; *s;) {
         char inbuf[5];
         char *p = inbuf;
+
+        // group bytes to form a unicode representation
         *p++ = *s++;
         if ((*s & 0xC0) == 0x80) *p++ = *s++;
         if ((*s & 0xC0) == 0x80) *p++ = *s++;
@@ -96,4 +99,9 @@ std::string StringUtils::str2hex(const std::string &str, bool capital) {
     }
 
     return hexstr;
+}
+
+size_t StringUtils::unicode_length(const std::string& bytes) {
+    std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
+    return utf8conv.from_bytes(bytes).size();
 }

@@ -272,6 +272,9 @@ bool get_search(http_req & req, http_res & res) {
     // list of fields which will be highlighted fully without snippeting
     const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
 
+    const char *HIGHLIGHT_START_TAG = "highlight_start_tag";
+    const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
+
     if(req.params.count(NUM_TYPOS) == 0) {
         req.params[NUM_TYPOS] = "2";
     }
@@ -311,6 +314,14 @@ bool get_search(http_req & req, http_res & res) {
 
     if(req.params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
         req.params[HIGHLIGHT_FULL_FIELDS] = "";
+    }
+
+    if(req.params.count(HIGHLIGHT_START_TAG) == 0) {
+        req.params[HIGHLIGHT_START_TAG] = "<mark>";
+    }
+
+    if(req.params.count(HIGHLIGHT_END_TAG) == 0) {
+        req.params[HIGHLIGHT_END_TAG] = "</mark>";
     }
 
     if(req.params.count(PER_PAGE) == 0) {

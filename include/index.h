@@ -139,8 +139,10 @@ private:
 
     StringUtils string_utils;
 
-    static inline std::vector<art_leaf *> next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
-                                                          long long int n);
+    static inline void next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
+                                       long long int n,
+                                       std::vector<art_leaf *>& actual_query_suggestion,
+                                       std::vector<art_leaf *>& query_suggestion);
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
