@@ -291,5 +291,5 @@ struct StringUtils {
 
     static std::string hmac(const std::string& key, const std::string& msg);
 
-    static size_t unicode_length(const std::string& bytes);
+    //static size_t unicode_length(const std::string& bytes);
 };

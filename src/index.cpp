@@ -8,6 +8,7 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
+#include <tokenizer.h>
 #include "logger.h"
 
 Index::Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
@@ -337,8 +338,8 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> reindex_tokens;
         std::vector<std::string> old_tokens;
-        tokenize_doc_field(update_doc, field_name, search_field, reindex_tokens);
-        tokenize_doc_field(old_doc, field_name, search_field, old_tokens);
+        tokenize_doc_field(update_doc, search_field, reindex_tokens);
+        tokenize_doc_field(old_doc, search_field, old_tokens);
 
         if(old_tokens.size() != reindex_tokens.size()) {
             ++it;
@@ -556,20 +557,15 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
 
 void Index::index_string_field(const std::string & text, const int64_t score, art_tree *t,
                                     uint32_t seq_id, int facet_id, const field & a_field) {
-    std::vector<std::string> tokens;
-    StringUtils::split(text, tokens, " ", a_field.is_string());
-
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    for(size_t i=0; i<tokens.size(); i++) {
-        auto & token = tokens[i];
+    Tokenizer tokenizer(text, true, a_field.is_string());
+    std::string token;
+    size_t token_index = 0;
 
+    while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
             continue;
-        }
-
-        if(a_field.is_string()) {
-            string_utils.unicode_normalize(token);
         }
 
         if(facet_id >= 0) {
@@ -577,7 +573,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
             facet_index_v2[seq_id][facet_id].push_back(hash);
         }
 
-        token_to_offsets[token].push_back(i);
+        token_to_offsets[token].push_back(token_index);
     }
 
     /*if(seq_id == 0) {
@@ -596,23 +592,17 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
     std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
-        const std::string & str = strings[array_index];
-        std::vector<std::string> tokens;
-        std::string delim = " ";
-        StringUtils::split(str, tokens, delim, a_field.is_string());
-
+        const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        // iterate and append offset positions
-        for(size_t i=0; i<tokens.size(); i++) {
-            auto & token = tokens[i];
+        Tokenizer tokenizer(str, true, a_field.is_string());
+        std::string token;
+        size_t token_index = 0;
 
+        // iterate and append offset positions
+        while(tokenizer.next(token, token_index)) {
             if(token.empty()) {
                 continue;
-            }
-
-            if(a_field.is_string()) {
-                string_utils.unicode_normalize(token);
             }
 
             if(facet_id >= 0) {
@@ -621,7 +611,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
                 //printf("indexing %.*s - %llu\n", token.size(), token.c_str(), hash);
             }
 
-            token_positions[token].push_back(i);
+            token_positions[token].push_back(token_index);
             token_set.insert(token);
         }
 
@@ -630,13 +620,13 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         }
 
         // repeat last element to indicate end of offsets for this array index
-        for(auto & token: token_set) {
-            token_positions[token].push_back(token_positions[token].back());
+        for(auto & the_token: token_set) {
+            token_positions[the_token].push_back(token_positions[the_token].back());
         }
 
         // iterate and append this array index to all tokens
-        for(auto & token: token_set) {
-            token_positions[token].push_back(array_index);
+        for(auto & the_token: token_set) {
+            token_positions[the_token].push_back(array_index);
         }
     }
 
@@ -750,17 +740,14 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
             }
 
-            std::vector<std::string> query_tokens;
-            StringUtils::split(facet_query.query, query_tokens, " ");
-
             // for non-string fields, `faceted_name` returns their aliased stringified field name
             art_tree *t = search_index.at(facet_field.faceted_name());
 
+            std::vector<std::string> query_tokens;
+            Tokenizer(facet_query.query, false, facet_field.is_string()).tokenize(query_tokens);
+
             for (size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
                 auto &q = query_tokens[qtoken_index];
-                if (facet_field.is_string()) {
-                    string_utils.unicode_normalize(q);
-                }
 
                 int bounded_cost = (q.size() < 3) ? 0 : 1;
                 bool prefix_search = (qtoken_index ==
@@ -1062,9 +1049,6 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
             size_t ids_size = 0;
 
             for(const std::string & filter_value: a_filter.values) {
-                std::vector<std::string> str_tokens;
-                StringUtils::split(filter_value, str_tokens, " ");
-
                 uint32_t* strt_ids = nullptr;
                 size_t strt_ids_size = 0;
 
@@ -1072,8 +1056,14 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
 
                 // there could be multiple tokens in a filter value, which we have to treat as ANDs
                 // e.g. country: South Africa
-                for(auto& str_token: str_tokens) {
-                    string_utils.unicode_normalize(str_token);
+
+                Tokenizer tokenizer(filter_value, false, true);
+                std::string str_token;
+                size_t token_index = 0;
+                std::vector<std::string> str_tokens;
+
+                while(tokenizer.next(str_token, token_index)) {
+                    str_tokens.push_back(str_token);
 
                     art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) str_token.c_str(),
                                                              str_token.length()+1);
@@ -1296,15 +1286,15 @@ void Index::collate_included_ids(const std::string & query, const std::string & 
     }
 
     // calculate match_score and add to topster independently
-    std::vector<std::string> tokens;
-    StringUtils::split(query, tokens, " ");
 
     std::vector<art_leaf *> override_query;
 
-    for(size_t token_index = 0; token_index < tokens.size(); token_index++) {
-        const auto token = tokens[token_index];
+    Tokenizer tokenizer(query, false, true);
+    std::string token;
+    size_t token_index = 0;
+
+    while(tokenizer.next(token, token_index)) {
         const size_t token_len = token.length();
-        string_utils.unicode_normalize(tokens[token_index]);
 
         std::vector<art_leaf*> leaves;
         art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
@@ -1483,8 +1473,6 @@ void Index::search_field(const uint8_t & field_id, const std::string & query, co
                          uint32_t** all_result_ids, size_t & all_result_ids_len,
                          const token_ordering token_order, const bool prefix, 
                          const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) {
-    std::vector<std::string> tokens;
-    StringUtils::split(query, tokens, " ");
 
     const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
 
@@ -1496,19 +1484,22 @@ void Index::search_field(const uint8_t & field_id, const std::string & query, co
 
     std::vector<std::vector<int>> token_to_costs;
 
-    for(size_t token_index = 0; token_index < tokens.size(); token_index++) {
-        std::vector<int> all_costs;
-        const size_t token_len = tokens[token_index].length();
+    Tokenizer tokenizer(query, false, true);
+    std::string token;
+    size_t token_index = 0;
+    std::vector<std::string> tokens;
 
+    while(tokenizer.next(token, token_index)) {
+        std::vector<int> all_costs;
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
-        int bounded_cost = get_bounded_typo_cost(max_cost, token_len);
+        int bounded_cost = get_bounded_typo_cost(max_cost, token.length());
 
         for(int cost = 0; cost <= bounded_cost; cost++) {
             all_costs.push_back(cost);
         }
 
         token_to_costs.push_back(all_costs);
-        string_utils.unicode_normalize(tokens[token_index]);
+        tokens.push_back(token);
     }
 
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
@@ -1934,14 +1925,13 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
 
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         std::vector<std::string> tokens;
-        tokenize_doc_field(document, field_name, search_field, tokens);
+        tokenize_doc_field(document, search_field, tokens);
 
         for(auto & token: tokens) {
             const unsigned char *key;
             int key_len;
 
             if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
-                string_utils.unicode_normalize(token);
                 key = (const unsigned char *) token.c_str();
                 key_len = (int) (token.length() + 1);
             } else {
@@ -1998,14 +1988,17 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
     return Option<uint32_t>(seq_id);
 }
 
-void Index::tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
+void Index::tokenize_doc_field(const nlohmann::json& document, const field& search_field,
                                std::vector<std::string>& tokens) {
+
+    const std::string& field_name = search_field.name;
+
     if(search_field.type == field_types::STRING) {
-        StringUtils::split(document[field_name], tokens, " ", true);
+        Tokenizer(document[field_name], true, search_field.is_string()).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            StringUtils::split(value, tokens, " ", true);
+            Tokenizer(value, true, search_field.is_string()).tokenize(tokens);
         }
     } else if(search_field.type == field_types::INT32) {
         const int KEY_LEN = 8;
