@@ -312,7 +312,6 @@ public:
 
     void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
 
-    void tokenize_doc_field(const nlohmann::json& document, const std::string& field_name, const field& search_field,
-                            std::vector<std::string>& tokens);
+    void tokenize_doc_field(const nlohmann::json& document, const field& search_field, std::vector<std::string>& tokens);
 };
 

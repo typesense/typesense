@@ -558,12 +558,12 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
     ASSERT_STREQ("categories", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
-    ASSERT_STREQ("Cell Phone Cases & Clips", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phone Cases & Clips", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][1]["count"].get<size_t>());
-    ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Cases & Clips", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][2]["count"].get<size_t>());
     ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
