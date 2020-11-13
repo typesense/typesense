@@ -785,7 +785,6 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     ASSERT_STREQ(results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str(), "title");
     ASSERT_STREQ(results["hits"][0]["highlights"][1]["snippet"].get<std::string>().c_str(),
                  "<mark>Amazing</mark> Spiderman is <mark>amazing</mark>"); // should highlight duplicating tokens
-    LOG(INFO) << results["hits"][0]["highlights"][1];
 
     ASSERT_EQ(2, results["hits"][0]["highlights"][1]["matched_tokens"].size());
     ASSERT_STREQ("Amazing", results["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
@@ -1985,33 +1984,41 @@ TEST_F(CollectionTest, SearchHighlightShouldUseHighlightTags) {
     auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
                              token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                             "<em>", "</em>").get();
+                             "<em class=\"h\">", "</em>").get();
 
-    ASSERT_STREQ("The quick brown  fox jumped over the  <em>lazy</em> fox. ",
+    ASSERT_STREQ("The quick brown  fox jumped over the  <em class=\"h\">lazy</em> fox. ",
+                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionTest, SearchHighlightWithNewLine) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "Blah, blah\nStark Industries";
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("stark", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0).get();
+
+    ASSERT_STREQ("Blah, blah <mark>Stark</mark> Industries",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
-    // empty tags
-
-    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, 0, 10, 1,
-                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                        "", "").get();
-
-    ASSERT_STREQ("The quick brown  fox jumped over the  lazy fox. ",
-                 res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-
-    // check for matched tokens
-
-    res = coll1->search("fox", {"title"}, "", {}, sort_fields, 0, 10, 1,
-                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0).get();
-
-    ASSERT_EQ(2, res["hits"][0]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("fox",
-                 res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
-
-    ASSERT_STREQ("fox.",
-                 res["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
+    ASSERT_STREQ("Stark", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

@@ -515,7 +515,9 @@ bool get_search(http_req & req, http_res & res) {
                                                           pinned_hits,
                                                           hidden_hits,
                                                           group_by_fields,
-                                                          static_cast<size_t>(std::stol(req.params[GROUP_LIMIT]))
+                                                          static_cast<size_t>(std::stol(req.params[GROUP_LIMIT])),
+                                                          req.params[HIGHLIGHT_START_TAG],
+                                                          req.params[HIGHLIGHT_END_TAG]
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

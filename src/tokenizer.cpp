@@ -5,10 +5,16 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
     std::stringstream out;
 
     if(i >= text.size()) {
+        if(i == text.size() && !text.empty() && text.back() == ' ') {
+            token = "";
+            i++;
+            return true;
+        }
+
         return false;
     }
 
-    if(!normalize) {
+    if(no_op) {
         token = text;
         i = text.size();
         return true;
@@ -34,7 +40,9 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
                 return true;
             }
 
-            if(std::isalnum(text[i])) {
+            if(!normalize) {
+                out << text[i];
+            } else if(std::isalnum(text[i])) {
                 out << char(std::tolower(text[i]));
             }
 
@@ -69,12 +77,17 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
         } else {
             // NOTE: outsize indicates bytes available AFTER current position so have to do <=
             for(size_t out_index=0; out_index<5; out_index++) {
+                if(!normalize) {
+                    out << outbuf[out_index];
+                    continue;
+                }
+
                 bool is_ascii = ((outbuf[out_index] & ~0x7f) == 0);
                 bool keep_char = !is_ascii || std::isalnum(outbuf[out_index]);
 
                 if(keep_char) {
                     if(is_ascii && std::isalnum(outbuf[out_index])) {
-                        outbuf[out_index] = std::tolower(outbuf[out_index]);
+                        outbuf[out_index] = char(std::tolower(outbuf[out_index]));
                     }
                     out << outbuf[out_index];
                 }
@@ -100,4 +113,9 @@ void Tokenizer::tokenize(std::vector<std::string> &tokens) {
     while(next(token, token_index)) {
         tokens.push_back(token);
     }
+}
+
+void Tokenizer::tokenize(std::string& token) {
+    size_t token_index;
+    next(token, token_index);
 }

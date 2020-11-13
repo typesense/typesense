@@ -10,6 +10,7 @@
 #include <future>
 #include <rocksdb/write_batch.h>
 #include <system_metrics.h>
+#include <tokenizer.h>
 #include "topster.h"
 #include "logger.h"
 
@@ -1424,10 +1425,11 @@ void Collection::highlight_result(const field &search_field,
         const Match & match = match_index.match;
 
         std::vector<std::string> tokens;
+
         if(search_field.type == field_types::STRING) {
-            StringUtils::split(document[search_field.name], tokens, " ", true);
+            Tokenizer(document[search_field.name], true, false).tokenize(tokens);
         } else {
-            StringUtils::split(document[search_field.name][match_index.index], tokens, " ", true);
+            Tokenizer(document[search_field.name][match_index.index], true, false).tokenize(tokens);
         }
 
         std::vector<size_t> token_indices;
@@ -1442,7 +1444,8 @@ void Collection::highlight_result(const field &search_field,
                     continue;
                 }
                 std::string token = tokens[token_index];
-                string_utils.unicode_normalize(token);
+                Tokenizer(token, true, true).tokenize(token);
+
                 token_hits.insert(token);
             }
         }
@@ -1470,7 +1473,7 @@ void Collection::highlight_result(const field &search_field,
             }
 
             std::string token = tokens[snippet_index];
-            string_utils.unicode_normalize(token);
+            Tokenizer(token, true, true).tokenize(token);
 
             if(token_hits.count(token) != 0) {
                 snippet_stream << highlight_start_tag << tokens[snippet_index] << highlight_end_tag;
@@ -1493,7 +1496,7 @@ void Collection::highlight_result(const field &search_field,
                 }
 
                 std::string token = tokens[value_index];
-                string_utils.unicode_normalize(token);
+                Tokenizer(token, true, true).tokenize(token);
 
                 if(token_hits.count(token) != 0) {
                     value_stream << highlight_start_tag << tokens[value_index] << highlight_end_tag;
