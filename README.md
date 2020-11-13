@@ -7,7 +7,7 @@
 
 <p align="center">
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
- <a href="https://circleci.com/gh/typesense/typesense"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>  
+ <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>  
 </p>
 <br>
 <p align="center">
