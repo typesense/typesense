@@ -494,7 +494,8 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
     //LOG(INFO) << "process_request called";
 
     // for writes, we delegate to replication_state to handle response
-    if(rpath->http_method == "POST" || rpath->http_method == "PUT" || rpath->http_method == "DELETE") {
+    if(rpath->http_method == "POST" || rpath->http_method == "PUT" || rpath->http_method == "DELETE" ||
+       rpath->http_method == "PATCH") {
         handler->http_server->get_replication_state()->write(request, response);
         return 0;
     }
@@ -618,7 +619,8 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     } else {
         // otherwise, call the handler since it will be the handler that will be producing content
         // (streaming response but not request)
-        custom_generator->rpath->handler(*custom_generator->request, *custom_generator->response);
+        custom_generator->h2o_handler->http_server->defer_processing(*custom_generator->request,
+                                                                     *custom_generator->response, 1);
     }
 }
 

@@ -600,155 +600,10 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
     }
 
-    // validate filter fields
-    std::vector<std::string> filter_blocks;
-    StringUtils::split(simple_filter_query, filter_blocks, "&&");
-
     std::vector<filter> filters;
-    for(const std::string & filter_block: filter_blocks) {
-        // split into [field_name, value]
-        size_t found_index = filter_block.find(':');
-
-        if(found_index == std::string::npos) {
-            return Option<nlohmann::json>(400, "Could not parse the filter query.");
-        }
-
-        std::string&& field_name = filter_block.substr(0, found_index);
-        StringUtils::trim(field_name);
-
-        if(search_schema.count(field_name) == 0) {
-            return Option<nlohmann::json>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
-        }
-
-        field _field = search_schema.at(field_name);
-        std::string&& raw_value = filter_block.substr(found_index+1, std::string::npos);
-        StringUtils::trim(raw_value);
-        filter f;
-
-        // skip past optional `:=` operator, which has no meaning for non-string fields
-        if(!_field.is_string() && raw_value[0] == '=') {
-            size_t filter_value_index = 0;
-            while(raw_value[++filter_value_index] == ' ');
-            raw_value = raw_value.substr(filter_value_index);
-        }
-
-        if(_field.is_integer() || _field.is_float()) {
-            // could be a single value or a list
-            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
-                std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-
-                for(const std::string & filter_value: filter_values) {
-                    if(_field.is_int32()) {
-                        if(!StringUtils::is_int32_t(filter_value)) {
-                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
-                        }
-                    }
-
-                    else if(_field.is_int64()) {
-                        if(!StringUtils::is_int64_t(filter_value)) {
-                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
-                        }
-                    }
-
-                    else if(_field.is_float()) {
-                        if(!StringUtils::is_float(filter_value)) {
-                            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not a float.");
-                        }
-                    }
-                }
-
-                f = {field_name, filter_values, EQUALS};
-            } else {
-                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
-                if(!op_comparator.ok()) {
-                    return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
-                }
-
-                // extract numerical value
-                std::string filter_value;
-                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
-                    filter_value = raw_value.substr(1);
-                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
-                    filter_value = raw_value.substr(2);
-                } else {
-                    // EQUALS
-                    filter_value = raw_value;
-                }
-
-                filter_value = StringUtils::trim(filter_value);
-
-                if(_field.is_int32()) {
-                    if(!StringUtils::is_int32_t(filter_value)) {
-                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
-                    }
-                }
-
-                else if(_field.is_int64()) {
-                    if(!StringUtils::is_int64_t(filter_value)) {
-                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
-                    }
-                }
-
-                else if(_field.is_float()) {
-                    if(!StringUtils::is_float(filter_value)) {
-                        return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Not a float.");
-                    }
-                }
-
-                f = {field_name, {filter_value}, op_comparator.get()};
-            }
-        } else if(_field.is_bool()) {
-            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
-                std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-
-                for(std::string & filter_value: filter_values) {
-                    if(filter_value != "true" && filter_value != "false") {
-                        return Option<nlohmann::json>(400, "Values of filter field `" + _field.name +
-                                                      "`: must be `true` or `false`.");
-                    }
-
-                    filter_value = (filter_value == "true") ? "1" : "0";
-                }
-
-                f = {field_name, filter_values, EQUALS};
-            } else {
-                if(raw_value != "true" && raw_value != "false") {
-                    return Option<nlohmann::json>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
-                }
-                std::string bool_value = (raw_value == "true") ? "1" : "0";
-                f = {field_name, {bool_value}, EQUALS};
-            }
-
-        } else if(_field.is_string()) {
-            size_t filter_value_index = 0;
-            NUM_COMPARATOR str_comparator = CONTAINS;
-
-            if(raw_value[0] == '=') {
-                if(!_field.facet) {
-                    // EQUALS filtering on string is possible only on facet fields
-                    return Option<nlohmann::json>(400, "To perform exact filtering, filter field `" +
-                           _field.name + "` must be a facet field.");
-                }
-
-                // string filter should be evaluated in strict "equals" mode
-                str_comparator = EQUALS;
-                while(raw_value[++filter_value_index] == ' ');
-            }
-
-            if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
-                std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values, ",");
-                f = {field_name, filter_values, str_comparator};
-            } else {
-                f = {field_name, {raw_value.substr(filter_value_index)}, str_comparator};
-            }
-        } else {
-            return Option<nlohmann::json>(400, "Error with filter field `" + _field.name + "`: Unidentified field type.");
-        }
-
-        filters.push_back(f);
+    Option<bool> parse_filter_op = parse_filter_query(simple_filter_query, filters);
+    if(!parse_filter_op.ok()) {
+        return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
 
     // validate facet fields
@@ -1297,6 +1152,29 @@ void Collection::aggregate_topster(size_t query_index, Topster &topster, Topster
     }
 }
 
+Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
+                                    std::vector<std::pair<size_t, uint32_t*>>& index_ids) {
+    std::vector<filter> filters;
+    Option<bool> filter_op = parse_filter_query(simple_filter_query, filters);
+
+    if(!filter_op.ok()) {
+        return filter_op;
+    }
+
+    for(auto& index: indices) {
+        uint32_t* filter_ids = nullptr;
+        Option<uint32_t> op_filter_ids_length = index->do_filtering(&filter_ids, filters);
+        if(!op_filter_ids_length.ok()) {
+            return Option<bool>(op_filter_ids_length.code(), op_filter_ids_length.error());
+        }
+
+        size_t filter_ids_len = op_filter_ids_length.get();
+        index_ids.emplace_back(filter_ids_len, filter_ids);
+    }
+
+    return Option<bool>(true);
+}
+
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
                                        const nlohmann::json &document, std::string &value) {
 
@@ -1611,6 +1489,30 @@ Option<std::string> Collection::remove(const std::string & id, const bool remove
     return Option<std::string>(id);
 }
 
+Option<bool> Collection::remove_if_found(uint32_t seq_id, const bool remove_from_store) {
+    std::string parsed_document;
+    StoreStatus doc_status = store->get(get_seq_id_key(seq_id), parsed_document);
+
+    if(doc_status == StoreStatus::NOT_FOUND) {
+        return Option<bool>(false);
+    }
+
+    if(doc_status == StoreStatus::ERROR) {
+        return Option<bool>(500, "Error while fetching the document with seq id: " +
+                            std::to_string(seq_id));
+    }
+
+    nlohmann::json document;
+    try {
+        document = nlohmann::json::parse(parsed_document);
+    } catch(...) {
+        return Option<bool>(500, "Error while parsing stored document.");
+    }
+
+    remove_document(document, seq_id, remove_from_store);
+    return Option<bool>(true);
+}
+
 Option<uint32_t> Collection::add_override(const override_t & override) {
     if(overrides.count("id") != 0) {
         return Option<uint32_t>(409, "There is already another entry with that `id`.");
@@ -1755,4 +1657,158 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
 
 const std::vector<Index *> &Collection::_get_indexes() const {
     return indices;
+}
+
+Option<bool> Collection::parse_filter_query(const std::string& simple_filter_query,
+                                                      std::vector<filter>& filters) {
+    std::vector<std::string> filter_blocks;
+    StringUtils::split(simple_filter_query, filter_blocks, "&&");
+
+    for(const std::string & filter_block: filter_blocks) {
+        // split into [field_name, value]
+        size_t found_index = filter_block.find(':');
+
+        if(found_index == std::string::npos) {
+            return Option<bool>(400, "Could not parse the filter query.");
+        }
+
+        std::string&& field_name = filter_block.substr(0, found_index);
+        StringUtils::trim(field_name);
+
+        if(search_schema.count(field_name) == 0) {
+            return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
+        }
+
+        field _field = search_schema.at(field_name);
+        std::string&& raw_value = filter_block.substr(found_index+1, std::string::npos);
+        StringUtils::trim(raw_value);
+        filter f;
+
+        // skip past optional `:=` operator, which has no meaning for non-string fields
+        if(!_field.is_string() && raw_value[0] == '=') {
+            size_t filter_value_index = 0;
+            while(raw_value[++filter_value_index] == ' ');
+            raw_value = raw_value.substr(filter_value_index);
+        }
+
+        if(_field.is_integer() || _field.is_float()) {
+            // could be a single value or a list
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+                for(const std::string & filter_value: filter_values) {
+                    if(_field.is_int32()) {
+                        if(!StringUtils::is_int32_t(filter_value)) {
+                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+                        }
+                    }
+
+                    else if(_field.is_int64()) {
+                        if(!StringUtils::is_int64_t(filter_value)) {
+                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+                        }
+                    }
+
+                    else if(_field.is_float()) {
+                        if(!StringUtils::is_float(filter_value)) {
+                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                        }
+                    }
+                }
+
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
+                if(!op_comparator.ok()) {
+                    return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
+                }
+
+                // extract numerical value
+                std::string filter_value;
+                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
+                    filter_value = raw_value.substr(1);
+                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
+                    filter_value = raw_value.substr(2);
+                } else {
+                    // EQUALS
+                    filter_value = raw_value;
+                }
+
+                filter_value = StringUtils::trim(filter_value);
+
+                if(_field.is_int32()) {
+                    if(!StringUtils::is_int32_t(filter_value)) {
+                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+                    }
+                }
+
+                else if(_field.is_int64()) {
+                    if(!StringUtils::is_int64_t(filter_value)) {
+                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+                    }
+                }
+
+                else if(_field.is_float()) {
+                    if(!StringUtils::is_float(filter_value)) {
+                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                    }
+                }
+
+                f = {field_name, {filter_value}, op_comparator.get()};
+            }
+        } else if(_field.is_bool()) {
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+                for(std::string & filter_value: filter_values) {
+                    if(filter_value != "true" && filter_value != "false") {
+                        return Option<bool>(400, "Values of filter field `" + _field.name +
+                                                           "`: must be `true` or `false`.");
+                    }
+
+                    filter_value = (filter_value == "true") ? "1" : "0";
+                }
+
+                f = {field_name, filter_values, EQUALS};
+            } else {
+                if(raw_value != "true" && raw_value != "false") {
+                    return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
+                }
+                std::string bool_value = (raw_value == "true") ? "1" : "0";
+                f = {field_name, {bool_value}, EQUALS};
+            }
+
+        } else if(_field.is_string()) {
+            size_t filter_value_index = 0;
+            NUM_COMPARATOR str_comparator = CONTAINS;
+
+            if(raw_value[0] == '=') {
+                if(!_field.facet) {
+                    // EQUALS filtering on string is possible only on facet fields
+                    return Option<bool>(400, "To perform exact filtering, filter field `" +
+                                                       _field.name + "` must be a facet field.");
+                }
+
+                // string filter should be evaluated in strict "equals" mode
+                str_comparator = EQUALS;
+                while(raw_value[++filter_value_index] == ' ');
+            }
+
+            if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values, ",");
+                f = {field_name, filter_values, str_comparator};
+            } else {
+                f = {field_name, {raw_value.substr(filter_value_index)}, str_comparator};
+            }
+        } else {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Unidentified field type.");
+        }
+
+        filters.push_back(f);
+    }
+
+    return Option<bool>(true);
 }

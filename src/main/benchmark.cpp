@@ -121,7 +121,7 @@ void benchmark_reactjs_pages(char* file_path) {
 
     Collection *collection = collectionManager.get_collection("reactjs_pages");
     if(collection == nullptr) {
-        collection = collectionManager.create_collection("reactjs_pages", fields_to_index, "dummy_sorting_field").get();
+        collection = collectionManager.create_collection("reactjs_pages", 4, fields_to_index, "dummy_sorting_field").get();
     }
 
     std::ifstream infile(file_path);

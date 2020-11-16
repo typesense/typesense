@@ -31,6 +31,8 @@ bool get_fetch_document(http_req& req, http_res& res);
 
 bool del_remove_document(http_req& req, http_res& res);
 
+bool del_remove_documents(http_req& req, http_res& res);
+
 // Alias
 
 bool get_alias(http_req& req, http_res& res);

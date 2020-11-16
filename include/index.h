@@ -146,8 +146,6 @@ private:
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
-    Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
-
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    const uint32_t* result_ids, size_t results_size);
 
@@ -240,6 +238,8 @@ public:
                           std::vector<std::vector<KV*>> & raw_result_kvs,
                           std::vector<std::vector<KV*>> & override_result_kvs,
                           const size_t typo_tokens_threshold);
+
+    Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
 

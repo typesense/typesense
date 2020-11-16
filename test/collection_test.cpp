@@ -2457,3 +2457,49 @@ TEST_F(CollectionTest, ReturnsResultsBasedOnPerPageParam) {
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<int>());
 }
+
+TEST_F(CollectionTest, RemoveIfFound) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    for(size_t i=0; i<10; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        coll1->add(doc.dump());
+    }
+
+    auto res = coll1->search("*", {"title"}, "", {}, sort_fields, 0, 10, 1,
+                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0).get();
+
+    ASSERT_EQ(10, res["found"].get<int>());
+
+    // removing found doc
+    Option<bool> found_op = coll1->remove_if_found(0);
+    ASSERT_TRUE(found_op.ok());
+    ASSERT_TRUE(found_op.get());
+
+    auto get_op = coll1->get("0");
+    ASSERT_FALSE(get_op.ok());
+    ASSERT_EQ(404, get_op.code());
+
+    // removing doc not found
+    found_op = coll1->remove_if_found(100);
+    ASSERT_TRUE(found_op.ok());
+    ASSERT_FALSE(found_op.get());
+
+    collectionManager.drop_collection("coll1");
+}

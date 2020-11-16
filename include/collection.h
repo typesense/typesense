@@ -184,6 +184,8 @@ private:
 
     void free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const;
 
+    Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters);
+
 public:
     Collection() = delete;
 
@@ -259,11 +261,16 @@ public:
                           const std::string& highlight_start_tag="<mark>",
                           const std::string& highlight_end_tag="</mark>");
 
+    Option<bool> get_filter_ids(const std::string & simple_filter_query,
+                                std::vector<std::pair<size_t, uint32_t*>>& index_ids);
+
     Option<nlohmann::json> get(const std::string & id);
 
     bool doc_exists(const std::string & id);
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
+
+    Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
 
     Option<uint32_t> add_override(const override_t & override);
 

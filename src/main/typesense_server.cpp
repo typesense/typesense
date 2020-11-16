@@ -29,6 +29,7 @@ void master_server_routes() {
 
     server->get("/collections/:collection/documents/:id", get_fetch_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);
+    server->del("/collections/:collection/documents", del_remove_documents, false, true);
 
     server->get("/collections/:collection/overrides", get_overrides);
     server->get("/collections/:collection/overrides/:id", get_override);
