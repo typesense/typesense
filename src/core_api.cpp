@@ -8,6 +8,7 @@
 #include "collection_manager.h"
 #include "system_metrics.h"
 #include "logger.h"
+#include "core_api_utils.h"
 
 bool handle_authentication(std::map<std::string, std::string>& req_params, const route_path& rpath,
                            const std::string& auth_key) {
@@ -646,7 +647,10 @@ bool post_import_documents(http_req& req, http_res& res) {
     const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
 
     if(IMPORT_BATCH_SIZE == 0) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        HttpServer::stream_response(req, res);
         return false;
     }
 
@@ -854,6 +858,112 @@ bool del_remove_document(http_req & req, http_res & res) {
     return true;
 }
 
+bool del_remove_documents(http_req & req, http_res & res) {
+    // defaults: will get overridden later if needed
+    res.content_type_header = "application/json";
+    res.status_code = 200;
+
+    // NOTE: this is a streaming response end-point so this handler will be called multiple times
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_404();
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    const char *BATCH_SIZE = "batch_size";
+    const char *FILTER_BY = "filter_by";
+
+    if(req.params.count(BATCH_SIZE) == 0) {
+        req.params[BATCH_SIZE] = "40";
+    }
+
+    if(req.params.count(FILTER_BY) == 0) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    const size_t DELETE_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
+
+    if(DELETE_BATCH_SIZE == 0) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    std::string simple_filter_query;
+
+    if(req.params.count(FILTER_BY) != 0) {
+        simple_filter_query = req.params[FILTER_BY];
+    }
+
+    deletion_state_t* deletion_state = nullptr;
+
+    if(req.data == nullptr) {
+        deletion_state = new deletion_state_t{};
+        auto filter_ids_op = collection->get_filter_ids(simple_filter_query, deletion_state->index_ids);
+
+        if(!filter_ids_op.ok()) {
+            res.set(filter_ids_op.code(), filter_ids_op.error());
+            req.last_chunk_aggregate = true;
+            res.final = true;
+            HttpServer::stream_response(req, res);
+            return false;
+        }
+
+        for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
+            deletion_state->offsets.push_back(0);
+        }
+        deletion_state->collection = collection;
+        deletion_state->num_removed = 0;
+        req.data = deletion_state;
+    } else {
+        deletion_state = static_cast<deletion_state_t*>(req.data);
+    }
+
+    bool done = true;
+    Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
+
+    if(!remove_op.ok()) {
+        res.set(remove_op.code(), remove_op.error());
+        req.last_chunk_aggregate = true;
+        res.final = true;
+    } else {
+        if(!done) {
+            req.last_chunk_aggregate = false;
+            res.final = false;
+        } else {
+            nlohmann::json response;
+            response["num_deleted"] = deletion_state->num_removed;
+
+            req.last_chunk_aggregate = true;
+            req.data = nullptr;
+            res.body = response.dump();
+            res.final = true;
+            delete deletion_state;
+        }
+    }
+
+    HttpServer::stream_response(req, res);
+    return true;
+}
 
 bool get_aliases(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
