@@ -283,6 +283,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         field_val[fields::optional] = field.optional;
         fields_json.push_back(field_val);
 
+        if(!field.has_valid_type()) {
+            return Option<Collection*>(400, "Field `" + field.name +
+                                            "` has an invalid data type `" + field.type +
+                                            "`, see docs for supported data types.");
+        }
+
         if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
                                                     field.type == field_types::INT64 ||
                                                     field.type == field_types::FLOAT)) {

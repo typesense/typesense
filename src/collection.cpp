@@ -1804,7 +1804,8 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 f = {field_name, {raw_value.substr(filter_value_index)}, str_comparator};
             }
         } else {
-            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Unidentified field type.");
+            return Option<bool>(400, "Error with filter field `" + _field.name +
+                                "`: Unidentified field data type, see docs for supported data types.");
         }
 
         filters.push_back(f);
