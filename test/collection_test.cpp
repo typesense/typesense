@@ -2503,3 +2503,20 @@ TEST_F(CollectionTest, RemoveIfFound) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, CreateCollectionInvalidFieldType) {
+    std::vector<field> fields = {field("title", "blah", true),
+                                 field("points", "int", false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    collectionManager.drop_collection("coll1");
+
+    auto create_op = collectionManager.create_collection("coll1", 4, fields, "points");
+
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_STREQ("Field `title` has an invalid data type `blah`, see docs for supported data types.",
+                 create_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

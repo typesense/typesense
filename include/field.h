@@ -88,6 +88,10 @@ struct field {
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
     }
 
+    bool has_valid_type() const {
+        return is_string() || is_integer() || is_float() || is_bool();
+    }
+
     std::string faceted_name() const {
         return (facet && !is_string()) ? "_fstr_" + name : name;
     }
