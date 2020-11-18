@@ -447,39 +447,12 @@ bool get_search(http_req & req, http_res & res) {
         }
     }
 
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-
-    if(req.params.count(PINNED_HITS) != 0) {
-        std::vector<std::string> pinned_hits_strs;
-        StringUtils::split(req.params[PINNED_HITS], pinned_hits_strs, ",");
-
-        for(const std::string & pinned_hits_str: pinned_hits_strs) {
-            std::vector<std::string> expression_parts;
-            StringUtils::split(pinned_hits_str, expression_parts, ":");
-
-            if(expression_parts.size() != 2) {
-                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
-                return false;
-            }
-            
-            if(!StringUtils::is_positive_integer(expression_parts[1])) {
-                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
-                return false;
-            }
-
-            int position = std::stoi(expression_parts[1]);
-            if(position == 0) {
-                res.set_400(std::string("Parameter `") + PINNED_HITS + "` is malformed.");
-                return false;
-            }
-
-            pinned_hits[position].emplace_back(expression_parts[0]);
-        }
+    if(req.params.count(PINNED_HITS) == 0) {
+        req.params[PINNED_HITS] = "";
     }
 
-    std::vector<std::string> hidden_hits;
-    if(req.params.count(HIDDEN_HITS) != 0) {
-        StringUtils::split(req.params[HIDDEN_HITS], hidden_hits, ",");
+    if(req.params.count(HIDDEN_HITS) == 0) {
+        req.params[HIDDEN_HITS] = "";
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -513,8 +486,8 @@ bool get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stol(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])),
                                                           req.params[HIGHLIGHT_FULL_FIELDS],
                                                           typo_tokens_threshold,
-                                                          pinned_hits,
-                                                          hidden_hits,
+                                                          req.params[PINNED_HITS],
+                                                          req.params[HIDDEN_HITS],
                                                           group_by_fields,
                                                           static_cast<size_t>(std::stol(req.params[GROUP_LIMIT])),
                                                           req.params[HIGHLIGHT_START_TAG],

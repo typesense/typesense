@@ -186,6 +186,9 @@ private:
 
     Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters);
 
+    Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
+                                   std::map<size_t, std::vector<std::string>>& pinned_hits);
+
 public:
     Collection() = delete;
 
@@ -254,8 +257,8 @@ public:
                           const size_t highlight_affix_num_tokens = 4,
                           const std::string & highlight_full_fields = "",
                           size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                          const std::map<size_t, std::vector<std::string>>& pinned_hits={},
-                          const std::vector<std::string>& hidden_hits={},
+                          const std::string& pinned_hits_str="",
+                          const std::string& hidden_hits="",
                           const std::vector<std::string>& group_by_fields={},
                           const size_t group_limit = 0,
                           const std::string& highlight_start_tag="<mark>",

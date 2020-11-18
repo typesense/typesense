@@ -267,9 +267,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 }
 
 TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-    pinned_hits[1] = {"13"};
-    pinned_hits[2] = {"4"};
+    auto pinned_hits = "13:1,4:2";
 
     // basic pinning
 
@@ -289,8 +287,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 
     // both pinning and hiding
 
-    std::vector<std::string> hidden_hits;
-    hidden_hits = {"11", "16"};
+    std::string hidden_hits="11,16";
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
@@ -303,9 +300,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_STREQ("6", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     // paginating such that pinned hits appear on second page
-    pinned_hits.clear();
-    pinned_hits[4] = {"13"};
-    pinned_hits[5] = {"4"};
+    pinned_hits = "13:4,4:5";
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 2, FREQUENCY,
                                       false, Index::DROP_TOKENS_THRESHOLD,
@@ -356,10 +351,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 }
 
 TEST_F(CollectionOverrideTest, PinnedHitsSmallerThanPageSize) {
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-    pinned_hits[1] = {"17"};
-    pinned_hits[4] = {"13"};
-    pinned_hits[3] = {"11"};
+    auto pinned_hits = "17:1,13:4,11:3";
 
     // pinned hits larger than page size: check that pagination works
 
@@ -400,11 +392,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsSmallerThanPageSize) {
 }
 
 TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-    pinned_hits[1] = {"6"};
-    pinned_hits[2] = {"1"};
-    pinned_hits[3] = {"16"};
-    pinned_hits[4] = {"11"};
+    auto pinned_hits = "6:1,1:2,16:3,11:4";
 
     // pinned hits larger than page size: check that pagination works
 
@@ -445,11 +433,43 @@ TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
+    auto pinned_hits = "6:1,1:2,11:5";
+
+    // multiple pinnned hits specified, but query produces no result
+
+    auto results = coll_mul_fields->search("notfoundquery", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // multiple pinned hits but only single result
+    results = coll_mul_fields->search("burgundy", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                      "", 10,
+                                      pinned_hits, {}).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+}
+
 TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-    pinned_hits[1] = {"6", "8"};
-    pinned_hits[2] = {"1"};
-    pinned_hits[3] = {"13", "4"};
+    auto pinned_hits = "6:1,8:1,1:2,13:3,4:3";
 
     // without any grouping parameter, only the first ID in a position should be picked
     // and other IDs should appear in their original positions
@@ -499,4 +519,52 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
 
     ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("url", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    for(size_t i=1; i<=10; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::string("https://example.com/") + std::to_string(i);
+        doc["url"] = std::string("https://example.com/") + std::to_string(i);
+        doc["points"] = i;
+
+        coll1->add(doc.dump());
+    }
+
+    std::vector<std::string> query_fields = {"url"};
+    std::vector<std::string> facets;
+
+    std::string pinned_hits_str = "https://example.com/1:1, https://example.com/3:2";  // can have space
+
+    auto res_op = coll1->search("*", {"url"}, "", {}, {}, 0, 25, 1, FREQUENCY,
+                                  false, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                  "", 10,
+                                pinned_hits_str, {});
+
+    ASSERT_TRUE(res_op.ok());
+
+    auto res = res_op.get();
+
+    ASSERT_EQ(10, res["found"].get<size_t>());
+    ASSERT_STREQ("https://example.com/1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("https://example.com/3", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("https://example.com/10", res["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("https://example.com/9", res["hits"][3]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("https://example.com/2", res["hits"][9]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
 }
