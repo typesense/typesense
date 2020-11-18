@@ -355,6 +355,96 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_STREQ("6", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionOverrideTest, PinnedHitsSmallerThanPageSize) {
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"17"};
+    pinned_hits[4] = {"13"};
+    pinned_hits[3] = {"11"};
+
+    // pinned hits larger than page size: check that pagination works
+
+    // without overrides:
+    // 11, 16, 6, 8, 1, 0, 10, 4, 13, 17
+
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 8, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    std::vector<size_t> expected_ids_p1 = {17, 16, 11, 13, 6, 8, 1, 0};
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(8, results["hits"].size());
+
+    for(size_t i=0; i<8; i++) {
+        ASSERT_EQ(expected_ids_p1[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
+
+    std::vector<size_t> expected_ids_p2 = {10, 4};
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 8, 2, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                      "", 10,
+                                      pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    for(size_t i=0; i<2; i++) {
+        ASSERT_EQ(expected_ids_p2[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+    pinned_hits[1] = {"6"};
+    pinned_hits[2] = {"1"};
+    pinned_hits[3] = {"16"};
+    pinned_hits[4] = {"11"};
+
+    // pinned hits larger than page size: check that pagination works
+
+    auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 1, FREQUENCY,
+                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                           "", 10,
+                                           pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 2, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                      "", 10,
+                                      pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_STREQ("16", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 2, 3, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
+                                      "", 10,
+                                      pinned_hits, {}).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+}
+
 TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     std::map<size_t, std::vector<std::string>> pinned_hits;
     pinned_hits[1] = {"6", "8"};

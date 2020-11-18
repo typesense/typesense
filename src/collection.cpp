@@ -852,29 +852,26 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     size_t raw_results_index = 0;
 
     // merge raw results and override results
-    while(override_kv_index < override_result_kvs.size() && raw_results_index < raw_result_kvs.size()) {
-        size_t result_position = result_group_kvs.size() + 1;
-        uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
-
-        if(result_position == override_position) {
-            override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
-            result_group_kvs.push_back(override_result_kvs[override_kv_index]);
-            override_kv_index++;
-        } else {
-            result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
-            raw_results_index++;
+    while(raw_results_index < raw_result_kvs.size()) {
+        if(override_kv_index < override_result_kvs.size()) {
+            size_t result_position = result_group_kvs.size() + 1;
+            uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
+            if(result_position == override_position) {
+                override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
+                result_group_kvs.push_back(override_result_kvs[override_kv_index]);
+                override_kv_index++;
+                continue;
+            }
         }
+
+        result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
+        raw_results_index++;
     }
 
     while(override_kv_index < override_result_kvs.size()) {
         override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
         result_group_kvs.push_back({override_result_kvs[override_kv_index]});
         override_kv_index++;
-    }
-
-    while(raw_results_index < raw_result_kvs.size()) {
-        result_group_kvs.push_back(raw_result_kvs[raw_results_index]);
-        raw_results_index++;
     }
 
     const long start_result_index = (page - 1) * per_page;
@@ -1064,9 +1061,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                     // handle query token being larger than actual token (typo correction)
                     query_token_len = std::min(query_token_len, tokens[i].size());
                     const std::string & unmarked = tokens[i].substr(query_token_len, std::string::npos);
-                    highlightedss << highlight_start_tag +
-                                    tokens[i].substr(0, query_token_len) +
-                                    highlight_end_tag + unmarked;
+                    highlightedss << highlight_start_tag <<
+                                    tokens[i].substr(0, query_token_len) <<
+                                    highlight_end_tag << unmarked;
                 } else {
                     highlightedss << tokens[i];
                 }

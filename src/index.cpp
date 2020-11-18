@@ -1312,8 +1312,8 @@ void Index::collate_included_ids(const std::string & query, const std::string & 
             uint32_t inner_pos = index_seq_id.first;
             uint32_t seq_id = index_seq_id.second;
 
-            uint64_t distinct_id = outer_pos;              // outer pos is the group distinct key
-            uint64_t match_score = (64000 - inner_pos);    // inner pos within a group is the match score
+            uint64_t distinct_id = outer_pos;                           // outer pos is the group distinct key
+            uint64_t match_score = (64000 - outer_pos - inner_pos);    // both outer pos and inner pos inside group
 
             // LOG(INFO) << "seq_id: " << seq_id << " - " << match_score;
 
