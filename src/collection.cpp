@@ -505,8 +505,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t highlight_affix_num_tokens,
                                   const std::string & highlight_full_fields,
                                   size_t typo_tokens_threshold,
-                                  const std::map<size_t, std::vector<std::string>>& pinned_hits,
-                                  const std::vector<std::string>& hidden_hits,
+                                  const std::string& pinned_hits_str,
+                                  const std::string& hidden_hits_str,
                                   const std::vector<std::string>& group_by_fields,
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
@@ -523,6 +523,17 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     std::vector<uint32_t> excluded_ids;
     std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+
+    Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
+
+    if(!pinned_hits_op.ok()) {
+        return Option<nlohmann::json>(400, pinned_hits_op.error());
+    }
+
+    std::vector<std::string> hidden_hits;
+    StringUtils::split(hidden_hits_str, hidden_hits, ",");
+
     populate_overrides(query, pinned_hits, hidden_hits, include_ids, excluded_ids);
 
     /*for(auto kv: include_ids) {
@@ -1806,6 +1817,44 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
         }
 
         filters.push_back(f);
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
+                                           std::map<size_t, std::vector<std::string>>& pinned_hits) {
+    if(!pinned_hits_str.empty()) {
+        std::vector<std::string> pinned_hits_strs;
+        StringUtils::split(pinned_hits_str, pinned_hits_strs, ",");
+
+        for(const std::string & pinned_hits_part: pinned_hits_strs) {
+            std::vector<std::string> expression_parts;
+            size_t index = pinned_hits_part.size() - 1;
+            while(index >= 0 && pinned_hits_part[index] != ':') {
+                index--;
+            }
+
+            if(index == 0) {
+                return Option<bool>(false, "Pinned hits are not in expected format.");
+            }
+
+            std::string pinned_id = pinned_hits_part.substr(0, index);
+            std::string pinned_pos = pinned_hits_part.substr(index+1);
+
+            if(!StringUtils::is_positive_integer(pinned_pos)) {
+                return Option<bool>(false, "Pinned hits are not in expected format.");
+                return false;
+            }
+
+            int position = std::stoi(pinned_pos);
+            if(position == 0) {
+                return Option<bool>(false, "Pinned hits must start from position 1.");
+                return false;
+            }
+
+            pinned_hits[position].emplace_back(pinned_id);
+        }
     }
 
     return Option<bool>(true);
