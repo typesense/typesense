@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "array_utils.h"
+#include "logger.h"
 
 TEST(SortedArrayTest, AndScalar) {
     const size_t size1 = 9;
@@ -153,6 +154,20 @@ TEST(SortedArrayTest, FilterArray) {
     results = nullptr;
     results_size = ArrayUtils::exclude_scalar(arr1, size1, arr2, vec2.size(), &results);
     ASSERT_EQ(0, results_size);
+
+    // on a larger array
+    results = nullptr;
+    
+    std::vector<uint32_t> vec3 = {58, 118, 185, 260, 322, 334, 353};
+    std::vector<uint32_t> filter_ids = {58, 103, 116, 117, 137, 154, 191, 210, 211, 284, 299, 302, 306, 309, 332, 334, 360};
+    std::vector<uint32_t> expected_res = {118, 185, 260, 322, 353};
+
+    results_size = ArrayUtils::exclude_scalar(&vec3[0], vec3.size(), &filter_ids[0], filter_ids.size(), &results);
+    ASSERT_EQ(expected_res.size(), results_size);
+    
+    for(size_t i=0; i<expected_res.size(); i++) {
+        ASSERT_EQ(expected_res[i], results[i]);
+    }
 
     delete[] arr2;
     delete[] arr1;
