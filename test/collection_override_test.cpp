@@ -436,7 +436,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
 TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
     auto pinned_hits = "6:1,1:2,11:5";
 
-    // multiple pinnned hits specified, but query produces no result
+    // multiple pinned hits specified, but query produces no result
 
     auto results = coll_mul_fields->search("notfoundquery", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
                                            false, Index::DROP_TOKENS_THRESHOLD,
@@ -519,6 +519,51 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
 
     ASSERT_STREQ("11", results["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("16", results["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 3, fields, "points").get();
+    }
+
+    size_t num_indexed = 0;
+
+    for(size_t i=0; i<311; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+        num_indexed++;
+    }
+
+    auto pinned_hits = "7:1,4:2";
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, 0, 30, 11, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                       "", 10,
+                                       pinned_hits, {}).get();
+
+    ASSERT_EQ(311, results["found"].get<size_t>());
+    ASSERT_EQ(11, results["hits"].size());
+
+    std::vector<size_t> expected_ids = {12, 11, 10, 9, 8, 6, 5, 3, 2, 1, 0};  // 4 and 7 should be missing
+
+    for(size_t i=0; i<11; i++) {
+        ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
