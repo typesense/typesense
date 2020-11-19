@@ -536,7 +536,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     populate_overrides(query, pinned_hits, hidden_hits, include_ids, excluded_ids);
 
-    /*for(auto kv: include_ids) {
+    /*for(auto& kv: include_ids) {
         LOG(INFO) << "key: " << kv.first;
         for(auto val: kv.second) {
             LOG(INFO) << val;

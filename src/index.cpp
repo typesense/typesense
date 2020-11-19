@@ -1407,9 +1407,14 @@ void Index::search(Option<uint32_t> & outcome,
         }
 
         if(!curated_ids.empty()) {
+            if(filters.empty()) {
+                // filter ids populated from hash map will not be sorted, but sorting is required for intersection
+                std::sort(filter_ids, filter_ids+filter_ids_length);
+            }
+
             uint32_t *excluded_result_ids = nullptr;
             filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, &curated_ids_sorted[0],
-                                                     curated_ids.size(), &excluded_result_ids);
+                                                           curated_ids_sorted.size(), &excluded_result_ids);
             delete [] filter_ids;
             filter_ids = excluded_result_ids;
         }
