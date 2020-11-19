@@ -1574,7 +1574,6 @@ void Index::search_field(const uint8_t & field_id, const std::string & query, co
                         token_to_costs.erase(token_to_costs.begin()+token_index);
                         tokens.erase(tokens.begin()+token_index);
                         costs.erase(costs.begin()+token_index);
-                        token_index--;
                     }
                 }
 

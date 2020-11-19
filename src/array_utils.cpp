@@ -129,16 +129,11 @@ size_t ArrayUtils::exclude_scalar(const uint32_t *A, const size_t lenA,
       results[res_index] = A[indexA];
       res_index++;
       indexA++;
+    } else if (A[indexA] == B[indexB]) {
+        indexA++;
+        indexB++;
     } else {
-      if (A[indexA] == B[indexB]) {
-        indexA++;
         indexB++;
-      } else {
-        results[res_index] = A[indexA];
-        res_index++;
-        indexA++;
-        indexB++;
-      }
     }
   }
 
