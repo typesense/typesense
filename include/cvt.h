@@ -1,12 +1,14 @@
+#pragma once
+
 /* Compact Variable Trie
 ================================================================================================================
-  ates, at, as, bet, to, tk
+  ates, at, as, but, tok, too
 
         [   *    ]
        ⁄   |     ＼
-     a     b      t
+     a     b      t-o
    ／ ＼    \     ／＼
-   s   t    etØ  k  o
+   s   t    utØ  k  o
   /   /  ＼      /   ＼
  Ø   esØ  Ø     Ø     Ø
 
@@ -14,18 +16,20 @@
   BASIC DESIGN
   ============
 
-  * All siblings in the same block.
+  * All nodes in the tree level in the same block.
   * Pointer to ONLY FIRST child node of each sibling.
   * Each sibling node's children represented by their character/byte
   * For root there are no siblings, so pointer only to `a` child.
+  * Each node can be a single-char prefix, multi-char prefix or leaf.
 
-  ROOT -> [0|0|PTRA][3][a][b][t]
-  PTRA -> [0|PTRS][2|PTRE][4|PTRK[2][s][t][2][e][t][2][k][o]
-  PTRS -> [0|PTRØ][1|PTRT][1][Ø][2][e][Ø]
+  ROOT -> [0|PTRA][3][a][b][t]
+  PTRA -> [0|PTRS] [2|PTRU] [4|PTRK] [2][s][t] [2][u][t] [2][k][o]
+  PTRS -> [0|PTRØ][1|PTRE][1][Ø][2][e][Ø]
   PTRT -> [0|L_PTRE][3|PTRØ][3][e][s][Ø][1][Ø]  (path compression)
   PTRØ -> [0|LEAF]
 
-  [TYPE+OFFSET][PTR_1]..[NUM_CHILDREN][A][B]..[X]
+  [OFFSET][PTR][TYPE]..[NUM_CHILDREN][A][B]..[X]
+  [  16  ][45][  3  ]  (64 bits)
 
   2 bytes for type+offset
   6 bytes for address
@@ -41,6 +45,9 @@
     Use array to represent children
     Read `num_children` bytes and do sequential search
 
+  Multi-char node (COMPRESSED node) will be packed as:
+  [num_prefix][prefixes][num_children][children]
+
   Removal of [be]
 
   1. Realloc contents of PTR1 by removing "e" from the nodes list
@@ -51,58 +58,51 @@
 
 #include <cstdint>
 #include <cstddef>
+#include "logger.h"
 
+struct cvt_leaf_t {
+    size_t value;
+};
 
-
+enum CVT_NODE {
+    INTERNAL = 0,
+    LEAF = 1,
+    COMPRESSED = 2,
+};
 
 class CVTrie {
 private:
     size_t size;
-
-    // [TYPE+OFFSET][PTR_1]...     (8 bytes each)
-    // [NUM_PREFIX][A][B]..[X]     (upto 33 bytes)
     uint8_t* root;
 
     const uintptr_t PTR_MASK = ~(1ULL << 48ULL);
 
 public:
 
-    uint8_t* get_ptr(const uint8_t* tagged_ptr) {
-        // Unfortunately, right shifting of signed integer for sign extension is implementation-defined
-        // but works on all major compilers
-        return (uint8_t*)( (intptr_t)((uintptr_t)tagged_ptr << 16ULL) >> 16ULL );
+    CVTrie(): root(nullptr) {
+
     }
 
-    uint8_t* tag_ptr(const uint8_t* ptr, const uint64_t data) {
-        return (uint8_t*)(((uintptr_t)ptr & PTR_MASK) | (data << 48ULL));
+    inline void* get_ptr(const void* tagged_ptr) {
+        // Right shift of signed integer for sign extension is implementation-defined but works on major compilers
+        return (void*)( ((intptr_t)((uintptr_t)tagged_ptr << 16ULL) >> 16ULL) & ~3 );
     }
 
-    uint16_t get_data(const uint16_t* ptr) {
-        return (uintptr_t)(ptr) >> 56ULL;;
+    inline void* tag_ptr(const void* ptr, const uint16_t offset, const CVT_NODE node_type) {
+        return (void*)(((uintptr_t)ptr & PTR_MASK) | (uint64_t(offset) << 48ULL) | uint64_t(node_type));
     }
 
-    void add(const unsigned char* key, const size_t length, void* value) {
-        // If the key exists, augment the node, otherwise insert a new node
-
-        size_t num_siblings = 1;
-        uint8_t* buf = root;
-        size_t key_index = 0;
-
-        if(root == nullptr) {
-            // trie is empty
-            root = new uint8_t[8+1+1];
-
-        }
-
-        while(true) {
-            // for each sibling
-            for(auto sindex = 0; sindex < num_siblings; sindex++) {
-                unsigned char c = key[key_index];
-
-
-            }
-        }
+    inline uint8_t get_node_type(const void* tagged_ptr) {
+        return (uintptr_t)(tagged_ptr) & 3;
     }
+
+    inline uint16_t get_offset(const void* ptr) {
+        return (uintptr_t)(ptr) >> 48ULL;
+    }
+
+    void* find(const char* key, const uint8_t length);
+
+    bool add(const char* key, const uint8_t length, void* value);
 
 };
 
