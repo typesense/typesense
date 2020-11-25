@@ -100,6 +100,8 @@ struct doc_seq_id_t {
 class Collection {
 private:
 
+    const uint8_t CURATED_RECORD_IDENTIFIER = 100;
+
     struct highlight_t {
         std::string field;
         std::vector<std::string> snippets;

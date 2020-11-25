@@ -149,7 +149,10 @@ private:
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    const uint32_t* result_ids, size_t results_size);
 
-    void search_field(const uint8_t & field_id, const std::string & query,
+    void search_field(const uint8_t & field_id,
+                      std::vector<std::string>& query_tokens,
+                      std::vector<std::string>& search_tokens,
+                      size_t& num_tokens_dropped,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       const std::vector<uint32_t>& curated_ids,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
