@@ -868,7 +868,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             size_t result_position = result_group_kvs.size() + 1;
             uint64_t override_position = override_result_kvs[override_kv_index][0]->distinct_key;
             if(result_position == override_position) {
-                override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
+                override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
                 result_group_kvs.push_back(override_result_kvs[override_kv_index]);
                 override_kv_index++;
                 continue;
@@ -880,7 +880,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     while(override_kv_index < override_result_kvs.size()) {
-        override_result_kvs[override_kv_index][0]->match_score = 0;  // to identify curated result
+        override_result_kvs[override_kv_index][0]->match_score_index = CURATED_RECORD_IDENTIFIER;
         result_group_kvs.push_back({override_result_kvs[override_kv_index]});
         override_kv_index++;
     }
@@ -983,10 +983,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
             prune_document(document, include_fields, exclude_fields);
             wrapper_doc["document"] = document;
-            wrapper_doc["text_match"] = field_order_kv->match_score;
 
-            if(field_order_kv->match_score == 0) {
+            if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
+            } else {
+                wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
             }
 
             hits_array.push_back(wrapper_doc);

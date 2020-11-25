@@ -136,6 +136,8 @@ e) Async import
 - Use bitmap index instead of compressed array for doc list?
 - Primary_rank_scores and secondary_rank_scores hashmaps should be combined?
 - d-ary heap?
+- ~~topster: reject min heap value compare only when field is same~~
+- ~~match index instead of match score~~
 
 **API**
 

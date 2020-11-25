@@ -248,6 +248,71 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
 }
 
+TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("genre", field_types::STRING, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Train or Highway", "Gord Downie", "rock"},
+        {"Down There by the Train", "Dustin Kensrue", "pop"},
+        {"In the Train", "Dustin Kensrue", "pop"},
+        {"State Trooper", "Dustin Kensrue", "country"},
+        {"Down There Somewhere", "Dustin Kensrue", "pop"},
+        {"Down There by the Train", "Gord Downie", "rock"},
+        {"Down and Outside", "Gord Downie", "rock"},
+        {"Let it be", "Downie Kensrue", "country"},
+        {"There was a Train", "Gord Kensrue", "country"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["genre"] = records[i][2];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Dustin Kensrue Down There by the Train",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                                 false, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10,
+                                 {}, {}, {"genre"}, 2).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["grouped_hits"].size());
+
+    ASSERT_STREQ("pop", results["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
+    ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
+    ASSERT_STREQ("1", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("rock", results["grouped_hits"][1]["group_key"][0].get<std::string>().c_str());
+    ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
+    ASSERT_STREQ("5", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_STREQ("country", results["grouped_hits"][2]["group_key"][0].get<std::string>().c_str());
+    ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
+    ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, 0, 50, 1, FREQUENCY,
                                   false, Index::DROP_TOKENS_THRESHOLD,
@@ -264,8 +329,8 @@ TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
         ASSERT_EQ(1, res["grouped_hits"][i]["hits"].size());
     }
 
-    ASSERT_STREQ("4", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("2", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("5", res["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", res["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("8", res["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("10", res["grouped_hits"][3]["hits"][0]["document"]["id"].get<std::string>().c_str()); // unbranded
     ASSERT_STREQ("9", res["grouped_hits"][4]["hits"][0]["document"]["id"].get<std::string>().c_str());

@@ -246,7 +246,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     // should not try to drop tokens to expand query
     results.clear();
     results = collection->search("the a", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 10).get();
-    ASSERT_EQ(8, results["hits"].size());
+    ASSERT_EQ(9, results["hits"].size());
 
     results.clear();
     results = collection->search("the a", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false, 0).get();
@@ -294,7 +294,7 @@ TEST_F(CollectionTest, QueryWithTypo) {
     nlohmann::json results = collection->search("kind biologcal", query_fields, "", facets, sort_fields, 2, 3).get();
     ASSERT_EQ(3, results["hits"].size());
 
-    std::vector<std::string> ids = {"19", "20", "21"};
+    std::vector<std::string> ids = {"19", "3", "20"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -382,7 +382,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ISX what", query_fields, "", facets, sort_fields, 1, 4, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
-    ASSERT_EQ(9, results["found"].get<uint32_t>());
+    ASSERT_EQ(13, results["found"].get<uint32_t>());
 
     std::vector<std::string> ids = {"8", "19", "6", "21"};
 
@@ -2517,6 +2517,84 @@ TEST_F(CollectionTest, CreateCollectionInvalidFieldType) {
     ASSERT_FALSE(create_op.ok());
     ASSERT_STREQ("Field `title` has an invalid data type `blah`, see docs for supported data types.",
                  create_op.error().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldRelevance) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Down There by the Train", "Dustin Kensrue"},
+        {"Down There by the Train", "Gord Downie"},
+        {"State Trooper", "Dustin Kensrue"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Dustin Kensrue Down There by the Train",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    std::vector<size_t> expected_ids = {0, 1, 2};
+
+    for(size_t i=0; i<expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
+
+    // remove documents, reindex in another order and search again
+    for(size_t i=0; i<expected_ids.size(); i++) {
+        coll1->remove_if_found(i, true);
+    }
+
+    records = {
+        {"State Trooper", "Dustin Kensrue"},
+        {"Down There by the Train", "Gord Downie"},
+        {"Down There by the Train", "Dustin Kensrue"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    results = coll1->search("Dustin Kensrue Down There by the Train",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    expected_ids = {2, 1, 0};
+
+    for(size_t i=0; i<expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
 
     collectionManager.drop_collection("coll1");
 }

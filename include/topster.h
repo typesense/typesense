@@ -8,17 +8,18 @@
 
 struct KV {
     uint8_t field_id{};
+    uint8_t match_score_index{};
     uint16_t query_index{};
     uint16_t array_index{};
     uint64_t key{};
     uint64_t distinct_key{};
-    uint64_t match_score{};
     int64_t scores[3]{};  // match score + 2 custom attributes
 
     KV(uint8_t fieldId, uint16_t queryIndex, uint64_t key, uint64_t distinct_key,
-       uint64_t match_score, const int64_t *scores):
-            field_id(fieldId), query_index(queryIndex), array_index(0), key(key),
-            distinct_key(distinct_key), match_score(match_score) {
+       uint8_t match_score_index, const int64_t *scores):
+            field_id(fieldId), match_score_index(match_score_index),
+            query_index(queryIndex), array_index(0), key(key),
+            distinct_key(distinct_key) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
         this->scores[2] = scores[2];
@@ -54,11 +55,11 @@ struct Topster {
 
         for(size_t i=0; i<capacity; i++) {
             data[i].field_id = 0;
+            data[i].match_score_index = 0;
             data[i].query_index = 0;
             data[i].array_index = i;
             data[i].key = 0;
             data[i].distinct_key = 0;
-            data[i].match_score = 0;
             kvs[i] = &data[i];
         }
     }
@@ -92,10 +93,10 @@ struct Topster {
             LOG(INFO) << "kv key: " << kv.first << " => " << kv.second->match_score;
         }*/
 
-        bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller_equal(kv, kvs[0]);
+        bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
-        if(!distinct && less_than_min_heap) {
+        if(!distinct && less_than_min_heap && kv->field_id == kvs[0]->field_id) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
             return false;
         }
@@ -180,8 +181,13 @@ struct Topster {
                 KV* existing_kv = found_it->second;
                 //LOG(INFO) << "existing_kv: " << existing_kv->key << " -> " << existing_kv->match_score;
 
-                if(is_smaller_equal(kv, existing_kv)) {
+                if(is_smaller(kv, existing_kv) && kv->field_id == existing_kv->field_id) {
                     return false;
+                }
+
+                if(kv->field_id != existing_kv->field_id) {
+                    // allows a record to be matched across different fields (aggregated matching)
+                    kv->scores[0] += existing_kv->scores[0];
                 }
 
                 SIFT_DOWN = true;
@@ -252,8 +258,8 @@ struct Topster {
                std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
     }
 
-    static bool is_smaller_equal(const struct KV* i, const struct KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2]) <=
+    static bool is_smaller(const struct KV* i, const struct KV* j) {
+        return std::tie(i->scores[0], i->scores[1], i->scores[2]) <
                std::tie(j->scores[0], j->scores[1], j->scores[2]);
     }
 
