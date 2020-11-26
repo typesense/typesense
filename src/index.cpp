@@ -948,11 +948,11 @@ void Index::search_candidates(const uint8_t & field_id, uint32_t* filter_ids, si
             result_ids = excluded_result_ids;
         }
 
-        LOG(INFO) << "n: " << n;
+        /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
                       << query_suggestion[i]->values->ids.getLength();
-        }
+        }*/
 
         if(filter_ids != nullptr) {
             // intersect once again with filter ids
@@ -1016,14 +1016,18 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
             std::vector<const art_leaf*> leaves;
             std::vector<uint32_t> ids;
 
+            size_t value_index = 0;
             for(const std::string & filter_value: a_filter.values) {
                 if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
+                    // check for comparator again
                     int32_t value = (int32_t) std::stoi(filter_value);
-                    art_int32_search(t, value, a_filter.compare_operator, leaves);
+                    art_int32_search(t, value, a_filter.comparators[value_index], leaves);
                 } else { // int64
                     int64_t value = (int64_t) std::stol(filter_value);
-                    art_int64_search(t, value, a_filter.compare_operator, leaves);
+                    art_int64_search(t, value, a_filter.comparators[value_index], leaves);
                 }
+
+                value_index++;
             }
 
             result_ids = collate_leaf_ids(leaves, result_ids_len);
@@ -1032,9 +1036,11 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
             std::vector<const art_leaf*> leaves;
             std::vector<uint32_t> ids;
 
+            size_t value_index = 0;
             for(const std::string & filter_value: a_filter.values) {
                 float value = (float) std::atof(filter_value.c_str());
-                art_float_search(t, value, a_filter.compare_operator, leaves);
+                art_float_search(t, value, a_filter.comparators[value_index], leaves);
+                value_index++;
             }
 
             result_ids = collate_leaf_ids(leaves, result_ids_len);
@@ -1094,7 +1100,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                     }
                 }
 
-                if(a_filter.compare_operator == EQUALS && f.is_facet()) {
+                if(a_filter.comparators[0] == EQUALS && f.is_facet()) {
                     // need to do exact match (unlike CONTAINS) by using the facet index
                     // field being a facet is already enforced upstream
                     uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
@@ -1541,11 +1547,11 @@ void Index::search_field(const uint8_t & field_id,
 
         while(token_index < search_tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
-            std::string token = search_tokens[token_index];
+            const std::string& token = search_tokens[token_index];
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            LOG(INFO) << "\nSearching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
+            //LOG(INFO) << "\nSearching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];

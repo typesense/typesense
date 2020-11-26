@@ -184,11 +184,9 @@ Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
 }
 
 bool is_private_ip(uint32_t ip) {
-    uint8_t b1, b2, b3, b4;
+    uint8_t b1, b2;
     b1 = (uint8_t) (ip >> 24);
     b2 = (uint8_t) ((ip >> 16) & 0x0ff);
-    b3 = (uint8_t) ((ip >> 8) & 0x0ff);
-    b4 = (uint8_t) (ip & 0x0ff);
 
     // 10.x.y.z
     if (b1 == 10) {

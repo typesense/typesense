@@ -247,7 +247,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     const size_t index_batch_size = 1000;
     size_t num_indexed = 0;
-    bool exceeds_memory_limit = false;
+    //bool exceeds_memory_limit = false;
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
@@ -1706,7 +1706,14 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
 
-                for(const std::string & filter_value: filter_values) {
+                f = {field_name, {}, {}};
+
+                for(std::string & filter_value: filter_values) {
+                    Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(filter_value);
+                    if(!op_comparator.ok()) {
+                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
+                    }
+
                     if(_field.is_int32()) {
                         if(!StringUtils::is_int32_t(filter_value)) {
                             return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
@@ -1724,47 +1731,36 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                             return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
                         }
                     }
+
+                    f.values.push_back(filter_value);
+                    f.comparators.push_back(op_comparator.get());
                 }
 
-                f = {field_name, filter_values, EQUALS};
             } else {
                 Option<NUM_COMPARATOR> op_comparator = filter::extract_num_comparator(raw_value);
                 if(!op_comparator.ok()) {
                     return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
                 }
 
-                // extract numerical value
-                std::string filter_value;
-                if(op_comparator.get() == LESS_THAN || op_comparator.get() == GREATER_THAN) {
-                    filter_value = raw_value.substr(1);
-                } else if(op_comparator.get() == LESS_THAN_EQUALS || op_comparator.get() == GREATER_THAN_EQUALS) {
-                    filter_value = raw_value.substr(2);
-                } else {
-                    // EQUALS
-                    filter_value = raw_value;
-                }
-
-                filter_value = StringUtils::trim(filter_value);
-
                 if(_field.is_int32()) {
-                    if(!StringUtils::is_int32_t(filter_value)) {
+                    if(!StringUtils::is_int32_t(raw_value)) {
                         return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
                     }
                 }
 
                 else if(_field.is_int64()) {
-                    if(!StringUtils::is_int64_t(filter_value)) {
+                    if(!StringUtils::is_int64_t(raw_value)) {
                         return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
                     }
                 }
 
                 else if(_field.is_float()) {
-                    if(!StringUtils::is_float(filter_value)) {
+                    if(!StringUtils::is_float(raw_value)) {
                         return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
                     }
                 }
 
-                f = {field_name, {filter_value}, op_comparator.get()};
+                f = {field_name, {raw_value}, {op_comparator.get()}};
             }
         } else if(_field.is_bool()) {
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
@@ -1780,13 +1776,13 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                     filter_value = (filter_value == "true") ? "1" : "0";
                 }
 
-                f = {field_name, filter_values, EQUALS};
+                f = {field_name, filter_values, {EQUALS}};
             } else {
                 if(raw_value != "true" && raw_value != "false") {
                     return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
                 }
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
-                f = {field_name, {bool_value}, EQUALS};
+                f = {field_name, {bool_value}, {EQUALS}};
             }
 
         } else if(_field.is_string()) {
@@ -1808,9 +1804,9 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
             if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values, ",");
-                f = {field_name, filter_values, str_comparator};
+                f = {field_name, filter_values, {str_comparator}};
             } else {
-                f = {field_name, {raw_value.substr(filter_value_index)}, str_comparator};
+                f = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
             }
         } else {
             return Option<bool>(400, "Error with filter field `" + _field.name +
@@ -1831,7 +1827,7 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
 
         for(const std::string & pinned_hits_part: pinned_hits_strs) {
             std::vector<std::string> expression_parts;
-            size_t index = pinned_hits_part.size() - 1;
+            int64_t index = pinned_hits_part.size() - 1;
             while(index >= 0 && pinned_hits_part[index] != ':') {
                 index--;
             }
