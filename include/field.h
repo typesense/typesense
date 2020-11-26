@@ -100,31 +100,45 @@ struct field {
 struct filter {
     std::string field_name;
     std::vector<std::string> values;
-    NUM_COMPARATOR compare_operator;
+    std::vector<NUM_COMPARATOR> comparators;
 
-    static Option<NUM_COMPARATOR> extract_num_comparator(const std::string & comp_and_value) {
-        if(StringUtils::is_integer(comp_and_value)) {
-            return Option<NUM_COMPARATOR>(EQUALS);
+    static Option<NUM_COMPARATOR> extract_num_comparator(std::string & comp_and_value) {
+        auto num_comparator = EQUALS;
+
+        if(StringUtils::is_integer(comp_and_value) || StringUtils::is_float(comp_and_value)) {
+            num_comparator = EQUALS;
         }
 
         // the ordering is important - we have to compare 2-letter operators first
-        if(comp_and_value.compare(0, 2, "<=") == 0) {
-            return Option<NUM_COMPARATOR>(LESS_THAN_EQUALS);
+        else if(comp_and_value.compare(0, 2, "<=") == 0) {
+            num_comparator = LESS_THAN_EQUALS;
         }
 
-        if(comp_and_value.compare(0, 2, ">=") == 0) {
-            return Option<NUM_COMPARATOR>(GREATER_THAN_EQUALS);
+        else if(comp_and_value.compare(0, 2, ">=") == 0) {
+            num_comparator = GREATER_THAN_EQUALS;
         }
 
-        if(comp_and_value.compare(0, 1, "<") == 0) {
-            return Option<NUM_COMPARATOR>(LESS_THAN);
+        else if(comp_and_value.compare(0, 1, "<") == 0) {
+            num_comparator = LESS_THAN;
         }
 
-        if(comp_and_value.compare(0, 1, ">") == 0) {
-            return Option<NUM_COMPARATOR>(GREATER_THAN);
+        else if(comp_and_value.compare(0, 1, ">") == 0) {
+            num_comparator = GREATER_THAN;
         }
 
-        return Option<NUM_COMPARATOR>(400, "Numerical field has an invalid comparator.");
+        else {
+            return Option<NUM_COMPARATOR>(400, "Numerical field has an invalid comparator.");
+        }
+
+        if(num_comparator == LESS_THAN || num_comparator == GREATER_THAN) {
+            comp_and_value = comp_and_value.substr(1);
+        } else if(num_comparator == LESS_THAN_EQUALS || num_comparator == GREATER_THAN_EQUALS) {
+            comp_and_value = comp_and_value.substr(2);
+        }
+
+        comp_and_value = StringUtils::trim(comp_and_value);
+
+        return Option<NUM_COMPARATOR>(num_comparator);
     }
 };
 

@@ -285,7 +285,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
     result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, 0, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
-    ASSERT_STREQ("Error with filter field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
+    ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
 
     // bad filter value type - less than float on an integer field
     result_op = coll_mul_fields->search("captain", query_fields, "points: <100.0", facets, sort_fields, 0, 10, 1,
@@ -606,6 +606,68 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     ids = {"1", "2", "4", "0", "3"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    collectionManager.drop_collection("coll_array_fields");
+}
+
+TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR) + "test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {
+            field("name", field_types::STRING, false),
+            field("age", field_types::INT32, false),
+            field("top_3", field_types::FLOAT_ARRAY, false),
+            field("rating", field_types::FLOAT, false)
+    };
+
+    std::vector<sort_by> sort_fields_desc = {sort_by("rating", "DESC")};
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    if (coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        auto add_op = coll_array_fields->add(json_line);
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    infile.close();
+
+    query_fields = {"name"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "age: [24, >32]",
+            facets, sort_fields_desc, 0, 10, 1,FREQUENCY, false).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+
+    std::vector<std::string> ids = {"1", "0", "3"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // with <= and >=
+
+    results = coll_array_fields->search("Jeremy", query_fields, "age: [<=24, >=44]",
+                                        facets, sort_fields_desc, 0, 10, 1,FREQUENCY, false).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+
+    ids = {"1", "2", "0", "3"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["document"]["id"];
         std::string id = ids.at(i);
