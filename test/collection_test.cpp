@@ -144,7 +144,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     ASSERT_EQ(0, results["found"].get<int>());
 }
 
-TEST_F(CollectionTest, ExactPhraseSearch) {
+TEST_F(CollectionTest, PhraseSearch) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, 0, 10).get();
     ASSERT_EQ(5, results["hits"].size());
@@ -198,6 +198,23 @@ TEST_F(CollectionTest, ExactPhraseSearch) {
     ids = {"8", "1", "17"};
 
     for(size_t i = 0; i < 3; i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["document"]["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+}
+
+TEST_F(CollectionTest, SearchWithExcludedTokens) {
+    std::vector<std::string> facets;
+    nlohmann::json results = collection->search("how -propellants -are", query_fields, "", facets, sort_fields, 0, 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<uint32_t>());
+
+    std::vector<std::string> ids = {"9", "17"};
+
+    for (size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string id = ids.at(i);
         std::string result_id = result["document"]["id"];
@@ -2591,6 +2608,19 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
     ASSERT_EQ(3, results["hits"].size());
 
     expected_ids = {2, 1, 0};
+
+    for(size_t i=0; i<expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
+    }
+
+    // with exclude token syntax
+    results = coll1->search("-downie dustin kensrue down there by the train",
+                            {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    expected_ids = {2, 0};
 
     for(size_t i=0; i<expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
