@@ -1,5 +1,6 @@
 #include "auth_manager.h"
 #include <openssl/evp.h>
+#include <regex>
 
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 
@@ -85,7 +86,7 @@ Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
 }
 
 Option<api_key_t> AuthManager::create_key(api_key_t& api_key) {
-    LOG(INFO) << "AuthManager::create_key()";
+    //LOG(INFO) << "AuthManager::create_key()";
 
     if(api_keys.count(api_key.value) != 0) {
         return Option<api_key_t>(409, "API key generation conflict.");
@@ -195,7 +196,8 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
     // check if action is allowed against a specific collection
 
     for(const std::string& allowed_collection: api_key.collections) {
-        if(allowed_collection == "*" || (collection != "*" && allowed_collection == collection) || collection.empty()) {
+        if(allowed_collection == "*" || (collection != "*" && allowed_collection == collection) ||
+           std::regex_match (collection, std::regex(allowed_collection)) || collection.empty()) {
             return true;
         }
     }

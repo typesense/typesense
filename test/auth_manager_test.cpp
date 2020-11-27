@@ -160,6 +160,19 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "documents:search", "collection2", sparams));
     ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "documents:get", "collection5", sparams));
     ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "*", "*", sparams));
+
+    // regexp match
+
+    api_key_t regexp_colls_key1 = api_key_t("abcd6", "regexp coll key", {"*"}, {"coll.*"});
+    auth_manager.create_key(regexp_colls_key1);
+    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key1.value, "collections:list", "collection2", sparams));
+    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key1.value, "documents:get", "collection5", sparams));
+
+    api_key_t regexp_colls_key2 = api_key_t("abcd7", "regexp coll key", {"*"}, {".*meta.*"});
+    auth_manager.create_key(regexp_colls_key2);
+    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key2.value, "collections:list", "metacollection", sparams));
+    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key2.value, "collections:list", "ametacollection", sparams));
+
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
