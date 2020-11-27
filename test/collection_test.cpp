@@ -2579,6 +2579,15 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
         ASSERT_EQ(expected_ids[i], std::stoi(results["hits"][i]["document"]["id"].get<std::string>()));
     }
 
+    ASSERT_STREQ("<mark>Down</mark> <mark>There</mark> <mark>by</mark> <mark>the</mark> <mark>Train</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    ASSERT_STREQ("<mark>Down</mark> <mark>There</mark> <mark>by</mark> <mark>the</mark> <mark>Train</mark>",
+                 results["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    ASSERT_STREQ("<mark>Dustin</mark> <mark>Kensrue</mark>",
+                 results["hits"][2]["highlights"][0]["snippet"].get<std::string>().c_str());
+
     // remove documents, reindex in another order and search again
     for(size_t i=0; i<expected_ids.size(); i++) {
         coll1->remove_if_found(i, true);

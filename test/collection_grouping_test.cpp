@@ -299,7 +299,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     ASSERT_STREQ("pop", results["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_STREQ("1", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("2", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_STREQ("rock", results["grouped_hits"][1]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());

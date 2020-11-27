@@ -181,13 +181,19 @@ struct Topster {
                 KV* existing_kv = found_it->second;
                 //LOG(INFO) << "existing_kv: " << existing_kv->key << " -> " << existing_kv->match_score;
 
-                if(is_smaller(kv, existing_kv) && kv->field_id == existing_kv->field_id) {
+                bool smaller_than_existing = is_smaller(kv, existing_kv);
+                if(smaller_than_existing && kv->field_id == existing_kv->field_id) {
                     return false;
                 }
 
+                // allows a record to be matched across different fields (aggregated matching)
                 if(kv->field_id != existing_kv->field_id) {
-                    // allows a record to be matched across different fields (aggregated matching)
-                    kv->scores[0] += existing_kv->scores[0];
+                    int64_t new_score = kv->scores[0] + existing_kv->scores[0];
+                    if(smaller_than_existing) {
+                        // ensures that best matched KV is not overwritten (only score needed)
+                        kv = existing_kv;
+                    }
+                    kv->scores[0] = new_score;
                 }
 
                 SIFT_DOWN = true;
