@@ -328,5 +328,8 @@ public:
     void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
                          nlohmann::json &new_doc,
                          nlohmann::json &del_doc);
+
+    void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+                                            std::vector<std::string>& q_exclude_tokens) const;
 };
 

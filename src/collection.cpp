@@ -733,10 +733,15 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
 
+    std::vector<std::string> q_include_tokens;
+    std::vector<std::string> q_exclude_tokens;
+
+    parse_search_query(query, q_include_tokens, q_exclude_tokens);
+
     // send data to individual index threads
     size_t index_id = 0;
     for(Index* index: indices) {
-        index->search_params = new search_args(query, search_fields, filters, facets,
+        index->search_params = new search_args(q_include_tokens, q_exclude_tokens, search_fields, filters, facets,
                                                index_to_included_ids[index_id], index_to_excluded_ids[index_id],
                                                sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                per_page, page, token_order, prefix,
@@ -1124,6 +1129,31 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     return result;
 }
 
+void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+                                    std::vector<std::string>& q_exclude_tokens) const {
+    if(query == "*") {
+        q_exclude_tokens = {};
+        q_include_tokens = {query};
+    } else {
+        std::vector<std::string> tokens;
+        StringUtils::split(query, tokens, " ");
+
+        for(std::string& token: tokens) {
+            if(token[0] == '-') {
+                std::string&& just_token = token.substr(1);
+                Tokenizer(just_token, false, true).tokenize(just_token);
+                if(!just_token.empty()) {
+                    q_exclude_tokens.push_back(just_token);
+                }
+            } else {
+                Tokenizer(token, false, true).tokenize(token);
+                if(!token.empty()) {
+                    q_include_tokens.push_back(token);
+                }
+            }
+        }
+    }
+}
 
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const {
     if(topster->distinct) {

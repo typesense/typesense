@@ -23,7 +23,8 @@ struct token_candidates {
 };
 
 struct search_args {
-    std::string query;
+    std::vector<std::string> q_include_tokens;
+    std::vector<std::string> q_exclude_tokens;
     std::vector<std::string> search_fields;
     std::vector<filter> filters;
     std::vector<facet> facets;
@@ -54,13 +55,16 @@ struct search_args {
 
     }
 
-    search_args(std::string query, std::vector<std::string> search_fields, std::vector<filter> filters,
+    search_args(std::vector<std::string> q_include_tokens,
+                std::vector<std::string> q_exclude_tokens,
+                std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit):
-            query(query), search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
+            q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens),
+            search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix),
@@ -152,6 +156,8 @@ private:
     void search_field(const uint8_t & field_id,
                       std::vector<std::string>& query_tokens,
                       std::vector<std::string>& search_tokens,
+                      const uint32_t* exclude_token_ids,
+                      size_t exclude_token_ids_size,
                       size_t& num_tokens_dropped,
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       const std::vector<uint32_t>& curated_ids,
@@ -163,7 +169,9 @@ private:
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
 
-    void search_candidates(const uint8_t & field_id, uint32_t* filter_ids, size_t filter_ids_length,
+    void search_candidates(const uint8_t & field_id,
+                           uint32_t* filter_ids, size_t filter_ids_length,
+                           const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                            const std::vector<uint32_t>& curated_ids,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            std::vector<std::vector<art_leaf*>> & searched_queries,
@@ -202,7 +210,8 @@ private:
 
     uint32_t* collate_leaf_ids(const std::vector<const art_leaf *> &leaves, size_t& result_ids_len) const;
 
-    void collate_included_ids(const std::string & query, const std::string & field, const uint8_t field_id,
+    void collate_included_ids(const std::vector<std::string>& q_included_tokens,
+                              const std::string & field, const uint8_t field_id,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
 
@@ -226,7 +235,10 @@ public:
 
     void run_search();
 
-    void search(Option<uint32_t> & outcome, const std::string & query, const std::vector<std::string> & search_fields,
+    void search(Option<uint32_t> & outcome,
+                          const std::vector<std::string> & q_include_tokens,
+                          const std::vector<std::string> & q_exclude_tokens,
+                          const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           facet_query_t & facet_query,
                           const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
