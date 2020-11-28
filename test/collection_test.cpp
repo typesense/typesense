@@ -2665,13 +2665,17 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("jour", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+    auto results = coll1->search("à jour", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("Mise à  <mark>jour</mark>  Timy depuis PC",
+    ASSERT_STREQ("Mise <mark>à</mark>  <mark>jour</mark>  Timy depuis PC",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("à", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_STREQ("jour", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

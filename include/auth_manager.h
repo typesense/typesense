@@ -13,16 +13,18 @@ struct api_key_t {
     std::string description;
     std::vector<std::string> actions;
     std::vector<std::string> collections;
+    uint64_t expires_at;
 
     static const size_t PREFIX_LEN = 4;
+    static const uint64_t FAR_FUTURE_TIMESTAMP = 64723363199;  // year 4020
 
     api_key_t() {
 
     }
 
-    api_key_t(const std::string& value, const std::string& description, const std::vector<std::string>& actions,
-              const std::vector<std::string>& collections):
-              value(value), description(description), actions(actions), collections(collections) {
+    api_key_t(const std::string &value, const std::string &description, const std::vector<std::string> &actions,
+              const std::vector<std::string> &collections, uint64_t expires_at) :
+            value(value), description(description), actions(actions), collections(collections), expires_at(expires_at) {
 
     }
 
@@ -41,42 +43,18 @@ struct api_key_t {
         actions = key_obj["actions"].get<std::vector<std::string>>();
         collections = key_obj["collections"].get<std::vector<std::string>>();
 
+        // handle optional fields
+
+        if(key_obj.count("expires_at") != 0) {
+            expires_at = key_obj["expires_at"];
+        } else {
+            expires_at = FAR_FUTURE_TIMESTAMP;
+        }
+
         return Option<bool>(true);
     }
 
-    static Option<uint32_t> validate(const nlohmann::json & key_obj) {
-        auto mandatory_keys = {
-            "description", "actions", "collections"
-        };
-
-        for(auto key: mandatory_keys) {
-            if(key_obj.count(key) == 0) {
-                return Option<uint32_t>(400, std::string("Could not find a `") + key + "` key.");
-            }
-        }
-
-        if(!key_obj["actions"].is_array() || key_obj["actions"].empty()) {
-            return Option<uint32_t>(400,"Wrong format for `actions`. It should be an array of string.");
-        }
-
-        if(!key_obj["collections"].is_array() || key_obj["collections"].empty()) {
-            return Option<uint32_t>(400,"Wrong format for `collections`. It should be an array of string.");
-        }
-
-        for(const nlohmann::json & item: key_obj["actions"]) {
-            if(!item.is_string()) {
-                return Option<uint32_t>(400,"Wrong format for `actions`. It should be an array of string.");
-            }
-        }
-
-        for(const nlohmann::json & item: key_obj["collections"]) {
-            if(!item.is_string()) {
-                return Option<uint32_t>(400,"Wrong format for `collections`. It should be an array of string.");
-            }
-        }
-
-        return Option<uint32_t>(200);
-    }
+    static Option<uint32_t> validate(const nlohmann::json & key_obj);
 
     nlohmann::json to_json() const {
         nlohmann::json obj;
@@ -85,6 +63,7 @@ struct api_key_t {
         obj["description"] = description;
         obj["actions"] = actions;
         obj["collections"] = collections;
+        obj["expires_at"] = expires_at;
 
         return obj;
     }
@@ -113,6 +92,8 @@ private:
 
     static constexpr const char* DOCUMENTS_SEARCH_ACTION = "documents:search";
 
+    static std::string fmt_error(std::string&& error, const std::string& key);
+
 public:
 
     AuthManager() = default;
@@ -134,12 +115,16 @@ public:
         std::map<std::string, std::string>& params
     );
 
-    Option<std::string> params_from_scoped_key(
+    Option<bool> authenticate_parse_params(
         const std::string& scoped_api_key,
         const std::string& action,
-        const std::string& collection
+        const std::string& collection,
+        nlohmann::json& embedded_params
     );
 
     static const size_t KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
+
+    bool auth_against_key(const std::string &collection, const std::string& action,
+                          const api_key_t &api_key, const bool search_only) const;
 };
