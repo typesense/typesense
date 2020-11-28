@@ -42,6 +42,26 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     ASSERT_STREQ("abcaa123ss12", tokens[5].c_str());
     ASSERT_STREQ("here", tokens[6].c_str());
 
+    // when normalization is disabled and keep empty is enabled
+    const std::string withoutnormalize = "Mise  à  jour.";
+    tokens.clear();
+    Tokenizer(withoutnormalize, true, false, false).tokenize(tokens);
+    ASSERT_EQ(5, tokens.size());
+    ASSERT_STREQ("Mise", tokens[0].c_str());
+    ASSERT_STREQ("", tokens[1].c_str());
+    ASSERT_STREQ("à", tokens[2].c_str());
+    ASSERT_STREQ("", tokens[3].c_str());
+    ASSERT_STREQ("jour.", tokens[4].c_str());
+
+    // when normalization and keep empty are disabled
+    const std::string withoutnormalizeandkeepempty = "Mise  à  jour.";
+    tokens.clear();
+    Tokenizer(withoutnormalizeandkeepempty, false, false, false).tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_STREQ("Mise", tokens[0].c_str());
+    ASSERT_STREQ("à", tokens[1].c_str());
+    ASSERT_STREQ("jour.", tokens[2].c_str());
+
     // noop
 
     tokens.clear();
