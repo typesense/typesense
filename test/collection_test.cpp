@@ -2637,3 +2637,41 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Mise à  jour  Timy depuis PC"},
+        {"Down There by the Train"},
+        {"State Trooper"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("jour", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("Mise à  <mark>jour</mark>  Timy depuis PC",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

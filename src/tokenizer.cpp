@@ -61,6 +61,11 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
         *p = 0;
         size_t insize = (p - &inbuf[0]);
 
+        if(!normalize) {
+            out << inbuf;
+            continue;
+        }
+
         char outbuf[5] = {};
         size_t outsize = sizeof(outbuf);
         char *outptr = outbuf;
