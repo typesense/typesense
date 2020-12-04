@@ -1796,6 +1796,7 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+                f = {field_name, {}, {}};
 
                 for(std::string & filter_value: filter_values) {
                     if(filter_value != "true" && filter_value != "false") {
@@ -1804,9 +1805,9 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                     }
 
                     filter_value = (filter_value == "true") ? "1" : "0";
+                    f.values.push_back(filter_value);
+                    f.comparators.push_back(EQUALS);
                 }
-
-                f = {field_name, filter_values, {EQUALS}};
             } else {
                 if(raw_value != "true" && raw_value != "false") {
                     return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");

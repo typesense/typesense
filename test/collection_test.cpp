@@ -1772,18 +1772,20 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
     // also assert against the actual index
     Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
     auto search_index = index->_get_search_index();
+    auto numerical_index = index->_get_numerical_index();
 
     auto strarray_tree = search_index["strarray"];
-    auto int32array_tree = search_index["int32array"];
-    auto int64array_tree = search_index["int64array"];
-    auto floatarray_tree = search_index["floatarray"];
-    auto boolarray_tree = search_index["boolarray"];
+    auto int32array_tree = numerical_index["int32array"];
+    auto int64array_tree = numerical_index["int64array"];
+    auto floatarray_tree = numerical_index["floatarray"];
+    auto boolarray_tree = numerical_index["boolarray"];
 
     ASSERT_EQ(0, art_size(strarray_tree));
-    ASSERT_EQ(0, art_size(int32array_tree));
-    ASSERT_EQ(0, art_size(int64array_tree));
-    ASSERT_EQ(0, art_size(floatarray_tree));
-    ASSERT_EQ(0, art_size(boolarray_tree));
+
+    ASSERT_EQ(0, int32array_tree->size());
+    ASSERT_EQ(0, int64array_tree->size());
+    ASSERT_EQ(0, floatarray_tree->size());
+    ASSERT_EQ(0, boolarray_tree->size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -2005,6 +2007,8 @@ TEST_F(CollectionTest, SearchHighlightShouldUseHighlightTags) {
 
     ASSERT_STREQ("The quick brown  fox jumped over the  <em class=\"h\">lazy</em> fox. ",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionTest, SearchHighlightWithNewLine) {

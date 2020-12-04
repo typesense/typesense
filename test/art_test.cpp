@@ -1226,6 +1226,27 @@ TEST(ArtTest, test_search_negative_int64) {
     results.clear();
 }
 
+TEST(ArtTest, test_search_negative_int64_large) {
+    art_tree t;
+    art_tree_init(&t);
+
+    art_document doc = get_document(1);
+    const int CHAR_LEN = 8;
+    unsigned char chars[CHAR_LEN];
+
+    const int64_t lmax = -1 * std::numeric_limits<std::int32_t>::max();
+
+    encode_int64(-2, chars);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc, 1));
+
+    std::vector<const art_leaf *> results;
+
+    int res = art_int64_search(&t, 1577836800, GREATER_THAN, results);
+    //ASSERT_TRUE(res == 0);
+    //ASSERT_EQ(0, results.size());
+    //results.clear();
+}
+
 TEST(ArtTest, test_int32_array) {
     art_tree t;
     art_tree_init(&t);

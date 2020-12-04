@@ -190,7 +190,16 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
+    std::map<int64_t, int64_t> int64map;
+    int64map[1] = 1;
+    int64map[2] = 2;
+    int64map[3] = 3;
+
+    std::cout << (int64map.lower_bound(5) == int64map.end());
+    return ;
+
     route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, nullptr, false, false);
+    route_path rpath_coll_create = route_path("POST", {"collections"}, nullptr, false, false);
     route_path rpath_coll_get = route_path("GET", {"collections", ":collection"}, nullptr, false, false);
     route_path rpath_coll_list = route_path("GET", {"collections"}, nullptr, false, false);
     route_path rpath_keys_post = route_path("POST", {"keys"}, nullptr, false, false);
@@ -198,6 +207,7 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
     route_path rpath_override_upsert = route_path("PUT", {"collections", ":collection", "overrides", ":id"}, nullptr, false, false);
 
     ASSERT_STREQ("documents:search", rpath_search._get_action().c_str());
+    ASSERT_STREQ("collections:create", rpath_coll_create._get_action().c_str());
     ASSERT_STREQ("collections:get", rpath_coll_get._get_action().c_str());
     ASSERT_STREQ("collections:list", rpath_coll_list._get_action().c_str());
     ASSERT_STREQ("keys:create", rpath_keys_post._get_action().c_str());
