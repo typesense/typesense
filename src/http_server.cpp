@@ -129,7 +129,7 @@ int HttpServer::create_listener() {
     ctx.globalconf->server_name = h2o_strdup(nullptr, "", SIZE_MAX);
     ctx.globalconf->http2.active_stream_window_size = ACTIVE_STREAM_WINDOW_SIZE;
     ctx.globalconf->http2.idle_timeout = REQ_TIMEOUT_MS;
-    ctx.globalconf->max_request_entity_size = (1024 * 1024 * 1024); // 1 GB
+    ctx.globalconf->max_request_entity_size = (3 * 1024 * 1024 * 1024); // 3 GB
 
     ctx.globalconf->http1.req_timeout = REQ_TIMEOUT_MS;
     ctx.globalconf->http1.req_io_timeout = REQ_TIMEOUT_MS;
