@@ -15,6 +15,7 @@
 #include <option.h>
 #include <set>
 #include "string_utils.h"
+#include "num_tree.h"
 
 struct token_candidates {
     std::string token;
@@ -135,6 +136,8 @@ private:
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
+    spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
+
     // seq_id => (facet => values)
     spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
 
@@ -189,26 +192,8 @@ private:
     void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                   uint32_t seq_id, int facet_id, const field & a_field);
 
-    void index_int32_field(const int32_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
-    void index_int64_field(const int64_t value, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
-    void index_float_field(const float value, const int64_t score, art_tree *t, uint32_t seq_id) const;
-    
-    void index_bool_field(const bool value, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
-    void index_int32_array_field(const std::vector<int32_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
-    void index_int64_array_field(const std::vector<int64_t> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
-    void index_float_array_field(const std::vector<float> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
-    
-    void index_bool_array_field(const std::vector<bool> & values, const int64_t score, art_tree *t, uint32_t seq_id) const;
-
     void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
                                        const uint32_t indices_length);
-
-    uint32_t* collate_leaf_ids(const std::vector<const art_leaf *> &leaves, size_t& result_ids_len) const;
 
     void collate_included_ids(const std::vector<std::string>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
@@ -289,6 +274,8 @@ public:
 
     const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
 
+    const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
+
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 100};
 
@@ -328,5 +315,22 @@ public:
     void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
 
     void tokenize_doc_field(const nlohmann::json& document, const field& search_field, std::vector<std::string>& tokens);
+
+    template<typename T>
+    bool _arrays_match(std::vector<T> reindex_vals, std::vector<T> old_vals) {
+        if(old_vals.size() != reindex_vals.size()) {
+            return false;
+        }
+
+        for(size_t i=0; i < reindex_vals.size(); i++) {
+            const T& reindex_val = reindex_vals[i];
+            const T& old_val = old_vals[i];
+            if(reindex_val != old_val) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 };
 

@@ -308,3 +308,36 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSortingTest, NegativeInt64Value) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT64, false),
+    };
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+
+    doc1["id"] = "100";
+    doc1["title"] = "The quick brown fox";
+    doc1["points"] = -2678400;
+
+    coll1->add(doc1.dump());
+
+    std::vector<sort_by> sort_fields_desc = {
+      sort_by("points", "DESC")
+    };
+
+    query_fields = {"title"};
+    auto res = coll1->search("*", query_fields, "points:>=1577836800", {}, sort_fields_desc, 0, 10, 1, FREQUENCY,
+                             false).get();
+
+    ASSERT_EQ(0, res["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
