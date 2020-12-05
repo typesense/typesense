@@ -1152,6 +1152,11 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 }
             }
         }
+
+        if(q_include_tokens.empty()) {
+            // this can happen if the only query token is an exclusion token
+            q_include_tokens.emplace_back("*");
+        }
     }
 }
 
@@ -1283,6 +1288,10 @@ void Collection::highlight_result(const field &search_field,
 
     std::vector<uint32_t*> leaf_to_indices;
     std::vector<art_leaf*> query_suggestion;
+
+    if(searched_queries.size() <= field_order_kv->query_index) {
+        return ;
+    }
 
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
