@@ -220,6 +220,15 @@ TEST_F(CollectionTest, SearchWithExcludedTokens) {
         std::string result_id = result["document"]["id"];
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
+
+    results = collection->search("-rocket", query_fields, "", facets, sort_fields, 0, 50).get();
+
+    ASSERT_EQ(21, results["found"].get<uint32_t>());
+    ASSERT_EQ(21, results["hits"].size());
+
+    results = collection->search("-rocket -cryovolcanism", query_fields, "", facets, sort_fields, 0, 50).get();
+
+    ASSERT_EQ(20, results["found"].get<uint32_t>());
 }
 
 TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
