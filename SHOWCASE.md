@@ -7,6 +7,7 @@ Please add to this file and send us a PR:
 - [typesense.org](typesense.org) - Search demo on Typesense home page
 - [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) - Instant Search speeches of US Presidential Candidates side-by-side.
 - [MusicBrainz Songs Search](https://songs-search.typesense.org/) - A demo to showcase Typesense in action on a 32 Million Songs database from [MusicBrainz](https://musicbrainz.org/)
+- [Recipe Search](https://recipe-search.typesense.org/) - A demo to showcase Typesense in action on a 2 Million recipe database, with the ability to filter by ingredients.
 - [Grafikart](https://www.grafikart.fr/) - Learning resources library
 - [New York University Databrary](https://nyu.databrary.org/) - Video documentation library
 - [ElbiseBul](https://www.elbisebul.com/) - E-commerce
