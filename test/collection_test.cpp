@@ -983,8 +983,12 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(18, import_response["num_imported"].get<int>());
 
+    // try searching with filter
+    auto results = coll_mul_fields->search("*", query_fields, "starring:= [Will Ferrell]", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
     // update + upsert records
-    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry"})",
+    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry", "starring": "Will Ferrell"})",
                                             R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
                                             R"({"id": "6", "points": 77})"};
@@ -1002,7 +1006,11 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
         ASSERT_EQ(1, import_results[i].size());
     }
 
-    auto results = coll_mul_fields->search("*", query_fields, "", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    // try with filters again
+    results = coll_mul_fields->search("*", query_fields, "starring:= [Will Ferrell]", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    results = coll_mul_fields->search("*", query_fields, "", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
     ASSERT_EQ(19, results["hits"].size());
 
     ASSERT_EQ(19, coll_mul_fields->get_num_documents());
