@@ -162,7 +162,7 @@ Here's how: [https://typesense.org/docs/0.15.0/guide/#search-ui](https://typesen
 
 ## Benchmarks
 
-We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB, 8-vCPU 3-node Typesense cluster. 
+We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB RAM, 8-vCPU 3-node Typesense cluster. 
 
 We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
 
