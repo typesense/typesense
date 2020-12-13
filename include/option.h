@@ -9,11 +9,11 @@ private:
     bool is_ok;
 
     std::string error_msg;
-    uint32_t error_code;
+    uint32_t error_code{};
 
 public:
 
-    Option(const T & value): value(value), is_ok(true) {
+    explicit Option(const T & value): value(value), is_ok(true) {
 
     }
 

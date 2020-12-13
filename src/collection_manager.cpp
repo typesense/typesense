@@ -140,6 +140,16 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             collection->add_override(override);
         }
 
+        // initialize synonyms
+        std::vector<std::string> collection_synonym_jsons;
+        store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+
+        for(const auto & collection_synonym_json: collection_synonym_jsons) {
+            nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
+            synonym_t synonym(collection_synonym);
+            collection->add_synonym(synonym);
+        }
+
         // Fetch records from the store and re-create memory index
         std::vector<std::string> documents;
         const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();

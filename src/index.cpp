@@ -1201,6 +1201,7 @@ void Index::run_search() {
 
         // after the wait, we own the lock.
         search(search_params->outcome, search_params->q_include_tokens, search_params->q_exclude_tokens,
+               search_params->q_synonyms,
                search_params->search_fields,
                search_params->filters, search_params->facets, search_params->facet_query,
                search_params->included_ids, search_params->excluded_ids,
@@ -1275,11 +1276,12 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
 }
 
 void Index::search(Option<uint32_t> & outcome,
-                   const std::vector<std::string> & q_include_tokens,
-                   const std::vector<std::string> & q_exclude_tokens,
-                   const std::vector<std::string> & search_fields,
-                   const std::vector<filter> & filters,
-                   std::vector<facet> & facets, facet_query_t & facet_query,
+                   const std::vector<std::string>& q_include_tokens,
+                   const std::vector<std::string>& q_exclude_tokens,
+                   const std::vector<std::vector<std::string>>& q_synonyms,
+                   const std::vector<std::string>& search_fields,
+                   const std::vector<filter>& filters,
+                   std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                    const std::vector<uint32_t> & excluded_ids,
                    const std::vector<sort_by> & sort_fields_std, const int num_typos,
@@ -1411,10 +1413,11 @@ void Index::search(Option<uint32_t> & outcome,
         all_result_ids = filter_ids;
         filter_ids = nullptr;
     } else {
+        // non-wildcard
         for(size_t i = 0; i < num_search_fields; i++) {
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || filter_ids_length > 0) {
-                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i); // Order of `fields` are used to sort results
+                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - (2*i)); // Order of `fields` are used to sort results
                 const std::string & field = search_fields[i];
 
                 std::vector<std::string> query_tokens = q_include_tokens;
@@ -1427,9 +1430,23 @@ void Index::search(Option<uint32_t> & outcome,
                              field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              num_typos, searched_queries, topster, groups_processed, &all_result_ids, all_result_ids_len,
                              token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+
+                // do synonym based searches
+                for(const auto& syn_tokens: q_synonyms) {
+                    num_tokens_dropped = 0;
+                    query_tokens = search_tokens = syn_tokens;
+
+                    // for synonym we use a smaller field id than for original tokens
+                    search_field(field_id-1, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
+                                 field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
+                                 num_typos, searched_queries, topster, groups_processed, &all_result_ids, all_result_ids_len,
+                                 token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+                }
+
                 collate_included_ids(q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
             }
         }
+
     }
 
     delete [] exclude_token_ids;

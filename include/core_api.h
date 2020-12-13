@@ -53,6 +53,16 @@ bool put_override(http_req& req, http_res& res);
 
 bool del_override(http_req& req, http_res& res);
 
+// Synonyms
+
+bool get_synonyms(http_req& req, http_res& res);
+
+bool get_synonym(http_req& req, http_res& res);
+
+bool put_synonym(http_req& req, http_res& res);
+
+bool del_synonym(http_req& req, http_res& res);
+
 // Keys
 
 bool get_keys(http_req& req, http_res& res);
