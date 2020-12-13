@@ -1041,7 +1041,7 @@ bool get_overrides(http_req &req, http_res &res) {
     nlohmann::json res_json;
     res_json["overrides"] = nlohmann::json::array();
 
-    std::map<std::string, override_t> overrides = collection->get_overrides();
+    std::map<std::string, override_t>& overrides = collection->get_overrides();
     for(const auto & kv: overrides) {
         nlohmann::json override = kv.second.to_json();
         res_json["overrides"].push_back(override);
@@ -1062,16 +1062,16 @@ bool get_override(http_req &req, http_res &res) {
 
     std::string override_id = req.params["id"];
 
-    std::map<std::string, override_t> overrides = collection->get_overrides();
+    std::map<std::string, override_t>& overrides = collection->get_overrides();
 
     if(overrides.count(override_id) != 0) {
         nlohmann::json override = overrides[override_id].to_json();
         res.set_200(override.dump());
-        return false;
+        return true;
     }
 
     res.set_404();
-    return true;
+    return false;
 }
 
 bool put_override(http_req &req, http_res &res) {
@@ -1096,12 +1096,11 @@ bool put_override(http_req &req, http_res &res) {
     }
 
     // validate format of req_json
-    if(
-            !req_json.is_object() ||
-            (req_json.count("rule") == 0) ||
-            (req_json["rule"].count("query") == 0 || req_json["rule"].count("match") == 0) ||
-            (req_json.count("includes") == 0 && req_json.count("excludes") == 0)
-            ) {
+    if(!req_json.is_object() ||
+        (req_json.count("rule") == 0) ||
+        (req_json["rule"].count("query") == 0 || req_json["rule"].count("match") == 0) ||
+        (req_json.count("includes") == 0 && req_json.count("excludes") == 0)
+        ) {
         res.set_400("Bad JSON.");
         return false;
     }
@@ -1287,5 +1286,115 @@ bool raft_write_send_response(void *data) {
         server->send_response(index_arg->req, index_arg->res);
     }
 
+    return true;
+}
+
+bool get_synonyms(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["synonyms"] = nlohmann::json::array();
+
+    auto& synonyms = collection->get_synonyms();
+    for(const auto & kv: synonyms) {
+        nlohmann::json synonym = kv.second.to_json();
+        res_json["synonyms"].push_back(synonym);
+    }
+
+    res.set_200(res_json.dump());
+    return true;
+}
+
+bool get_synonym(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    std::string synonym_id = req.params["id"];
+
+    synonym_t synonym;
+    bool found = collection->get_synonym(synonym_id, synonym);
+
+    if(found) {
+        nlohmann::json synonym_json = synonym.to_json();
+        res.set_200(synonym_json.dump());
+        return true;
+    }
+
+    res.set_404();
+    return false;
+}
+
+bool put_synonym(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    std::string synonym_id = req.params["id"];
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    nlohmann::json syn_json;
+
+    try {
+        syn_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+    syn_json["id"] = synonym_id;
+
+    synonym_t synonym;
+    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
+
+    if(!syn_op.ok()) {
+        res.set(syn_op.code(), syn_op.error());
+        return false;
+    }
+
+    Option<bool> upsert_op = collection->add_synonym(synonym);
+
+    if(!upsert_op.ok()) {
+        res.set(upsert_op.code(), upsert_op.error());
+        return false;
+    }
+
+    res.set_200(syn_json.dump());
+    return true;
+}
+
+bool del_synonym(http_req &req, http_res &res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+
+    if(collection == nullptr) {
+        res.set_404();
+        return false;
+    }
+
+    Option<bool> rem_op = collection->remove_synonym(req.params["id"]);
+    if(!rem_op.ok()) {
+        res.set(rem_op.code(), rem_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["id"] = req.params["id"];
+
+    res.set_200(res_json.dump());
     return true;
 }

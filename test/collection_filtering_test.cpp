@@ -592,13 +592,13 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // when filters don't match any record, no results should be returned
-    Option<nlohmann::json> results_op = coll_array_fields->search("Jeremy", query_fields, "rating:<-2.78", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    auto results_op = coll_array_fields->search("Jeremy", query_fields, "rating:<-2.78", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false);
     ASSERT_TRUE(results_op.ok());
     results = results_op.get();
     ASSERT_EQ(0, results["hits"].size());
 
     // rank tokens by default sorting field
-    results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, 0, 10, 1, MAX_SCORE, true).get();
+    results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, 0, 10, 1, MAX_SCORE, true);
     ASSERT_TRUE(results_op.ok());
     results = results_op.get();
     ASSERT_EQ(5, results["hits"].size());

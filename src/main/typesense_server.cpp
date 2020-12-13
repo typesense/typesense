@@ -36,6 +36,11 @@ void master_server_routes() {
     server->put("/collections/:collection/overrides/:id", put_override);
     server->del("/collections/:collection/overrides/:id", del_override);
 
+    server->get("/collections/:collection/synonyms", get_synonyms);
+    server->get("/collections/:collection/synonyms/:id", get_synonym);
+    server->put("/collections/:collection/synonyms/:id", put_synonym);
+    server->del("/collections/:collection/synonyms/:id", del_synonym);
+
     server->get("/aliases", get_aliases);
     server->get("/aliases/:alias", get_alias);
     server->put("/aliases/:alias", put_upsert_alias);

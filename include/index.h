@@ -26,6 +26,7 @@ struct token_candidates {
 struct search_args {
     std::vector<std::string> q_include_tokens;
     std::vector<std::string> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_synonyms;
     std::vector<std::string> search_fields;
     std::vector<filter> filters;
     std::vector<facet> facets;
@@ -58,13 +59,14 @@ struct search_args {
 
     search_args(std::vector<std::string> q_include_tokens,
                 std::vector<std::string> q_exclude_tokens,
+                std::vector<std::vector<std::string>> q_synonyms,
                 std::vector<std::string> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit):
-            q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens),
+            q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens), q_synonyms(q_synonyms),
             search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
             excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
             max_facet_values(max_facet_values), per_page(per_page),
@@ -204,12 +206,6 @@ private:
 
     void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    // reference: https://stackoverflow.com/a/27952689/131050
-    uint64_t hash_combine(uint64_t lhs, uint64_t rhs) const {
-        lhs ^= rhs + 0x517cc1b727220a95 + (lhs << 6) + (lhs >> 2);
-        return lhs;
-    }
-
 public:
     Index() = delete;
 
@@ -218,11 +214,18 @@ public:
 
     ~Index();
 
+    // reference: https://stackoverflow.com/a/27952689/131050
+    static uint64_t hash_combine(uint64_t combined, uint64_t hash) {
+        combined ^= hash + 0x517cc1b727220a95 + (combined << 6) + (combined >> 2);
+        return combined;
+    }
+
     void run_search();
 
     void search(Option<uint32_t> & outcome,
                           const std::vector<std::string> & q_include_tokens,
                           const std::vector<std::string> & q_exclude_tokens,
+                          const std::vector<std::vector<std::string>>& q_synonyms,
                           const std::vector<std::string> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           facet_query_t & facet_query,

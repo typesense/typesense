@@ -185,13 +185,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     override_t override_exclude(override_json);
 
     nlohmann::json override_json_deleted = {
-            {"id", "deleted-rule"},
-            {
-             "rule", {
-                           {"query", "of"},
-                           {"match", override_t::MATCH_EXACT}
-                   }
-            }
+        {"id", "deleted-rule"},
+        {
+         "rule", {
+                       {"query", "of"},
+                       {"match", override_t::MATCH_EXACT}
+               }
+        }
     };
 
     override_t override_deleted(override_json_deleted);
@@ -201,6 +201,17 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     collection1->add_override(override_deleted);
 
     collection1->remove_override("deleted-rule");
+
+    // make some synonym operation
+    synonym_t synonym1("id1", {"smart", "phone"}, {{"iphone"}});
+    synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
+    synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
+
+    collection1->add_synonym(synonym1);
+    collection1->add_synonym(synonym2);
+    collection1->add_synonym(synonym3);
+
+    collection1->remove_synonym("id2");
 
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
@@ -243,6 +254,17 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(2, collection1->get_overrides().size());
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
+
+    auto& synonyms = collection1->get_synonyms();
+    ASSERT_EQ(2, synonyms.size());
+
+    ASSERT_STREQ("id1", synonyms["id1"].id.c_str());
+    ASSERT_EQ(2, synonyms["id1"].root.size());
+    ASSERT_EQ(1, synonyms["id1"].synonyms.size());
+
+    ASSERT_STREQ("id3", synonyms["id3"].id.c_str());
+    ASSERT_EQ(0, synonyms["id3"].root.size());
+    ASSERT_EQ(2, synonyms["id3"].synonyms.size());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
