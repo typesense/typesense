@@ -14,7 +14,11 @@
   <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 </p>
 
-Here's a live demo showing Typesense in action on a songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
+Here are a couple of **live demos** that show Typesense in action on large datasets:
+
+- Search a 32M songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
+- Search a 28M books dataset from OpenLibrary: [books-search.typesense.org](https://books-search.typesense.org/)
+- Search a 2M recipe dataset from RecipeNLG: [recipe-search.typesense.org](https://recipe-search.typesense.org/)
 
 ## Quick Links
 
