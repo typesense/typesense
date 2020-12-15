@@ -13,23 +13,21 @@ extern "C" {
 #endif
 
 void master_server_routes() {
-    // collection management
-    server->post("/collections", post_create_collection);
-    server->get("/collections", get_collections);
-    server->del("/collections/:collection", del_drop_collection);
-    server->get("/collections/:collection", get_collection_summary);
-
-    // document management - `/documents/:id` end-points must be placed last in the list
-    server->post("/collections/:collection/documents", post_add_document);
-    server->patch("/collections/:collection/documents/:id", patch_update_document);
+    // collection operations
+    // NOTE: placing this first to score an immediate hit on O(N) route search
     server->get("/collections/:collection/documents/search", get_search);
+
+    // document management
+    // NOTE:`/documents/:id` end-points must be placed last in the list
+    server->post("/collections/:collection/documents", post_add_document);
+    server->del("/collections/:collection/documents", del_remove_documents, false, true);
 
     server->post("/collections/:collection/documents/import", post_import_documents, true, true);
     server->get("/collections/:collection/documents/export", get_export_documents, false, true);
 
     server->get("/collections/:collection/documents/:id", get_fetch_document);
+    server->patch("/collections/:collection/documents/:id", patch_update_document);
     server->del("/collections/:collection/documents/:id", del_remove_document);
-    server->del("/collections/:collection/documents", del_remove_documents, false, true);
 
     server->get("/collections/:collection/overrides", get_overrides);
     server->get("/collections/:collection/overrides/:id", get_override);
@@ -40,6 +38,12 @@ void master_server_routes() {
     server->get("/collections/:collection/synonyms/:id", get_synonym);
     server->put("/collections/:collection/synonyms/:id", put_synonym);
     server->del("/collections/:collection/synonyms/:id", del_synonym);
+
+    // collection management
+    server->post("/collections", post_create_collection);
+    server->get("/collections", get_collections);
+    server->del("/collections/:collection", del_drop_collection);
+    server->get("/collections/:collection", get_collection_summary);
 
     server->get("/aliases", get_aliases);
     server->get("/aliases/:alias", get_alias);
@@ -55,7 +59,9 @@ void master_server_routes() {
     server->get("/metrics.json", get_metrics_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);
+    server->post("/health", post_health);
     server->get("/sequence", get_log_sequence);
+    server->post("/operations/snapshot", post_snapshot, false, true);
 }
 
 int main(int argc, char **argv) {

@@ -245,7 +245,8 @@ std::map<std::string, std::string> HttpServer::parse_query(const std::string& qu
     return query_map;
 }
 
-uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method, route_path** found_rpath) {
+uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
+                                route_path** found_rpath) {
     for (const auto& index_route : routes) {
         const route_path & rpath = index_route.second;
 
@@ -492,10 +493,14 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
                                 const h2o_custom_req_handler_t *handler) {
 
     //LOG(INFO) << "process_request called";
+    bool operations_path = (rpath->path_parts.size() != 0 && rpath->path_parts[0] == "operations");
+
+    //LOG(INFO) << "operations_path: " << operations_path;
 
     // for writes, we delegate to replication_state to handle response
-    if(rpath->http_method == "POST" || rpath->http_method == "PUT" || rpath->http_method == "DELETE" ||
-       rpath->http_method == "PATCH") {
+    if(!operations_path &&
+       (rpath->http_method == "POST" || rpath->http_method == "PUT" ||
+        rpath->http_method == "DELETE" || rpath->http_method == "PATCH")) {
         handler->http_server->get_replication_state()->write(request, response);
         return 0;
     }
@@ -799,4 +804,8 @@ bool HttpServer::on_request_proceed_message(void *data) {
 
 bool HttpServer::has_exited() const {
     return exit_loop;
+}
+
+void HttpServer::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
+    return replication_state->do_snapshot(snapshot_path, req, res);
 }
