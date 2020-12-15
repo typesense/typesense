@@ -58,8 +58,6 @@ private:
 
     bool exit_loop = false;
 
-private:
-
     std::string version;
 
     // must be a vector since order of routes matter
@@ -173,4 +171,6 @@ public:
     static void on_deferred_process_request(h2o_timer_t *entry);
 
     void defer_processing(http_req& req, http_res& res, size_t timeout_ms);
+
+    void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
 };

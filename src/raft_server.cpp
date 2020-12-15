@@ -25,6 +25,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
                             int election_timeout_ms, int snapshot_interval_s,
                             const std::string & raft_dir, const std::string & nodes) {
 
+    this->raft_dir_path = raft_dir;
+
     braft::NodeOptions node_options;
     std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
 
@@ -105,7 +107,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     }
 
     if (!node->is_leader()) {
-        return follower_write(request, response);
+        return write_to_leader(request, response);
     }
 
     // Serialize request to replicated WAL so that all the nodes in the group receive it as well.
@@ -130,7 +132,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     return node->apply(task);
 }
 
-void ReplicationState::follower_write(http_req *request, http_res *response) const {
+void ReplicationState::write_to_leader(http_req *request, http_res *response) const {
     if(node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
@@ -163,12 +165,9 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
 
     thread_pool->enqueue([leader_addr, request, response, server, this]() {
         auto raw_req = request->_req;
-        std::string scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
-        std::vector<std::string> addr_parts;
-        StringUtils::split(leader_addr, addr_parts, ":");
-        std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-        const std::string & path = std::string(raw_req->path.base, raw_req->path.len);
-        std::string url = scheme + "://" + leader_host_port + path;
+        const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
+        const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
+        const std::string url = get_leader_url_path(leader_addr, path, scheme);
 
         std::map<std::string, std::string> res_headers;
 
@@ -220,6 +219,15 @@ void ReplicationState::follower_write(http_req *request, http_res *response) con
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     });
+}
+
+std::string ReplicationState::get_leader_url_path(const std::string& leader_addr, const std::string& path,
+                                                  const std::string& protocol) const {
+    std::vector<std::string> addr_parts;
+    StringUtils::split(leader_addr, addr_parts, ":");
+    std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
+    std::string url = protocol + "://" + leader_host_port + path;
+    return url;
 }
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
@@ -297,44 +305,73 @@ void* ReplicationState::save_snapshot(void* arg) {
     std::unique_ptr<SnapshotArg> arg_guard(sa);
     brpc::ClosureGuard done_guard(sa->done);
 
-    std::string snapshot_path = sa->writer->get_path() + "/" + db_snapshot_name;
+    // add the db snapshot files to writer state
+    butil::FileEnumerator dir_enum(butil::FilePath(sa->db_snapshot_path), false, butil::FileEnumerator::FILES);
 
-    rocksdb::Checkpoint* checkpoint = nullptr;
-    rocksdb::Status status = rocksdb::Checkpoint::Create(sa->db, &checkpoint);
-
-    if(!status.ok()) {
-        LOG(WARNING) << "Checkpoint Create failed, msg:" << status.ToString();
-        return nullptr;
-    }
-
-    std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
-    status = checkpoint->CreateCheckpoint(snapshot_path);
-    if(!status.ok()) {
-        LOG(WARNING) << "Checkpoint CreateCheckpoint failed, msg:" << status.ToString();
-        return nullptr;
-    }
-
-    butil::FileEnumerator dir_enum(butil::FilePath(snapshot_path),false, butil::FileEnumerator::FILES);
-    for (butil::FilePath name = dir_enum.Next(); !name.empty(); name = dir_enum.Next()) {
-        std::string file_name = std::string(db_snapshot_name) + "/" + name.BaseName().value();
+    for (butil::FilePath file = dir_enum.Next(); !file.empty(); file = dir_enum.Next()) {
+        std::string file_name = std::string(db_snapshot_name) + "/" + file.BaseName().value();
         if (sa->writer->add_file(file_name) != 0) {
             sa->done->status().set_error(EIO, "Fail to add file to writer.");
             return nullptr;
         }
     }
 
+    // if an external snapshot is requested, copy both state and data directory into that
+    if(!sa->ext_snapshot_path.empty()) {
+        LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
+        if(!butil::DirectoryExists(butil::FilePath(sa->ext_snapshot_path))) {
+            butil::CreateDirectory(butil::FilePath(sa->ext_snapshot_path), true);
+        }
+        butil::CopyDirectory(butil::FilePath(sa->state_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
+        butil::CopyDirectory(butil::FilePath(sa->db_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
+    }
+
+    // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
+    // last snapshot. By doing a dummy write right after a snapshot, we ensure that this can never be the case.
+    sa->replication_state->do_dummy_write();
+
     LOG(INFO) << "save_snapshot done";
 
     return nullptr;
 }
 
+// this method is serial to on_apply so guarantees a snapshot view of the state machine
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
     LOG(INFO) << "on_snapshot_save";
-    // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
+
+    rocksdb::Checkpoint* checkpoint = nullptr;
+    rocksdb::Status status = rocksdb::Checkpoint::Create(store->_get_db_unsafe(), &checkpoint);
+
+    if(!status.ok()) {
+        LOG(WARNING) << "Checkpoint Create failed, msg:" << status.ToString();
+        done->status().set_error(EIO, "Checkpoint Create failed.");
+    }
+
+    std::string db_snapshot_path = writer->get_path() + "/" + db_snapshot_name;
+
+    std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
+    status = checkpoint->CreateCheckpoint(db_snapshot_path);
+
+    if(!status.ok()) {
+        LOG(WARNING) << "Checkpoint CreateCheckpoint failed at snapshot path: "
+                     << db_snapshot_path << ", msg:" << status.ToString();
+        done->status().set_error(EIO, "CreateCheckpoint failed.");
+    }
+
     SnapshotArg* arg = new SnapshotArg;
-    arg->db = store->_get_db_unsafe();
+    arg->replication_state = this;
     arg->writer = writer;
+    arg->state_dir_path = raft_dir_path;
+    arg->db_dir_path = store->get_state_dir_path();
+    arg->db_snapshot_path = db_snapshot_path;
     arg->done = done;
+
+    if(!ext_snapshot_path.empty()) {
+        arg->ext_snapshot_path = ext_snapshot_path;
+        ext_snapshot_path = "";
+    }
+
+    // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
     bthread_t tid;
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
@@ -507,6 +544,38 @@ uint64_t ReplicationState::node_state() const {
     return node_status.state;
 }
 
+void ReplicationState::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
+    LOG(INFO) << "Triggerring an on demand snapshot...";
+    OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
+    ext_snapshot_path = snapshot_path;
+    node->snapshot(snapshot_closure);
+}
+
+void ReplicationState::set_ext_snapshot_path(const std::string& snapshot_path) {
+    this->ext_snapshot_path = snapshot_path;
+}
+
+const std::string &ReplicationState::get_ext_snapshot_path() const {
+    return ext_snapshot_path;
+}
+
+void ReplicationState::do_dummy_write() {
+    if(node->leader_id().is_empty()) {
+        LOG(ERROR) << "Could not do a dummy write, as node does not have a leader";
+        return ;
+    }
+
+    const std::string & leader_addr = node->leader_id().to_string();
+    const std::string protocol = api_uses_ssl ? "https" : "http";
+    std::string url = get_leader_url_path(leader_addr, "/health", protocol);
+
+    std::string api_res;
+    std::map<std::string, std::string> res_headers;
+    long status_code = HttpClient::post_response(url, "", api_res, res_headers);
+
+    LOG(INFO) << "Dummy write to " << url << ", status = " << status_code << ", response = " << api_res;
+}
+
 void InitSnapshotClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<InitSnapshotClosure> self_guard(this);
@@ -516,6 +585,35 @@ void InitSnapshotClosure::Run() {
         replication_state->reset_db();
         replication_state->init_db();
     } else {
-        LOG(ERROR) << "Init snapshot failed, error: " << status().error_str();
+        LOG(ERROR) << "Init snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
     }
+}
+
+void OnDemandSnapshotClosure::Run() {
+    // Auto delete this after Run()
+    std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
+
+    replication_state->set_ext_snapshot_path("");
+
+    req.last_chunk_aggregate = true;
+    res.final = true;
+
+    nlohmann::json response;
+    uint32_t status_code;
+
+    if(status().ok()) {
+        LOG(INFO) << "On demand snapshot succeeded!";
+        status_code = 201;
+        response["success"] = true;
+    } else {
+        LOG(ERROR) << "On demand snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
+        status_code = 500;
+        response["success"] = false;
+        response["error"] = status().error_str();
+    }
+
+    res.status_code = status_code;
+    res.body = response.dump();
+
+    HttpServer::stream_response(req, res);
 }

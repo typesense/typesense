@@ -72,6 +72,23 @@ public:
     void Run();
 };
 
+// Closure that fires when requested
+class OnDemandSnapshotClosure : public braft::Closure {
+private:
+    ReplicationState* replication_state;
+    http_req& req;
+    http_res& res;
+
+public:
+
+    OnDemandSnapshotClosure(ReplicationState* replication_state, http_req& req, http_res& res):
+    replication_state(replication_state), req(req), res(res) {}
+
+    ~OnDemandSnapshotClosure() {}
+
+    void Run();
+};
+
 
 // Implements braft::StateMachine.
 class ReplicationState : public braft::StateMachine {
@@ -95,6 +112,10 @@ private:
     bool create_init_db_snapshot;
 
     std::atomic<bool>& shut_down;
+
+    std::string raft_dir_path;
+
+    std::string ext_snapshot_path;
 
 public:
 
@@ -154,8 +175,14 @@ public:
 
     void reset_db();
 
+    void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
+
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
+
+    void set_ext_snapshot_path(const std::string &snapshot_path);
+
+    const std::string& get_ext_snapshot_path() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
@@ -167,8 +194,12 @@ private:
     void on_apply(braft::Iterator& iter);
 
     struct SnapshotArg {
-        rocksdb::DB* db;
+        ReplicationState* replication_state;
         braft::SnapshotWriter* writer;
+        std::string state_dir_path;
+        std::string db_dir_path;
+        std::string db_snapshot_path;
+        std::string ext_snapshot_path;
         braft::Closure* done;
     };
 
@@ -217,5 +248,10 @@ private:
         LOG(INFO) << "Node stops following " << ctx;
     }
 
-    void follower_write(http_req *request, http_res *response) const;
+    void write_to_leader(http_req *request, http_res *response) const;
+
+    void do_dummy_write();
+
+    std::string get_leader_url_path(const std::string& leader_addr, const std::string& path,
+                                    const std::string& protocol) const;
 };

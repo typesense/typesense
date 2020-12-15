@@ -203,6 +203,7 @@ bool get_health(http_req & req, http_res & res) {
     nlohmann::json result;
     bool alive = server->is_alive();
     result["ok"] = alive;
+
     if(alive) {
         res.set_body(200, result.dump());
     } else {
@@ -212,6 +213,19 @@ bool get_health(http_req & req, http_res & res) {
     return alive;
 }
 
+bool post_health(http_req & req, http_res & res) {
+    nlohmann::json result;
+    bool alive = server->is_alive();
+    result["ok"] = alive;
+
+    if(alive) {
+        res.set_body(200, result.dump());
+    } else {
+        res.set_body(503, result.dump());
+    }
+
+    return alive;
+}
 
 bool get_metrics_json(http_req &req, http_res &res) {
     nlohmann::json result;
@@ -1285,6 +1299,25 @@ bool raft_write_send_response(void *data) {
         //LOG(INFO) << "raft_write_send_response: sending response";
         server->send_response(index_arg->req, index_arg->res);
     }
+
+    return true;
+}
+
+bool post_snapshot(http_req& req, http_res& res) {
+    const std::string SNAPSHOT_PATH = "snapshot_path";
+
+    res.status_code = 201;
+    res.content_type_header = "application/json";
+
+    if(req.params.count(SNAPSHOT_PATH) == 0) {
+        req.last_chunk_aggregate = true;
+        res.final = true;
+        res.set_400(std::string("Parameter `") + SNAPSHOT_PATH + "` is required.");
+        HttpServer::stream_response(req, res);
+        return false;
+    }
+
+    server->do_snapshot(req.params[SNAPSHOT_PATH], req, res);
 
     return true;
 }

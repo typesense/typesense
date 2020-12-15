@@ -79,9 +79,13 @@ bool get_debug(http_req& req, http_res& res);
 
 bool get_health(http_req& req, http_res& res);
 
+bool post_health(http_req& req, http_res& res);
+
 bool get_metrics_json(http_req& req, http_res& res);
 
 bool get_log_sequence(http_req& req, http_res& res);
+
+bool post_snapshot(http_req& req, http_res& res);
 
 // Misc helpers
 
