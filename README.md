@@ -49,6 +49,8 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 - **Raft-based Clustering:** Setup a distributed cluster that is highly available.
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 
+**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+
 ## Install
 
 **Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for 
