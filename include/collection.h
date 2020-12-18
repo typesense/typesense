@@ -230,7 +230,7 @@ private:
     std::unordered_map<std::string, field> sort_schema;
 
     spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
-    spp::sparse_hash_map<uint64_t, std::string> synonym_index;
+    spp::sparse_hash_map<uint64_t, std::vector<std::string>> synonym_index;
 
     std::string default_sorting_field;
 

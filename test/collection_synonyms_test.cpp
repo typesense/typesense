@@ -267,6 +267,30 @@ TEST_F(CollectionSynonymsTest, SynonymReductionMultiWay) {
     ASSERT_STREQ("states", results[3][0].c_str());
 }
 
+TEST_F(CollectionSynonymsTest, SynonymBelongingToMultipleSets) {
+    synonym_t synonym1{"iphone-synonyms", {}, {{"i", "phone"}, {"smart", "phone"}}};
+    synonym_t synonym2{"samsung-synonyms", {}, {{"smart", "phone"}, {"galaxy", "phone"}, {"samsung", "phone"}}};
+    coll_mul_fields->add_synonym(synonym1);
+    coll_mul_fields->add_synonym(synonym2);
+
+    std::vector<std::vector<std::string>> results;
+    coll_mul_fields->synonym_reduction({"smart", "phone"}, results);
+
+    ASSERT_EQ(3, results.size());
+    ASSERT_EQ(2, results[0].size());
+    ASSERT_EQ(2, results[1].size());
+    ASSERT_EQ(2, results[2].size());
+
+    ASSERT_STREQ("i", results[0][0].c_str());
+    ASSERT_STREQ("phone", results[0][1].c_str());
+
+    ASSERT_STREQ("galaxy", results[1][0].c_str());
+    ASSERT_STREQ("phone", results[1][1].c_str());
+
+    ASSERT_STREQ("samsung", results[2][0].c_str());
+    ASSERT_STREQ("phone", results[2][1].c_str());
+}
+
 TEST_F(CollectionSynonymsTest, OneWaySynonym) {
     nlohmann::json syn_json = {
         {"id", "syn-1"},
