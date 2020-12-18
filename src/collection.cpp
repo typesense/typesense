@@ -1917,11 +1917,11 @@ Option<bool> Collection::add_synonym(const synonym_t& synonym) {
 
     if(!synonym.root.empty()) {
         uint64_t root_hash = synonym_t::get_hash(synonym.root);
-        synonym_index[root_hash] = synonym.id;
+        synonym_index[root_hash].emplace_back(synonym.id);
     } else {
         for(const auto & syn_tokens : synonym.synonyms) {
             uint64_t syn_hash = synonym_t::get_hash(syn_tokens);
-            synonym_index[syn_hash] = synonym.id;
+            synonym_index[syn_hash].emplace_back(synonym.id);
         }
     }
 
@@ -1970,56 +1970,59 @@ void Collection::synonym_reduction_internal(const std::vector<std::string>& toke
 
             if(syn_itr != synonym_index.end() && processed_syn_hashes.count(syn_hash) == 0) {
                 // tokens in this window match a synonym: reconstruct tokens and rerun synonym mapping against matches
-                const auto& syn_id = syn_itr->second;
-                const auto& syn_def = synonym_definitions[syn_id];
+                const auto& syn_ids = syn_itr->second;
 
-                for(const auto& syn_def_tokens: syn_def.synonyms) {
-                    std::vector<std::string> new_tokens;
+                for(const auto& syn_id: syn_ids) {
+                    const auto &syn_def = synonym_definitions[syn_id];
 
-                    for(size_t i = 0; i < start_index; i++) {
-                        new_tokens.push_back(tokens[i]);
-                    }
+                    for (const auto &syn_def_tokens: syn_def.synonyms) {
+                        std::vector<std::string> new_tokens;
 
-                    std::vector<uint64_t> syn_def_hashes;
-                    uint64_t syn_def_hash = 1;
-
-                    for(size_t i=0; i < syn_def_tokens.size(); i++) {
-                        const auto& syn_def_token = syn_def_tokens[i];
-                        new_tokens.push_back(syn_def_token);
-                        uint64_t token_hash = StringUtils::hash_wy(syn_def_token.c_str(),
-                                                                   syn_def_token.size());
-
-                        if(i == 0) {
-                            syn_def_hash = token_hash;
-                        } else {
-                            syn_def_hash = Index::hash_combine(syn_def_hash, token_hash);
+                        for (size_t i = 0; i < start_index; i++) {
+                            new_tokens.push_back(tokens[i]);
                         }
 
-                        syn_def_hashes.push_back(token_hash);
+                        std::vector<uint64_t> syn_def_hashes;
+                        uint64_t syn_def_hash = 1;
+
+                        for (size_t i = 0; i < syn_def_tokens.size(); i++) {
+                            const auto &syn_def_token = syn_def_tokens[i];
+                            new_tokens.push_back(syn_def_token);
+                            uint64_t token_hash = StringUtils::hash_wy(syn_def_token.c_str(),
+                                                                       syn_def_token.size());
+
+                            if (i == 0) {
+                                syn_def_hash = token_hash;
+                            } else {
+                                syn_def_hash = Index::hash_combine(syn_def_hash, token_hash);
+                            }
+
+                            syn_def_hashes.push_back(token_hash);
+                        }
+
+                        if (syn_def_hash == syn_hash) {
+                            // skip over token matching itself in the group
+                            continue;
+                        }
+
+                        for (size_t i = start_index + window_len; i < tokens.size(); i++) {
+                            new_tokens.push_back(tokens[i]);
+                        }
+
+                        processed_syn_hashes.emplace(syn_def_hash);
+                        processed_syn_hashes.emplace(syn_hash);
+
+                        for (uint64_t h: syn_def_hashes) {
+                            processed_syn_hashes.emplace(h);
+                        }
+
+                        for (uint64_t h: syn_hashes) {
+                            processed_syn_hashes.emplace(h);
+                        }
+
+                        recursed = true;
+                        synonym_reduction_internal(new_tokens, window_len, start_index, processed_syn_hashes, results);
                     }
-
-                    if(syn_def_hash == syn_hash) {
-                        // skip over token matching itself in the group
-                        continue;
-                    }
-
-                    for(size_t i = start_index+window_len; i < tokens.size(); i++) {
-                        new_tokens.push_back(tokens[i]);
-                    }
-
-                    processed_syn_hashes.emplace(syn_def_hash);
-                    processed_syn_hashes.emplace(syn_hash);
-
-                    for(uint64_t h: syn_def_hashes) {
-                        processed_syn_hashes.emplace(h);
-                    }
-
-                    for(uint64_t h: syn_hashes) {
-                        processed_syn_hashes.emplace(h);
-                    }
-
-                    recursed = true;
-                    synonym_reduction_internal(new_tokens, window_len, start_index, processed_syn_hashes, results);
                 }
             }
         }
