@@ -1524,9 +1524,23 @@ void Index::search(Option<uint32_t> & outcome,
                     art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                      0, 0, 1, token_order, prefix_search, leaves);
 
-                    if(!leaves.empty() && leaves[0]->values->ids.contains(seq_id)) {
-                        words_present++;
+                    if(leaves.empty()) {
+                        continue;
                     }
+
+                    uint32_t doc_index = leaves[0]->values->ids.indexOf(seq_id);
+
+                    if (doc_index == leaves[0]->values->ids.getLength()) {
+                        continue;
+                    }
+
+                    uint32_t start_offset = leaves[0]->values->offset_index.at(doc_index);
+                    uint32_t end_offset = (doc_index == leaves[0]->values->ids.getLength() - 1) ?
+                                          leaves[0]->values->offsets.getLength() :
+                                          leaves[0]->values->offset_index.at(doc_index+1);
+
+                    words_present += (end_offset - start_offset);
+                    int k = 10;
 
                     /*if(!leaves.empty()) {
                         LOG(INFO) << "tok: " << leaves[0]->key;
@@ -1810,9 +1824,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 const Match & match = Match(seq_id, token_positions, false);
                 uint64_t this_match_score = match.get_match_score(total_cost, field_id);
 
-                if(this_match_score > match_score) {
-                    match_score = this_match_score;
-                }
+                match_score += this_match_score;
 
                 /*std::ostringstream os;
                 os << name << ", total_cost: " << (255 - total_cost)
