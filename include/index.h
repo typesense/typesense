@@ -183,6 +183,7 @@ private:
                            Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                            uint32_t** all_result_ids,
                            size_t & all_result_ids_len,
+                           size_t& field_num_results,
                            const size_t typo_tokens_threshold);
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
@@ -241,6 +242,8 @@ public:
                           std::vector<std::vector<KV*>> & raw_result_kvs,
                           std::vector<std::vector<KV*>> & override_result_kvs,
                           const size_t typo_tokens_threshold);
+
+    static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
 

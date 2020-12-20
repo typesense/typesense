@@ -2659,6 +2659,53 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, MultiFieldMatchRanking) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Style", "Taylor Swift"},
+        {"Blank Space", "Taylor Swift"},
+        {"Balance Overkill", "Taylor Swift"},
+        {"Cardigan", "Taylor Swift"},
+        {"Invisible String", "Taylor Swift"},
+        {"The Last Great American Dynasty", "Taylor Swift"},
+        {"Mirrorball", "Taylor Swift"},
+        {"Peace", "Taylor Swift"},
+        {"Betty", "Taylor Swift"},
+        {"Mad Woman", "Taylor Swift"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("taylor swift style",
+                                 {"artist", "title"}, "", {}, {}, 0, 3, 1, FREQUENCY, true, 5).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     Collection *coll1;
 
