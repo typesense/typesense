@@ -88,9 +88,9 @@ struct Topster {
     }
 
     bool add(KV* kv) {
-        //LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->match_score;
-        /*for(auto kv: kv_map) {
-            LOG(INFO) << "kv key: " << kv.first << " => " << kv.second->match_score;
+        /*LOG(INFO) << "kv_map size: " << kv_map.size() << " -- kvs[0]: " << kvs[0]->scores[kvs[0]->match_score_index];
+        for(auto& mkv: kv_map) {
+            LOG(INFO) << "kv key: " << mkv.first << " => " << mkv.second->scores[mkv.second->match_score_index];
         }*/
 
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);

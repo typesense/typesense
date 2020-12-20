@@ -1290,12 +1290,12 @@ void Collection::highlight_result(const field &search_field,
                                   const std::string& highlight_end_tag,
                                   highlight_t & highlight) {
 
-    std::vector<uint32_t*> leaf_to_indices;
-    std::vector<art_leaf*> query_suggestion;
-
     if(searched_queries.size() <= field_order_kv->query_index) {
         return ;
     }
+
+    std::vector<uint32_t*> leaf_to_indices;
+    std::vector<art_leaf*> query_suggestion;
 
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
