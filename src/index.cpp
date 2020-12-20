@@ -1555,10 +1555,6 @@ void Index::search(Option<uint32_t> & outcome,
     do_facets(facets, facet_query, all_result_ids, all_result_ids_len);
     do_facets(facets, facet_query, &included_ids[0], included_ids.size());
 
-    // must be sorted before iterated upon to remove "empty" array entries
-    topster->sort();
-    curated_topster->sort();
-
     all_result_ids_len += curated_topster->size;
 
     delete [] filter_ids;

@@ -1180,22 +1180,19 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
     }
 }
 
-void Collection::aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const {
+void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Topster* index_topster) const {
     if(index_topster->distinct) {
         for(auto &group_topster_entry: index_topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            for(KV* kv: group_kvs) {
-                kv->query_index += query_index;
-                topster.add(kv);
+            for(const auto& map_kv: group_topster->kv_map) {
+                map_kv.second->query_index += query_index;
+                agg_topster.add(map_kv.second);
             }
         }
-
     } else {
-        for(uint32_t t = 0; t < index_topster->size; t++) {
-            KV* kv = index_topster->getKV(t);
-            kv->query_index += query_index;
-            topster.add(kv);
+        for(const auto& map_kv: index_topster->kv_map) {
+            map_kv.second->query_index += query_index;
+            agg_topster.add(map_kv.second);
         }
     }
 }

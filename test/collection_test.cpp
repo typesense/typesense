@@ -2698,10 +2698,12 @@ TEST_F(CollectionTest, MultiFieldMatchRanking) {
     auto results = coll1->search("taylor swift style",
                                  {"artist", "title"}, "", {}, {}, 0, 3, 1, FREQUENCY, true, 5).get();
 
-    LOG(INFO) << results;
-
     ASSERT_EQ(10, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("9", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
