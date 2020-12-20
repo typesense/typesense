@@ -96,7 +96,7 @@ struct Topster {
         bool less_than_min_heap = (size >= MAX_SIZE) && is_smaller(kv, kvs[0]);
         size_t heap_op_index = 0;
 
-        if(!distinct && less_than_min_heap && kv->field_id == kvs[0]->field_id) {
+        if(!distinct && less_than_min_heap) {
             // for non-distinct, if incoming value is smaller than min-heap ignore
             return false;
         }
@@ -122,7 +122,7 @@ struct Topster {
                     return false;
                 }
 
-                // if new kv score is greater than previous min heap score we sift dowm, otherwise sift up
+                // if new kv score is greater than previous min heap score we sift down, otherwise sift up
                 SIFT_DOWN = is_greater(kv, &old_min_heap_kv);
 
                 // new kv is different from old_min_heap_kv so we have to sift heap
@@ -182,18 +182,8 @@ struct Topster {
                 //LOG(INFO) << "existing_kv: " << existing_kv->key << " -> " << existing_kv->match_score;
 
                 bool smaller_than_existing = is_smaller(kv, existing_kv);
-                if(smaller_than_existing && kv->field_id == existing_kv->field_id) {
+                if(smaller_than_existing) {
                     return false;
-                }
-
-                // allows a record to be matched across different fields (aggregated matching)
-                if(kv->field_id != existing_kv->field_id) {
-                    int64_t new_score = kv->scores[0] + existing_kv->scores[0];
-                    if(smaller_than_existing) {
-                        // ensures that best matched KV is not overwritten (only score needed)
-                        kv = existing_kv;
-                    }
-                    kv->scores[0] = new_score;
                 }
 
                 SIFT_DOWN = true;
