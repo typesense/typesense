@@ -361,6 +361,12 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
     ASSERT_EQ(2, res["found"].get<uint32_t>());
     ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    // for now we don't support synonyms on ANY prefix
+
+    res = coll_mul_fields->search("ler", {"starring"}, "", {}, {}, 0, 10, 1, FREQUENCY, true).get();
+    ASSERT_EQ(0, res["hits"].size());
+    ASSERT_EQ(0, res["found"].get<uint32_t>());
 }
 
 TEST_F(CollectionSynonymsTest, ExactMatchRankedHigherThanSynonymMatch) {
@@ -482,9 +488,18 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     ASSERT_STREQ("samsung-synonyms", coll_mul_fields->get_synonyms()["samsung-synonyms"].id.c_str());
 
     // try to upsert synonym with same ID
+
+    synonym2.root = {"s3", "smartphone"};
     auto upsert_op = coll_mul_fields->add_synonym(synonym2);
-    ASSERT_FALSE(upsert_op.ok());
-    ASSERT_STREQ("There is already another synonym with that `id`.", upsert_op.error().c_str());
+    ASSERT_TRUE(upsert_op.ok());
+
+    ASSERT_EQ(1, coll_mul_fields->get_synonyms().size());
+
+    synonym_t synonym2_updated;
+    coll_mul_fields->get_synonym(synonym2.id, synonym2_updated);
+
+    ASSERT_EQ("s3", synonym2_updated.root[0]);
+    ASSERT_EQ("smartphone", synonym2_updated.root[1]);
 
     coll_mul_fields->remove_synonym("samsung-synonyms");
     ASSERT_EQ(0, coll_mul_fields->get_synonyms().size());

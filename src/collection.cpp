@@ -1563,10 +1563,6 @@ Option<bool> Collection::remove_if_found(uint32_t seq_id, const bool remove_from
 }
 
 Option<uint32_t> Collection::add_override(const override_t & override) {
-    if(overrides.count("id") != 0) {
-        return Option<uint32_t>(409, "There is already another entry with that `id`.");
-    }
-
     bool inserted = store->insert(Collection::get_override_key(name, override.id), override.to_json().dump());
     if(!inserted) {
         return Option<uint32_t>(500, "Error while storing the override on disk.");
@@ -1907,7 +1903,11 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens, std::
 
 Option<bool> Collection::add_synonym(const synonym_t& synonym) {
     if(synonym_definitions.count(synonym.id) != 0) {
-        return Option<bool>(409, "There is already another synonym with that `id`.");
+        // first we have to delete existing entries so we can upsert
+        Option<bool> rem_op = remove_synonym(synonym.id);
+        if(!rem_op.ok()) {
+            return rem_op;
+        }
     }
 
     synonym_definitions[synonym.id] = synonym;
