@@ -1373,6 +1373,8 @@ void Index::search(Option<uint32_t> & outcome,
         }
     }
 
+    std::vector<Topster*> ftopsters;
+
     if(!q_include_tokens.empty() && q_include_tokens[0] == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string & field = search_fields[0];
@@ -1435,7 +1437,6 @@ void Index::search(Option<uint32_t> & outcome,
         filter_ids = nullptr;
     } else {
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
-        std::vector<Topster*> ftopsters;
 
         // non-wildcard
         for(size_t i = 0; i < num_search_fields; i++) {
@@ -1485,7 +1486,7 @@ void Index::search(Option<uint32_t> & outcome,
             const auto& kvs = key_kvs.second;
             const uint64_t seq_id = key_kvs.first;
 
-            //LOG(INFO) << "DOC ID: " << seq_id;
+            // LOG(INFO) << "DOC ID: " << seq_id << ", score: " << kvs[0]->scores[kvs[0]->match_score_index];
 
             /*if(seq_id == 12 || seq_id == 15) {
                 LOG(INFO) << "here";
@@ -1556,10 +1557,6 @@ void Index::search(Option<uint32_t> & outcome,
             //LOG(INFO) << "kvs[0].key: " << kvs[0]->key;
             topster->add(kvs[0]);
         }
-
-        for(Topster* ftopster: ftopsters) {
-            delete ftopster;
-        }
     }
 
     //LOG(INFO) << "topster size: " << topster->size;
@@ -1573,6 +1570,10 @@ void Index::search(Option<uint32_t> & outcome,
 
     delete [] filter_ids;
     delete [] all_result_ids;
+
+    for(Topster* ftopster: ftopsters) {
+        delete ftopster;
+    }
 
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
