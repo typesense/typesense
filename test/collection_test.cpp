@@ -410,7 +410,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(13, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"8", "19", "6", "21"};
+    std::vector<std::string> ids = {"19", "6", "21", "8"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -424,7 +424,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(8, results["hits"].size());
     ASSERT_EQ(8, results["found"].get<uint32_t>());
 
-    ids = {"20", "19", "6", "4", "3", "10", "8", "21"};
+    ids = {"20", "19", "6", "3", "21", "4", "10", "8", "21"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -2786,6 +2786,46 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnFieldOrder) {
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, PrefixRankedAfterExactMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Rotini Puttanesca"},
+        {"Poulet Roti Tout Simple"},
+        {"Chapatis (Roti)"},
+        {"School Days Rotini Pasta Salad"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("roti", {"title"}, "", {}, {}, 0, 3, 1, FREQUENCY, true, 5).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

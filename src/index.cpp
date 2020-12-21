@@ -842,12 +842,12 @@ void Index::search_candidates(const uint8_t & field_id,
         // actual query suggestion preserves original order of tokens in query
         std::vector<art_leaf*> actual_query_suggestion(token_candidates_vec.size());
 
-        next_suggestion(token_candidates_vec, n, actual_query_suggestion, query_suggestion);
+        uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion, query_suggestion);
 
         /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
-                      << query_suggestion[i]->values->ids.getLength();
+                      << query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
         }*/
 
         // initialize results with the starting element (for further intersection)
@@ -856,12 +856,7 @@ void Index::search_candidates(const uint8_t & field_id,
             continue;
         }
 
-        uint32_t total_cost = 0;
         uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
-
-        for(const auto& tc: token_candidates_vec) {
-            total_cost += tc.cost;
-        }
 
         // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
         for(size_t i=1; i < query_suggestion.size(); i++) {
@@ -897,10 +892,10 @@ void Index::search_candidates(const uint8_t & field_id,
         }
 
         //LOG(INFO) << "n: " << n;
-        std::stringstream log_query;
+        /*std::stringstream log_query;
         for(size_t i=0; i < query_suggestion.size(); i++) {
             log_query << query_suggestion[i]->key << " ";
-        }
+        }*/
 
         if(filter_ids != nullptr) {
             // intersect once again with filter ids
@@ -1541,7 +1536,6 @@ void Index::search(Option<uint32_t> & outcome,
                                           leaves[0]->values->offset_index.at(doc_index+1);
 
                     words_present += (end_offset - start_offset);
-                    int k = 10;
 
                     /*if(!leaves.empty()) {
                         LOG(INFO) << "tok: " << leaves[0]->key;
@@ -1986,16 +1980,24 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
     }
 }
 
-inline void Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
+inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                    long long int n,
                                    std::vector<art_leaf *>& actual_query_suggestion,
                                    std::vector<art_leaf *>& query_suggestion) {
+    uint32_t total_cost = 0;
+
     // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
     for(long long i = 0 ; i < (long long) token_candidates_vec.size(); i++) {
+        size_t token_size = token_candidates_vec[i].token.size();
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         actual_query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
+        total_cost += token_candidates_vec[i].cost;
+
+        if(actual_query_suggestion[i]->key_len != token_size+1) {
+            total_cost++;
+        }
     }
 
     // Sort ascending based on matched documents for each token for faster intersection.
@@ -2003,6 +2005,8 @@ inline void Index::next_suggestion(const std::vector<token_candidates> &token_ca
     sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
         return left->values->ids.getLength() < right->values->ids.getLength();
     });
+
+    return total_cost;
 }
 
 void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
