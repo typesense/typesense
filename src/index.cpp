@@ -1437,7 +1437,7 @@ void Index::search(Option<uint32_t> & outcome,
         for(size_t i = 0; i < num_search_fields; i++) {
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || filter_ids_length > 0) {
-                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - (2*i)); // Order of `fields` are used to sort results
+                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
                 const std::string & field = search_fields[i];
 
                 std::vector<std::string> query_tokens = q_include_tokens;
@@ -1461,8 +1461,7 @@ void Index::search(Option<uint32_t> & outcome,
                     num_tokens_dropped = 0;
                     query_tokens = search_tokens = syn_tokens;
 
-                    // for synonym we use a smaller field id than for original tokens
-                    search_field(field_id-1, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
+                    search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                                  token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
@@ -1491,17 +1490,23 @@ void Index::search(Option<uint32_t> & outcome,
                 existing_field_kvs.emplace(kv->field_id, kv);
             }
 
+            int64_t aggregated_score = 0;
+
             for(size_t i = 0; i < num_search_fields && num_search_fields > 1; i++) {
-                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - (2*i)); // Order of `fields` used to sort results
+                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
+
+                // produces weights that are powers of 2
+                size_t num_left_shifts = num_search_fields - i - 1;
 
                 if(field_id == kvs[0]->field_id) {
+                    aggregated_score += (kvs[0]->scores[kvs[0]->match_score_index] << num_left_shifts);
                     continue;
                 }
 
                 if(existing_field_kvs.count(field_id) != 0) {
-                    // for existing field, we will simply sum field-wise match scores
-                    kvs[0]->scores[kvs[0]->match_score_index] +=
-                            existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index];
+                    // for existing field, we will simply sum field-wise weighted scores
+                    aggregated_score += (existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index]
+                            << num_left_shifts);
                     continue;
                 }
 
@@ -1544,11 +1549,12 @@ void Index::search(Option<uint32_t> & outcome,
 
                 if(words_present != 0) {
                     uint64_t match_score = Match::get_match_score(words_present, 0, 100, field_id);
-                    kvs[0]->scores[kvs[0]->match_score_index] += match_score;
+                    aggregated_score += (match_score << num_left_shifts);
                 }
             }
 
             //LOG(INFO) << "kvs[0].key: " << kvs[0]->key;
+            kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
             topster->add(kvs[0]);
         }
     }
