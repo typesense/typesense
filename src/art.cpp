@@ -1258,18 +1258,20 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         goto PARTIAL_CALC;
     }
 
-    // First calculate cost with node char `c` and then leaf/partial related costs
-    temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
-    rotate(i, j, k);
-    p = c;
+    if (!((c == '\0' && depth == term_len))) {
+        // Calculate cost with node char `c`
+        temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+        rotate(i, j, k);
+        p = c;
 
-    depth++;
+        depth++;
 
-    printf("Recurse char: %c, cost: %d, depth: %d\n", c, cost, depth);
+        printf("Recurse char: %c, cost: %d, depth: %d\n", c, cost, depth);
 
-    if(temp_cost > max_cost) {
-        // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
-        return;
+        if(temp_cost > max_cost) {
+            // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
+            return;
+        }
     }
 
     // Cost is under control, let's check to see if we should proceed further
@@ -1292,7 +1294,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
             c = l->key[depth];
             temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             printf("leaf char: %c\n", l->key[depth]);
-            printf("cost: %d, depth: %d, term_len: %d\n", cost, depth, term_len);
+            printf("cost: %d, depth: %d, term_len: %d\n", temp_cost, depth, term_len);
             rotate(i, j, k);
             p = c;
             depth++;
@@ -1333,10 +1335,12 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
     // For non-prefix search or if we have not reached term length, we will recurse further
 
-    const int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
+    int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
     const int end_index = min(partial_len, term_len+max_cost);
 
     printf("partial_len: %d\n", partial_len);
+
+    // calculate partial related cost
     
     for(int idx=0; idx<end_index; idx++) {
         c = n->partial[idx];
@@ -1352,8 +1356,24 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
         }
     }
 
-    depth += n->partial_len;
-    printf("cost: %d\n", cost);
+    depth += partial_len;
+    printf("cost: %d\n", temp_cost);
+
+    if(n->partial_len > MAX_PREFIX_LEN) {
+        // some intermediate path has been left out, so we have to "progress" the levenshtein matrix
+        while(partial_len++ < n->partial_len) {
+            c = term[depth];
+            temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+            rotate(i, j, k);
+            p = c;
+            depth++;
+        }
+    }
+
+    if(temp_cost > max_cost) {
+        // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
+        return;
+    }
 
     art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], min_cost, max_cost, prefix, results);
 }
