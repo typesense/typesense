@@ -9,6 +9,7 @@
 #define words_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/words.txt").c_str()
 #define uuid_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/uuid.txt").c_str()
 #define skus_file_path std::string(std::string(ROOT_DIR)+"/test/skus.txt").c_str()
+#define ill_file_path std::string(std::string(ROOT_DIR)+"/test/ill.txt").c_str()
 
 art_document get_document(uint32_t id) {
     art_document document;
@@ -784,6 +785,96 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
                          FREQUENCY, true, leaves);
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+
+        leaves.clear();
+
+        // non prefix
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, false, leaves);
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+    }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_search_ill_like_tokens) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    std::vector<std::string> keys;
+
+    int len;
+    char buf[512];
+    FILE *f = fopen(ill_file_path, "r");
+
+    uintptr_t line = 1;
+    while (fgets(buf, sizeof buf, f)) {
+        len = strlen(buf);
+        buf[len - 1] = '\0';
+        art_document doc = get_document((uint32_t) line);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc, 1));
+        keys.push_back(std::string(buf, len-1));
+        line++;
+    }
+
+    for (const auto &key : keys) {
+        //LOG(INFO) << "Searching for " << key;
+        art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
+        ASSERT_FALSE(l == nullptr);
+        EXPECT_EQ(1, l->values->ids.getLength());
+
+        std::vector<art_leaf *> leaves;
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, true, leaves);
+
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+
+        leaves.clear();
+
+        // non prefix
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, false, leaves);
+        ASSERT_EQ(1, leaves.size());
+        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+    }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_search_ill_like_tokens2) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    std::vector<std::string> keys;
+    keys = {"input", "illustrations", "illustration"};
+
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc, 1));
+
+    doc = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[1].c_str(), keys[1].size()+1, &doc, 1));
+
+    doc = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[2].c_str(), keys[2].size()+1, &doc, 1));
+
+    for (const auto &key : keys) {
+        //LOG(INFO) << "Searching for " << key;
+        art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
+        ASSERT_FALSE(l == nullptr);
+        EXPECT_EQ(1, l->values->ids.getLength());
+
+        std::vector<art_leaf *> leaves;
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+                         FREQUENCY, true, leaves);
+
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
 
