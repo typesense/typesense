@@ -14,3 +14,4 @@ Please add to this file and send us a PR:
 - [datarequests.org](https://www.datarequests.org/) - Search backend for the [company database](https://www.datarequests.org/company) that allows users to easily find the contact details for privacy-related requests
 - [furn.nl](https://furn.nl) - Dutch furniture comparison website
 - [FlyGRN](https://flygrn.com) - Flight Ticket Search Engine that ranks flights on carbon emissions and gives greener alternatives
+- [Otaku Square](https://www.otakusquare.com) - Online retailer for pop-culture (e.g. anime, games, movies) merchandise
