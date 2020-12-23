@@ -39,7 +39,7 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 
 - **Typo Tolerance:** Handles typographical errors elegantly, out-of-the-box.
 - **Simple and Delightful:** Simple to set-up, integrate with, operate and scale.
-- **Blazing Fast:** Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
+- **⚡ Blazing Fast:** Built in C++. Meticulously architected from the ground-up for low-latency (<50ms) instant searches.
 - **Tunable Ranking:** Easy to tailor your search results to perfection.
 - **Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
 - **Faceting & Filtering:** Drill down and refine results.
