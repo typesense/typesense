@@ -2659,6 +2659,46 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, MultiFieldRelevance2) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"A Daikon Freestyle", "Ghosts on a Trampoline"},
+        {"Leaving on a Jetplane", "Coby Grant"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("on a jetplane",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, MultiFieldMatchRanking) {
     Collection *coll1;
 
