@@ -1295,7 +1295,7 @@ void Index::search(Option<uint32_t> & outcome,
                    const std::vector<std::string>& q_include_tokens,
                    const std::vector<std::string>& q_exclude_tokens,
                    const std::vector<std::vector<std::string>>& q_synonyms,
-                   const std::vector<std::string>& search_fields,
+                   const std::vector<search_field_t>& search_fields,
                    const std::vector<filter>& filters,
                    std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
@@ -1349,7 +1349,7 @@ void Index::search(Option<uint32_t> & outcome,
 
     // find documents that contain the excluded tokens to exclude them from results later
     for(size_t i = 0; i < num_search_fields; i++) {
-        const std::string & field_name = search_fields[i];
+        const std::string & field_name = search_fields[i].name;
         for(const std::string& exclude_token: q_exclude_tokens) {
             art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
                                                      (const unsigned char *) exclude_token.c_str(),
@@ -1372,7 +1372,7 @@ void Index::search(Option<uint32_t> & outcome,
 
     if(!q_include_tokens.empty() && q_include_tokens[0] == "*") {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        const std::string & field = search_fields[0];
+        const std::string& field = search_fields[0].name;
 
         // if a filter is not specified, use the sorting index to generate the list of all document ids
         if(filters.empty()) {
@@ -1438,7 +1438,7 @@ void Index::search(Option<uint32_t> & outcome,
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || filter_ids_length > 0) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-                const std::string & field = search_fields[i];
+                const std::string& field = search_fields[i].name;
 
                 std::vector<std::string> query_tokens = q_include_tokens;
                 std::vector<std::string> search_tokens = q_include_tokens;
@@ -1496,21 +1496,21 @@ void Index::search(Option<uint32_t> & outcome,
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
 
                 // produces weights that are powers of 2
-                size_t num_left_shifts = num_search_fields - i - 1;
+                size_t weight = search_fields[i].weight;
 
                 if(field_id == kvs[0]->field_id) {
-                    aggregated_score += (kvs[0]->scores[kvs[0]->match_score_index] << num_left_shifts);
+                    aggregated_score += (kvs[0]->scores[kvs[0]->match_score_index] * weight);
                     continue;
                 }
 
                 if(existing_field_kvs.count(field_id) != 0) {
                     // for existing field, we will simply sum field-wise weighted scores
                     aggregated_score += (existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index]
-                            << num_left_shifts);
+                            * weight);
                     continue;
                 }
 
-                const std::string & field = search_fields[i];
+                const std::string& field = search_fields[i].name;
 
                 // compute approximate match score for this field from actual query
 
@@ -1549,7 +1549,7 @@ void Index::search(Option<uint32_t> & outcome,
 
                 if(words_present != 0) {
                     uint64_t match_score = Match::get_match_score(words_present, 0, 100, field_id);
-                    aggregated_score += (match_score << num_left_shifts);
+                    aggregated_score += (match_score * weight);
                 }
             }
 

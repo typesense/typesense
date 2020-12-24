@@ -2696,6 +2696,108 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    // change weights to favor artist
+
+    results = coll1->search("on a jetplane",
+                            {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                            true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 4}).get();
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, FieldWeightsNotProper) {
+    // when weights are not given properly
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    auto results_op = coll1->search("on a jetplane",
+                                    {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                                    true, 10, spp::sparse_hash_set<std::string>(),
+                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                    "<mark>", "</mark>", {1});
+
+    ASSERT_FALSE(results_op.ok());
+    ASSERT_STREQ("Number of weights in `query_by_weights` does not match number "
+                 "of `query_by` fields.", results_op.error().c_str());
+
+    results_op = coll1->search("on a jetplane",
+                               {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                               true, 10, spp::sparse_hash_set<std::string>(),
+                               spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                               "<mark>", "</mark>", {2, 1});
+
+    ASSERT_FALSE(results_op.ok());
+    ASSERT_STREQ("Number of weights in `query_by_weights` does not match number "
+                 "of `query_by` fields.", results_op.error().c_str());
+
+    // empty weights are fine (will be defaulted to)
+
+    results_op = coll1->search("on a jetplane",
+                               {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                               true, 10, spp::sparse_hash_set<std::string>(),
+                               spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                               "<mark>", "</mark>", {});
+
+    ASSERT_TRUE(results_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldRelevance3) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Taylor Swift Karaoke: reputation", "Taylor Swift"},
+        {"Style", "Taylor Swift"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("style taylor swift",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                                 true, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1}).get();
+
+    /*LOG(INFO) << results;
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());*/
+
     collectionManager.drop_collection("coll1");
 }
 
