@@ -73,7 +73,7 @@ bool get_key(http_req& req, http_res& res);
 
 bool del_key(http_req& req, http_res& res);
 
-// Metrics
+// Health + Metrics
 
 bool get_debug(http_req& req, http_res& res);
 
@@ -85,7 +85,11 @@ bool get_metrics_json(http_req& req, http_res& res);
 
 bool get_log_sequence(http_req& req, http_res& res);
 
+// operations
+
 bool post_snapshot(http_req& req, http_res& res);
+
+bool post_vote(http_req& req, http_res& res);
 
 // Misc helpers
 

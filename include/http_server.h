@@ -173,4 +173,6 @@ public:
     void defer_processing(http_req& req, http_res& res, size_t timeout_ms);
 
     void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
+
+    bool trigger_vote();
 };
