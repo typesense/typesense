@@ -62,6 +62,7 @@ void master_server_routes() {
     server->post("/health", post_health);
     server->get("/sequence", get_log_sequence);
     server->post("/operations/snapshot", post_snapshot, false, true);
+    server->post("/operations/vote", post_vote, false, false);
 }
 
 int main(int argc, char **argv) {

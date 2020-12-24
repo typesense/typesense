@@ -1340,6 +1340,17 @@ bool post_snapshot(http_req& req, http_res& res) {
     return true;
 }
 
+bool post_vote(http_req& req, http_res& res) {
+    res.status_code = 200;
+    res.content_type_header = "application/json";
+
+    nlohmann::json response;
+    response["success"] = server->trigger_vote();
+    res.body = response.dump();
+
+    return true;
+}
+
 bool get_synonyms(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection *collection = collectionManager.get_collection(req.params["collection"]);

@@ -25,6 +25,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
                             int election_timeout_ms, int snapshot_interval_s,
                             const std::string & raft_dir, const std::string & nodes) {
 
+    this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
 
     braft::NodeOptions node_options;
@@ -574,6 +575,16 @@ void ReplicationState::do_dummy_write() {
     long status_code = HttpClient::post_response(url, "", api_res, res_headers);
 
     LOG(INFO) << "Dummy write to " << url << ", status = " << status_code << ", response = " << api_res;
+}
+
+bool ReplicationState::trigger_vote() {
+    if(node) {
+        auto status = node->vote(election_timeout_interval_ms);
+        LOG(INFO) << "Triggered vote. Ok? " << status.ok() << ", status: " << status;
+        return status.ok();
+    }
+
+    return false;
 }
 
 void InitSnapshotClosure::Run() {

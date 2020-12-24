@@ -809,3 +809,7 @@ bool HttpServer::has_exited() const {
 void HttpServer::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
     return replication_state->do_snapshot(snapshot_path, req, res);
 }
+
+bool HttpServer::trigger_vote() {
+    return replication_state->trigger_vote();
+}

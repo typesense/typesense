@@ -94,7 +94,7 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
-    static const size_t CATCHUP_MIN_SEQUENCE_DIFF = 3000;  // ~ actual 1K documents
+    static const size_t CATCHUP_MIN_SEQUENCE_DIFF = 3000;
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
@@ -116,6 +116,8 @@ private:
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
+
+    int election_timeout_interval_ms;
 
 public:
 
@@ -140,6 +142,8 @@ public:
 
     // updates cluster membership
     void refresh_nodes(const std::string & nodes);
+
+    bool trigger_vote();
 
     bool has_leader_term() const {
         return leader_term.load(butil::memory_order_acquire) > 0;
