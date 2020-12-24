@@ -259,6 +259,7 @@ bool get_search(http_req & req, http_res & res) {
     const char *FILTER = "filter_by";
     const char *QUERY = "q";
     const char *QUERY_BY = "query_by";
+    const char *QUERY_BY_WEIGHTS = "query_by_weights";
     const char *SORT_BY = "sort_by";
 
     const char *FACET_BY = "facet_by";
@@ -369,6 +370,22 @@ bool get_search(http_req & req, http_res & res) {
             req.params[GROUP_LIMIT] = "3";
         } else {
             req.params[GROUP_LIMIT] = "0";
+        }
+    }
+
+    std::vector<std::string> query_by_weights_str;
+    std::vector<size_t> query_by_weights;
+
+    if(req.params.count(QUERY_BY_WEIGHTS) != 0) {
+        StringUtils::split(req.params[QUERY_BY_WEIGHTS], query_by_weights_str, ",");
+        for(const auto& weight_str: query_by_weights_str) {
+            if(!StringUtils::is_uint32_t(weight_str)) {
+                res.set_400("Parameter `" + std::string(QUERY_BY_WEIGHTS) +
+                "` must be a comma separated string of unsigned integers.");
+                return false;
+            }
+
+            query_by_weights.push_back(std::stoi(weight_str));
         }
     }
 
@@ -505,7 +522,8 @@ bool get_search(http_req & req, http_res & res) {
                                                           group_by_fields,
                                                           static_cast<size_t>(std::stol(req.params[GROUP_LIMIT])),
                                                           req.params[HIGHLIGHT_START_TAG],
-                                                          req.params[HIGHLIGHT_END_TAG]
+                                                          req.params[HIGHLIGHT_END_TAG],
+                                                          query_by_weights
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

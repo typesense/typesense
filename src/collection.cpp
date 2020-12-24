@@ -491,8 +491,8 @@ void Collection::populate_overrides(std::string query,
     }
 }
 
-Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string> & search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string>& search_fields,
+                                  const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
                                   const token_ordering token_order, const bool prefix,
@@ -510,10 +510,16 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::vector<std::string>& group_by_fields,
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
-                                  const std::string& highlight_end_tag) {
+                                  const std::string& highlight_end_tag,
+                                  std::vector<size_t> query_by_weights) {
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
+    }
+
+    if(!search_fields.empty() && !query_by_weights.empty() && search_fields.size() != query_by_weights.size()) {
+        return Option<nlohmann::json>(400, "Number of weights in `query_by_weights` does not match "
+                                           "number of `query_by` fields.");
     }
 
     if(!group_by_fields.empty() && (group_limit == 0 || group_limit > GROUP_LIMIT_MAX)) {
@@ -577,6 +583,20 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     for(auto seq_id: excluded_ids) {
         auto index_id = (seq_id % num_memory_shards);
         index_to_excluded_ids[index_id].push_back(seq_id);
+    }
+
+    // process weights for search fields
+    std::vector<search_field_t> weighted_search_fields;
+
+    if(query_by_weights.empty() && !search_fields.empty()) {
+        for(int i=search_fields.size(); i > 0; i--) {
+            query_by_weights.push_back(i);
+        }
+    }
+
+    for(size_t i=0; i < search_fields.size(); i++) {
+        const auto& search_field = search_fields[i];
+        weighted_search_fields.push_back({search_field, query_by_weights[i]});
     }
 
     std::vector<facet> facets;
@@ -745,8 +765,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     // send data to individual index threads
     size_t index_id = 0;
     for(Index* index: indices) {
-        index->search_params = new search_args(q_include_tokens, q_exclude_tokens, q_synonyms, search_fields, filters, facets,
-                                               index_to_included_ids[index_id], index_to_excluded_ids[index_id],
+        index->search_params = new search_args(q_include_tokens, q_exclude_tokens, q_synonyms, weighted_search_fields,
+                                               filters, facets, index_to_included_ids[index_id],
+                                               index_to_excluded_ids[index_id],
                                                sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                per_page, page, token_order, prefix,
                                                drop_tokens_threshold, typo_tokens_threshold,

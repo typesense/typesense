@@ -23,11 +23,16 @@ struct token_candidates {
     std::vector<art_leaf*> candidates;
 };
 
+struct search_field_t {
+    std::string name;
+    size_t weight;
+};
+
 struct search_args {
     std::vector<std::string> q_include_tokens;
     std::vector<std::string> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_synonyms;
-    std::vector<std::string> search_fields;
+    std::vector<search_field_t> search_fields;
     std::vector<filter> filters;
     std::vector<facet> facets;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids;
@@ -60,16 +65,16 @@ struct search_args {
     search_args(std::vector<std::string> q_include_tokens,
                 std::vector<std::string> q_exclude_tokens,
                 std::vector<std::vector<std::string>> q_synonyms,
-                std::vector<std::string> search_fields, std::vector<filter> filters,
+                std::vector<search_field_t> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit):
             q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens), q_synonyms(q_synonyms),
-            search_fields(search_fields), filters(filters), facets(facets), included_ids(included_ids),
-            excluded_ids(excluded_ids), sort_fields_std(sort_fields_std), facet_query(facet_query), num_typos(num_typos),
-            max_facet_values(max_facet_values), per_page(per_page),
+            search_fields(search_fields), filters(filters), facets(facets),
+            included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
+            facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit),
@@ -227,7 +232,7 @@ public:
                           const std::vector<std::string> & q_include_tokens,
                           const std::vector<std::string> & q_exclude_tokens,
                           const std::vector<std::vector<std::string>>& q_synonyms,
-                          const std::vector<std::string> & search_fields,
+                          const std::vector<search_field_t> & search_fields,
                           const std::vector<filter> & filters, std::vector<facet> & facets,
                           facet_query_t & facet_query,
                           const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
