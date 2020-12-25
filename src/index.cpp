@@ -842,13 +842,15 @@ void Index::search_candidates(const uint8_t & field_id,
         // actual query suggestion preserves original order of tokens in query
         std::vector<art_leaf*> actual_query_suggestion(token_candidates_vec.size());
 
-        uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion, query_suggestion);
+        uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
+        uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion,
+                                              query_suggestion, token_bits);
 
-        /*LOG(INFO) << "n: " << n;
+        LOG(INFO) << "n: " << n;
         for(size_t i=0; i < query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
                       << query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
-        }*/
+        }
 
         // initialize results with the starting element (for further intersection)
         size_t result_size = query_suggestion[0]->values->ids.getLength();
@@ -911,7 +913,7 @@ void Index::search_candidates(const uint8_t & field_id,
 
             // go through each matching document id and calculate match score
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, filtered_result_ids, filtered_results_size);
+                          groups_processed, filtered_result_ids, filtered_results_size, token_bits);
 
             field_num_results += filtered_results_size;
 
@@ -925,7 +927,7 @@ void Index::search_candidates(const uint8_t & field_id,
             *all_result_ids = new_all_result_ids;
 
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, result_ids, result_size);
+                          groups_processed, result_ids, result_size, token_bits);
 
             /*if(result_size != 0) {
                 LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size;
@@ -1266,7 +1268,8 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
             scores[1] = int64_t(1);
             scores[2] = int64_t(1);
 
-            KV kv(field_id, searched_queries.size(), seq_id, distinct_id, 0, scores);
+            uint32_t token_bits = (uint32_t(1) << 31);
+            KV kv(field_id, searched_queries.size(), token_bits, seq_id, distinct_id, 0, scores);
             curated_topster->add(&kv);
         }
     }
@@ -1416,8 +1419,9 @@ void Index::search(Option<uint32_t> & outcome,
             filter_ids = excluded_result_ids;
         }
 
+        uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                      groups_processed, filter_ids, filter_ids_length);
+                      groups_processed, filter_ids, filter_ids_length, token_bits);
         collate_included_ids(q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
         all_result_ids_len = filter_ids_length;
@@ -1426,6 +1430,20 @@ void Index::search(Option<uint32_t> & outcome,
     } else {
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
 
+        std::vector<token_t> q_include_pos_tokens;
+        for(size_t i=0; i < q_include_tokens.size(); i++) {
+            q_include_pos_tokens.push_back({i, q_include_tokens[i]});
+        }
+
+        std::vector<std::vector<token_t>> q_pos_synonyms;
+        for(const auto& q_syn_vec: q_synonyms) {
+            std::vector<token_t> q_pos_syn;
+            for(size_t i=0; i < q_syn_vec.size(); i++) {
+                q_pos_syn.push_back({i, q_syn_vec[i]});
+            }
+            q_pos_synonyms.emplace_back(q_pos_syn);
+        }
+
         // non-wildcard
         for(size_t i = 0; i < num_search_fields; i++) {
             // proceed to query search only when no filters are provided or when filtering produces results
@@ -1433,8 +1451,8 @@ void Index::search(Option<uint32_t> & outcome,
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
                 const std::string& field = search_fields[i].name;
 
-                std::vector<std::string> query_tokens = q_include_tokens;
-                std::vector<std::string> search_tokens = q_include_tokens;
+                std::vector<token_t> query_tokens = q_include_pos_tokens;
+                std::vector<token_t> search_tokens = q_include_pos_tokens;
                 size_t num_tokens_dropped = 0;
 
                 //LOG(INFO) << "searching field! " << field;
@@ -1450,7 +1468,7 @@ void Index::search(Option<uint32_t> & outcome,
                              token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
 
                 // do synonym based searches
-                for(const auto& syn_tokens: q_synonyms) {
+                for(const auto& syn_tokens: q_pos_synonyms) {
                     num_tokens_dropped = 0;
                     query_tokens = search_tokens = syn_tokens;
 
@@ -1484,22 +1502,30 @@ void Index::search(Option<uint32_t> & outcome,
             }
 
             int64_t aggregated_score = 0;
+            uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
+
+            //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
             for(size_t i = 0; i < num_search_fields && num_search_fields > 1; i++) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-
-                // produces weights that are powers of 2
                 size_t weight = search_fields[i].weight;
 
+                //LOG(INFO) << "--- field index: " << i;
+
                 if(field_id == kvs[0]->field_id) {
+                    token_bits |= kvs[0]->token_bits;
+                    //LOG(INFO) << "kvs[0]->field_id pop count: " << __builtin_popcount(token_bits);
                     aggregated_score += (kvs[0]->scores[kvs[0]->match_score_index] * weight);
                     continue;
                 }
 
                 if(existing_field_kvs.count(field_id) != 0) {
                     // for existing field, we will simply sum field-wise weighted scores
+                    token_bits |= existing_field_kvs[field_id]->token_bits;
+                    //LOG(INFO) << "existing_field_kvs.count pop count: " << __builtin_popcount(token_bits);
+
                     aggregated_score += (existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index]
-                            * weight);
+                                         * weight);
                     continue;
                 }
 
@@ -1528,6 +1554,9 @@ void Index::search(Option<uint32_t> & outcome,
                         continue;
                     }
 
+                    token_bits |= 1UL << token_index; // sets nth bit
+                    //LOG(INFO) << "token_index: " << token_index << ", pop count: " << __builtin_popcount(token_bits);
+
                     uint32_t start_offset = leaves[0]->values->offset_index.at(doc_index);
                     uint32_t end_offset = (doc_index == leaves[0]->values->ids.getLength() - 1) ?
                                           leaves[0]->values->offsets.getLength() :
@@ -1541,10 +1570,15 @@ void Index::search(Option<uint32_t> & outcome,
                 }
 
                 if(words_present != 0) {
-                    uint64_t match_score = Match::get_match_score(words_present, 0, 100, field_id);
+                    uint64_t match_score = Match::get_match_score(words_present, 0, 100);
                     aggregated_score += (match_score * weight);
                 }
             }
+
+            //LOG(INFO) << "seq id: " << seq_id << ", pop count: " << __builtin_popcount(token_bits);
+
+            //aggregated_score *= std::max(1, __builtin_popcount(field_id));
+            aggregated_score *= __builtin_popcount(token_bits);
 
             //LOG(INFO) << "kvs[0].key: " << kvs[0]->key;
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
@@ -1584,8 +1618,8 @@ void Index::search(Option<uint32_t> & outcome,
    5. Sort the docs based on some ranking criteria
 */
 void Index::search_field(const uint8_t & field_id,
-                         std::vector<std::string>& query_tokens,
-                         std::vector<std::string>& search_tokens,
+                         std::vector<token_t>& query_tokens,
+                         std::vector<token_t>& search_tokens,
                          const uint32_t* exclude_token_ids,
                          size_t exclude_token_ids_size,
                          size_t& num_tokens_dropped,
@@ -1610,7 +1644,7 @@ void Index::search_field(const uint8_t & field_id,
     std::vector<std::vector<int>> token_to_costs;
 
     for(size_t stoken_index=0; stoken_index < search_tokens.size(); stoken_index++) {
-        const std::string& token = search_tokens[stoken_index];
+        const std::string& token = search_tokens[stoken_index].value;
 
         std::vector<int> all_costs;
         // This ensures that we don't end up doing a cost of 1 for a single char etc.
@@ -1646,7 +1680,7 @@ void Index::search_field(const uint8_t & field_id,
 
         while(token_index < search_tokens.size()) {
             // For each token, look up the generated cost for this iteration and search using that cost
-            const std::string& token = search_tokens[token_index];
+            const std::string& token = search_tokens[token_index].value;
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
@@ -1671,7 +1705,7 @@ void Index::search_field(const uint8_t & field_id,
 
             if(!leaves.empty()) {
                 //log_leaves(costs[token_index], token, leaves);
-                token_candidates_vec.push_back(token_candidates{token, costs[token_index], leaves});
+                token_candidates_vec.push_back(token_candidates{search_tokens[token_index], costs[token_index], leaves});
             } else {
                 // No result at `cost = costs[token_index]`. Remove `cost` for token and re-do combinations
                 auto it = std::find(token_to_costs[token_index].begin(), token_to_costs[token_index].end(), costs[token_index]);
@@ -1719,7 +1753,7 @@ void Index::search_field(const uint8_t & field_id,
     if(!query_tokens.empty() && num_tokens_dropped < query_tokens.size()) {
         // Drop tokens from right until (len/2 + 1), and then from left until (len/2 + 1)
 
-        std::vector<std::string> truncated_tokens;
+        std::vector<token_t> truncated_tokens;
         num_tokens_dropped++;
 
         size_t mid_index = (query_tokens.size() / 2);
@@ -1727,13 +1761,13 @@ void Index::search_field(const uint8_t & field_id,
             // drop from right
             size_t end_index = (query_tokens.size() - 1) - num_tokens_dropped;
             for(size_t i=0; i <= end_index; i++) {
-                truncated_tokens.push_back(query_tokens[i]);
+                truncated_tokens.push_back({query_tokens[i].position, query_tokens[i].value});
             }
         } else {
             // drop from left
             size_t start_index = (num_tokens_dropped - mid_index);
             for(size_t i=start_index; i<query_tokens.size(); i++) {
-                truncated_tokens.push_back(query_tokens[i]);
+                truncated_tokens.push_back({query_tokens[i].position, query_tokens[i].value});
             }
         }
 
@@ -1768,7 +1802,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const uint8_t & field_id, const uint32_t total_cost, Topster* topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_set<uint64_t>& groups_processed,
-                          const uint32_t *result_ids, const size_t result_size) {
+                          const uint32_t *result_ids, const size_t result_size, uint32_t token_bits) {
 
     std::vector<uint32_t*> leaf_to_indices;
     for (art_leaf *token_leaf: query_suggestion) {
@@ -1781,7 +1815,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     get_facet_to_index(facet_to_index);
 
     Match single_token_match = Match(1, 0);
-    const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost, field_id);
+    const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost);
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     spp::sparse_hash_map<uint32_t, int64_t>* field_values[3];
@@ -1816,7 +1850,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                     continue;
                 }
                 const Match & match = Match(seq_id, token_positions, false);
-                uint64_t this_match_score = match.get_match_score(total_cost, field_id);
+                uint64_t this_match_score = match.get_match_score(total_cost);
 
                 match_score += this_match_score;
 
@@ -1883,7 +1917,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             groups_processed.emplace(distinct_id);
         }
 
-        KV kv(field_id, query_index, seq_id, distinct_id, match_score_index, scores);
+        KV kv(field_id, query_index, token_bits, seq_id, distinct_id, match_score_index, scores);
         topster->add(&kv);
     }
 
@@ -1982,17 +2016,20 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
 inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                    long long int n,
                                    std::vector<art_leaf *>& actual_query_suggestion,
-                                   std::vector<art_leaf *>& query_suggestion) {
+                                   std::vector<art_leaf *>& query_suggestion,
+                                   uint32_t& token_bits) {
     uint32_t total_cost = 0;
 
     // generate the next combination from `token_leaves` and store it in `query_suggestion`
     ldiv_t q { n, 0 };
     for(long long i = 0 ; i < (long long) token_candidates_vec.size(); i++) {
-        size_t token_size = token_candidates_vec[i].token.size();
+        size_t token_size = token_candidates_vec[i].token.value.size();
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         actual_query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         total_cost += token_candidates_vec[i].cost;
+
+        token_bits |= 1UL << token_candidates_vec[i].token.position; // sets n-th bit
 
         if(actual_query_suggestion[i]->key_len != token_size+1) {
             total_cost++;

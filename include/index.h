@@ -17,8 +17,13 @@
 #include "string_utils.h"
 #include "num_tree.h"
 
+struct token_t {
+    size_t position;
+    std::string value;
+};
+
 struct token_candidates {
-    std::string token;
+    token_t token;
     size_t cost;
     std::vector<art_leaf*> candidates;
 };
@@ -156,7 +161,8 @@ private:
     static inline uint32_t next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                        long long int n,
                                        std::vector<art_leaf *>& actual_query_suggestion,
-                                       std::vector<art_leaf *>& query_suggestion);
+                                       std::vector<art_leaf *>& query_suggestion,
+                                       uint32_t& token_bits);
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
@@ -164,8 +170,8 @@ private:
                    const uint32_t* result_ids, size_t results_size);
 
     void search_field(const uint8_t & field_id,
-                      std::vector<std::string>& query_tokens,
-                      std::vector<std::string>& search_tokens,
+                      std::vector<token_t>& query_tokens,
+                      std::vector<token_t>& search_tokens,
                       const uint32_t* exclude_token_ids,
                       size_t exclude_token_ids_size,
                       size_t& num_tokens_dropped,
@@ -264,7 +270,7 @@ public:
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
                        spp::sparse_hash_set<uint64_t>& groups_processed,
-                       const uint32_t *result_ids, const size_t result_size);
+                       const uint32_t *result_ids, const size_t result_size, uint32_t token_bits);
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
