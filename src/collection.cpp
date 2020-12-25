@@ -921,6 +921,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     nlohmann::json result = nlohmann::json::object();
 
     result["found"] = total_found;
+    result["out_of"] = num_documents;
 
     std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
