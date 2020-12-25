@@ -1351,7 +1351,7 @@ void Collection::highlight_result(const field &search_field,
         }
 
         const Match & this_match = Match(field_order_kv->key, token_positions);
-        uint64_t this_match_score = this_match.get_match_score(1, field_order_kv->field_id);
+        uint64_t this_match_score = this_match.get_match_score(1);
         match_indices.emplace_back(this_match, this_match_score, array_index);
 
         /*LOG(INFO) << "doc_id: " << document["id"]   << ", words_present: " << size_t(this_match.words_present)

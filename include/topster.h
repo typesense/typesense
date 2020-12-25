@@ -11,14 +11,15 @@ struct KV {
     uint8_t match_score_index{};
     uint16_t query_index{};
     uint16_t array_index{};
+    uint32_t token_bits{};
     uint64_t key{};
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
 
-    KV(uint8_t fieldId, uint16_t queryIndex, uint64_t key, uint64_t distinct_key,
+    KV(uint8_t field_id, uint16_t queryIndex, uint32_t token_bits, uint64_t key, uint64_t distinct_key,
        uint8_t match_score_index, const int64_t *scores):
-            field_id(fieldId), match_score_index(match_score_index),
-            query_index(queryIndex), array_index(0), key(key),
+            field_id(field_id), match_score_index(match_score_index),
+            query_index(queryIndex), array_index(0), token_bits(token_bits), key(key),
             distinct_key(distinct_key) {
         this->scores[0] = scores[0];
         this->scores[1] = scores[1];
@@ -58,6 +59,7 @@ struct Topster {
             data[i].match_score_index = 0;
             data[i].query_index = 0;
             data[i].array_index = i;
+            data[i].token_bits = 0;
             data[i].key = 0;
             data[i].distinct_key = 0;
             kvs[i] = &data[i];
