@@ -13,6 +13,9 @@ namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
     DECLARE_int32(raft_max_parallel_append_entries_rpc_num);
     DECLARE_bool(raft_enable_append_entries_cache);
+    DECLARE_int32(raft_max_append_entries_cache_size);
+
+    DECLARE_int32(raft_max_byte_count_per_rpc);
 }
 
 void ReplicationClosure::Run() {
@@ -43,9 +46,13 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // do snapshot only when the gap between applied index and last snapshot index is >= this number
     braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
 
-    // parallelizes reads and writes
-    braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 8;
-    braft::FLAGS_raft_enable_append_entries_cache = true;
+    // flags for controlling parallelism of append entries
+    braft::FLAGS_raft_max_parallel_append_entries_rpc_num = 1;
+    braft::FLAGS_raft_enable_append_entries_cache = false;
+    braft::FLAGS_raft_max_append_entries_cache_size = 8;
+
+    // flag controls snapshot download size of each RPC
+    braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
