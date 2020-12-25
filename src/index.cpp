@@ -1394,14 +1394,12 @@ void Index::search(Option<uint32_t> & outcome,
             for(const auto& kv: *kvs) {
                 filter_ids[i++] = kv.first;
             }
+
+            // ids populated from hash map will not be sorted, but sorting is required for intersection & other ops
+            std::sort(filter_ids, filter_ids+filter_ids_length);
         }
 
         if(!curated_ids.empty()) {
-            if(filters.empty()) {
-                // filter ids populated from hash map will not be sorted, but sorting is required for intersection
-                std::sort(filter_ids, filter_ids+filter_ids_length);
-            }
-
             uint32_t *excluded_result_ids = nullptr;
             filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, &curated_ids_sorted[0],
                                                            curated_ids_sorted.size(), &excluded_result_ids);
@@ -1411,11 +1409,6 @@ void Index::search(Option<uint32_t> & outcome,
 
         // Exclude document IDs associated with excluded tokens from the result set
         if(exclude_token_ids_size != 0) {
-            if(filters.empty()) {
-                // filter ids populated from hash map will not be sorted, but sorting is required for intersection
-                std::sort(filter_ids, filter_ids+filter_ids_length);
-            }
-
             uint32_t *excluded_result_ids = nullptr;
             filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, exclude_token_ids,
                                 exclude_token_ids_size, &excluded_result_ids);
