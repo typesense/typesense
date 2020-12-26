@@ -846,11 +846,11 @@ void Index::search_candidates(const uint8_t & field_id,
         uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion,
                                               query_suggestion, token_bits);
 
-        LOG(INFO) << "n: " << n;
+        /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
                       << query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
-        }
+        }*/
 
         // initialize results with the starting element (for further intersection)
         size_t result_size = query_suggestion[0]->values->ids.getLength();
