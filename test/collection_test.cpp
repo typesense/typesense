@@ -2704,8 +2704,8 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                             "<mark>", "</mark>", {1, 4}).get();
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

@@ -1501,7 +1501,7 @@ void Index::search(Option<uint32_t> & outcome,
                 existing_field_kvs.emplace(kv->field_id, kv);
             }
 
-            int64_t aggregated_score = 0;
+            uint64_t aggregated_score = 0;
             uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
@@ -1575,12 +1575,11 @@ void Index::search(Option<uint32_t> & outcome,
                 }
             }
 
-            //LOG(INFO) << "seq id: " << seq_id << ", pop count: " << __builtin_popcount(token_bits);
+            aggregated_score |= (uint64_t(__builtin_popcount(token_bits)) << 48);
 
-            //aggregated_score *= std::max(1, __builtin_popcount(field_id));
-            aggregated_score *= __builtin_popcount(token_bits);
+            /*LOG(INFO) << "seq id: " << seq_id << ", pop count: " << __builtin_popcount(token_bits)
+                      << ", aggregated_score: " << aggregated_score;*/
 
-            //LOG(INFO) << "kvs[0].key: " << kvs[0]->key;
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
             topster->add(kvs[0]);
         }
