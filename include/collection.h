@@ -127,6 +127,20 @@ struct synonym_t {
         return obj;
     }
 
+    nlohmann::json to_view_json() const {
+        nlohmann::json obj;
+        obj["id"] = id;
+        obj["root"] = StringUtils::join(root, " ");
+
+        obj["synonyms"] = nlohmann::json::array();
+
+        for(const auto& synonym: synonyms) {
+            obj["synonyms"].push_back(StringUtils::join(synonym, " "));
+        }
+
+        return obj;
+    }
+
     static Option<bool> parse(const nlohmann::json& synonym_json, synonym_t& syn) {
         if(synonym_json.count("id") == 0) {
             return Option<bool>(400, "Missing `id` field.");
