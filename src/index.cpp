@@ -926,12 +926,12 @@ void Index::search_candidates(const uint8_t & field_id,
             delete [] *all_result_ids;
             *all_result_ids = new_all_result_ids;
 
-            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, result_ids, result_size, token_bits);
-
             /*if(result_size != 0) {
                 LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size;
             }*/
+
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
+                          groups_processed, result_ids, result_size, token_bits);
 
             field_num_results += result_size;
 
@@ -1462,20 +1462,24 @@ void Index::search(Option<uint32_t> & outcome,
                 // Don't waste additional cycles for single field searches
                 Topster* actual_topster = (num_search_fields == 1) ? topster : ftopster;
 
+                // tracks the number of results found for the current field
+                size_t field_num_results = 0;
+
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                              field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                             token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+                             field_num_results, token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
 
                 // do synonym based searches
                 for(const auto& syn_tokens: q_pos_synonyms) {
                     num_tokens_dropped = 0;
+                    field_num_results = 0;
                     query_tokens = search_tokens = syn_tokens;
 
                     search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                 token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+                                 field_num_results, token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
                 }
 
                 concat_topster_ids(ftopster, topster_ids);
@@ -1578,7 +1582,7 @@ void Index::search(Option<uint32_t> & outcome,
             aggregated_score |= (uint64_t(__builtin_popcount(token_bits)) << 48);
 
             /*LOG(INFO) << "seq id: " << seq_id << ", pop count: " << __builtin_popcount(token_bits)
-                      << ", aggregated_score: " << aggregated_score;*/
+                      << ", aggregated_score: " << aggregated_score << ", token_bits: " << token_bits;*/
 
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
             topster->add(kvs[0]);
@@ -1629,13 +1633,11 @@ void Index::search_field(const uint8_t & field_id,
                          std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                          uint32_t** all_result_ids, size_t & all_result_ids_len,
+                         size_t& field_num_results,
                          const token_ordering token_order, const bool prefix, 
                          const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) {
 
     const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-
-    // tracks the number of results found for the current field
-    size_t field_num_results = 0;
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
@@ -1773,7 +1775,7 @@ void Index::search_field(const uint8_t & field_id,
         return search_field(field_id, query_tokens, truncated_tokens, exclude_token_ids, exclude_token_ids_size,
                             num_tokens_dropped, field, filter_ids, filter_ids_length, curated_ids,facets,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
-                            all_result_ids_len, token_order, prefix);
+                            all_result_ids_len, field_num_results, token_order, prefix);
     }
 }
 

@@ -181,6 +181,7 @@ private:
                       const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                       uint32_t** all_result_ids, size_t & all_result_ids_len,
+                      size_t& field_num_results,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
