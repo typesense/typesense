@@ -1365,7 +1365,7 @@ bool get_synonyms(http_req &req, http_res &res) {
 
     auto& synonyms = collection->get_synonyms();
     for(const auto & kv: synonyms) {
-        nlohmann::json synonym = kv.second.to_json();
+        nlohmann::json synonym = kv.second.to_view_json();
         res_json["synonyms"].push_back(synonym);
     }
 
@@ -1388,7 +1388,7 @@ bool get_synonym(http_req &req, http_res &res) {
     bool found = collection->get_synonym(synonym_id, synonym);
 
     if(found) {
-        nlohmann::json synonym_json = synonym.to_json();
+        nlohmann::json synonym_json = synonym.to_view_json();
         res.set_200(synonym_json.dump());
         return true;
     }

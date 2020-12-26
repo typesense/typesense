@@ -504,3 +504,16 @@ TEST_F(CollectionSynonymsTest, DeleteAndUpsertDuplicationOfSynonms) {
     coll_mul_fields->remove_synonym("samsung-synonyms");
     ASSERT_EQ(0, coll_mul_fields->get_synonyms().size());
 }
+
+TEST_F(CollectionSynonymsTest, SynonymJsonSerialization) {
+    synonym_t synonym1{"ipod-synonyms", {"apple", "ipod"}, {{"ipod"}, {"i", "pod"}, {"pod"}}};
+    nlohmann::json obj = synonym1.to_view_json();
+    ASSERT_STREQ("ipod-synonyms", obj["id"].get<std::string>().c_str());
+    ASSERT_STREQ("apple ipod", obj["root"].get<std::string>().c_str());
+
+    ASSERT_EQ(3, obj["synonyms"].size());
+    ASSERT_STREQ("ipod", obj["synonyms"][0].get<std::string>().c_str());
+    ASSERT_STREQ("i pod", obj["synonyms"][1].get<std::string>().c_str());
+    ASSERT_STREQ("pod", obj["synonyms"][2].get<std::string>().c_str());
+
+}
