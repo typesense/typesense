@@ -269,6 +269,7 @@ bool get_search(http_req & req, http_res & res) {
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
+    const char *MAX_HITS = "max_hits";
     const char *PER_PAGE = "per_page";
     const char *PAGE = "page";
     const char *CALLBACK = "callback";
@@ -318,6 +319,13 @@ bool get_search(http_req & req, http_res & res) {
 
     if(req.params.count(FACET_QUERY) == 0) {
         req.params[FACET_QUERY] = "";
+    }
+
+    if(req.params.count(MAX_HITS) == 0) {
+        req.params[MAX_HITS] = "250";
+    } else if(req.params[MAX_HITS] == "all") {
+        // set a high value such that engine will default to size of collection
+        req.params[MAX_HITS] = "100000000";
     }
 
     if(req.params.count(SNIPPET_THRESHOLD) == 0) {
@@ -411,6 +419,11 @@ bool get_search(http_req & req, http_res & res) {
 
     if(!StringUtils::is_uint32_t(req.params[PAGE])) {
         res.set_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
+        return false;
+    }
+
+    if(!StringUtils::is_uint32_t(req.params[MAX_HITS])) {
+        res.set_400("Parameter `" + std::string(MAX_HITS) + "` must be an unsigned integer.");
         return false;
     }
 
@@ -523,7 +536,8 @@ bool get_search(http_req & req, http_res & res) {
                                                           static_cast<size_t>(std::stol(req.params[GROUP_LIMIT])),
                                                           req.params[HIGHLIGHT_START_TAG],
                                                           req.params[HIGHLIGHT_END_TAG],
-                                                          query_by_weights
+                                                          query_by_weights,
+                                                          static_cast<size_t>(std::stol(req.params[MAX_HITS]))
                                                           );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
