@@ -511,7 +511,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<size_t> query_by_weights) {
+                                  std::vector<size_t> query_by_weights,
+                                  size_t max_hits) {
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
@@ -741,8 +742,12 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    // ensure that (page * per_page) never exceeds number of documents in collection
-    const size_t max_hits = std::min((page * per_page), get_num_documents());
+    // ensure that `max_hits` never exceeds number of documents in collection
+    if(search_fields.size() <= 1 || query == "*") {
+        max_hits = std::min((page * per_page), get_num_documents());
+    } else {
+        max_hits = std::min(max_hits, get_num_documents());
+    }
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<std::vector<KV*>> raw_result_kvs;
@@ -916,7 +921,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     const long start_result_index = (page - 1) * per_page;
-    const long end_result_index = std::min(max_hits, result_group_kvs.size()) - 1;  // could be -1 when max_hits is 0
+
+    // `end_result_index` could be -1 when max_hits is 0
+    const long end_result_index = std::min((page * per_page), std::min(max_hits, result_group_kvs.size())) - 1;
 
     nlohmann::json result = nlohmann::json::object();
 

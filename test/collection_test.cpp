@@ -944,6 +944,78 @@ TEST_F(CollectionTest, MultipleFields) {
     collectionManager.drop_collection("coll_mul_fields");
 }
 
+TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
+    Collection *coll_mul_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("starring_facet", field_types::STRING, true),
+            field("cast", field_types::STRING_ARRAY, false),
+            field("points", field_types::INT32, false)
+    };
+
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    if(coll_mul_fields == nullptr) {
+        coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_mul_fields->add(json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"title", "starring"};
+    std::vector<std::string> facets;
+
+    spp::sparse_hash_set<std::string> empty;
+    nlohmann::json results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 3, 1,
+                                                FREQUENCY, true, 1000, empty, empty, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    // cannot fetch more than in-built limit of 250
+    auto res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 251, 1,
+                                     FREQUENCY, true, 1000, empty, empty, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(422, res_op.code());
+    ASSERT_STREQ("Only upto 250 hits can be fetched per page.", res_op.error().c_str());
+
+    // when page number is not valid
+    res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 10, 0,
+                                FREQUENCY, true, 1000, empty, empty, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ(422, res_op.code());
+    ASSERT_STREQ("Page must be an integer of value greater than 0.", res_op.error().c_str());
+
+    // do pagination
+
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 3, 1,
+                                 FREQUENCY, true, 1000, empty, empty, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 3, 2,
+                                 FREQUENCY, true, 1000, empty, empty, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, 0, 3, 3,
+                                 FREQUENCY, true, 1000, empty, empty, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    collectionManager.drop_collection("coll_mul_fields");
+}
+
 std::vector<nlohmann::json> import_res_to_json(const std::vector<std::string>& imported_results) {
     std::vector<nlohmann::json> out;
 
@@ -2445,7 +2517,7 @@ TEST_F(CollectionTest, OptionalFields) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionTest, ReturnsResultsBasedOnPerPageParam) {
+TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     std::vector<std::string> facets;
     spp::sparse_hash_set<std::string> empty;
     nlohmann::json results = collection->search("*", query_fields, "", facets, sort_fields, 0, 12, 1,

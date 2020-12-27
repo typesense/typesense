@@ -552,7 +552,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
                                        spp::sparse_hash_set<std::string>(),
                                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                        "", 10,
-                                       pinned_hits, {}).get();
+                                       pinned_hits, {}, {}, 0, "", "", {}, 350).get();
 
     ASSERT_EQ(311, results["found"].get<size_t>());
     ASSERT_EQ(11, results["hits"].size());

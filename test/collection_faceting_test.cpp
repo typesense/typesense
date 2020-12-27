@@ -639,9 +639,14 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
     ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
     // facet query longer than a token is correctly matched with typo tolerance
-    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 10, 1,
+    // also ensure that setting per_page = 0 works fine
+
+    results = coll1->search("phone", {"categories"}, "", facets, sort_fields, 0, 0, 1,
                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "categories:cellx").get();
+
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<uint32_t>());
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
