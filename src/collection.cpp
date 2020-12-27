@@ -224,6 +224,7 @@ void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json 
     }
 
     for(auto it = document.begin(); it != document.end(); ++it) {
+        // adds new key or overrides existing key from `old_doc`
         new_doc[it.key()] = it.value();
 
         // if the update document contains a field that exists in old, we record that (for delete + reindex)

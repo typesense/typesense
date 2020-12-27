@@ -108,10 +108,10 @@ struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
 
-    nlohmann::json doc;
-    nlohmann::json old_doc;
-    nlohmann::json new_doc;
-    nlohmann::json del_doc;
+    nlohmann::json doc;                 // actual document sent in request (could be partial)
+    nlohmann::json old_doc;             // previously stored *full* document from disk
+    nlohmann::json new_doc;             // new *full* document to be stored into disk
+    nlohmann::json del_doc;             // document containing the fields that should be deleted
 
     index_operation_t operation;
     bool is_update;
