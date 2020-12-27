@@ -352,17 +352,20 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
 }
 
 void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
-    auto it = del_doc.cbegin();
-    while(it != del_doc.cend()) {
+    std::vector<std::string> del_keys;
+
+    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
         const std::string& field_name = it.key();
         const auto& search_field_it = search_schema.find(field_name);
         if(search_field_it == search_schema.end()) {
-            ++it;
             continue;
         }
 
         const auto& search_field = search_field_it->second;
         bool arrays_match = false;
+
+        // compare values between old and update docs:
+        // if they match, we will remove them from both del and update docs
 
         if(search_field.is_string()) {
             // Go through all the field names and find the keys+values so that they can be removed from in-memory index
@@ -412,13 +415,14 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
             arrays_match = _arrays_match<bool>(reindex_vals, old_vals);
         }
 
-        if(!arrays_match) {
-            ++it;
-        } else {
-            it = del_doc.erase(it);
-            update_doc.erase(field_name);
+        if(arrays_match) {
+            del_keys.push_back(field_name);
         }
+    }
 
+    for(const auto& del_key: del_keys) {
+        del_doc.erase(del_key);
+        update_doc.erase(del_key);
     }
 }
 
