@@ -44,7 +44,8 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 - **Sorting:** Sort results based on a particular field at query time (helpful for features like "Sort by Price (asc)").
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety.
-- **Scoped API Keys:** Generate API keys that only allow access to certain records.
+- **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant application.
+- **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
 - **Raft-based Clustering:** Setup a distributed cluster that is highly available.
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
