@@ -588,22 +588,22 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
     EXPECT_EQ(1, l->values->ids.at(0));
 
     std::vector<art_leaf*> leaves;
-    art_fuzzy_search(&t, (const unsigned char *) implement_key, strlen(implement_key) + 1, 0, 0, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) implement_key, strlen(implement_key) + 1, 0, 0, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     const char* implement_key_typo1 = "implment";
     const char* implement_key_typo2 = "implwnent";
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo1, strlen(implement_key_typo1) + 1, 0, 0, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo1, strlen(implement_key_typo1) + 1, 0, 0, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(0, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo1, strlen(implement_key_typo1) + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo1, strlen(implement_key_typo1) + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo2, strlen(implement_key_typo2) + 1, 0, 2, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) implement_key_typo2, strlen(implement_key_typo2) + 1, 0, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
@@ -623,7 +623,7 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
     EXPECT_EQ(1, l->values->ids.at(0));
 
     std::vector<art_leaf*> leaves;
-    art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key), 0, 1, 10, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
@@ -651,48 +651,48 @@ TEST(ArtTest, test_art_fuzzy_search) {
     std::vector<art_leaf*> leaves;
 
     // transpose
-    art_fuzzy_search(&t, (const unsigned char *) "zymosthneic", strlen("zymosthneic") + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "zymosthneic", strlen("zymosthneic") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("zymosthenic", (const char *)leaves.at(0)->key);
 
     // transpose + missing
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 0, 2, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 0, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("dacrycystalgia", (const char *)leaves.at(0)->key);
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 1, 2, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 1, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("dacrycystalgia", (const char *)leaves.at(0)->key);
 
     // missing char
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "gaberlunze", strlen("gaberlunze") + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "gaberlunze", strlen("gaberlunze") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("gaberlunzie", (const char *)leaves.at(0)->key);
 
     // extra char
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "higghliving", strlen("higghliving") + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "higghliving", strlen("higghliving") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("highliving", (const char *)leaves.at(0)->key);
 
     // substituted char
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "eacemiferous", strlen("eacemiferous") + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "eacemiferous", strlen("eacemiferous") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("racemiferous", (const char *)leaves.at(0)->key);
 
     // missing char + extra char
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "Sarbruckken", strlen("Sarbruckken") + 1, 0, 2, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "Sarbruckken", strlen("Sarbruckken") + 1, 0, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("Saarbrucken", (const char *)leaves.at(0)->key);
 
     // multiple matching results
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
     std::vector<const char*> words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
@@ -702,23 +702,23 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     // fuzzy prefix search
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "lionhear", strlen("lionhear"), 0, 0, 10, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "lionhear", strlen("lionhear"), 0, 0, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(3, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "lineage", strlen("lineage"), 0, 0, 10, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "lineage", strlen("lineage"), 0, 0, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(2, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "liq", strlen("liq"), 0, 0, 50, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "liq", strlen("liq"), 0, 0, 50, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(39, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "antitraditian", strlen("antitraditian"), 0, 1, 10, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "antitraditian", strlen("antitraditian"), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     leaves.clear();
-    art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
     res = art_tree_destroy(&t);
@@ -744,7 +744,7 @@ TEST(ArtTest, test_art_fuzzy_search_unicode_chars) {
         EXPECT_EQ(1, l->values->ids.at(0));
 
         std::vector<art_leaf*> leaves;
-        art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 0, 10, FREQUENCY, true, leaves);
+        art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 0, 10, FREQUENCY, true, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
     }
 
@@ -784,7 +784,7 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
     for (const auto &key : keys) {
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, true, leaves);
+                         FREQUENCY, true, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
 
@@ -792,7 +792,7 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
 
         // non prefix
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, false, leaves);
+                         FREQUENCY, false, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
     }
@@ -830,7 +830,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
 
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, true, leaves);
+                         FREQUENCY, true, nullptr, 0, leaves);
 
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
@@ -839,7 +839,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
 
         // non prefix
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, false, leaves);
+                         FREQUENCY, false, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
     }
@@ -873,7 +873,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
 
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, true, leaves);
+                         FREQUENCY, true, nullptr, 0, leaves);
 
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
@@ -882,7 +882,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
 
         // non prefix
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
-                         FREQUENCY, false, leaves);
+                         FREQUENCY, false, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
     }

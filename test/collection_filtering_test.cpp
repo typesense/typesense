@@ -676,3 +676,48 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
 
     collectionManager.drop_collection("coll_array_fields");
 }
+
+TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1");
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+            {"elephant"}, {"emerald"}, {"effective"}, {"esther"}, {"eagle"},
+            {"empty"}, {"elite"}, {"example"}, {"elated"}, {"end"},
+            {"ear"}, {"eager"}, {"earmark"}, {"envelop"}, {"excess"},
+            {"ember"}, {"earth"}, {"envoy"}, {"emerge"}, {"emigrant"},
+            {"envision"}, {"envy"}, {"envisage"}, {"executive"}, {"end"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a location close to only the Sacre Coeur
+    auto res_op = coll1->search("e",
+                                {"title"}, "points: 23",
+                                {}, {}, 0, 10, 1, FREQUENCY, true);
+
+    auto results = res_op.get();
+    LOG(INFO) << results;
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("23", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

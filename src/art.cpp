@@ -904,7 +904,8 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 }*/
 
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
-                         std::vector<art_leaf *> &results) {
+                  const uint32_t* filter_ids, size_t filter_ids_length,
+                  std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
     std::priority_queue<const art_node *, std::vector<const art_node *>,
@@ -924,7 +925,17 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-            results.push_back(l);
+
+            if(filter_ids_length == 0) {
+                results.push_back(l);
+            } else {
+                // we will push leaf only if filter matches with leaf IDs
+                size_t found_len = l->values->ids.numFoundOf(filter_ids, filter_ids_length);
+                if(found_len != 0) {
+                    results.push_back(l);
+                }
+            }
+
             continue;
         }
 
@@ -1383,6 +1394,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
  */
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                      const int max_words, const token_ordering token_order, const bool prefix,
+                     const uint32_t *filter_ids, size_t filter_ids_length,
                      std::vector<art_leaf *> &results) {
 
     std::vector<const art_node*> nodes;
@@ -1412,7 +1424,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     //begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
-        art_topk_iter(node, token_order, max_words, results);
+        art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, results);
     }
 
     if(token_order == FREQUENCY) {

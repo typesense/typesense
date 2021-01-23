@@ -35,6 +35,10 @@ private:
                                int low_index, int high_index, uint32_t base, uint32_t bits,
                                uint32_t *indices);
 
+    void binary_count_indices(const uint32_t *values, int low_vindex, int high_vindex,
+                              int low_index, int high_index, uint32_t base, uint32_t bits,
+                              size_t& num_found);
+
 public:
 
     void load(const uint32_t *sorted_array, const uint32_t array_length);
@@ -45,7 +49,9 @@ public:
 
     uint32_t indexOf(uint32_t value);
 
-    void indexOf(const uint32_t *values, const size_t values_len, uint32_t* indices);
+    void indexOf(const uint32_t *values, size_t values_len, uint32_t* indices);
+
+    size_t numFoundOf(const uint32_t *values, const size_t values_len);
 
     // returns false if malloc fails
     size_t append(uint32_t value);
