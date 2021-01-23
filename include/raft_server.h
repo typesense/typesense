@@ -218,7 +218,7 @@ private:
 
         // have to do a dummy write, otherwise snapshot will not trigger
         if(create_init_db_snapshot) {
-            http_req* request = new http_req(nullptr, "POST", 0, {}, "INIT_SNAPSHOT");
+            http_req* request = new http_req(nullptr, "POST", "/INIT_SNAPSHOT", 0, {}, "INIT_SNAPSHOT");
             http_res* response = new http_res();
             write(request, response);
         }

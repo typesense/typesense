@@ -1,6 +1,7 @@
 #include <regex>
 #include <chrono>
 #include <thread>
+#include <app_metrics.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "string_utils.h"
@@ -240,6 +241,13 @@ bool get_metrics_json(http_req &req, http_res &res) {
     return true;
 }
 
+bool get_stats_json(http_req &req, http_res &res) {
+    nlohmann::json result;
+    AppMetrics::get_instance().get("requests_per_second", "latency_ms", result);
+
+    res.set_body(200, result.dump(2));
+    return true;
+}
 
 bool get_log_sequence(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();

@@ -9,6 +9,7 @@
 #include "json.hpp"
 #include "string_utils.h"
 #include "logger.h"
+#include "app_metrics.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -164,6 +165,7 @@ struct http_res {
 struct http_req {
     h2o_req_t* _req;
     std::string http_method;
+    std::string path_without_query;
     uint64_t route_hash;
     std::map<std::string, std::string> params;
 
@@ -184,18 +186,39 @@ struct http_req {
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
+    uint64_t start_ts;
+    bool deserialized_request;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr) {
+                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true) {
+
+        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
 
     }
 
-    http_req(h2o_req_t* _req, const std::string & http_method, uint64_t route_hash,
+    http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
             const std::map<std::string, std::string> & params, const std::string& body):
-            _req(_req), http_method(http_method), route_hash(route_hash), params(params),
-            first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr) {
+            _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
+            params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
+            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false) {
 
+        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+    }
+
+    ~http_req() {
+
+        if(!deserialized_request) {
+            uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+
+            uint64_t ms_since_start = (now - start_ts);
+            std::string metric_identifier = http_method + " " + path_without_query;
+
+            AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
+        }
     }
 
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
@@ -214,6 +237,8 @@ struct http_req {
         first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
         last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
         _req = nullptr;
+
+        deserialized_request = true;
     }
 
     std::string serialize() const {
