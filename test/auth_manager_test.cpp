@@ -296,6 +296,11 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
                               "Nlcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiA2NDcyMzM2MzIwMH0=";
 
     ASSERT_FALSE(auth_manager.authenticate(scoped_key5, "documents:search", "coll1", empty_params));
+
+    // bad scoped API key
+    ASSERT_FALSE(auth_manager.authenticate(" XhsdBdhehdDheruyhvbdhwjhHdhgyeHbfheR", "documents:search", "coll1", empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("cXYPvkNKRlQrBzVTEgY4a3FrZfZ2MEs4kFJ6all3eldwM GhKZnRId3Y3TT1RZmxZeYJmaWx0ZXJfYnkiOkJ1aWQ6OElVm1lUVm15SG9ZOHM4NUx2VFk4S2drNHJIMiJ9", "documents:search", "coll1", empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("SXZqcVdOWjVNNUVsY3ZiTW9YajQ1QnhrUXJaRzRaS0VhTlFvUmlvQ3gycz1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgw In0=", "documents:search", "coll1", empty_params));
 }
 
 TEST_F(AuthManagerTest, ValidateBadKeyProperties) {
