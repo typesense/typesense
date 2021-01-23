@@ -697,7 +697,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                 art_fuzzy_search(t, (const unsigned char *) q.c_str(),
                                  q.size(), 0, bounded_cost, 10000,
-                                 token_ordering::MAX_SCORE, prefix_search, leaves);
+                                 token_ordering::MAX_SCORE, prefix_search, nullptr, 0, leaves);
 
                 for (size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
                     const auto &leaf = leaves[leaf_index];
@@ -1248,7 +1248,7 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
 
         std::vector<art_leaf*> leaves;
         art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                         0, 0, 1, token_ordering::MAX_SCORE, false, leaves);
+                         0, 0, 1, token_ordering::MAX_SCORE, false, nullptr, 0, leaves);
 
         if(!leaves.empty()) {
             override_query.push_back(leaves[0]);
@@ -1550,7 +1550,7 @@ void Index::search(Option<uint32_t> & outcome,
                     const bool prefix_search = prefix && (token_index == q_include_tokens.size()-1);
                     const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
                     art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                     0, 0, 1, token_order, prefix_search, leaves);
+                                     0, 0, 1, token_order, prefix_search, nullptr, 0, leaves);
 
                     if(leaves.empty()) {
                         continue;
@@ -1701,7 +1701,8 @@ void Index::search_field(const uint8_t & field_id,
                 // If this is a prefix search, look for more candidates and do a union of those document IDs
                 const int max_candidates = prefix_search ? 10 : 3;
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], costs[token_index], max_candidates, token_order, prefix_search, leaves);
+                                 costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                 filter_ids, filter_ids_length, leaves);
 
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);

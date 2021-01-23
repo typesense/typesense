@@ -174,13 +174,13 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
     do {
         head++;
         low_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[head], &actual_value);
-    } while(actual_value != values[head]);
+    } while(head < int(values_len - 1) && actual_value != values[head]);
 
     int tail = values_len;
     do {
         tail--;
         high_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[tail], &actual_value);
-    } while(actual_value != values[tail]);
+    } while(tail > 0 && actual_value != values[tail]);
 
     for(int i = 0; i < head; i++) {
         indices[i] = length;
@@ -237,4 +237,55 @@ void sorted_array::remove_values(uint32_t *sorted_values, uint32_t sorted_values
     load(new_array, new_index);
     delete[] curr_array;
     delete[] new_array;
+}
+
+size_t sorted_array::numFoundOf(const uint32_t *values, const size_t values_len) {
+    size_t num_found = 0;
+
+    if(length == 0 || values_len == 0) {
+        return num_found;
+    }
+
+    uint32_t base = *(uint32_t *)(in + 0);
+    uint32_t bits = *(in + 4);
+
+    uint32_t low_index, high_index;
+    uint32_t actual_value = 0;
+
+    // identify the upper and lower bounds of the search space
+    int head = -1;
+    do {
+        head++;
+        low_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[head], &actual_value);
+    } while(head < int(values_len - 1) && actual_value != values[head]);
+
+    int tail = values_len;
+    do {
+        tail--;
+        high_index = lower_bound_search_bits(in+METADATA_OVERHEAD, 0, length-1, base, bits, values[tail], &actual_value);
+    } while(tail > 0 && actual_value != values[tail]);
+
+    // recursively search within the bounds for all values
+    binary_count_indices(values, head, tail, low_index, high_index, base, bits, num_found);
+
+    return num_found;
+}
+
+void sorted_array::binary_count_indices(const uint32_t *values, int low_vindex, int high_vindex, int low_index,
+                                        int high_index, uint32_t base, uint32_t bits, size_t& num_found) {
+
+    uint32_t actual_value =  0;
+
+    if(high_vindex >= low_vindex && high_index >= low_index) {
+        size_t pivot_vindex = (low_vindex + high_vindex) / 2;
+
+        uint32_t in_index = lower_bound_search_bits(in+METADATA_OVERHEAD, low_index, high_index, base, bits,
+                                                    values[pivot_vindex], &actual_value);
+        if(actual_value == values[pivot_vindex]) {
+            num_found++;
+        }
+
+        binary_count_indices(values, low_vindex, pivot_vindex-1, low_index, in_index-1, base, bits, num_found);
+        binary_count_indices(values, pivot_vindex+1, high_vindex, in_index+1, high_index, base, bits, num_found);
+    }
 }

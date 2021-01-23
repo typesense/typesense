@@ -2,7 +2,6 @@
 #include "sorted_array.h"
 #include <vector>
 #include <fstream>
-#include "string_utils.h"
 
 TEST(SortedArrayTest, Append) {
     sorted_array arr;
@@ -239,4 +238,21 @@ TEST(SortedArrayTest, BulkIndexOf) {
         auto search_id = search_ids.at(i);
         ASSERT_EQ(ids.indexOf(search_id), results[i]);
     }
+
+    // search with IDs that don't exist
+
+    search_ids = {100};
+    delete [] results;
+    results = new uint32_t[search_ids.size()];
+
+    ids.indexOf(&search_ids[0], search_ids.size(), results);
+    ASSERT_EQ(562, results[0]);
+
+    search_ids = {100, 105};
+    delete [] results;
+    results = new uint32_t[search_ids.size()];
+
+    ids.indexOf(&search_ids[0], search_ids.size(), results);
+    ASSERT_EQ(562, results[0]);
+    ASSERT_EQ(562, results[1]);
 }
