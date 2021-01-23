@@ -258,320 +258,82 @@ bool get_log_sequence(http_req &req, http_res &res) {
 }
 
 bool get_search(http_req & req, http_res & res) {
-    auto begin = std::chrono::high_resolution_clock::now();
+    std::string results_json_str;
+    Option<bool> search_op = CollectionManager::do_search(req.params, results_json_str);
 
-    const char *NUM_TYPOS = "num_typos";
-    const char *PREFIX = "prefix";
-    const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
-    const char *TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
-    const char *FILTER = "filter_by";
-    const char *QUERY = "q";
-    const char *QUERY_BY = "query_by";
-    const char *QUERY_BY_WEIGHTS = "query_by_weights";
-    const char *SORT_BY = "sort_by";
-
-    const char *FACET_BY = "facet_by";
-    const char *FACET_QUERY = "facet_query";
-    const char *MAX_FACET_VALUES = "max_facet_values";
-
-    const char *GROUP_BY = "group_by";
-    const char *GROUP_LIMIT = "group_limit";
-
-    const char *LIMIT_HITS = "limit_hits";
-    const char *PER_PAGE = "per_page";
-    const char *PAGE = "page";
-    const char *CALLBACK = "callback";
-    const char *RANK_TOKENS_BY = "rank_tokens_by";
-    const char *INCLUDE_FIELDS = "include_fields";
-    const char *EXCLUDE_FIELDS = "exclude_fields";
-
-    const char *PINNED_HITS = "pinned_hits";
-    const char *HIDDEN_HITS = "hidden_hits";
-
-    // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
-    const char *SNIPPET_THRESHOLD = "snippet_threshold";
-
-    // the number of tokens that should surround the highlighted text
-    const char *HIGHLIGHT_AFFIX_NUM_TOKENS = "highlight_affix_num_tokens";
-
-    // list of fields which will be highlighted fully without snippeting
-    const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
-
-    const char *HIGHLIGHT_START_TAG = "highlight_start_tag";
-    const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
-
-    if(req.params.count(NUM_TYPOS) == 0) {
-        req.params[NUM_TYPOS] = "2";
-    }
-
-    if(req.params.count(PREFIX) == 0) {
-        req.params[PREFIX] = "true";
-    }
-
-    if(req.params.count(DROP_TOKENS_THRESHOLD) == 0) {
-        req.params[DROP_TOKENS_THRESHOLD] = std::to_string(Index::DROP_TOKENS_THRESHOLD);
-    }
-
-    if(req.params.count(TYPO_TOKENS_THRESHOLD) == 0) {
-        req.params[TYPO_TOKENS_THRESHOLD] = std::to_string(Index::TYPO_TOKENS_THRESHOLD);
-    }
-
-    if(req.params.count(QUERY) == 0) {
-        res.set_400(std::string("Parameter `") + QUERY + "` is required.");
-        return false;
-    }
-
-    if(req.params.count(MAX_FACET_VALUES) == 0) {
-        req.params[MAX_FACET_VALUES] = "10";
-    }
-
-    if(req.params.count(FACET_QUERY) == 0) {
-        req.params[FACET_QUERY] = "";
-    }
-
-    if(req.params.count(LIMIT_HITS) == 0) {
-        req.params[LIMIT_HITS] = std::to_string(UINT32_MAX);
-    }
-
-    if(req.params.count(SNIPPET_THRESHOLD) == 0) {
-        req.params[SNIPPET_THRESHOLD] = "30";
-    }
-
-    if(req.params.count(HIGHLIGHT_AFFIX_NUM_TOKENS) == 0) {
-        req.params[HIGHLIGHT_AFFIX_NUM_TOKENS] = "4";
-    }
-
-    if(req.params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
-        req.params[HIGHLIGHT_FULL_FIELDS] = "";
-    }
-
-    if(req.params.count(HIGHLIGHT_START_TAG) == 0) {
-        req.params[HIGHLIGHT_START_TAG] = "<mark>";
-    }
-
-    if(req.params.count(HIGHLIGHT_END_TAG) == 0) {
-        req.params[HIGHLIGHT_END_TAG] = "</mark>";
-    }
-
-    if(req.params.count(PER_PAGE) == 0) {
-        if(req.params[FACET_QUERY].empty()) {
-            req.params[PER_PAGE] = "10";
+    if(!search_op.ok()) {
+        if(search_op.code() == 404) {
+            res.set_404();
         } else {
-            // for facet query we will set per_page to zero if it is not explicitly overridden
-            req.params[PER_PAGE] = "0";
+            res.set(search_op.code(), search_op.error());
         }
-    }
 
-    if(req.params.count(PAGE) == 0) {
-        req.params[PAGE] = "1";
-    }
-
-    if(req.params.count(INCLUDE_FIELDS) == 0) {
-        req.params[INCLUDE_FIELDS] = "";
-    }
-
-    if(req.params.count(EXCLUDE_FIELDS) == 0) {
-        req.params[EXCLUDE_FIELDS] = "";
-    }
-
-    if(req.params.count(GROUP_BY) == 0) {
-        req.params[GROUP_BY] = "";
-    }
-
-    if(req.params.count(GROUP_LIMIT) == 0) {
-        if(req.params[GROUP_BY] != "") {
-            req.params[GROUP_LIMIT] = "3";
-        } else {
-            req.params[GROUP_LIMIT] = "0";
-        }
-    }
-
-    std::vector<std::string> query_by_weights_str;
-    std::vector<size_t> query_by_weights;
-
-    if(req.params.count(QUERY_BY_WEIGHTS) != 0) {
-        StringUtils::split(req.params[QUERY_BY_WEIGHTS], query_by_weights_str, ",");
-        for(const auto& weight_str: query_by_weights_str) {
-            if(!StringUtils::is_uint32_t(weight_str)) {
-                res.set_400("Parameter `" + std::string(QUERY_BY_WEIGHTS) +
-                "` must be a comma separated string of unsigned integers.");
-                return false;
-            }
-
-            query_by_weights.push_back(std::stoi(weight_str));
-        }
-    }
-
-    if(!StringUtils::is_uint32_t(req.params[DROP_TOKENS_THRESHOLD])) {
-        res.set_400("Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
         return false;
     }
 
-    if(!StringUtils::is_uint32_t(req.params[TYPO_TOKENS_THRESHOLD])) {
-        res.set_400("Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
+    res.set_200(results_json_str);
+
+    return true;
+}
+
+bool post_multi_search(http_req& req, http_res& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
         return false;
     }
 
-    if(!StringUtils::is_uint32_t(req.params[NUM_TYPOS])) {
-        res.set_400("Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
+    if(req_json.count("searches") == 0) {
+        res.set_400("Missing `searches` array.");
         return false;
     }
 
-    if(!StringUtils::is_uint32_t(req.params[PER_PAGE])) {
-        res.set_400("Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
+    if(!req_json["searches"].is_array()) {
+        res.set_400("Missing `searches` array.");
         return false;
     }
 
-    if(!StringUtils::is_uint32_t(req.params[PAGE])) {
-        res.set_400("Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
-        return false;
-    }
+    auto orig_req_params = req.params;
 
-    if(!StringUtils::is_uint32_t(req.params[MAX_FACET_VALUES])) {
-        res.set_400("Parameter `" + std::string(MAX_FACET_VALUES) + "` must be an unsigned integer.");
-        return false;
-    }
+    nlohmann::json response;
+    response["results"] = nlohmann::json::array();
 
-    if(!StringUtils::is_uint32_t(req.params[LIMIT_HITS])) {
-        res.set_400("Parameter `" + std::string(LIMIT_HITS) + "` must be an unsigned integer.");
-        return false;
-    }
-
-    if(!StringUtils::is_uint32_t(req.params[SNIPPET_THRESHOLD])) {
-        res.set_400("Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
-        return false;
-    }
-
-    if(!StringUtils::is_uint32_t(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])) {
-        res.set_400("Parameter `" + std::string(HIGHLIGHT_AFFIX_NUM_TOKENS) + "` must be an unsigned integer.");
-        return false;
-    }
-
-    if(!StringUtils::is_uint32_t(req.params[GROUP_LIMIT])) {
-        res.set_400("Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
-        return false;
-    }
-
-    std::string filter_str = req.params.count(FILTER) != 0 ? req.params[FILTER] : "";
-
-    std::vector<std::string> search_fields;
-    StringUtils::split(req.params[QUERY_BY], search_fields, ",");
-
-    std::vector<std::string> facet_fields;
-    StringUtils::split(req.params[FACET_BY], facet_fields, ",");
-
-    std::vector<std::string> include_fields_vec;
-    StringUtils::split(req.params[INCLUDE_FIELDS], include_fields_vec, ",");
-
-    std::vector<std::string> exclude_fields_vec;
-    StringUtils::split(req.params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
-
-    spp::sparse_hash_set<std::string> include_fields(include_fields_vec.begin(), include_fields_vec.end());
-    spp::sparse_hash_set<std::string> exclude_fields(exclude_fields_vec.begin(), exclude_fields_vec.end());
-
-    std::vector<std::string> group_by_fields;
-    StringUtils::split(req.params[GROUP_BY], group_by_fields, ",");
-
-    std::vector<sort_by> sort_fields;
-    if(req.params.count(SORT_BY) != 0) {
-        std::vector<std::string> sort_field_strs;
-        StringUtils::split(req.params[SORT_BY], sort_field_strs, ",");
-
-        if(sort_field_strs.size() > 2) {
-            res.set_400("Only upto 2 sort fields are allowed.");
+    // we have to ensure that `req_json` is a flat <string, string> map
+    for(const auto& search: req_json["searches"]) {
+        if(!search.is_object()) {
+            res.set_400("The value of `searches` must be an array of objects.");
             return false;
         }
 
-        for(const std::string & sort_field_str: sort_field_strs) {
-            std::vector<std::string> expression_parts;
-            StringUtils::split(sort_field_str, expression_parts, ":");
+        req.params = orig_req_params;
 
-            if(expression_parts.size() != 2) {
-                res.set_400(std::string("Parameter `") + SORT_BY + "` is malformed.");
+        for(const auto& item: search.items()) {
+            if(!item.value().is_string()) {
+                res.set_400("One or more search parameters are malformed.");
                 return false;
             }
 
-            StringUtils::toupper(expression_parts[1]);
-            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
+            req.params[item.key()] = item.value();
+        }
+
+        std::string results_json_str;
+        Option<bool> search_op = CollectionManager::do_search(req.params, results_json_str);
+
+        if(search_op.ok()) {
+            response["results"].push_back(nlohmann::json::parse(results_json_str));
+        } else {
+            nlohmann::json err_res;
+            err_res["error"] = search_op.error();
+            err_res["code"] = search_op.code();
+            response["results"].push_back(err_res);
         }
     }
 
-    if(req.params.count(PINNED_HITS) == 0) {
-        req.params[PINNED_HITS] = "";
-    }
-
-    if(req.params.count(HIDDEN_HITS) == 0) {
-        req.params[HIDDEN_HITS] = "";
-    }
-
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
-
-    if(collection == nullptr) {
-        res.set_404();
-        return false;
-    }
-
-    bool prefix = (req.params[PREFIX] == "true");
-    const size_t drop_tokens_threshold = (size_t) std::stoi(req.params[DROP_TOKENS_THRESHOLD]);
-    const size_t typo_tokens_threshold = (size_t) std::stoi(req.params[TYPO_TOKENS_THRESHOLD]);
-
-    if(req.params.count(RANK_TOKENS_BY) == 0) {
-        req.params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
-    }
-
-    StringUtils::toupper(req.params[RANK_TOKENS_BY]);
-    token_ordering token_order = (req.params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") ? MAX_SCORE : FREQUENCY;
-
-    Option<nlohmann::json> result_op = collection->search(req.params[QUERY], search_fields, filter_str, facet_fields,
-                                                          sort_fields, std::stoi(req.params[NUM_TYPOS]),
-                                                          static_cast<size_t>(std::stol(req.params[PER_PAGE])),
-                                                          static_cast<size_t>(std::stol(req.params[PAGE])),
-                                                          token_order, prefix, drop_tokens_threshold,
-                                                          include_fields, exclude_fields,
-                                                          static_cast<size_t>(std::stol(req.params[MAX_FACET_VALUES])),
-                                                          req.params[FACET_QUERY],
-                                                          static_cast<size_t>(std::stol(req.params[SNIPPET_THRESHOLD])),
-                                                          static_cast<size_t>(std::stol(req.params[HIGHLIGHT_AFFIX_NUM_TOKENS])),
-                                                          req.params[HIGHLIGHT_FULL_FIELDS],
-                                                          typo_tokens_threshold,
-                                                          req.params[PINNED_HITS],
-                                                          req.params[HIDDEN_HITS],
-                                                          group_by_fields,
-                                                          static_cast<size_t>(std::stol(req.params[GROUP_LIMIT])),
-                                                          req.params[HIGHLIGHT_START_TAG],
-                                                          req.params[HIGHLIGHT_END_TAG],
-                                                          query_by_weights,
-                                                          static_cast<size_t>(std::stol(req.params[LIMIT_HITS]))
-                                                          );
-
-    uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                               std::chrono::high_resolution_clock::now() - begin).count();
-
-
-    if(!result_op.ok()) {
-        const std::string & json_res_body = (req.params.count(CALLBACK) == 0) ? result_op.error() :
-                                            (req.params[CALLBACK] + "(" + result_op.error() + ");");
-        res.set(result_op.code(), json_res_body);
-        return false;
-    }
-
-    nlohmann::json result = result_op.get();
-    result["search_time_ms"] = timeMillis;
-    result["page"] = std::stoi(req.params[PAGE]);
-    const std::string & results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-
-    //struct rusage r_usage;
-    //getrusage(RUSAGE_SELF,&r_usage);
-    //LOG(INFO) << "Memory usage: " << r_usage.ru_maxrss;
-
-    if(req.params.count(CALLBACK) == 0) {
-        res.set_200(results_json_str);
-    } else {
-        res.set_200(req.params[CALLBACK] + "(" + results_json_str + ");");
-    }
-
-    //LOG(INFO) << "Time taken: " << timeMillis << "ms";
+    res.set_200(response.dump());
     return true;
 }
 

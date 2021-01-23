@@ -98,6 +98,8 @@ public:
 
     AuthManager& getAuthManager();
 
+    static Option<bool> do_search(std::map<std::string, std::string>& req_params, std::string& results_json_str);
+
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name);
 
