@@ -197,7 +197,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             num_tree->insert(value, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             art_tree *t = search_index.at(field_name);
-            std::vector<std::string> strings = document[field_name];
+            const std::vector<std::string>& strings = document[field_name];
             index_string_array_field(strings, points, t, seq_id, facet_id, field_pair.second);
         } else if(field_pair.second.type == field_types::INT32_ARRAY) {
             auto num_tree = numerical_index.at(field_name);
@@ -1557,7 +1557,6 @@ void Index::search(Option<uint32_t> & outcome,
                     }
 
                     uint32_t doc_index = leaves[0]->values->ids.indexOf(seq_id);
-
                     if (doc_index == leaves[0]->values->ids.getLength()) {
                         continue;
                     }
@@ -1565,12 +1564,7 @@ void Index::search(Option<uint32_t> & outcome,
                     token_bits |= 1UL << token_index; // sets nth bit
                     //LOG(INFO) << "token_index: " << token_index << ", pop count: " << __builtin_popcount(token_bits);
 
-                    uint32_t start_offset = leaves[0]->values->offset_index.at(doc_index);
-                    uint32_t end_offset = (doc_index == leaves[0]->values->ids.getLength() - 1) ?
-                                          leaves[0]->values->offsets.getLength() :
-                                          leaves[0]->values->offset_index.at(doc_index+1);
-
-                    words_present += (end_offset - start_offset);
+                    words_present += 1;
 
                     /*if(!leaves.empty()) {
                         LOG(INFO) << "tok: " << leaves[0]->key;
