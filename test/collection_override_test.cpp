@@ -71,7 +71,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     override_json["excludes"][1] = nlohmann::json::object();
     override_json["excludes"][1]["id"] = "11";
 
-    override_t override(override_json);
+    override_t override;
+    override_t::parse(override_json, "", override);
+
     coll_mul_fields->add_override(override);
 
     std::vector<std::string> facets = {"cast"};
@@ -107,7 +109,8 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     override_json_include["includes"][1]["id"] = "3";
     override_json_include["includes"][1]["position"] = 2;
 
-    override_t override_include(override_json_include);
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
 
     coll_mul_fields->add_override(override_include);
 
@@ -150,7 +153,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     override_contains_inc["includes"][1]["id"] = "1";
     override_contains_inc["includes"][1]["position"] = 7;  // purposely setting it way out
 
-    override_t override_inc_contains(override_contains_inc);
+    override_t override_inc_contains;
+    override_t::parse(override_contains_inc, "", override_inc_contains);
+
     coll_mul_fields->add_override(override_inc_contains);
 
     res_op = coll_mul_fields->search("will smith", {"title"}, "", {}, {}, 0, 10);
@@ -166,6 +171,96 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("1", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
     coll_mul_fields->remove_override("include-rule");
+}
+
+TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
+    nlohmann::json exclude_json = {
+            {"id", "exclude-rule"},
+            {
+             "rule", {
+                       {"query", "of"},
+                       {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    exclude_json["excludes"] = nlohmann::json::array();
+    exclude_json["excludes"][0] = nlohmann::json::object();
+    exclude_json["excludes"][0]["id"] = 11;
+
+    override_t override1;
+    auto parse_op = override_t::parse(exclude_json, "", override1);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("Exclusion `id` must be a string.", parse_op.error().c_str());
+
+    nlohmann::json include_json = {
+            {"id", "include-rule"},
+            {
+             "rule", {
+                           {"query", "of"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    include_json["includes"] = nlohmann::json::array();
+    include_json["includes"][0] = nlohmann::json::object();
+    include_json["includes"][0]["id"] = "11";
+
+    override_t override2;
+    parse_op = override_t::parse(include_json, "", override2);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("Inclusion definition must define both `id` and `position` keys.", parse_op.error().c_str());
+
+    include_json["includes"][0]["position"] = "1";
+
+    parse_op = override_t::parse(include_json, "", override2);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("Inclusion `position` must be an integer.", parse_op.error().c_str());
+
+    include_json["includes"][0]["position"] = 1;
+    parse_op = override_t::parse(include_json, "", override2);
+    ASSERT_TRUE(parse_op.ok());
+
+    nlohmann::json include_json2 = {
+            {"id", "include-rule"},
+            {
+             "rule", {
+                           {"query", "of"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    parse_op = override_t::parse(include_json2, "", override2);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("Must contain either `includes` or `excludes`.", parse_op.error().c_str());
+
+    include_json2["includes"] = nlohmann::json::array();
+    include_json2["includes"][0] = 100;
+
+    parse_op = override_t::parse(include_json2, "", override2);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("The `includes` value must be an array of objects.", parse_op.error().c_str());
+
+    nlohmann::json exclude_json2 = {
+            {"id", "exclude-rule"},
+            {
+             "rule", {
+                           {"query", "of"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    exclude_json2["excludes"] = nlohmann::json::array();
+    exclude_json2["excludes"][0] = "100";
+
+    parse_op = override_t::parse(exclude_json2, "", override2);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_STREQ("The `excludes` value must be an array of objects.", parse_op.error().c_str());
 }
 
 TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
@@ -189,7 +284,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     override_json_include["includes"][1]["id"] = "2";
     override_json_include["includes"][1]["position"] = 2;
 
-    override_t override_include(override_json_include);
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
+
     coll_mul_fields->add_override(override_include);
 
     auto results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
@@ -217,7 +314,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     override_json_exclude["excludes"][0] = nlohmann::json::object();
     override_json_exclude["excludes"][0]["id"] = "10";
 
-    override_t override(override_json_exclude);
+    override_t override;
+    override_t::parse(override_json_exclude, "", override);
+
     coll_mul_fields->add_override(override);
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 10, 1, FREQUENCY,
@@ -335,7 +434,9 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     override_json_include["includes"][1]["id"] = "8";
     override_json_include["includes"][1]["position"] = 1;
 
-    override_t override_include(override_json_include);
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
+
     coll_mul_fields->add_override(override_include);
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, 0, 50, 1, FREQUENCY,

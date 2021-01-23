@@ -376,8 +376,12 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     override_json_exclude["excludes"][0] = nlohmann::json::object();
     override_json_exclude["excludes"][0]["id"] = "2";
 
-    override_t override1(override_json_include);
-    override_t override2(override_json_exclude);
+    override_t override1;
+    override_t override2;
+
+    override_t::parse(override_json_include, "", override1);
+    override_t::parse(override_json_exclude, "", override2);
+
     Option<uint32_t> ov1_op = coll_group->add_override(override1);
     Option<uint32_t> ov2_op = coll_group->add_override(override2);
 
