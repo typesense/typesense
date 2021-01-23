@@ -19,6 +19,8 @@
 #include "threadpool.h"
 #include "jemalloc.h"
 
+#include "stackprinter.h"
+
 HttpServer* server;
 std::atomic<bool> quit_raft_service;
 
@@ -41,22 +43,6 @@ void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
     quit_raft_service = true;
-}
-
-void catch_crash(int sig) {
-    void *bt[1024];
-    char **bt_syms;
-    size_t bt_size;
-
-    bt_size = backtrace(bt, 1024);
-    bt_syms = backtrace_symbols(bt, bt_size);
-
-    LOG(ERROR) << "Typesense crashed...";
-    for (size_t i = 0; i < bt_size; i++) {
-        LOG(ERROR) << bt_syms[i];
-    }
-
-    exit(-1);
 }
 
 Option<std::string> fetch_file_contents(const std::string & file_path) {
@@ -106,11 +92,10 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 }
 
 int init_logger(Config & config, const std::string & server_version) {
-    // remove SIGTERM since we handle it on our own
-    signal(SIGABRT, catch_crash);
-    signal(SIGFPE, catch_crash);
-    signal(SIGILL, catch_crash);
-    signal(SIGSEGV, catch_crash);
+    signal(SIGABRT, StackPrinter::bt_sighandler);
+    signal(SIGFPE, StackPrinter::bt_sighandler);
+    signal(SIGILL, StackPrinter::bt_sighandler);
+    signal(SIGSEGV, StackPrinter::bt_sighandler);
 
     // we can install new signal handlers only after overriding above
     signal(SIGINT, catch_interrupt);
