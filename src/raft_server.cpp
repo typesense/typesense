@@ -223,6 +223,11 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
             long status = HttpClient::delete_response(url, api_res, res_headers);
             response->content_type_header = res_headers["content-type"];
             response->set_body(status, api_res);
+        } else if(request->http_method == "PATCH") {
+            std::string api_res;
+            long status = HttpClient::patch_response(url, request->body, api_res, res_headers);
+            response->content_type_header = res_headers["content-type"];
+            response->set_body(status, api_res);
         } else {
             const std::string& err = "Forwarding for http method not implemented: " + request->http_method;
             LOG(ERROR) << err;

@@ -58,5 +58,8 @@ public:
     static long put_response(const std::string & url, const std::string & body, std::string & response,
                              std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
 
+    static long patch_response(const std::string & url, const std::string & body, std::string & response,
+                             std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
+
     static void extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers);
 };
