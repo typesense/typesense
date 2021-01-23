@@ -371,12 +371,12 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     // Extract auth key from header. If that does not exist, look for a GET parameter.
     std::string api_auth_key_sent = "";
 
-    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, AUTH_HEADER, strlen(AUTH_HEADER), -1);
+    ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, http_req::AUTH_HEADER, strlen(http_req::AUTH_HEADER), -1);
     if(auth_header_cursor != -1) {
         h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
         api_auth_key_sent = std::string(slot.base, slot.len);
-    } else if(query_map.count(AUTH_HEADER) != 0) {
-        api_auth_key_sent = query_map[AUTH_HEADER];
+    } else if(query_map.count(http_req::AUTH_HEADER) != 0) {
+        api_auth_key_sent = query_map[http_req::AUTH_HEADER];
     }
 
     route_path *rpath = nullptr;
@@ -397,7 +397,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     bool authenticated = h2o_handler->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
     if(!authenticated) {
-        std::string message = std::string("{\"message\": \"Forbidden - a valid `") + AUTH_HEADER +
+        std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                "` header must be sent.\"}";
         return send_response(req, 401, message);
     }

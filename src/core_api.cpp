@@ -1370,6 +1370,35 @@ bool post_vote(http_req& req, http_res& res) {
     return true;
 }
 
+bool post_config(http_req &req, http_res &res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req.body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res.set_400("Bad JSON.");
+        return false;
+    }
+
+    if(req_json.count("log-slow-requests-time-ms") != 0) {
+        if(!req_json["log-slow-requests-time-ms"].is_number_integer()) {
+            res.set_400("Configuration `log-slow-requests-time-ms` must be an integer.");
+            return false;
+        }
+
+        Config::get_instance().set_log_slow_requests_time_ms(req_json["log-slow-requests-time-ms"].get<int>());
+
+        nlohmann::json response;
+        response["success"] = true;
+        res.set_201(response.dump());
+    } else {
+        res.set_400("Invalid configuration.");
+    }
+
+    return true;
+}
+
 bool get_synonyms(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     Collection *collection = collectionManager.get_collection(req.params["collection"]);

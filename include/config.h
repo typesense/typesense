@@ -37,7 +37,9 @@ private:
     std::string config_file;
     int config_file_validity;
 
-public:
+    int log_slow_requests_time_ms;
+
+protected:
 
     Config() {
         this->api_address = "0.0.0.0";
@@ -47,7 +49,21 @@ public:
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
         this->catch_up_threshold_percentage = 95;
+        this->log_slow_requests_time_ms = -1;
     }
+
+    Config(Config const&) {
+
+    }
+
+public:
+
+    static Config & get_instance() {
+        static Config instance;
+        return instance;
+    }
+
+    void operator=(Config const&) = delete;
 
     // setters
 
@@ -90,6 +106,10 @@ public:
 
     void set_enable_cors(bool enable_cors) {
         this->enable_cors = enable_cors;
+    }
+
+    void set_log_slow_requests_time_ms(int log_slow_requests_time_ms) {
+        this->log_slow_requests_time_ms = log_slow_requests_time_ms;
     }
 
     // getters
@@ -163,6 +183,10 @@ public:
         return this->catch_up_threshold_percentage;
     }
 
+    int get_log_slow_requests_time_ms() const {
+        return this->log_slow_requests_time_ms;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -225,6 +249,10 @@ public:
 
         if(!get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE").empty()) {
             this->catch_up_threshold_percentage = std::stoi(get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE"));
+        }
+
+        if(!get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS").empty()) {
+            this->log_slow_requests_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS"));
         }
     }
 
@@ -319,6 +347,10 @@ public:
         if(reader.Exists("server", "catch-up-threshold-percentage")) {
             this->catch_up_threshold_percentage = (int) reader.GetInteger("server", "catch-up-threshold-percentage", 95);
         }
+
+        if(reader.Exists("server", "log-slow-requests-time-ms")) {
+            this->log_slow_requests_time_ms = (int) reader.GetInteger("server", "log-slow-requests-time-ms", -1);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -393,6 +425,10 @@ public:
 
         if(options.exist("catch-up-threshold-percentage")) {
             this->catch_up_threshold_percentage = options.get<int>("catch-up-threshold-percentage");
+        }
+
+        if(options.exist("log-slow-requests-time-ms")) {
+            this->log_slow_requests_time_ms = options.exist("log-slow-requests-time-ms");
         }
     }
 

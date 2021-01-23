@@ -2575,7 +2575,9 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
                                  "<mark>", "</mark>", {1}, 20);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Only upto 20 hits can be fetched.", res_op.error().c_str());
+    ASSERT_STREQ(
+            "Only upto 20 hits can be fetched. Ensure that `page` and `per_page` parameters are within this range.",
+            res_op.error().c_str());
 }
 
 TEST_F(CollectionTest, RemoveIfFound) {

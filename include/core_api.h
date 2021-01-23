@@ -93,6 +93,8 @@ bool post_snapshot(http_req& req, http_res& res);
 
 bool post_vote(http_req& req, http_res& res);
 
+bool post_config(http_req& req, http_res& res);
+
 // Misc helpers
 
 bool raft_write_send_response(void *data);

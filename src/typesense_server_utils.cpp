@@ -79,6 +79,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
     options.add<int>("catch-up-threshold-percentage", '\0', "The threshold at which a follower is deemed to have caught up with leader.", false, 95);
+    options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
 
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
