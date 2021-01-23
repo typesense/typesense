@@ -94,4 +94,32 @@ TEST(StringUtilsTest, ShouldSplitString) {
     end_index = StringUtils::split("a b c d e f", lines_custom_start, " ", false, 2, 100);
     ASSERT_EQ(5, lines_custom_start.size());
     ASSERT_EQ(11, end_index);
+
+    std::string comma_and_space = "foo, bar";
+    std::vector<std::string> comma_space_parts;
+    StringUtils::split(comma_and_space, comma_space_parts, ",");
+    ASSERT_STREQ("foo", comma_space_parts[0].c_str());
+    ASSERT_STREQ("bar", comma_space_parts[1].c_str());
+}
+
+TEST(StringUtilsTest, ShouldTrimString) {
+    std::string str = " a ";
+    StringUtils::trim(str);
+    ASSERT_STREQ("a", str.c_str());
+
+    str = "abc";
+    StringUtils::trim(str);
+    ASSERT_STREQ("abc", str.c_str());
+
+    str = " abc def";
+    StringUtils::trim(str);
+    ASSERT_STREQ("abc def", str.c_str());
+
+    str = " abc def   ";
+    StringUtils::trim(str);
+    ASSERT_STREQ("abc def", str.c_str());
+
+    str = "  ";
+    StringUtils::trim(str);
+    ASSERT_STREQ("", str.c_str());
 }

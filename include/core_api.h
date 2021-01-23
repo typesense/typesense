@@ -19,6 +19,8 @@ bool get_collection_summary(http_req& req, http_res& res);
 
 bool get_search(http_req& req, http_res& res);
 
+bool post_multi_search(http_req& req, http_res& res);
+
 bool get_export_documents(http_req& req, http_res& res);
 
 bool post_add_document(http_req& req, http_res& res);

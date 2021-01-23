@@ -976,7 +976,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             StringUtils::split(highlight_full_fields, fields_highlighted_fully_vec, ",");
 
             for(std::string & highlight_full_field: fields_highlighted_fully_vec) {
-                StringUtils::trim(highlight_full_field);
                 fields_highlighted_fully.emplace(highlight_full_field);
             }
 
