@@ -512,8 +512,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<size_t> query_by_weights,
-                                  size_t max_hits) {
+                                  std::vector<size_t> query_by_weights) {
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
@@ -682,26 +681,27 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     std::vector<sort_by> sort_fields_std;
 
-    for(const sort_by & _sort_field: sort_fields) {
-        if(_sort_field.name != sort_field_const::text_match && sort_schema.count(_sort_field.name) == 0) {
-            std::string error = "Could not find a field named `" + _sort_field.name + "` in the schema for sorting.";
+    for(const sort_by& _sort_field: sort_fields) {
+        sort_by sort_field_std(_sort_field.name, _sort_field.order);
+
+        if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
+            std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
             return Option<nlohmann::json>(404, error);
         }
 
-        if(sort_schema.count(_sort_field.name) != 0 && sort_schema.at(_sort_field.name).optional) {
-            std::string error = "Cannot sort by `" + _sort_field.name + "` as it is defined as an optional field.";
+        if(sort_schema.count(sort_field_std.name) != 0 && sort_schema.at(sort_field_std.name).optional) {
+            std::string error = "Cannot sort by `" + sort_field_std.name + "` as it is defined as an optional field.";
             return Option<nlohmann::json>(400, error);
         }
 
-        std::string sort_order = _sort_field.order;
-        StringUtils::toupper(sort_order);
+        StringUtils::toupper(sort_field_std.order);
 
-        if(sort_order != sort_field_const::asc && sort_order != sort_field_const::desc) {
-            std::string error = "Order for field` " + _sort_field.name + "` should be either ASC or DESC.";
+        if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
+            std::string error = "Order for field` " + sort_field_std.name + "` should be either ASC or DESC.";
             return Option<nlohmann::json>(400, error);
         }
 
-        sort_fields_std.emplace_back(_sort_field.name, sort_order);
+        sort_fields_std.emplace_back(sort_field_std);
     }
 
     /*
@@ -743,11 +743,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
+    size_t max_hits;
+
     // ensure that `max_hits` never exceeds number of documents in collection
     if(search_fields.size() <= 1 || query == "*") {
         max_hits = std::min((page * per_page), get_num_documents());
     } else {
-        max_hits = std::min(max_hits, get_num_documents());
+        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
     }
 
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
