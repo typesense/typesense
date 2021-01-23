@@ -221,6 +221,11 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
 
     const std::string& key_payload = StringUtils::base64_decode(scoped_api_key);
 
+    if(key_payload.size() < HMAC_BASE64_LEN + api_key_t::PREFIX_LEN) {
+        LOG(ERROR) << "Malformed scoped API key.";
+        return Option<bool>(403, "Forbidden.");
+    }
+
     // FORMAT:
     // <DIGEST><PARENT_KEY_PREFIX><PARAMS>
     const std::string& hmacSHA256 = key_payload.substr(0, HMAC_BASE64_LEN);

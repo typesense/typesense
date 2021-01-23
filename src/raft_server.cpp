@@ -172,7 +172,7 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
     }
 
     const std::string & leader_addr = node->leader_id().to_string();
-    LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
+    //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
     HttpServer* server = custom_generator->h2o_handler->http_server;
