@@ -7,6 +7,7 @@
 #include <h2o.h>
 #include <iostream>
 #include <auth_manager.h>
+#include <app_metrics.h>
 #include "raft_server.h"
 #include "logger.h"
 
@@ -29,6 +30,7 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     message_dispatcher->init(ctx.loop);
 
     ssl_refresh_timer.timer.expire_at = 0;  // used during destructor
+    metrics_refresh_timer.timer.expire_at = 0;  // used during destructor
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -44,6 +46,21 @@ void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
     }
 
     h2o_accept(http_server->accept_ctx, sock);
+}
+
+void HttpServer::on_metrics_refresh_timeout(h2o_timer_t *entry) {
+    h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
+
+    AppMetrics::get_instance().window_reset();
+
+    HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
+
+    // link the timer for the next cycle
+    h2o_timer_link(
+        hs->ctx.loop,
+        AppMetrics::METRICS_REFRESH_INTERVAL_MS,
+        &hs->metrics_refresh_timer.timer
+    );
 }
 
 void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
@@ -158,6 +175,10 @@ int HttpServer::create_listener() {
 
 int HttpServer::run(ReplicationState* replication_state) {
     this->replication_state = replication_state;
+
+    metrics_refresh_timer = h2o_custom_timer_t(this);
+    h2o_timer_init(&metrics_refresh_timer.timer, on_metrics_refresh_timeout);
+    h2o_timer_link(ctx.loop, AppMetrics::METRICS_REFRESH_INTERVAL_MS, &metrics_refresh_timer.timer);
 
     if (create_listener() != 0) {
         LOG(ERROR) << "Failed to listen on " << listen_address << ":" << listen_port << " - " << strerror(errno);
@@ -290,6 +311,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     StringUtils::split(path, path_with_query_parts, "?");
     const std::string & path_without_query = path_with_query_parts[0];
 
+    std::string metric_identifier = http_method + " " + path_without_query;
+    AppMetrics::get_instance().increment_count(metric_identifier, 1);
+
     // Handle CORS
     if(h2o_handler->http_server->cors_enabled) {
         h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
@@ -380,7 +404,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     const std::string & body = std::string(req->entity.base, req->entity.len);
 
-    http_req* request = new http_req(req, rpath->http_method, route_hash, query_map, body);
+    http_req* request = new http_req(req, rpath->http_method, path_without_query, route_hash, query_map, body);
     http_res* response = new http_res();
 
     // add custom generator with a dispose function for cleaning up resources
@@ -737,6 +761,11 @@ HttpServer::~HttpServer() {
     if(ssl_refresh_timer.timer.expire_at != 0) {
         // avoid callback since it recreates timeout
         clear_timeouts({&ssl_refresh_timer.timer}, false);
+    }
+
+    if(metrics_refresh_timer.timer.expire_at != 0) {
+        // avoid callback since it recreates timeout
+        clear_timeouts({&metrics_refresh_timer.timer}, false);
     }
 
     h2o_timerwheel_run(ctx.loop->_timeouts, 9999999999999);

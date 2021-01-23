@@ -57,6 +57,7 @@ void master_server_routes() {
 
     // meta
     server->get("/metrics.json", get_metrics_json);
+    server->get("/stats.json", get_stats_json);
     server->get("/debug", get_debug);
     server->get("/health", get_health);
     server->post("/health", post_health);

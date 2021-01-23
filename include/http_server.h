@@ -50,7 +50,9 @@ private:
     static const size_t REQ_TIMEOUT_MS = 60000;
 
     static const uint64_t SSL_REFRESH_INTERVAL_MS = 8 * 60 * 60 * 1000;
+
     h2o_custom_timer_t ssl_refresh_timer;
+    h2o_custom_timer_t metrics_refresh_timer;
 
     http_message_dispatcher* message_dispatcher;
 
@@ -81,6 +83,8 @@ private:
     int setup_ssl(const char *cert_file, const char *key_file);
 
     static void on_ssl_refresh_timeout(h2o_timer_t *entry);
+
+    static void on_metrics_refresh_timeout(h2o_timer_t *entry);
 
     int create_listener();
 
