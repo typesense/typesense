@@ -136,8 +136,13 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
         for(const auto & collection_override_json: collection_override_jsons) {
             nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-            override_t override(collection_override);
-            collection->add_override(override);
+            override_t override;
+            auto parse_op = override_t::parse(collection_override, "", override);
+            if(parse_op.ok()) {
+                collection->add_override(override);
+            } else {
+                LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+            }
         }
 
         // initialize synonyms

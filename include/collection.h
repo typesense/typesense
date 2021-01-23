@@ -44,27 +44,97 @@ struct override_t {
 
     override_t() {}
 
-    override_t(const nlohmann::json & override) {
-        id = override["id"].get<std::string>();
-        rule.query = override["rule"]["query"].get<std::string>();
-        rule.match = override["rule"]["match"].get<std::string>();
+    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
+        if(!override_json.is_object()) {
+            return Option<bool>(400, "Bad JSON.");
+        }
 
-        if (override.count("includes") != 0) {
-            for(const auto & include: override["includes"]) {
+        if(override_json.count("rule") == 0 || !override_json["rule"].is_object()) {
+            return Option<bool>(400, "Missing `rule` definition.");
+        }
+
+        if(override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0) {
+            return Option<bool>(400, "The `rule` definition must contain a `query` or `match`.");
+        }
+
+        if(override_json.count("includes") == 0 && override_json.count("excludes") == 0) {
+            return Option<bool>(400, "Must contain either `includes` or `excludes`.");
+        }
+
+        if(override_json.count("includes") != 0) {
+            if(!override_json["includes"].is_array()) {
+                return Option<bool>(400, "The `includes` value must be an array.");
+            }
+
+            for(const auto & include_obj: override_json["includes"]) {
+                if(!include_obj.is_object()) {
+                    return Option<bool>(400, "The `includes` value must be an array of objects.");
+                }
+
+                if(include_obj.count("id") == 0 || include_obj.count("position") == 0) {
+                    return Option<bool>(400, "Inclusion definition must define both `id` and `position` keys.");
+                }
+
+                if(!include_obj["id"].is_string()) {
+                    return Option<bool>(400, "Inclusion `id` must be a string.");
+                }
+
+                if(!include_obj["position"].is_number_integer()) {
+                    return Option<bool>(400, "Inclusion `position` must be an integer.");
+                }
+            }
+        }
+
+        if(override_json.count("excludes") != 0) {
+            if(!override_json["excludes"].is_array()) {
+                return Option<bool>(400, "The `excludes` value must be an array.");
+            }
+
+            for(const auto & exclude_obj: override_json["excludes"]) {
+                if(!exclude_obj.is_object()) {
+                    return Option<bool>(400, "The `excludes` value must be an array of objects.");
+                }
+
+                if(exclude_obj.count("id") == 0) {
+                    return Option<bool>(400, "Exclusion definition must define an `id`.");
+                }
+
+                if(!exclude_obj["id"].is_string()) {
+                    return Option<bool>(400, "Exclusion `id` must be a string.");
+                }
+            }
+
+        }
+
+        if(!id.empty()) {
+            override.id = id;
+        } else if(override_json.count("id") != 0) {
+            override.id = override_json["id"].get<std::string>();
+        } else {
+            return Option<bool>(400, "Override `id` not provided.");
+        }
+
+        override.rule.query = override_json["rule"]["query"].get<std::string>();
+        override.rule.match = override_json["rule"]["match"].get<std::string>();
+
+        if (override_json.count("includes") != 0) {
+            for(const auto & include: override_json["includes"]) {
                 add_hit_t add_hit;
                 add_hit.doc_id = include["id"].get<std::string>();
                 add_hit.position = include["position"].get<uint32_t>();
-                add_hits.push_back(add_hit);
+                override.add_hits.push_back(add_hit);
             }
         }
 
-        if (override.count("excludes") != 0) {
-            for(const auto & exclude: override["excludes"]) {
+        if (override_json.count("excludes") != 0) {
+            for(const auto & exclude: override_json["excludes"]) {
                 drop_hit_t drop_hit;
                 drop_hit.doc_id = exclude["id"].get<std::string>();
-                drop_hits.push_back(drop_hit);
+                override.drop_hits.push_back(drop_hit);
             }
         }
+
+        return Option<bool>(true);
     }
 
     nlohmann::json to_json() const {

@@ -267,7 +267,7 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
                         return Option<bool>(403, "Forbidden.");
                     }
 
-                    // parent key's expiry timestamp always takes precedence
+                    // if parent key's expiry timestamp is smaller, it takes precedence
                     uint64_t expiry_ts = std::min(api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
 
                     if(std::time(0) > expiry_ts) {

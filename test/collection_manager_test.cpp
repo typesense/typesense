@@ -164,7 +164,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     override_json_include["includes"][1]["id"] = "3";
     override_json_include["includes"][1]["position"] = 2;
 
-    override_t override_include(override_json_include);
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
 
     nlohmann::json override_json = {
             {"id", "exclude-rule"},
@@ -182,19 +183,25 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     override_json["excludes"][1] = nlohmann::json::object();
     override_json["excludes"][1]["id"] = "11";
 
-    override_t override_exclude(override_json);
+    override_t override_exclude;
+    override_t::parse(override_json, "", override_exclude);
 
     nlohmann::json override_json_deleted = {
         {"id", "deleted-rule"},
         {
          "rule", {
-                       {"query", "of"},
-                       {"match", override_t::MATCH_EXACT}
-               }
+                   {"query", "of"},
+                   {"match", override_t::MATCH_EXACT}
+           }
         }
     };
 
-    override_t override_deleted(override_json_deleted);
+    override_json_deleted["excludes"] = nlohmann::json::array();
+    override_json_deleted["excludes"][0] = nlohmann::json::object();
+    override_json_deleted["excludes"][0]["id"] = "11";
+
+    override_t override_deleted;
+    override_t::parse(override_json_deleted, "", override_deleted);
 
     collection1->add_override(override_include);
     collection1->add_override(override_exclude);

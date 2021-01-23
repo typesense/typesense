@@ -1145,20 +1145,14 @@ bool put_override(http_req &req, http_res &res) {
         res.set_400("Bad JSON.");
         return false;
     }
-
-    // validate format of req_json
-    if(!req_json.is_object() ||
-        (req_json.count("rule") == 0) ||
-        (req_json["rule"].count("query") == 0 || req_json["rule"].count("match") == 0) ||
-        (req_json.count("includes") == 0 && req_json.count("excludes") == 0)
-        ) {
-        res.set_400("Bad JSON.");
+    
+    override_t override;
+    Option<bool> parse_op = override_t::parse(req_json, override_id, override);
+    if(!parse_op.ok()) {
+        res.set(parse_op.code(), parse_op.error());
         return false;
     }
-
-    req_json["id"] = override_id;
-
-    override_t override(req_json);
+    
     Option<uint32_t> add_op = collection->add_override(override);
 
     if(!add_op.ok()) {
