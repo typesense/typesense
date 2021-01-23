@@ -10,6 +10,7 @@
 #include "string_utils.h"
 #include "logger.h"
 #include "app_metrics.h"
+#include "config.h"
 
 #define H2O_USE_LIBUV 0
 extern "C" {
@@ -163,6 +164,8 @@ struct http_res {
 };
 
 struct http_req {
+    static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+
     h2o_req_t* _req;
     std::string http_method;
     std::string path_without_query;
@@ -218,6 +221,21 @@ struct http_req {
             std::string metric_identifier = http_method + " " + path_without_query;
 
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
+
+            // log slow request if logging is enabled
+            Config& config = Config::get_instance();
+            std::string query_string = "?";
+            for(const auto& kv: params) {
+                if(kv.first != AUTH_HEADER) {
+                    query_string += kv.first + "=" + kv.second + "&";
+                }
+            }
+
+            std::string full_url_path = metric_identifier + query_string;
+
+            if(config.get_log_slow_requests_time_ms() > 0 && int(ms_since_start) > config.get_log_slow_requests_time_ms()) {
+                LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) " << full_url_path;
+            }
         }
     }
 

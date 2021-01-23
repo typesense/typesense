@@ -62,8 +62,11 @@ void master_server_routes() {
     server->get("/health", get_health);
     server->post("/health", post_health);
     server->get("/sequence", get_log_sequence);
+
     server->post("/operations/snapshot", post_snapshot, false, true);
     server->post("/operations/vote", post_vote, false, false);
+
+    server->post("/config", post_config, false, false);
 }
 
 int main(int argc, char **argv) {
@@ -76,7 +79,7 @@ int main(int argc, char **argv) {
     je_zone_register();
     #endif
 
-    Config config;
+    Config& config = Config::get_instance();
 
     cmdline::parser options;
     init_cmdline_options(options, argc, argv);

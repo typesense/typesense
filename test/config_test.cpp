@@ -15,6 +15,13 @@ std::vector<char*> get_argv(std::vector<std::string> & args) {
     return argv;
 }
 
+class ConfigImpl : public Config {
+public:
+    ConfigImpl(): Config() {
+
+    }
+};
+
 TEST(ConfigTest, LoadCmdLineArguments) {
     cmdline::parser options;
 
@@ -30,7 +37,7 @@ TEST(ConfigTest, LoadCmdLineArguments) {
     init_cmdline_options(options, argv.size() - 1, argv.data());
     options.parse(argv.size() - 1, argv.data());
 
-    Config config;
+    ConfigImpl config;
     config.load_config_cmd_args(options);
 
     ASSERT_EQ("abcd", config.get_api_key());
@@ -42,7 +49,7 @@ TEST(ConfigTest, LoadEnvVars) {
     cmdline::parser options;
     putenv((char*)"TYPESENSE_DATA_DIR=/tmp/ts");
     putenv((char*)"TYPESENSE_LISTEN_PORT=9090");
-    Config config;
+    ConfigImpl config;
     config.load_config_env();
 
     ASSERT_EQ("/tmp/ts", config.get_data_dir());
@@ -50,14 +57,14 @@ TEST(ConfigTest, LoadEnvVars) {
 }
 
 TEST(ConfigTest, BadConfigurationReturnsError) {
-    Config config1;
+    ConfigImpl config1;
     config1.set_api_key("abcd");
     auto validation = config1.is_valid();
 
     ASSERT_EQ(false, validation.ok());
     ASSERT_EQ("Data directory is not specified.", validation.error());
 
-    Config config2;
+    ConfigImpl config2;
     config2.set_data_dir("/tmp/ts");
     validation = config2.is_valid();
 
@@ -76,7 +83,7 @@ TEST(ConfigTest, LoadConfigFile) {
     init_cmdline_options(options, argv.size() - 1, argv.data());
     options.parse(argv.size() - 1, argv.data());
 
-    Config config;
+    ConfigImpl config;
     config.load_config_file(options);
 
     auto validation = config.is_valid();
@@ -100,7 +107,7 @@ TEST(ConfigTest, LoadIncompleteConfigFile) {
     init_cmdline_options(options, argv.size() - 1, argv.data());
     options.parse(argv.size() - 1, argv.data());
 
-    Config config;
+    ConfigImpl config;
 
     auto validation = config.is_valid();
 
@@ -119,7 +126,7 @@ TEST(ConfigTest, LoadBadConfigFile) {
     init_cmdline_options(options, argv.size() - 1, argv.data());
     options.parse(argv.size() - 1, argv.data());
 
-    Config config;
+    ConfigImpl config;
     config.load_config_file(options);
 
     auto validation = config.is_valid();
@@ -148,7 +155,7 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     init_cmdline_options(options, argv.size() - 1, argv.data());
     options.parse(argv.size() - 1, argv.data());
 
-    Config config;
+    ConfigImpl config;
     config.load_config_env();
     config.load_config_file(options);
     config.load_config_cmd_args(options);

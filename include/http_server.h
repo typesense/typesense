@@ -164,7 +164,6 @@ public:
 
     std::string get_version();
 
-    static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";
     static constexpr const char* REQUEST_PROCEED_MESSAGE = "REQUEST_PROCEED";

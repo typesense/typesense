@@ -745,7 +745,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     if((page * per_page) > limit_hits) {
-        std::string message = "Only upto " + std::to_string(limit_hits) + " hits can be fetched.";
+        std::string message = "Only upto " + std::to_string(limit_hits) + " hits can be fetched. " +
+                "Ensure that `page` and `per_page` parameters are within this range.";
         return Option<nlohmann::json>(422, message);
     }
 
