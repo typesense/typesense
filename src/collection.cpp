@@ -512,7 +512,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<size_t> query_by_weights) {
+                                  std::vector<size_t> query_by_weights,
+                                  size_t limit_hits) {
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
@@ -740,6 +741,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     if(per_page > PER_PAGE_MAX) {
         std::string message = "Only upto " + std::to_string(PER_PAGE_MAX) + " hits can be fetched per page.";
+        return Option<nlohmann::json>(422, message);
+    }
+
+    if((page * per_page) > limit_hits) {
+        std::string message = "Only upto " + std::to_string(limit_hits) + " hits can be fetched.";
         return Option<nlohmann::json>(422, message);
     }
 
