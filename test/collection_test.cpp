@@ -2566,6 +2566,16 @@ TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<int>());
+
+    // enforce limit_hits
+    res_op = collection->search("*", query_fields, "", facets, sort_fields, 0, 10, 3,
+                                 FREQUENCY, false, 1000,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}, 20);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Only upto 20 hits can be fetched.", res_op.error().c_str());
 }
 
 TEST_F(CollectionTest, RemoveIfFound) {
