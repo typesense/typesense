@@ -52,16 +52,23 @@ public:
                 it++;
             }
 
+            std::vector<uint32_t> consolidated_ids;
             while(it != int64map.end()) {
-                uint32_t *out = nullptr;
-                uint32_t *val_ids = it->second->uncompress();
-                ids_len = ArrayUtils::or_scalar(val_ids, it->second->getLength(),
-                                                *ids, ids_len, &out);
-                delete [] val_ids;
-                delete [] *ids;
-                *ids = out;
+                for(size_t i = 0; i < it->second->getLength(); i++) {
+                    consolidated_ids.push_back(it->second->at(i));
+                }
                 it++;
             }
+
+            std::sort(consolidated_ids.begin(), consolidated_ids.end());
+
+            uint32_t *out = nullptr;
+            ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                            *ids, ids_len, &out);
+
+            delete [] *ids;
+            *ids = out;
+
         } else if(comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
             auto max_iter = int64map.lower_bound(value);  // iter values will be >= value
 
@@ -83,23 +90,29 @@ public:
                 }
             }
 
-            auto iter = int64map.begin();
+            std::vector<uint32_t> consolidated_ids;
+            auto it = int64map.begin();
 
             while(true) {
-                uint32_t* out = nullptr;
-                uint32_t* val_ids = iter->second->uncompress();
-                ids_len = ArrayUtils::or_scalar(val_ids, iter->second->getLength(),
-                                                *ids, ids_len, &out);
-                delete[] val_ids;
-                delete[] *ids;
-                *ids = out;
+                for(size_t i = 0; i < it->second->getLength(); i++) {
+                    consolidated_ids.push_back(it->second->at(i));
+                }
 
-                if(iter == max_iter) {
+                if(it == max_iter) {
                     break;
                 }
 
-                iter++;
+                it++;
             }
+
+            std::sort(consolidated_ids.begin(), consolidated_ids.end());
+
+            uint32_t *out = nullptr;
+            ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                            *ids, ids_len, &out);
+
+            delete [] *ids;
+            *ids = out;
         }
     }
 

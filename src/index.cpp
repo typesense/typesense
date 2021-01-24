@@ -1692,8 +1692,8 @@ void Index::search_field(const uint8_t & field_id,
                 const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
-                // If this is a prefix search, look for more candidates and do a union of those document IDs
-                const int max_candidates = prefix_search ? 10 : 3;
+                // need less candidates for filtered searches since we already only pick tokens with results
+                const int max_candidates = (filter_ids_length == 0) ? 10 : 3;
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                  filter_ids, filter_ids_length, leaves);
