@@ -93,15 +93,6 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 }
 
 int init_logger(Config & config, const std::string & server_version) {
-    signal(SIGABRT, StackPrinter::bt_sighandler);
-    signal(SIGFPE, StackPrinter::bt_sighandler);
-    signal(SIGILL, StackPrinter::bt_sighandler);
-    signal(SIGSEGV, StackPrinter::bt_sighandler);
-
-    // we can install new signal handlers only after overriding above
-    signal(SIGINT, catch_interrupt);
-    signal(SIGTERM, catch_interrupt);
-
     google::InitGoogleLogging("typesense");
 
     std::string log_dir = config.get_log_dir();

@@ -1,6 +1,8 @@
 #include "typesense_server_utils.h"
 #include "core_api.h"
 #include "config.h"
+#include "stackprinter.h"
+#include "backward.hpp"
 
 extern "C" {
 #include "jemalloc.h"
@@ -105,6 +107,19 @@ int main(int argc, char **argv) {
     if(ret_code != 0) {
         return ret_code;
     }
+
+#ifdef __APPLE__
+    signal(SIGABRT, StackPrinter::bt_sighandler);
+    signal(SIGFPE, StackPrinter::bt_sighandler);
+    signal(SIGILL, StackPrinter::bt_sighandler);
+    signal(SIGSEGV, StackPrinter::bt_sighandler);
+#elif __linux__
+    backward::SignalHandling sh;
+#endif
+
+    // we can install new signal handlers only after overriding above
+    signal(SIGINT, catch_interrupt);
+    signal(SIGTERM, catch_interrupt);
 
     return run_server(config, TYPESENSE_VERSION, &master_server_routes);
 }
