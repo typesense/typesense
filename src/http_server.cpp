@@ -517,12 +517,15 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
                                 const h2o_custom_req_handler_t *handler) {
 
     //LOG(INFO) << "process_request called";
-    bool operations_path = (rpath->path_parts.size() != 0 && rpath->path_parts[0] == "operations");
 
-    //LOG(INFO) << "operations_path: " << operations_path;
+    // some end-points use POST but don't really need raft log persistence
+    bool write_free_request = (!rpath->path_parts.empty()) &&
+             (rpath->path_parts[0] == "operations" || rpath->path_parts[0] == "multi_search");
+
+    //LOG(INFO) << "write_free_request: " << write_free_request;
 
     // for writes, we delegate to replication_state to handle response
-    if(!operations_path &&
+    if(!write_free_request &&
        (rpath->http_method == "POST" || rpath->http_method == "PUT" ||
         rpath->http_method == "DELETE" || rpath->http_method == "PATCH")) {
         handler->http_server->get_replication_state()->write(request, response);

@@ -127,4 +127,7 @@ public:
 
     bool auth_against_key(const std::string &collection, const std::string& action,
                           const api_key_t &api_key, const bool search_only) const;
+
+    static bool populate_req_params(std::map<std::string, std::string> &req_params,
+                                    nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item);
 };

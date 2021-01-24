@@ -145,17 +145,17 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
         }
 
         // enrich params with values from embedded_params
-        for(auto it = embedded_params.begin(); it != embedded_params.end(); ++it) {
-            if(it.key() == "expires_at") {
+        for(auto& item: embedded_params.items()) {
+            if(item.key() == "expires_at") {
                 continue;
             }
 
-            if(params.count(it.key()) == 0) {
-                params[it.key()] = it.value();
-            } else if(it.key() == "filter_by") {
-                params[it.key()] = params[it.key()] + "&&" + it.value().get<std::string>();
+            if(params.count(item.key()) == 0) {
+                AuthManager::populate_req_params(params, item);
+            } else if(item.key() == "filter_by") {
+                params[item.key()] = params[item.key()] + "&&" + item.value().get<std::string>();
             } else {
-                params[it.key()] = it.value();
+                AuthManager::populate_req_params(params, item);
             }
         }
 
@@ -327,4 +327,23 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
 
     return Option<uint32_t>(200);
 }
+
+
+bool AuthManager::populate_req_params(std::map<std::string, std::string>& req_params,
+                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item) {
+    if(item.value().is_string()) {
+        req_params[item.key()] = item.value();
+    } else if(item.value().is_number_integer()) {
+        req_params[item.key()] = std::to_string(item.value().get<int64_t>());
+    } else if(item.value().is_number_float()) {
+        req_params[item.key()] = std::to_string(item.value().get<float>());
+    } else if(item.value().is_boolean()) {
+        req_params[item.key()] = item.value().get<bool>() ? "true" : "false";
+    } else {
+        return false;
+    }
+
+    return true;
+}
+
 

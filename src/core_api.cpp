@@ -303,7 +303,7 @@ bool post_multi_search(http_req& req, http_res& res) {
     response["results"] = nlohmann::json::array();
 
     // we have to ensure that `req_json` is a flat <string, string> map
-    for(const auto& search: req_json["searches"]) {
+    for(auto& search: req_json["searches"]) {
         if(!search.is_object()) {
             res.set_400("The value of `searches` must be an array of objects.");
             return false;
@@ -311,13 +311,12 @@ bool post_multi_search(http_req& req, http_res& res) {
 
         req.params = orig_req_params;
 
-        for(const auto& item: search.items()) {
-            if(!item.value().is_string()) {
+        for(auto& item: search.items()) {
+            bool populated = AuthManager::populate_req_params(req.params, item);
+            if(!populated) {
                 res.set_400("One or more search parameters are malformed.");
                 return false;
             }
-
-            req.params[item.key()] = item.value();
         }
 
         std::string results_json_str;
