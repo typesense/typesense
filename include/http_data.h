@@ -339,6 +339,11 @@ struct route_path {
 
         resource = path_parts[resource_index];
 
+        // special case to maintain semantics and backward compatibility
+        if(resource == "multi_search") {
+            return "documents:search";
+        }
+
         if(resource_index != path_parts.size() - 1 && path_parts[resource_index+1][0] != ':') {
             // e.g. /collections/:collection/documents/search
             operation = path_parts[resource_index+1];
@@ -354,6 +359,8 @@ struct route_path {
                 operation = "upsert";
             } else if(http_method == "DELETE") {
                 operation = "delete";
+            } else if(http_method == "PATCH") {
+                operation = "update";
             } else {
                 operation = "unknown";
             }
