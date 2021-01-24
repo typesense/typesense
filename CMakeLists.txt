@@ -3,7 +3,7 @@ project(typesense)
 
 cmake_policy(SET CMP0074 NEW)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -Wno-unused-parameter -O2 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -Wno-unused-parameter -O2 -g -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -std=c++11 -O0 -g")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
@@ -30,7 +30,9 @@ if (APPLE)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
     set(CMAKE_PREFIX_PATH /usr/local/opt/curl-openssl /usr/local/opt/icu4c)
-endif (APPLE)
+else()
+    add_compile_definitions(BACKWARD_HAS_DW=1)
+endif()
 
 # Ensure that we only use the static versions of libraries to link against
 # You can't statically link a shared library (or dynamically link a static library)
@@ -127,7 +129,7 @@ if (APPLE)
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
-    set(SYSTEM_LIBS "")
+    set(SYSTEM_LIBS dw elf z)
     list(APPEND ROCKSDB_LIBS rt)
 endif()
 

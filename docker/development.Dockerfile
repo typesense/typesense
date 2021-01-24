@@ -16,6 +16,11 @@ RUN apt-get install -y python-software-properties \
 	libidn11 \
 	git
 
+ADD https://gcc.gnu.org/pub/binutils/snapshots/binutils-2.30.0.tar.xz /opt/binutils-2.30.0.tar.xz
+RUN tar -C /opt -xf /opt/binutils-2.30.0.tar.xz
+RUN cd /opt/binutils-2.30.0 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
+    make -j8 tooldir=/usr install && cp include/libiberty.h /usr/include
+
 ADD https://github.com/Kitware/CMake/releases/download/v3.15.2/cmake-3.15.2-Linux-x86_64.tar.gz /opt/cmake-3.15.2-Linux-x86_64.tar.gz
 RUN tar -C /opt -xvzf /opt/cmake-3.15.2-Linux-x86_64.tar.gz
 RUN cp -r /opt/cmake-3.15.2-Linux-x86_64/* /usr
@@ -85,6 +90,13 @@ RUN mkdir -p /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j8 && \
     make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld/output/bin
+
+ADD https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2 /opt/elfutils-0.182.tar.bz2
+RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
+RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod && \
+    make -j8 && make install && rm -rf /usr/local/lib/*.so*
+
+RUN rm -rf /lib/libz.so.1.2.3.3 /usr/lib/libz.so /usr/lib64/libz.so
 
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++
