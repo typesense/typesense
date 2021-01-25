@@ -750,11 +750,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         return Option<nlohmann::json>(422, message);
     }
 
-    size_t max_hits;
+    size_t max_hits = 250;
 
     // ensure that `max_hits` never exceeds number of documents in collection
     if(search_fields.size() <= 1 || query == "*") {
-        max_hits = std::min((page * per_page), get_num_documents());
+        max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
     } else {
         max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
     }
@@ -1026,7 +1026,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 wrapper_doc["highlights"].push_back(h_json);
             }
 
-            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+            wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
             prune_document(document, include_fields, exclude_fields);
             wrapper_doc["document"] = document;
