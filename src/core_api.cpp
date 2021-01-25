@@ -297,6 +297,18 @@ bool post_multi_search(http_req& req, http_res& res) {
         return false;
     }
 
+    const char* LIMIT_MULTI_SEARCHES = "limit_multi_searches";
+    size_t limit_multi_searches = 50;
+
+    if(req.params.count(LIMIT_MULTI_SEARCHES) != 0 && StringUtils::is_uint32_t(req.params[LIMIT_MULTI_SEARCHES])) {
+        limit_multi_searches = std::stoi(req.params[LIMIT_MULTI_SEARCHES]);
+    }
+
+    if(req_json["searches"].size() > limit_multi_searches) {
+        res.set_400(std::string("Number of multi searches exceeds `") + LIMIT_MULTI_SEARCHES + "` parameter.");
+        return false;
+    }
+
     auto orig_req_params = req.params;
 
     nlohmann::json response;
