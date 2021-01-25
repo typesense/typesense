@@ -117,7 +117,8 @@ target_compile_definitions(
     TYPESENSE_VERSION="${TYPESENSE_VERSION}"
 )
 
-set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES} ${ZLIB_LIBRARIES})
+set(ROCKSDB_LIBS rocksdb ${SNAPPY_LIBRARIES})
+set(STACKTRACE_LIBS "")
 
 if (APPLE)
     set(STD_LIB "") # https://stackoverflow.com/a/26543140/131050 (can't statically link libgcc on Mac)
@@ -129,16 +130,16 @@ if (APPLE)
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
-    set(SYSTEM_LIBS dw elf z)
     list(APPEND ROCKSDB_LIBS rt)
+    list(APPEND STACKTRACE_LIBS dw elf)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS h2o-evloop iconv ${CURL_LIBRARIES} for ${ICU_ALL_LIBRARIES} ${G3LOGGER_LIBRARIES}
-              ${ROCKSDB_LIBS} ${OPENSSL_LIBRARIES} pthread dl ${STD_LIB})
-
-set(CORE_LIBS ${JEMALLOC_LIBRARIES} braft brpc ${LevelDB_LIBRARIES} glog
-              ${CORE_LIBS} ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${SYSTEM_LIBS})
+set(CORE_LIBS h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for
+              ${LevelDB_LIBRARIES} ${ROCKSDB_LIBS}
+              glog ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${STACKTRACE_LIBS}
+              ${OPENSSL_LIBRARIES} ${ZLIB_LIBRARIES} ${JEMALLOC_LIBRARIES}
+              ${SYSTEM_LIBS} pthread dl ${STD_LIB})
 
 target_link_libraries(typesense-server ${CORE_LIBS})
 target_link_libraries(search ${CORE_LIBS})
