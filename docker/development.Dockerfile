@@ -96,7 +96,5 @@ RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
 RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod && \
     make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
-RUN rm -rf /lib/libz.so.1.2.3.3 /usr/lib/libz.so /usr/lib64/libz.so
-
 ENV CC /usr/local/gcc-6.4.0/bin/gcc
 ENV CXX /usr/local/gcc-6.4.0/bin/g++

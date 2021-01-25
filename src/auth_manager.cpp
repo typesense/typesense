@@ -175,7 +175,7 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
 bool AuthManager::auth_against_key(const std::string& collection, const std::string& action,
                                    const api_key_t& api_key, const bool search_only) const {
 
-    if(std::time(0) > api_key.expires_at) {
+    if(uint64_t(std::time(0)) > api_key.expires_at) {
         LOG(ERROR) << fmt_error("Rejecting expired API key.", api_key.value);
         return false;
     }
@@ -270,7 +270,7 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
                     // if parent key's expiry timestamp is smaller, it takes precedence
                     uint64_t expiry_ts = std::min(api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
 
-                    if(std::time(0) > expiry_ts) {
+                    if(uint64_t(std::time(0)) > expiry_ts) {
                         LOG(ERROR) << fmt_error("Scoped API key has expired. ", api_key.value);
                         return Option<bool>(403, "Forbidden.");
                     }
