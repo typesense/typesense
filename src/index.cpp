@@ -1787,10 +1787,11 @@ int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) 
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
-    LOG(INFO) << "Token: " << token << ", cost: " << cost;
+    LOG(INFO) << "Index: " << name << ", token: " << token << ", cost: " << cost;
 
     for(size_t i=0; i < leaves.size(); i++) {
-        printf("%.*s - %d, ", leaves[i]->key_len, leaves[i]->key, leaves[i]->values->ids.getLength());
+        std::string key((char*)leaves[i]->key, leaves[i]->key_len);
+        LOG(INFO) << key << " - " << leaves[i]->values->ids.getLength();
         LOG(INFO) << "frequency: " << leaves[i]->values->ids.getLength() << ", max_score: " << leaves[i]->max_score;
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
             LOG(INFO) << "id: " << leaves[i]->values->ids.at(j);
