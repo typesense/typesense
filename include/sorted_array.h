@@ -31,13 +31,22 @@ private:
     uint32_t lower_bound_search_bits(const uint8_t *in, uint32_t imin, uint32_t imax, uint32_t base,
                                      uint32_t bits, uint32_t value, uint32_t *actual);
 
+    uint32_t lower_bound_search(const uint32_t *in, uint32_t imin, uint32_t imax,
+                                uint32_t value, uint32_t *actual);
+
     void binary_search_indices(const uint32_t *values, int low_vindex, int high_vindex,
                                int low_index, int high_index, uint32_t base, uint32_t bits,
                                uint32_t *indices);
 
+    void binary_search_indices(const uint32_t *values, int low_vindex, int high_vindex,
+                               int low_index, int high_index, uint32_t *indices);
+
     void binary_count_indices(const uint32_t *values, int low_vindex, int high_vindex,
                               int low_index, int high_index, uint32_t base, uint32_t bits,
                               size_t& num_found);
+
+    void binary_count_indices(const uint32_t *values, int low_vindex, int high_vindex,
+                              const uint32_t* src, int low_index, int high_index, size_t& num_found);
 
 public:
 
