@@ -952,6 +952,8 @@ void Index::search_candidates(const uint8_t & field_id,
 }
 
 Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {
+    //auto begin = std::chrono::high_resolution_clock::now();
+
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
 
@@ -1137,6 +1139,11 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
         }
     }
 
+    /*long long int timeMillis =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+
+    LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
+
     *filter_ids_out = filter_ids;
     return Option<>(filter_ids_length);
 }
@@ -1319,6 +1326,8 @@ void Index::search(Option<uint32_t> & outcome,
                    std::vector<std::vector<KV*>> & override_result_kvs,
                    const size_t typo_tokens_threshold) {
 
+    //auto begin = std::chrono::high_resolution_clock::now();
+
     // process the filters
 
     uint32_t* filter_ids = nullptr;
@@ -1447,6 +1456,8 @@ void Index::search(Option<uint32_t> & outcome,
             }
             q_pos_synonyms.emplace_back(q_pos_syn);
         }
+
+        //begin = std::chrono::high_resolution_clock::now();
 
         // non-wildcard
         for(size_t i = 0; i < num_search_fields; i++) {
@@ -1603,8 +1614,8 @@ void Index::search(Option<uint32_t> & outcome,
         delete ftopster;
     }
 
-    //long long int timeMillis = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
-    //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
+    //long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+    //LOG(INFO) << "Time taken for result calc: " << timeMillis << "ms";
 
     outcome = Option<uint32_t>(1);
 }

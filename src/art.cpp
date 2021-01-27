@@ -1421,7 +1421,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     //long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size();
 
-    //begin = std::chrono::high_resolution_clock::now();
+    //auto begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
         art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, results);
@@ -1433,8 +1433,14 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         std::sort(results.begin(), results.end(), compare_art_leaf_score);
     }
 
-    //time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
-    //!LOG(INFO) << "Time taken for art_topk_iter: " << time_micro << "us";
+    /*auto time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
+
+    if(time_micro > 1000) {
+        LOG(INFO) << "Time taken for art_topk_iter: " << time_micro
+                  << "us, size of nodes: " << nodes.size()
+                  << ", filter_ids_length: " << filter_ids_length;
+    }*/
+
     return 0;
 }
 
