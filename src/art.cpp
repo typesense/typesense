@@ -1372,7 +1372,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
     if(n->partial_len > MAX_PREFIX_LEN) {
         // some intermediate path has been left out, so we have to "progress" the levenshtein matrix
-        while(partial_len++ < n->partial_len) {
+        while(partial_len++ < n->partial_len && depth < term_len) {
             c = term[depth];
             temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             rotate(i, j, k);
