@@ -432,6 +432,21 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
 
+    // empty facet query value should return all facets without any filtering of facets
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "tags: ").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+
+    results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "tags:").get();
+
+    ASSERT_EQ(5, results["hits"].size());
+
     // bad facet query syntax
     auto res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                             false, Index::DROP_TOKENS_THRESHOLD,
@@ -467,6 +482,15 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Facet query refers to a facet field `name_facet` that is not part of `facet_by` parameter.", res_op.error().c_str());
+
+    // facet query with multiple colons
+    res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
+                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10, "tags:foo:bar");
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Facet query must be in the `facet_field: value` format.", res_op.error().c_str());
 
     collectionManager.drop_collection("coll_array_fields");
 }

@@ -664,17 +664,25 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             return Option<nlohmann::json>(400, error);
         }
 
-        // facet query field must be part of facet fields requested
-        facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
-        if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
-            std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
-                                "that is not part of `facet_by` parameter.";
+        if(facet_query_vec.size() == 1) {
+            // empty facet value, we will treat it as no facet query
+            facet_query = {"", ""};
+        } else if(facet_query_vec.size() > 2) {
+            std::string error = "Facet query must be in the `facet_field: value` format.";
             return Option<nlohmann::json>(400, error);
-        }
+        } else {
+            // facet query field must be part of facet fields requested
+            facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
+            if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
+                std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
+                                    "that is not part of `facet_by` parameter.";
+                return Option<nlohmann::json>(400, error);
+            }
 
-        if(facet_schema.count(facet_query.field_name) == 0) {
-            std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
-            return Option<nlohmann::json>(404, error);
+            if(facet_schema.count(facet_query.field_name) == 0) {
+                std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
+                return Option<nlohmann::json>(404, error);
+            }
         }
     }
 
