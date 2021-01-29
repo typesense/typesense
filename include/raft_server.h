@@ -76,12 +76,12 @@ public:
 class OnDemandSnapshotClosure : public braft::Closure {
 private:
     ReplicationState* replication_state;
-    http_req& req;
-    http_res& res;
+    http_req* req;
+    http_res* res;
 
 public:
 
-    OnDemandSnapshotClosure(ReplicationState* replication_state, http_req& req, http_res& res):
+    OnDemandSnapshotClosure(ReplicationState* replication_state, http_req* req, http_res* res):
     replication_state(replication_state), req(req), res(res) {}
 
     ~OnDemandSnapshotClosure() {}
@@ -187,6 +187,8 @@ public:
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
     const std::string& get_ext_snapshot_path() const;
+
+    http_message_dispatcher* get_message_dispatcher() const;
 
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
