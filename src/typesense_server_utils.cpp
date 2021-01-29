@@ -191,8 +191,9 @@ const char* get_internal_ip() {
         if (ifa->ifa_addr && ifa->ifa_addr->sa_family==AF_INET) {
             auto sa = (struct sockaddr_in *) ifa->ifa_addr;
             if(is_private_ip(ntohl(sa->sin_addr.s_addr))) {
+                char *ip = inet_ntoa(sa->sin_addr);
                 freeifaddrs(ifap);
-                return inet_ntoa(sa->sin_addr);
+                return ip;
             }
         }
     }

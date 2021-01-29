@@ -112,6 +112,7 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     if (res != CURLE_OK) {
         LOG(ERROR) << "CURL failed. Code: " << res << ", strerror: " << curl_easy_strerror(res);
         curl_easy_cleanup(curl);
+        curl_slist_free_all(chunk);
         return 500;
     }
 
@@ -119,7 +120,9 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
 
     extract_response_headers(curl, res_headers);
+
     curl_easy_cleanup(curl);
+    curl_slist_free_all(chunk);
 
     return http_code == 0 ? 500 : http_code;
 }
@@ -283,6 +286,11 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
 
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETFUNCTION, HttpClient::curl_write_async_done);
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETDATA, req_res);
+
+    // This is okay as per [docs](http://curl.haxx.se/libcurl/c/curl_easy_setopt.html)
+    // Strings passed to libcurl as 'char *' arguments, are copied by the library; thus the string storage
+    // associated to the pointer argument may be overwritten after curl_easy_setopt() returns.
+    curl_slist_free_all(chunk);
 
     return curl;
 }

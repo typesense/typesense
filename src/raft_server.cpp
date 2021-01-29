@@ -565,9 +565,12 @@ uint64_t ReplicationState::node_state() const {
 
 void ReplicationState::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
     LOG(INFO) << "Triggerring an on demand snapshot...";
-    OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
-    ext_snapshot_path = snapshot_path;
-    node->snapshot(snapshot_closure);
+
+    thread_pool->enqueue([&snapshot_path, &req, &res, this]() {
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, &req, &res);
+        ext_snapshot_path = snapshot_path;
+        node->snapshot(snapshot_closure);
+    });
 }
 
 void ReplicationState::set_ext_snapshot_path(const std::string& snapshot_path) {
@@ -605,6 +608,10 @@ bool ReplicationState::trigger_vote() {
     return false;
 }
 
+http_message_dispatcher* ReplicationState::get_message_dispatcher() const {
+    return message_dispatcher;
+}
+
 void InitSnapshotClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<InitSnapshotClosure> self_guard(this);
@@ -624,8 +631,9 @@ void OnDemandSnapshotClosure::Run() {
 
     replication_state->set_ext_snapshot_path("");
 
-    req.last_chunk_aggregate = true;
-    res.final = true;
+    req->last_chunk_aggregate = true;
+    res->final = true;
+    res->auto_dispose = false;
 
     nlohmann::json response;
     uint32_t status_code;
@@ -641,8 +649,17 @@ void OnDemandSnapshotClosure::Run() {
         response["error"] = status().error_str();
     }
 
-    res.status_code = status_code;
-    res.body = response.dump();
+    res->status_code = status_code;
+    res->body = response.dump();
 
-    HttpServer::stream_response(req, res);
+    deferred_req_res_t* req_res = new deferred_req_res_t{req, res, nullptr};
+    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
+
+    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+
+    // wait for response to be sent
+    req_res->res->await.wait();
+
+    delete req;
+    delete res;
 }
