@@ -25,6 +25,32 @@ public:
         int64map[value]->append(id);
     }
 
+    void range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len) {
+        if(int64map.empty()) {
+            return ;
+        }
+
+        auto it_start = int64map.lower_bound(start);  // iter values will be >= start
+
+        std::vector<uint32_t> consolidated_ids;
+        while(it_start != int64map.end() && it_start->first <= end) {
+            for(size_t i = 0; i < it_start->second->getLength(); i++) {
+                consolidated_ids.push_back(it_start->second->at(i));
+            }
+
+            it_start++;
+        }
+
+        std::sort(consolidated_ids.begin(), consolidated_ids.end());
+
+        uint32_t *out = nullptr;
+        ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
+                                        *ids, ids_len, &out);
+
+        delete [] *ids;
+        *ids = out;
+    }
+
     void search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len) {
         if(int64map.empty()) {
             return ;

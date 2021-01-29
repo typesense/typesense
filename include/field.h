@@ -102,6 +102,26 @@ struct filter {
     std::vector<std::string> values;
     std::vector<NUM_COMPARATOR> comparators;
 
+    static const std::string RANGE_OPERATOR() {
+        return "..";
+    }
+
+    static Option<bool> validate_numerical_filter_value(field _field, const std::string& raw_value) {
+        if(_field.is_int32() && !StringUtils::is_int32_t(raw_value)) {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
+        }
+
+        else if(_field.is_int64() && !StringUtils::is_int64_t(raw_value)) {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+        }
+
+        else if(_field.is_float() && !StringUtils::is_float(raw_value)) {
+            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+        }
+
+        return Option<bool>(true);
+    }
+
     static Option<NUM_COMPARATOR> extract_num_comparator(std::string & comp_and_value) {
         auto num_comparator = EQUALS;
 
@@ -124,6 +144,10 @@ struct filter {
 
         else if(comp_and_value.compare(0, 1, ">") == 0) {
             num_comparator = GREATER_THAN;
+        }
+
+        else if(comp_and_value.find("..") != std::string::npos) {
+            num_comparator = RANGE_INCLUSIVE;
         }
 
         else {
