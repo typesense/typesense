@@ -1800,26 +1800,28 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                         return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
                     }
 
-                    if(_field.is_int32()) {
-                        if(!StringUtils::is_int32_t(filter_value)) {
-                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
-                        }
-                    }
+                    if(op_comparator.get() == RANGE_INCLUSIVE) {
+                        // split the value around range operator to extract bounds
+                        std::vector<std::string> range_values;
+                        StringUtils::split(filter_value, range_values, filter::RANGE_OPERATOR());
+                        for(const std::string& range_value: range_values) {
+                            auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
+                            if(!validate_op.ok()) {
+                                return validate_op;
+                            }
 
-                    else if(_field.is_int64()) {
-                        if(!StringUtils::is_int64_t(filter_value)) {
-                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
+                            f.values.push_back(range_value);
+                            f.comparators.push_back(op_comparator.get());
                         }
-                    }
-
-                    else if(_field.is_float()) {
-                        if(!StringUtils::is_float(filter_value)) {
-                            return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                    } else {
+                        auto validate_op = filter::validate_numerical_filter_value(_field, filter_value);
+                        if(!validate_op.ok()) {
+                            return validate_op;
                         }
-                    }
 
-                    f.values.push_back(filter_value);
-                    f.comparators.push_back(op_comparator.get());
+                        f.values.push_back(filter_value);
+                        f.comparators.push_back(op_comparator.get());
+                    }
                 }
 
             } else {
@@ -1828,25 +1830,28 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                     return Option<bool>(400, "Error with filter field `" + _field.name + "`: " + op_comparator.error());
                 }
 
-                if(_field.is_int32()) {
-                    if(!StringUtils::is_int32_t(raw_value)) {
-                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int32.");
-                    }
-                }
+                if(op_comparator.get() == RANGE_INCLUSIVE) {
+                    // split the value around range operator to extract bounds
+                    std::vector<std::string> range_values;
+                    StringUtils::split(raw_value, range_values, filter::RANGE_OPERATOR());
 
-                else if(_field.is_int64()) {
-                    if(!StringUtils::is_int64_t(raw_value)) {
-                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not an int64.");
-                    }
-                }
+                    f.field_name = field_name;
+                    for(const std::string& range_value: range_values) {
+                        auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
+                        if(!validate_op.ok()) {
+                            return validate_op;
+                        }
 
-                else if(_field.is_float()) {
-                    if(!StringUtils::is_float(raw_value)) {
-                        return Option<bool>(400, "Error with filter field `" + _field.name + "`: Not a float.");
+                        f.values.push_back(range_value);
+                        f.comparators.push_back(op_comparator.get());
                     }
+                } else {
+                    auto validate_op = filter::validate_numerical_filter_value(_field, raw_value);
+                    if(!validate_op.ok()) {
+                        return validate_op;
+                    }
+                    f = {field_name, {raw_value}, {op_comparator.get()}};
                 }
-
-                f = {field_name, {raw_value}, {op_comparator.get()}};
             }
         } else if(_field.is_bool()) {
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {

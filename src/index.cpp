@@ -977,29 +977,36 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
         if(f.is_integer()) {
             auto num_tree = numerical_index.at(a_filter.field_name);
 
-            size_t value_index = 0;
-            for(const std::string & filter_value: a_filter.values) {
-                if(f.type == field_types::INT32 || f.type == field_types::INT32_ARRAY) {
-                    // check for comparator again
-                    int32_t value = (int32_t) std::stoi(filter_value);
-                    num_tree->search(a_filter.comparators[value_index], value, &result_ids, result_ids_len);
-                } else { // int64
-                    int64_t value = (int64_t) std::stol(filter_value);
-                    num_tree->search(a_filter.comparators[value_index], value, &result_ids, result_ids_len);
-                }
+            for(size_t fi=0; fi < a_filter.values.size(); fi++) {
+                const std::string & filter_value = a_filter.values[fi];
+                int64_t value = (int64_t) std::stol(filter_value);
 
-                value_index++;
+                if(a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                    const std::string& next_filter_value = a_filter.values[fi+1];
+                    int64_t range_end_value = (int64_t) std::stol(next_filter_value);
+                    num_tree->range_inclusive_search(value, range_end_value, &result_ids, result_ids_len);
+                    fi++;
+                } else {
+                    num_tree->search(a_filter.comparators[fi], value, &result_ids, result_ids_len);
+                }
             }
 
         } else if(f.is_float()) {
             auto num_tree = numerical_index.at(a_filter.field_name);
 
-            size_t value_index = 0;
-            for(const std::string & filter_value: a_filter.values) {
+            for(size_t fi=0; fi < a_filter.values.size(); fi++) {
+                const std::string & filter_value = a_filter.values[fi];
                 float value = (float) std::atof(filter_value.c_str());
                 int64_t float_int64 = float_to_in64_t(value);
-                num_tree->search(a_filter.comparators[value_index], float_int64, &result_ids, result_ids_len);
-                value_index++;
+
+                if(a_filter.comparators[fi] == RANGE_INCLUSIVE && fi+1 < a_filter.values.size()) {
+                    const std::string& next_filter_value = a_filter.values[fi+1];
+                    int64_t range_end_value = float_to_in64_t((float) std::atof(next_filter_value.c_str()));
+                    num_tree->range_inclusive_search(float_int64, range_end_value, &result_ids, result_ids_len);
+                    fi++;
+                } else {
+                    num_tree->search(a_filter.comparators[fi], float_int64, &result_ids, result_ids_len);
+                }
             }
 
         } else if(f.is_bool()) {
