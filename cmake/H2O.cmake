@@ -22,8 +22,10 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/libh2o-evloop.a)
                     WORKING_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME})
 
     execute_process(COMMAND ${CMAKE_COMMAND}
-            "-DCMAKE_FIND_LIBRARY_SUFFIXES=.a"
-            "-DWITH_MRUBY=off"
+            -DCMAKE_FIND_LIBRARY_SUFFIXES=.a
+            -DCMAKE_CXX_FLAGS="-DNDEBUG"
+            -DCMAKE_C_FLAGS="-DNDEBUG"
+            -DWITH_MRUBY=off
             "-H${DEP_ROOT_DIR}/${H2O_NAME}"
             "-B${DEP_ROOT_DIR}/${H2O_NAME}/build"
             RESULT_VARIABLE

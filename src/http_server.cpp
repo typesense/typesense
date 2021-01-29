@@ -26,6 +26,8 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     signal(SIGPIPE, SIG_IGN);
     h2o_context_init(&ctx, h2o_evloop_create(), &config);
 
+    ctx.globalconf->server_name.base = nullptr;  // initialized later
+
     message_dispatcher = new http_message_dispatcher;
     message_dispatcher->init(ctx.loop);
 
@@ -462,18 +464,28 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     //          << ", is_end_stream=" << is_end_stream;
 
     //LOG(INFO) << "request->body.size(): " << request->body.size() << ", request->chunk_len=" << request->chunk_len;
-
-    size_t CHUNK_LIMIT = 0;
-    if(request->is_http_v1()) {
-        CHUNK_LIMIT = ACTIVE_STREAM_WINDOW_SIZE;
-    } else {
-        // For http v2, first window will include both initial request entity and as well as chunks.
-        CHUNK_LIMIT = request->first_chunk_aggregate ?
-                      (ACTIVE_STREAM_WINDOW_SIZE - request->_req->entity.len) : ACTIVE_STREAM_WINDOW_SIZE;
-    }
+    // LOG(INFO) << "req->entity.len: " << request->_req->entity.len << ", request->chunk_len=" << request->chunk_len;
 
     bool async_req = custom_generator->rpath->async_req;
-    bool can_process_async = async_req && (request->chunk_len >= CHUNK_LIMIT);
+
+    /*
+        On HTTP2, the request body callback is invoked multiple times with chunks of 16,384 bytes until the
+        `active_stream_window_size` is reached. For the first iteration, `active_stream_window_size`
+        includes initial request entity size and as well as chunk sizes
+
+        On HTTP 1, though, the handler is called only once with a small chunk size and requires process_req() to
+        be called for fetching further chunks. We need to handle this difference.
+    */
+
+    bool exceeds_chunk_limit;
+
+    if(!request->is_http_v1() && request->first_chunk_aggregate) {
+        exceeds_chunk_limit = ((request->chunk_len + request->_req->entity.len) >= ACTIVE_STREAM_WINDOW_SIZE);
+    } else {
+        exceeds_chunk_limit = (request->chunk_len >= ACTIVE_STREAM_WINDOW_SIZE);
+    }
+
+    bool can_process_async = async_req && exceeds_chunk_limit;
 
     /*if(is_end_stream == 1) {
         LOG(INFO) << "is_end_stream=1";
@@ -775,8 +787,10 @@ HttpServer::~HttpServer() {
 
     h2o_context_dispose(&ctx);
 
-    free(ctx.globalconf->server_name.base);
-    ctx.globalconf->server_name.base = nullptr;
+    if(ctx.globalconf->server_name.base != nullptr) {
+        free(ctx.globalconf->server_name.base);
+        ctx.globalconf->server_name.base = nullptr;
+    }
 
     h2o_evloop_destroy(ctx.loop);
     h2o_config_dispose(&config);
