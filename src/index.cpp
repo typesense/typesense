@@ -647,7 +647,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
     struct facet_info_t {
         // facet hash => token position in the query
-        spp::sparse_hash_map<uint64_t, token_pos_cost_t> fhash_qtoken_pos;
+        std::unordered_map<uint64_t, token_pos_cost_t> fhash_qtoken_pos;
 
         bool use_facet_query = false;
         bool should_compute_stats = false;
@@ -743,7 +743,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             bool fvalue_found = false;
             uint64_t combined_hash = 1;  // for hashing the entire facet value (multiple tokens)
 
-            spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_positions;
+            std::unordered_map<uint32_t, token_pos_cost_t> query_token_positions;
             size_t field_token_index = -1;
 
             for(size_t j = 0; j < fhashes.size(); j++) {
@@ -760,13 +760,15 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         compute_facet_stats(a_facet, ftoken_hash, facet_field.type);
                     }
 
+                    const auto fhash_qtoken_pos_it = fhash_qtoken_pos.find(ftoken_hash);
+
                     // not using facet query or this particular facet value is found in facet filter
-                    if(!use_facet_query || fhash_qtoken_pos.find(ftoken_hash) != fhash_qtoken_pos.end()) {
+                    if(!use_facet_query || fhash_qtoken_pos_it != fhash_qtoken_pos.end()) {
                         fvalue_found = true;
 
                         if(use_facet_query) {
                             // map token index to query index (used for highlighting later on)
-                            token_pos_cost_t qtoken_pos = fhash_qtoken_pos.at(ftoken_hash);
+                            const token_pos_cost_t& qtoken_pos = fhash_qtoken_pos_it->second;
 
                             // if the query token has already matched another token in the string
                             // we will replace the position only if the cost is lower
@@ -785,29 +787,31 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         uint64_t fhash = combined_hash;
 
                         if(a_facet.result_map.count(fhash) == 0) {
-                            a_facet.result_map[fhash] = facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
-                                                                      doc_seq_id, 0,
-                                                                      spp::sparse_hash_map<uint32_t, token_pos_cost_t>()};
+                            a_facet.result_map.emplace(fhash, facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
+                                                                            doc_seq_id, 0,
+                                                                            std::unordered_map<uint32_t, token_pos_cost_t>()});
                         }
 
-                        a_facet.result_map[fhash].doc_id = doc_seq_id;
-                        a_facet.result_map[fhash].array_pos = array_pos;
+                        facet_count_t& facet_count = a_facet.result_map[fhash];
+
+                        facet_count.doc_id = doc_seq_id;
+                        facet_count.array_pos = array_pos;
 
                         if(search_params->group_limit) {
-                            a_facet.result_map[fhash].groups.emplace(distinct_id);
+                            facet_count.groups.emplace(distinct_id);
                         } else {
-                            a_facet.result_map[fhash].count += 1;
+                            facet_count.count += 1;
                         }
 
                         if(use_facet_query) {
-                            a_facet.result_map[fhash].query_token_pos = query_token_positions;
+                            facet_count.query_token_pos = query_token_positions;
                         }
                     }
 
                     array_pos++;
                     fvalue_found = false;
                     combined_hash = 1;
-                    spp::sparse_hash_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
+                    std::unordered_map<uint32_t, token_pos_cost_t>().swap(query_token_positions);
                     field_token_index = -1;
                 }
             }
