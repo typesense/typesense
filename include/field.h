@@ -202,7 +202,7 @@ struct facet_count_t {
     uint32_t doc_id;
     uint32_t array_pos;
 
-    spp::sparse_hash_map<uint32_t, token_pos_cost_t> query_token_pos;
+    std::unordered_map<uint32_t, token_pos_cost_t> query_token_pos;
 };
 
 struct facet_stats_t {
@@ -214,7 +214,7 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    std::map<uint64_t, facet_count_t> result_map;
+    std::unordered_map<uint64_t, facet_count_t> result_map;
     facet_stats_t stats;
 
     facet(const std::string & field_name): field_name(field_name) {
