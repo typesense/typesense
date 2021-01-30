@@ -26,7 +26,7 @@ private:
 
     static CURL* init_curl(const std::string& url, std::string& response);
 
-    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res);
+    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist *chunk);
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 

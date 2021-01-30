@@ -672,7 +672,7 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
     //LOG(INFO) << "stream_response called";
     if(request._req == nullptr) {
         // raft log replay or when underlying request is aborted
-        //LOG(INFO) << "request._req == nullptr";
+        //LOG(INFO) << "stream_response, request._req == nullptr";
         destroy_request_response(&request, &response);
         return;
     }
@@ -711,6 +711,8 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
 
     /*LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
               << ", request->_req=" << request->_req << ", response->await=" << &response->await;*/
+
+    //LOG(INFO) << "destroy_request_response, response: " << response << ", response->auto_dispose: " << response->auto_dispose;
 
     if(response->auto_dispose) {
         //LOG(INFO) << "destroy_request_response: deleting req/res";
