@@ -4189,7 +4189,12 @@ private:
             Printer printer;
             printer.address = true;
             //printer.print(st, stderr);
-            printer.print(st, LOG(ERROR));
+
+            std::stringstream error_lines;
+            printer.print(st, error_lines);
+            for(std::string line; std::getline(error_lines, line);) {
+                LOG(ERROR) << line;
+            }
 
 #if _XOPEN_SOURCE >= 700 || _POSIX_C_SOURCE >= 200809L
             psiginfo(info, nullptr);
