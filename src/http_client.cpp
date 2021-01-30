@@ -21,8 +21,9 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response, HttpServer* server) {
     deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
+    struct curl_slist *chunk = nullptr;
 
-    CURL *curl = init_curl_async(url, req_res);
+    CURL *curl = init_curl_async(url, req_res, chunk);
     if(curl == nullptr) {
         return 500;
     }
@@ -30,6 +31,8 @@ long HttpClient::post_response_async(const std::string &url, http_req* request, 
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_perform(curl);
     curl_easy_cleanup(curl);
+
+    curl_slist_free_all(chunk);
 
     return 0;
 }
@@ -228,9 +231,14 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 }
 
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
-    //LOG(INFO) << "curl_write_async_done";
-
+    LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
+
+    if(req_res->req->_req == nullptr) {
+        // underlying client request is dead, don't try to send anymore data
+        return 0;
+    }
+
     req_res->res->body = "";
     req_res->res->final = true;
 
@@ -242,7 +250,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     return 0;
 }
 
-CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res) {
+CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist *chunk) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -251,7 +259,6 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
 
     req_res->req->data = curl;
 
-    struct curl_slist *chunk = nullptr;
     std::string api_key_header = std::string("x-typesense-api-key: ") + HttpClient::api_key;
     chunk = curl_slist_append(chunk, api_key_header.c_str());
 
@@ -286,11 +293,6 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
 
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETFUNCTION, HttpClient::curl_write_async_done);
     curl_easy_setopt(curl, CURLOPT_CLOSESOCKETDATA, req_res);
-
-    // This is okay as per [docs](http://curl.haxx.se/libcurl/c/curl_easy_setopt.html)
-    // Strings passed to libcurl as 'char *' arguments, are copied by the library; thus the string storage
-    // associated to the pointer argument may be overwritten after curl_easy_setopt() returns.
-    curl_slist_free_all(chunk);
 
     return curl;
 }
