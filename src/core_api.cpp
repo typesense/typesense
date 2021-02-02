@@ -933,6 +933,8 @@ bool put_override(http_req &req, http_res &res) {
         return false;
     }
 
+    req_json["id"] = override.id;
+
     res.set_200(req_json.dump());
     return true;
 }
