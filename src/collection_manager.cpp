@@ -685,8 +685,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         std::vector<std::string> sort_field_strs;
         StringUtils::split(req_params[SORT_BY], sort_field_strs, ",");
 
-        if(sort_field_strs.size() > 2) {
-            return Option<bool>(400,"Only upto 2 sort fields are allowed.");
+        if(sort_field_strs.size() > 3) {
+            return Option<bool>(400,"Only upto 3 sort fields are allowed.");
         }
 
         for(const std::string & sort_field_str: sort_field_strs) {
