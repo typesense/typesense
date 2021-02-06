@@ -13,9 +13,10 @@
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path,
-                       const std::string & ssl_cert_key_path, bool cors_enabled):
+                       const std::string & ssl_cert_key_path, bool cors_enabled, ThreadPool* thread_pool):
                        version(version), listen_address(listen_address), listen_port(listen_port),
-                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path), cors_enabled(cors_enabled) {
+                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
+                       cors_enabled(cors_enabled), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -544,6 +545,23 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
         return 0;
     }
 
+    auto message_dispatcher = handler->http_server->get_message_dispatcher();
+    auto api_handler = rpath->handler;
+
+    handler->http_server->get_thread_pool()->enqueue([api_handler, message_dispatcher, request, response]() {
+        (api_handler)(*request, *response);
+        request_response req_res{request, response};
+        response->auto_dispose = false;
+        message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
+
+        // wait until response is sent
+        response->await.wait();
+
+        delete request;
+        delete response;
+    });
+
+    /*
     // for reads, we will invoke the request handler and handle response as well
     (rpath->handler)(*request, *response);
 
@@ -552,6 +570,7 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
         // otherwise, we send the whole body response on behalf of the handler
         handler->http_server->send_response(request, response);
     }
+    */
 
     return 0;
 }
@@ -860,4 +879,8 @@ void HttpServer::do_snapshot(const std::string& snapshot_path, http_req& req, ht
 
 bool HttpServer::trigger_vote() {
     return replication_state->trigger_vote();
+}
+
+ThreadPool* HttpServer::get_thread_pool() const {
+    return thread_pool;
 }

@@ -39,10 +39,6 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
     }
 
     num_documents = 0;
-
-    ready = false;
-    processed = false;
-    terminate = false;
 }
 
 Index::~Index() {
@@ -97,6 +93,8 @@ int64_t Index::float_to_in64_t(float f) {
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                         const std::string & default_sorting_field, bool is_update) {
+
+    std::unique_lock lock(mutex);
 
     int64_t points = 0;
 
@@ -640,7 +638,8 @@ void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::s
 }
 
 void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
-                      const uint32_t* result_ids, size_t results_size) {
+                      size_t group_limit, const std::vector<std::string>& group_by_fields,
+                      const uint32_t* result_ids, size_t results_size) const {
 
     std::unordered_map<std::string, size_t> facet_to_index;
     get_facet_to_index(facet_to_index);
@@ -723,7 +722,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
         }
 
         const std::vector<std::vector<uint64_t>>& doc_facet_index = doc_facet_index_it->second;
-        const uint64_t distinct_id = search_params->group_limit ? get_distinct_id(facet_to_index, doc_seq_id) : 0;
+        const uint64_t distinct_id = group_limit ? get_distinct_id(facet_to_index, group_by_fields, doc_seq_id) : 0;
 
         // assumed that facet fields have already been validated upstream
         for(size_t findex=0; findex < facets.size(); findex++) {
@@ -797,7 +796,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                         facet_count.doc_id = doc_seq_id;
                         facet_count.array_pos = array_pos;
 
-                        if(search_params->group_limit) {
+                        if(group_limit) {
                             facet_count.groups.emplace(distinct_id);
                         } else {
                             facet_count.count += 1;
@@ -819,7 +818,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     }
 }
 
-void Index::get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index) {
+void Index::get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index) const {
     size_t i_facet = 0;
     for(const auto & facet_kv: facet_schema) {
         facet_to_index.emplace(facet_kv.first, i_facet);
@@ -837,7 +836,8 @@ void Index::search_candidates(const uint8_t & field_id,
                               spp::sparse_hash_set<uint64_t>& groups_processed,
                               uint32_t** all_result_ids, size_t & all_result_ids_len,
                               size_t& field_num_results,
-                              const size_t typo_tokens_threshold) {
+                              const size_t typo_tokens_threshold,
+                              const size_t group_limit, const std::vector<std::string>& group_by_fields) const {
     const long long combination_limit = 10;
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
@@ -921,7 +921,8 @@ void Index::search_candidates(const uint8_t & field_id,
 
             // go through each matching document id and calculate match score
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, filtered_result_ids, filtered_results_size, token_bits);
+                          groups_processed, filtered_result_ids, filtered_results_size,
+                          group_limit, group_by_fields, token_bits);
 
             field_num_results += filtered_results_size;
 
@@ -939,7 +940,7 @@ void Index::search_candidates(const uint8_t & field_id,
             }*/
 
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, result_ids, result_size, token_bits);
+                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits);
 
             field_num_results += result_size;
 
@@ -955,7 +956,7 @@ void Index::search_candidates(const uint8_t & field_id,
     }
 }
 
-Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) {
+uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const {
     //auto begin = std::chrono::high_resolution_clock::now();
 
     uint32_t* filter_ids = nullptr;
@@ -1078,7 +1079,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
                     size_t facet_id = facet_to_index[f.name];
                     for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
                         uint32_t seq_id = strt_ids[strt_ids_index];
-                        const std::vector<uint64_t> &fvalues = facet_index_v2[seq_id][facet_id];
+                        const std::vector<uint64_t> &fvalues = facet_index_v2.at(seq_id).at(facet_id);
                         bool found_filter = false;
 
                         if(!f.is_array()) {
@@ -1156,7 +1157,7 @@ Option<uint32_t> Index::do_filtering(uint32_t** filter_ids_out, const std::vecto
     LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
 
     *filter_ids_out = filter_ids;
-    return Option<>(filter_ids_length);
+    return filter_ids_length;
 }
 
 void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
@@ -1212,46 +1213,28 @@ void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
     }
 }
 
-void Index::run_search() {
-    while(true) {
-        // wait until main thread sends data
-        std::unique_lock<std::mutex> lk(m);
-        cv.wait(lk, [this]{return ready;});
-
-        if(terminate) {
-            break;
-        }
-
-        // after the wait, we own the lock.
-        search(search_params->outcome, search_params->q_include_tokens, search_params->q_exclude_tokens,
-               search_params->q_synonyms,
-               search_params->search_fields,
-               search_params->filters, search_params->facets, search_params->facet_query,
-               search_params->included_ids, search_params->excluded_ids,
-               search_params->sort_fields_std, search_params->num_typos,
-               search_params->topster, search_params->curated_topster,
-               search_params->per_page, search_params->page, search_params->token_order,
-               search_params->prefix, search_params->drop_tokens_threshold,
-               search_params->all_result_ids_len, search_params->groups_processed,
-               search_params->searched_queries,
-               search_params->raw_result_kvs, search_params->override_result_kvs,
-               search_params->typo_tokens_threshold);
-
-        // hand control back to main thread
-        processed = true;
-        ready = false;
-
-        // manual unlocking is done before notifying, to avoid waking up the waiting thread only to block again
-        lk.unlock();
-        cv.notify_one();
-    }
+void Index::run_search(search_args* search_params) {
+    search(search_params->q_include_tokens, search_params->q_exclude_tokens,
+           search_params->q_synonyms,
+           search_params->search_fields,
+           search_params->filters, search_params->facets, search_params->facet_query,
+           search_params->included_ids, search_params->excluded_ids,
+           search_params->sort_fields_std, search_params->num_typos,
+           search_params->topster, search_params->curated_topster,
+           search_params->per_page, search_params->page, search_params->token_order,
+           search_params->prefix, search_params->drop_tokens_threshold,
+           search_params->all_result_ids_len, search_params->groups_processed,
+           search_params->searched_queries,
+           search_params->raw_result_kvs, search_params->override_result_kvs,
+           search_params->typo_tokens_threshold,
+           search_params->group_limit, search_params->group_by_fields);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
                                  const std::string & field, const uint8_t field_id,
                                  const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                                  Topster* curated_topster,
-                                 std::vector<std::vector<art_leaf*>> & searched_queries) {
+                                 std::vector<std::vector<art_leaf*>> & searched_queries) const {
 
     if(included_ids_map.empty()) {
         return;
@@ -1316,8 +1299,7 @@ void Index::concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, 
     }
 }
 
-void Index::search(Option<uint32_t> & outcome,
-                   const std::vector<std::string>& q_include_tokens,
+void Index::search(const std::vector<std::string>& q_include_tokens,
                    const std::vector<std::string>& q_exclude_tokens,
                    const std::vector<std::vector<std::string>>& q_synonyms,
                    const std::vector<search_field_t>& search_fields,
@@ -1335,20 +1317,18 @@ void Index::search(Option<uint32_t> & outcome,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
                    std::vector<std::vector<KV*>> & raw_result_kvs,
                    std::vector<std::vector<KV*>> & override_result_kvs,
-                   const size_t typo_tokens_threshold) {
+                   const size_t typo_tokens_threshold,
+                   const size_t group_limit,
+                   const std::vector<std::string>& group_by_fields) const {
+
+    std::shared_lock lock(mutex);
 
     //auto begin = std::chrono::high_resolution_clock::now();
 
     // process the filters
 
     uint32_t* filter_ids = nullptr;
-    Option<uint32_t> op_filter_ids_length = do_filtering(&filter_ids, filters);
-    if(!op_filter_ids_length.ok()) {
-        outcome = Option<uint32_t>(op_filter_ids_length);
-        return ;
-    }
-
-    uint32_t filter_ids_length = op_filter_ids_length.get();
+    uint32_t filter_ids_length = do_filtering(&filter_ids, filters);
 
     // we will be removing all curated IDs from organic result ids before running topster
     std::set<uint32_t> curated_ids;
@@ -1413,7 +1393,7 @@ void Index::search(Option<uint32_t> & outcome,
                 }
             }
 
-            const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index[all_records_field];
+            const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index.at(all_records_field);
             filter_ids_length = kvs->size();
             filter_ids = new uint32_t[filter_ids_length];
 
@@ -1445,7 +1425,7 @@ void Index::search(Option<uint32_t> & outcome,
 
         uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                      groups_processed, filter_ids, filter_ids_length, token_bits);
+                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits);
         collate_included_ids(q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
         all_result_ids_len = filter_ids_length;
@@ -1494,7 +1474,8 @@ void Index::search(Option<uint32_t> & outcome,
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                              field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                             field_num_results, token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+                             field_num_results, group_limit, group_by_fields, token_order, prefix,
+                             drop_tokens_threshold, typo_tokens_threshold);
 
                 // do synonym based searches
                 for(const auto& syn_tokens: q_pos_synonyms) {
@@ -1505,7 +1486,8 @@ void Index::search(Option<uint32_t> & outcome,
                     search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                 field_num_results, token_order, prefix, drop_tokens_threshold, typo_tokens_threshold);
+                                 field_num_results, group_limit, group_by_fields, token_order, prefix,
+                                 drop_tokens_threshold, typo_tokens_threshold);
                 }
 
                 concat_topster_ids(ftopster, topster_ids);
@@ -1613,8 +1595,8 @@ void Index::search(Option<uint32_t> & outcome,
 
     delete [] exclude_token_ids;
 
-    do_facets(facets, facet_query, all_result_ids, all_result_ids_len);
-    do_facets(facets, facet_query, &included_ids[0], included_ids.size());
+    do_facets(facets, facet_query, group_limit, group_by_fields, all_result_ids, all_result_ids_len);
+    do_facets(facets, facet_query, group_limit, group_by_fields, &included_ids[0], included_ids.size());
 
     all_result_ids_len += curated_topster->size;
 
@@ -1625,10 +1607,9 @@ void Index::search(Option<uint32_t> & outcome,
         delete ftopster;
     }
 
+    //LOG(INFO) << "all_result_ids_len " << all_result_ids_len << " for index " << name;
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for result calc: " << timeMillis << "ms";
-
-    outcome = Option<uint32_t>(1);
 }
 
 /*
@@ -1652,10 +1633,10 @@ void Index::search_field(const uint8_t & field_id,
                          std::vector<facet> & facets, const std::vector<sort_by> & sort_fields, const int num_typos,
                          std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
-                         uint32_t** all_result_ids, size_t & all_result_ids_len,
-                         size_t& field_num_results,
+                         uint32_t** all_result_ids, size_t & all_result_ids_len, size_t& field_num_results,
+                         const size_t group_limit, const std::vector<std::string>& group_by_fields,
                          const token_ordering token_order, const bool prefix, 
-                         const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) {
+                         const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) const {
 
     const size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
 
@@ -1758,7 +1739,7 @@ void Index::search_field(const uint8_t & field_id,
             search_candidates(field_id, filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
-                              typo_tokens_threshold);
+                              typo_tokens_threshold, group_limit, group_by_fields);
         }
 
         resume_typo_loop:
@@ -1796,11 +1777,12 @@ void Index::search_field(const uint8_t & field_id,
         return search_field(field_id, query_tokens, truncated_tokens, exclude_token_ids, exclude_token_ids_size,
                             num_tokens_dropped, field, filter_ids, filter_ids_length, curated_ids,facets,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
-                            all_result_ids_len, field_num_results, token_order, prefix);
+                            all_result_ids_len, field_num_results, group_limit, group_by_fields,
+                            token_order, prefix);
     }
 }
 
-int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const {
+int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) {
     int bounded_cost = max_cost;
     if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
         bounded_cost = token_len - 1;
@@ -1825,7 +1807,9 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const uint8_t & field_id, const uint32_t total_cost, Topster* topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_set<uint64_t>& groups_processed,
-                          const uint32_t *result_ids, const size_t result_size, uint32_t token_bits) {
+                          const uint32_t *result_ids, const size_t result_size,
+                          const size_t group_limit, const std::vector<std::string>& group_by_fields,
+                          uint32_t token_bits) const {
 
     std::vector<uint32_t*> leaf_to_indices;
     for (art_leaf *token_leaf: query_suggestion) {
@@ -1935,8 +1919,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
         uint64_t distinct_id = seq_id;
 
-        if(search_params->group_limit != 0) {
-            distinct_id = get_distinct_id(facet_to_index, seq_id);
+        if(group_limit != 0) {
+            distinct_id = get_distinct_id(facet_to_index, group_by_fields, seq_id);
             groups_processed.emplace(distinct_id);
         }
 
@@ -1953,11 +1937,12 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 }
 
 uint64_t Index::get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id,
+                                const std::vector<std::string>& group_by_fields,
                                 const uint32_t seq_id) const {
     uint64_t distinct_id = 1; // some constant initial value
 
     // calculate hash from group_by_fields
-    for(const auto& field: search_params->group_by_fields) {
+    for(const auto& field: group_by_fields) {
         if(facet_to_id.count(field) == 0 || facet_index_v2.count(seq_id) == 0) {
             continue;
         }
@@ -1973,8 +1958,8 @@ uint64_t Index::get_distinct_id(const std::unordered_map<std::string, size_t> &f
 }
 
 void Index::populate_token_positions(const std::vector<art_leaf *>& query_suggestion,
-                                     std::vector<uint32_t*>& leaf_to_indices,
-                                     size_t result_index,
+                                     const std::vector<uint32_t*>& leaf_to_indices,
+                                     const size_t result_index,
                                      std::unordered_map<size_t, std::vector<std::vector<uint16_t>>>& array_token_positions) {
     if(query_suggestion.empty()) {
         return ;
@@ -2102,6 +2087,8 @@ void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint
 }
 
 Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document) {
+    std::unique_lock lock(mutex);
+
     std::unordered_map<std::string, size_t> facet_to_index;
     get_facet_to_index(facet_to_index);
 

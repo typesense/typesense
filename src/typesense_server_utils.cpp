@@ -360,9 +360,11 @@ int run_server(const Config & config, const std::string & version, void (*master
         create_init_db_snapshot = true;
     }
 
+    ThreadPool thread_pool(32);
     Store store(db_dir);
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, config.get_max_memory_ratio(), config.get_api_key());
+    collectionManager.init(&store, &thread_pool, config.get_max_memory_ratio(), config.get_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
@@ -374,7 +376,8 @@ int run_server(const Config & config, const std::string & version, void (*master
         config.get_api_port(),
         config.get_ssl_cert(),
         config.get_ssl_cert_key(),
-        config.get_enable_cors()
+        config.get_enable_cors(),
+        &thread_pool
     );
 
     server->set_auth_handler(handle_authentication);
@@ -388,7 +391,6 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ThreadPool thread_pool(32);
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_threshold_percentage(),
                                        create_init_db_snapshot, quit_raft_service);

@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 #include <art.h>
 #include <number.h>
@@ -61,9 +62,8 @@ struct search_args {
     Topster* curated_topster;
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
-    Option<uint32_t> outcome;
 
-    search_args(): outcome(0) {
+    search_args() {
 
     }
 
@@ -83,7 +83,7 @@ struct search_args {
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit),
-            all_result_ids_len(0), outcome(0) {
+            all_result_ids_len(0) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -134,6 +134,8 @@ struct index_record {
 
 class Index {
 private:
+    mutable std::shared_mutex mutex;
+
     const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
 
     std::string name;
@@ -158,6 +160,8 @@ private:
 
     StringUtils string_utils;
 
+    // Internal utility functions
+
     static inline uint32_t next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                        long long int n,
                                        std::vector<art_leaf *>& actual_query_suggestion,
@@ -167,7 +171,8 @@ private:
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
-                   const uint32_t* result_ids, size_t results_size);
+                   size_t group_limit, const std::vector<std::string>& group_by_fields,
+                   const uint32_t* result_ids, size_t results_size) const;
 
     void search_field(const uint8_t & field_id,
                       std::vector<token_t>& query_tokens,
@@ -182,9 +187,11 @@ private:
                       Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                       uint32_t** all_result_ids, size_t & all_result_ids_len,
                       size_t& field_num_results,
+                      const size_t group_limit,
+                      const std::vector<std::string>& group_by_fields,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD);
+                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD) const;
 
     void search_candidates(const uint8_t & field_id,
                            uint32_t* filter_ids, size_t filter_ids_length,
@@ -196,7 +203,8 @@ private:
                            uint32_t** all_result_ids,
                            size_t & all_result_ids_len,
                            size_t& field_num_results,
-                           const size_t typo_tokens_threshold);
+                           const size_t typo_tokens_threshold,
+                           const size_t group_limit, const std::vector<std::string>& group_by_fields) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -213,13 +221,23 @@ private:
     void collate_included_ids(const std::vector<std::string>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries);
+                              Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
 
-    uint64_t facet_token_hash(const field & a_field, const std::string &token);
+    static uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
-    void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
+    static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
 public:
+    // for limiting number of results on multiple candidates / query rewrites
+    enum {TYPO_TOKENS_THRESHOLD = 100};
+
+    // for limiting number of fields that can be searched on
+    enum {FIELD_LIMIT_NUM = 100};
+
+    // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
+    // in the query that have the least individual hits one by one until enough results are found.
+    static const int DROP_TOKENS_THRESHOLD = 10;
+
     Index() = delete;
 
     Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
@@ -233,98 +251,29 @@ public:
         return combined;
     }
 
-    void run_search();
-
-    void search(Option<uint32_t> & outcome,
-                          const std::vector<std::string> & q_include_tokens,
-                          const std::vector<std::string> & q_exclude_tokens,
-                          const std::vector<std::vector<std::string>>& q_synonyms,
-                          const std::vector<search_field_t> & search_fields,
-                          const std::vector<filter> & filters, std::vector<facet> & facets,
-                          facet_query_t & facet_query,
-                          const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                          const std::vector<uint32_t> & excluded_ids,
-                          const std::vector<sort_by> & sort_fields_std, const int num_typos,
-                          Topster* topster, Topster* curated_topster,
-                          const size_t per_page, const size_t page, const token_ordering token_order,
-                          const bool prefix, const size_t drop_tokens_threshold,
-                          size_t & all_result_ids_len,
-                          spp::sparse_hash_set<uint64_t>& groups_processed,
-                          std::vector<std::vector<art_leaf*>> & searched_queries,
-                          std::vector<std::vector<KV*>> & raw_result_kvs,
-                          std::vector<std::vector<KV*>> & override_result_kvs,
-                          const size_t typo_tokens_threshold);
-
     static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
-
-    Option<uint32_t> do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters);
-
-    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
-
-    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
-
-    static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
-                                         std::vector<uint32_t*>& leaf_to_indices,
-                                         size_t result_index,
-                                         std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> &array_token_positions);
 
     void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
                        const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
                        spp::sparse_hash_set<uint64_t>& groups_processed,
-                       const uint32_t *result_ids, const size_t result_size, uint32_t token_bits);
+                       const uint32_t *result_ids, const size_t result_size,
+                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
+                       uint32_t token_bits) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field, bool is_update);
-
-    static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
-                                                     const std::string & default_sorting_field,
-                                                     const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::map<std::string, field> & facet_schema,
-                                                     bool is_update);
-
-    static size_t batch_memory_index(Index *index,
-                                     std::vector<index_record> & iter_batch,
-                                     const std::string & default_sorting_field,
-                                     const std::unordered_map<std::string, field> & search_schema,
-                                     const std::map<std::string, field> & facet_schema);
-
-    const spp::sparse_hash_map<std::string, art_tree *> &_get_search_index() const;
+    const spp::sparse_hash_map<std::string, art_tree *>& _get_search_index() const;
 
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
 
-    // for limiting number of results on multiple candidates / query rewrites
-    enum {TYPO_TOKENS_THRESHOLD = 100};
-
-    // for limiting number of fields that can be searched on
-    enum {FIELD_LIMIT_NUM = 100};
-
-    // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
-    // in the query that have the least individual hits one by one until enough results are found.
-    static const int DROP_TOKENS_THRESHOLD = 10;
-
-    /*
-     * Concurrency Primitives
-    */
-
-    // Used for passing control back and forth between main and worker threads
-    std::mutex m;
-    std::condition_variable cv;
-
-    bool ready;       // prevents spurious wake up of the worker thread
-    bool processed;   // prevents spurious wake up of the main thread
-    bool terminate;   // used for interrupting the thread during tear down
-
-    search_args* search_params;
-
-    int get_bounded_typo_cost(const size_t max_cost, const size_t token_len) const;
+    static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len);
 
     static int64_t float_to_in64_t(float n);
 
-    uint64_t get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id, const uint32_t seq_id) const;
+    uint64_t get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id,
+                             const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 
-    void get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index);
+    void get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index) const;
 
     void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
                              const std::vector<art_leaf *> &query_suggestion,
@@ -332,10 +281,10 @@ public:
 
     void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
 
-    void tokenize_doc_field(const nlohmann::json& document, const field& search_field, std::vector<std::string>& tokens);
+    static void tokenize_doc_field(const nlohmann::json& document, const field& search_field, std::vector<std::string>& tokens);
 
     template<typename T>
-    bool _arrays_match(std::vector<T> reindex_vals, std::vector<T> old_vals) {
+    static bool _arrays_match(std::vector<T> reindex_vals, std::vector<T> old_vals) {
         if(old_vals.size() != reindex_vals.size()) {
             return false;
         }
@@ -350,5 +299,60 @@ public:
 
         return true;
     }
+
+    // Public operations
+
+    void run_search(search_args* search_params);
+
+    void search(const std::vector<std::string> & q_include_tokens,
+                const std::vector<std::string> & q_exclude_tokens,
+                const std::vector<std::vector<std::string>>& q_synonyms,
+                const std::vector<search_field_t> & search_fields,
+                const std::vector<filter> & filters, std::vector<facet> & facets,
+                facet_query_t & facet_query,
+                const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
+                const std::vector<uint32_t> & excluded_ids,
+                const std::vector<sort_by> & sort_fields_std, const int num_typos,
+                Topster* topster, Topster* curated_topster,
+                const size_t per_page, const size_t page, const token_ordering token_order,
+                const bool prefix, const size_t drop_tokens_threshold,
+                size_t & all_result_ids_len,
+                spp::sparse_hash_set<uint64_t>& groups_processed,
+                std::vector<std::vector<art_leaf*>> & searched_queries,
+                std::vector<std::vector<KV*>> & raw_result_kvs,
+                std::vector<std::vector<KV*>> & override_result_kvs,
+                const size_t typo_tokens_threshold,
+                const size_t group_limit,
+                const std::vector<std::string>& group_by_fields) const;
+
+    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
+
+
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
+                                     const std::string & default_sorting_field, bool is_update);
+
+    static size_t batch_memory_index(Index *index,
+                                     std::vector<index_record> & iter_batch,
+                                     const std::string & default_sorting_field,
+                                     const std::unordered_map<std::string, field> & search_schema,
+                                     const std::map<std::string, field> & facet_schema);
+
+    static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
+                                         const std::vector<uint32_t*>& leaf_to_indices,
+                                         const size_t result_index,
+                                         std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> &array_token_positions);
+
+    // the following methods are not synchronized because their parent calls are synchronized
+
+    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
+
+    uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const;
+
+    static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+                                                     const std::string & default_sorting_field,
+                                                     const std::unordered_map<std::string, field> & search_schema,
+                                                     const std::map<std::string, field> & facet_schema,
+                                                     bool is_update);
+
 };
 

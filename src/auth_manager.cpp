@@ -8,6 +8,7 @@ constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
 Option<bool> AuthManager::init(Store *store) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     //LOG(INFO) << "AuthManager::init()";
+    std::unique_lock lock(mutex);
 
     this->store = store;
 
@@ -42,7 +43,9 @@ Option<bool> AuthManager::init(Store *store) {
     return Option<bool>(true);
 }
 
-Option<std::vector<api_key_t>> AuthManager::list_keys() {
+Option<std::vector<api_key_t>> AuthManager::list_keys() const {
+    std::shared_lock lock(mutex);
+
     std::vector<std::string> api_key_json_strs;
     store->scan_fill(API_KEYS_PREFIX, api_key_json_strs);
 
@@ -61,7 +64,9 @@ Option<std::vector<api_key_t>> AuthManager::list_keys() {
     return Option<std::vector<api_key_t>>(stored_api_keys);
 }
 
-Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
+Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) const {
+    std::shared_lock lock(mutex);
+
     std::string api_key_store_key = std::string(API_KEYS_PREFIX) + "_" + std::to_string(id);
     std::string api_key_json_str;
     StoreStatus status = store->get(api_key_store_key, api_key_json_str);
@@ -88,6 +93,7 @@ Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
 
 Option<api_key_t> AuthManager::create_key(api_key_t& api_key) {
     //LOG(INFO) << "AuthManager::create_key()";
+    std::unique_lock lock(mutex);
 
     if(api_keys.count(api_key.value) != 0) {
         return Option<api_key_t>(409, "API key generation conflict.");
@@ -119,6 +125,8 @@ Option<api_key_t> AuthManager::remove_key(uint32_t id) {
         return Option<api_key_t>(500, "Could not delete API key.");
     }
 
+    std::unique_lock lock(mutex);
+
     api_key_t&& key = key_op.get();
     api_keys.erase(key.value);
 
@@ -131,7 +139,9 @@ uint32_t AuthManager::get_next_api_key_id() {
 }
 
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
-                               const std::string& collection, std::map<std::string, std::string>& params) {
+                               const std::string& collection, std::map<std::string, std::string>& params) const {
+
+    std::shared_lock lock(mutex);
 
     //LOG(INFO) << "AuthManager::authenticate()";
 
@@ -168,7 +178,7 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
         return false;
     }
 
-    const api_key_t& api_key = api_keys[req_api_key];
+    const api_key_t& api_key = api_keys.at(req_api_key);
     return auth_against_key(collection, action, api_key, false);
 }
 
@@ -212,7 +222,7 @@ bool AuthManager::auth_against_key(const std::string& collection, const std::str
 }
 
 Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_api_key, const std::string& action,
-                                                    const std::string& collection, nlohmann::json& embedded_params) {
+                                                    const std::string& collection, nlohmann::json& embedded_params) const {
     // allow only searches from scoped keys
     if(action != DOCUMENTS_SEARCH_ACTION) {
         LOG(ERROR) << "Scoped API keys can only be used for searches.";

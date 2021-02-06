@@ -7,6 +7,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <shared_mutex>
 #include <art.h>
 #include <index.h>
 #include <number.h>
@@ -267,6 +268,8 @@ struct synonym_t {
 class Collection {
 private:
 
+    mutable std::shared_mutex mutex;
+
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
     struct highlight_t {
@@ -286,26 +289,20 @@ private:
         }
     };
 
-    std::map<std::string, override_t> overrides;
+    const std::string name;
 
-    std::string name;
+    const uint32_t collection_id;
 
-    uint32_t collection_id;
+    const uint64_t created_at;
 
-    uint64_t created_at;
-
-    size_t num_documents;
-
-    std::vector<Index*> indices;
-
-    std::vector<std::thread*> index_threads;
+    std::atomic<size_t> num_documents;
 
     // Auto incrementing record ID used internally for indexing - not exposed to the client
-    uint32_t next_seq_id;
+    std::atomic<uint32_t> next_seq_id;
 
     Store* store;
 
-    std::vector<field> fields;
+    const std::vector<field> fields;
 
     std::unordered_map<std::string, field> search_schema;
 
@@ -313,18 +310,24 @@ private:
 
     std::unordered_map<std::string, field> sort_schema;
 
+    std::map<std::string, override_t> overrides;
+
     spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
     spp::sparse_hash_map<uint64_t, std::vector<std::string>> synonym_index;
 
-    std::string default_sorting_field;
+    const std::string default_sorting_field;
 
-    size_t num_memory_shards;
+    std::atomic<size_t> num_memory_shards;
 
     const float max_memory_ratio;
 
-    std::string get_doc_id_key(const std::string & doc_id);
+    const std::vector<Index*> indices;
 
-    std::string get_seq_id_key(uint32_t seq_id);
+    // methods
+
+    std::string get_doc_id_key(const std::string & doc_id) const;
+
+    std::string get_seq_id_key(uint32_t seq_id) const;
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const KV* field_order_kv, const nlohmann::json &document,
@@ -334,7 +337,7 @@ private:
                           bool highlighted_fully,
                           const std::string& highlight_start_tag,
                           const std::string& highlight_end_tag,
-                          highlight_t &highlight);
+                          highlight_t &highlight) const;
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
@@ -342,7 +345,7 @@ private:
                             const std::map<size_t, std::vector<std::string>>& pinned_hits,
                             const std::vector<std::string>& hidden_hits,
                             std::map<size_t, std::vector<uint32_t>>& include_ids,
-                            std::vector<uint32_t> & excluded_ids);
+                            std::vector<uint32_t> & excluded_ids) const;
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -356,18 +359,37 @@ private:
 
     void free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const;
 
-    Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters);
+    Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters) const;
 
-    Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
+    static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
     void synonym_reduction_internal(const std::vector<std::string>& tokens,
                                     size_t start_window_size,
                                     size_t start_index_pos,
                                     std::set<uint64_t>& processed_syn_hashes,
-                                    std::vector<std::vector<std::string>>& results);
+                                    std::vector<std::vector<std::string>>& results) const;
+
+    std::vector<Index *> init_indices();
 
 public:
+
+    enum {MAX_ARRAY_MATCHES = 5};
+
+    const size_t PER_PAGE_MAX = 250;
+
+    const size_t GROUP_LIMIT_MAX = 99;
+
+    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
+    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
+    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
+    static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
+    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
+    static constexpr const char* SEQ_ID_PREFIX = "$SI";
+    static constexpr const char* DOC_ID_PREFIX = "$DI";
+
+    // methods
+
     Collection() = delete;
 
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
@@ -384,23 +406,17 @@ public:
 
     static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
 
-    std::string get_seq_id_collection_prefix();
+    std::string get_seq_id_collection_prefix() const;
 
-    std::string get_name();
+    std::string get_name() const;
 
-    uint64_t get_created_at();
+    uint64_t get_created_at() const;
 
-    size_t get_num_documents();
-
-    uint32_t get_collection_id();
+    uint32_t get_collection_id() const;
 
     uint32_t get_next_seq_id();
 
-    void set_next_seq_id(uint32_t seq_id);
-
-    void increment_next_seq_id_field();
-
-    Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id);
+    Option<uint32_t> doc_id_to_seq_id(const std::string & doc_id) const;
 
     std::vector<std::string> get_facet_fields();
 
@@ -415,7 +431,41 @@ public:
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
                                 const index_operation_t& operation, const std::string& id="");
 
-    nlohmann::json get_summary_json();
+    static uint32_t get_seq_id_from_key(const std::string & key);
+
+    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document) const;
+
+    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, bool is_update);
+
+    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
+                               const spp::sparse_hash_set<std::string> & exclude_fields);
+
+    const std::vector<Index *> &_get_indexes() const;
+
+    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
+                               std::string &value) const;
+
+    static void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster);
+
+    static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
+
+    void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
+                     size_t &num_indexed);
+
+    bool is_exceeding_memory_threshold() const;
+
+    static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
+                         nlohmann::json &new_doc,
+                         nlohmann::json &del_doc);
+
+    void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
+                                            std::vector<std::string>& q_exclude_tokens) const;
+
+    // PUBLIC OPERATIONS
+
+    nlohmann::json get_summary_json() const;
+
+    size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="");
@@ -424,101 +474,63 @@ public:
                             const index_operation_t& operation=CREATE, const std::string& id="");
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
-                          const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                          const std::vector<sort_by> & sort_fields, int num_typos,
-                          size_t per_page = 10, size_t page = 1,
-                          token_ordering token_order = FREQUENCY, bool prefix = false,
-                          size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                          const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
-                          const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
-                          size_t max_facet_values=10,
-                          const std::string & simple_facet_query = "",
-                          const size_t snippet_threshold = 30,
-                          const size_t highlight_affix_num_tokens = 4,
-                          const std::string & highlight_full_fields = "",
-                          size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                          const std::string& pinned_hits_str="",
-                          const std::string& hidden_hits="",
-                          const std::vector<std::string>& group_by_fields={},
-                          const size_t group_limit = 0,
-                          const std::string& highlight_start_tag="<mark>",
-                          const std::string& highlight_end_tag="</mark>",
-                          std::vector<size_t> query_by_weights={},
-                          size_t limit_hits=UINT32_MAX);
+                                  const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
+                                  const std::vector<sort_by> & sort_fields, int num_typos,
+                                  size_t per_page = 10, size_t page = 1,
+                                  token_ordering token_order = FREQUENCY, bool prefix = false,
+                                  size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                                  const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
+                                  const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
+                                  size_t max_facet_values=10,
+                                  const std::string & simple_facet_query = "",
+                                  const size_t snippet_threshold = 30,
+                                  const size_t highlight_affix_num_tokens = 4,
+                                  const std::string & highlight_full_fields = "",
+                                  size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
+                                  const std::string& pinned_hits_str="",
+                                  const std::string& hidden_hits="",
+                                  const std::vector<std::string>& group_by_fields={},
+                                  const size_t group_limit = 0,
+                                  const std::string& highlight_start_tag="<mark>",
+                                  const std::string& highlight_end_tag="</mark>",
+                                  std::vector<size_t> query_by_weights={},
+                                  size_t limit_hits=UINT32_MAX) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
 
-    Option<nlohmann::json> get(const std::string & id);
-
-    bool doc_exists(const std::string & id);
+    Option<nlohmann::json> get(const std::string & id) const;
 
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
 
+    size_t get_num_memory_shards();
+
+    size_t get_num_documents() const;
+
+    // Override operations
+
     Option<uint32_t> add_override(const override_t & override);
 
     Option<uint32_t> remove_override(const std::string & id);
 
-    std::map<std::string, override_t>& get_overrides() {
+    std::map<std::string, override_t> get_overrides() {
+        std::shared_lock lock(mutex);
         return overrides;
     };
 
-    size_t get_num_memory_shards();
-
-    static uint32_t get_seq_id_from_key(const std::string & key);
-
-    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document);
-
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, bool is_update);
-
-    size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
-
-    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
-                               const spp::sparse_hash_set<std::string> & exclude_fields);
-
-    const std::vector<Index *> &_get_indexes() const;
-
-    enum {MAX_ARRAY_MATCHES = 5};
-
-    const size_t PER_PAGE_MAX = 250;
-
-    const size_t GROUP_LIMIT_MAX = 99;
-
-    // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
-    static constexpr const char* COLLECTION_META_PREFIX = "$CM";
-    static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
-    static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
-    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
-    static constexpr const char* SEQ_ID_PREFIX = "$SI";
-    static constexpr const char* DOC_ID_PREFIX = "$DI";
-
-    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
-                               std::string &value);
-
-    void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster) const;
-
-    void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const;
-
-    void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
-                     size_t &num_indexed);
-
-    bool is_exceeding_memory_threshold() const;
-
-    void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                         nlohmann::json &new_doc,
-                         nlohmann::json &del_doc);
-
-    void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
-                                            std::vector<std::string>& q_exclude_tokens) const;
-
     // synonym operations
-    void synonym_reduction(const std::vector<std::string>& tokens, std::vector<std::vector<std::string>>& results);
 
-    spp::sparse_hash_map<std::string, synonym_t>& get_synonyms();
+    void synonym_reduction(const std::vector<std::string>& tokens,
+                           std::vector<std::vector<std::string>>& results) const;
+
+    spp::sparse_hash_map<std::string, synonym_t> get_synonyms();
+
     bool get_synonym(const std::string& id, synonym_t& synonym);
+
     Option<bool> add_synonym(const synonym_t& synonym);
+
     Option<bool> remove_synonym(const std::string & id);
 };
 

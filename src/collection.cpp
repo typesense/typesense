@@ -11,6 +11,7 @@
 #include <rocksdb/write_batch.h>
 #include <system_metrics.h>
 #include <tokenizer.h>
+#include <collection_manager.h>
 #include "topster.h"
 #include "logger.h"
 
@@ -39,64 +40,25 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field, const size_t num_memory_shards,
                        const float max_memory_ratio):
-        name(name), collection_id(collection_id), next_seq_id(next_seq_id), store(store),
+        name(name), collection_id(collection_id), created_at(created_at),
+        next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
-        max_memory_ratio(max_memory_ratio) {
+        max_memory_ratio(max_memory_ratio),
+        indices(init_indices()) {
 
-    for(const field& field: fields) {
-        search_schema.emplace(field.name, field);
-
-        if(field.is_facet()) {
-            facet_schema.emplace(field.name, field);
-        }
-
-        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool()) {
-            sort_schema.emplace(field.name, field);
-        }
-    }
-
-    for(size_t i = 0; i < num_memory_shards; i++) {
-        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
-        indices.push_back(index);
-        std::thread* thread = new std::thread(&Index::run_search, index);
-        index_threads.push_back(thread);
-    }
-
-    this->created_at = created_at;
     this->num_documents = 0;
 }
 
 Collection::~Collection() {
     for(size_t i = 0; i < indices.size(); i++) {
-        std::thread *t = index_threads[i];
-        Index* index = indices[i];
-        index->ready = true;
-        index->terminate = true;
-        index->cv.notify_one();
-        t->join();
-
-        delete t;
         delete indices[i];
-        t = nullptr;
-        indices[i] = nullptr;
     }
-
-    indices.clear();
-    index_threads.clear();
 }
 
 uint32_t Collection::get_next_seq_id() {
     store->increment(get_next_seq_id_key(name), 1);
     return next_seq_id++;
-}
-
-void Collection::set_next_seq_id(uint32_t seq_id) {
-    next_seq_id = seq_id;
-}
-
-void Collection::increment_next_seq_id_field() {
-    next_seq_id++;
 }
 
 Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json& document,
@@ -170,12 +132,14 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
     }
 }
 
-nlohmann::json Collection::get_summary_json() {
+nlohmann::json Collection::get_summary_json() const {
+    std::shared_lock lock(mutex);
+
     nlohmann::json json_response;
 
     json_response["name"] = name;
-    json_response["num_memory_shards"] = num_memory_shards;
-    json_response["num_documents"] = num_documents;
+    json_response["num_memory_shards"] = num_memory_shards.load();
+    json_response["num_documents"] = num_documents.load();
     json_response["created_at"] = created_at;
 
     nlohmann::json fields_arr;
@@ -373,6 +337,8 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 }
 
 Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id, bool is_update) {
+    std::unique_lock lock(mutex);
+
     if(!is_update) {
         // for update, validation should be done prior
         Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
@@ -392,21 +358,37 @@ Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uin
 
 size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
                                        std::vector<size_t>& indexed_counts) {
-    std::vector<std::future<size_t>> futures;
-    size_t num_indexed = 0;
+    std::unique_lock lock(mutex);
 
-    for(size_t i=0; i < num_memory_shards; i++) {
-        futures.push_back(
-            std::async(&Index::batch_memory_index, indices[i], std::ref(iter_batch[i]), default_sorting_field,
-                       search_schema, facet_schema)
-        );
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    std::vector<size_t> num_indexed_vec(indices.size());
+
+    for(size_t index_id = 0; index_id < indices.size(); index_id++) {
+        Index* index = indices[index_id];
+        CollectionManager::get_instance().get_thread_pool()->enqueue(
+        [index, index_id, &num_indexed_vec, &iter_batch, this, &m_process, &num_processed, &cv_process]() {
+            size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
+                                      search_schema, facet_schema);
+            std::unique_lock<std::mutex> lock(m_process);
+            num_indexed_vec[index_id] = num_indexed;
+            num_processed++;
+            cv_process.notify_one();
+        });
     }
 
-    for(size_t i=0; i < futures.size(); i++) {
-        size_t num_indexed_future = futures[i].get();
-        num_documents += num_indexed_future;
-        num_indexed += num_indexed_future;
-        indexed_counts[i] = num_indexed_future;
+    const size_t num_indices = indices.size();
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
+
+    size_t num_indexed = 0;
+
+    for(size_t index_id = 0; index_id < indices.size(); index_id++) {
+        num_documents += num_indexed_vec[index_id];
+        num_indexed += num_indexed_vec[index_id];
+        indexed_counts[index_id] = num_indexed_vec[index_id];
     }
 
     return num_indexed;
@@ -428,7 +410,7 @@ void Collection::populate_overrides(std::string query,
                                     const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                     const std::vector<std::string>& hidden_hits,
                                     std::map<size_t, std::vector<uint32_t>>& include_ids,
-                                    std::vector<uint32_t> & excluded_ids) {
+                                    std::vector<uint32_t> & excluded_ids) const {
     StringUtils::tolowercase(query);
     std::set<uint32_t> excluded_set;
 
@@ -513,7 +495,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
                                   std::vector<size_t> query_by_weights,
-                                  size_t limit_hits) {
+                                  size_t limit_hits) const {
+
+    std::shared_lock lock(mutex);
 
     if(query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
@@ -785,24 +769,38 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::vector<std::vector<std::string>> q_synonyms;
     synonym_reduction(q_include_tokens, q_synonyms);
 
-    // send data to individual index threads
+    // search all indices
+    std::vector<search_args*> search_args_vec;
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
     size_t index_id = 0;
     for(Index* index: indices) {
-        index->search_params = new search_args(q_include_tokens, q_exclude_tokens, q_synonyms, weighted_search_fields,
-                                               filters, facets, index_to_included_ids[index_id],
-                                               index_to_excluded_ids[index_id],
-                                               sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                               per_page, page, token_order, prefix,
-                                               drop_tokens_threshold, typo_tokens_threshold,
-                                               group_by_fields, group_limit);
-        {
-            std::lock_guard<std::mutex> lk(index->m);
-            index->ready = true;
-            index->processed = false;
-        }
-        index->cv.notify_one();
+        search_args* search_params = new search_args(q_include_tokens, q_exclude_tokens, q_synonyms, weighted_search_fields,
+                                   filters, facets, index_to_included_ids[index_id],
+                                   index_to_excluded_ids[index_id],
+                                   sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                                   per_page, page, token_order, prefix,
+                                   drop_tokens_threshold, typo_tokens_threshold,
+                                   group_by_fields, group_limit);
+
+        search_args_vec.push_back(search_params);
+
+        CollectionManager::get_instance().get_thread_pool()->enqueue(
+                [index, search_params, &m_process, &num_processed, &cv_process]() {
+            index->run_search(search_params);
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
+        });
+
         index_id++;
     }
+
+    const size_t num_indices = indices.size();
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
 
     Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
 
@@ -812,35 +810,19 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     Topster topster(topster_size, group_limit);
     Topster curated_topster(topster_size, group_limit);
 
-    for(Index* index: indices) {
-        // wait for the worker
-        {
-            std::unique_lock<std::mutex> lk(index->m);
-            index->cv.wait(lk, [index]{return index->processed;});
-        }
+    for(const search_args* search_params: search_args_vec) {
+        aggregate_topster(searched_queries.size(), topster, search_params->topster);
+        aggregate_topster(searched_queries.size(), curated_topster, search_params->curated_topster);
 
-        if(!index->search_params->outcome.ok()) {
-            index_search_op = Option<nlohmann::json>(index->search_params->outcome.code(),
-                                                    index->search_params->outcome.error());
-        }
+        searched_queries.insert(searched_queries.end(), search_params->searched_queries.begin(),
+                                search_params->searched_queries.end());
 
-        if(!index_search_op.ok()) {
-            // we still need to iterate without breaking to release the locks
-            continue;
-        }
-
-        aggregate_topster(searched_queries.size(), topster, index->search_params->topster);
-        aggregate_topster(searched_queries.size(), curated_topster, index->search_params->curated_topster);
-
-        searched_queries.insert(searched_queries.end(), index->search_params->searched_queries.begin(),
-                                index->search_params->searched_queries.end());
-
-        for(size_t fi = 0; fi < index->search_params->facets.size(); fi++) {
-            auto & this_facet = index->search_params->facets[fi];
+        for(size_t fi = 0; fi < search_params->facets.size(); fi++) {
+            auto & this_facet = search_params->facets[fi];
             auto & acc_facet = facets[fi];
 
             for(auto & facet_kv: this_facet.result_map) {
-                if(index->search_params->group_limit) {
+                if(search_params->group_limit) {
                     // we have to add all group sets
                     acc_facet.result_map[facet_kv.first].groups.insert(
                         facet_kv.second.groups.begin(), facet_kv.second.groups.end()
@@ -871,16 +853,12 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         if(group_limit) {
             groups_processed.insert(
-                index->search_params->groups_processed.begin(),
-                index->search_params->groups_processed.end()
+                search_params->groups_processed.begin(),
+                search_params->groups_processed.end()
             );
         } else {
-            total_found += index->search_params->all_result_ids_len;
+            total_found += search_params->all_result_ids_len;
         }
-    }
-
-    if(!index_search_op.ok()) {
-        return index_search_op;
     }
 
     topster.sort();
@@ -946,7 +924,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     nlohmann::json result = nlohmann::json::object();
 
     result["found"] = total_found;
-    result["out_of"] = num_documents;
+    result["out_of"] = num_documents.load();
 
     std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
@@ -1165,8 +1143,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // free search params
-    for(Index* index: indices) {
-        delete index->search_params;
+    for(auto search_params: search_args_vec) {
+        delete search_params;
     }
 
     result["request_params"] = nlohmann::json::object();;
@@ -1210,7 +1188,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
     }
 }
 
-void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) const {
+void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) {
     if(topster->distinct) {
         for(auto &group_topster_entry: topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
@@ -1226,7 +1204,7 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
     }
 }
 
-void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Topster* index_topster) const {
+void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Topster* index_topster) {
     if(index_topster->distinct) {
         for(auto &group_topster_entry: index_topster->group_kv_map) {
             Topster* group_topster = group_topster_entry.second;
@@ -1245,6 +1223,8 @@ void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Top
 
 Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
                                     std::vector<std::pair<size_t, uint32_t*>>& index_ids) {
+    std::shared_lock lock(mutex);
+
     std::vector<filter> filters;
     Option<bool> filter_op = parse_filter_query(simple_filter_query, filters);
 
@@ -1254,12 +1234,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
 
     for(auto& index: indices) {
         uint32_t* filter_ids = nullptr;
-        Option<uint32_t> op_filter_ids_length = index->do_filtering(&filter_ids, filters);
-        if(!op_filter_ids_length.ok()) {
-            return Option<bool>(op_filter_ids_length.code(), op_filter_ids_length.error());
-        }
-
-        size_t filter_ids_len = op_filter_ids_length.get();
+        size_t filter_ids_len = index->do_filtering(&filter_ids, filters);
         index_ids.emplace_back(filter_ids_len, filter_ids);
     }
 
@@ -1267,7 +1242,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
 }
 
 bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count,
-                                       const nlohmann::json &document, std::string &value) {
+                                       const nlohmann::json &document, std::string &value) const {
 
     if(document.count(a_facet.field_name) == 0) {
         LOG(ERROR) << "Could not find field " << a_facet.field_name << " in document during faceting.";
@@ -1331,7 +1306,7 @@ void Collection::highlight_result(const field &search_field,
                                   bool highlighted_fully,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  highlight_t & highlight) {
+                                  highlight_t & highlight) const {
 
     if(searched_queries.size() <= field_order_kv->query_index) {
         return ;
@@ -1494,11 +1469,7 @@ void Collection::free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) cons
     }
 }
 
-bool Collection::doc_exists(const std::string & id) {
-    return store->contains(get_doc_id_key(id));
-}
-
-Option<nlohmann::json> Collection::get(const std::string & id) {
+Option<nlohmann::json> Collection::get(const std::string & id) const {
     std::string seq_id_str;
     StoreStatus seq_id_status = store->get(get_doc_id_key(id), seq_id_str);
 
@@ -1535,6 +1506,7 @@ Option<nlohmann::json> Collection::get(const std::string & id) {
 }
 
 void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
+    std::unique_lock lock(mutex);
     const std::string& id = document["id"];
 
     Index* index = indices[seq_id % num_memory_shards];
@@ -1614,6 +1586,7 @@ Option<uint32_t> Collection::add_override(const override_t & override) {
         return Option<uint32_t>(500, "Error while storing the override on disk.");
     }
 
+    std::unique_lock lock(mutex);
     overrides[override.id] = override;
     return Option<uint32_t>(200);
 }
@@ -1624,6 +1597,8 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
         if(!removed) {
             return Option<uint32_t>(500, "Error while deleting the override from disk.");
         }
+
+        std::unique_lock lock(mutex);
         overrides.erase(id);
         return Option<uint32_t>(200);
     }
@@ -1645,34 +1620,34 @@ std::string Collection::get_next_seq_id_key(const std::string & collection_name)
     return std::string(COLLECTION_NEXT_SEQ_PREFIX) + "_" + collection_name;
 }
 
-std::string Collection::get_seq_id_key(uint32_t seq_id) {
+std::string Collection::get_seq_id_key(uint32_t seq_id) const {
     // We can't simply do std::to_string() because we want to preserve the byte order.
     // & 0xFF masks all but the lowest eight bits.
     const std::string & serialized_id = StringUtils::serialize_uint32_t(seq_id);
     return get_seq_id_collection_prefix() + "_" + serialized_id;
 }
 
-std::string Collection::get_doc_id_key(const std::string & doc_id) {
+std::string Collection::get_doc_id_key(const std::string & doc_id) const {
     return std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_" + doc_id;
 }
 
-std::string Collection::get_name() {
+std::string Collection::get_name() const {
     return name;
 }
 
-uint64_t Collection::get_created_at() {
+uint64_t Collection::get_created_at() const {
     return created_at;
 }
 
-size_t Collection::get_num_documents() {
-    return num_documents;
+size_t Collection::get_num_documents() const {
+    return num_documents.load();
 }
 
-uint32_t Collection::get_collection_id() {
+uint32_t Collection::get_collection_id() const {
     return collection_id;
 }
 
-Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) {
+Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const {
     std::string seq_id_str;
     StoreStatus status = store->get(get_doc_id_key(doc_id), seq_id_str);
     if(status == StoreStatus::FOUND) {
@@ -1725,7 +1700,7 @@ std::string Collection::get_synonym_key(const std::string & collection_name, con
     return std::string(COLLECTION_SYNONYM_PREFIX) + "_" + collection_name + "_" + synonym_id;
 }
 
-std::string Collection::get_seq_id_collection_prefix() {
+std::string Collection::get_seq_id_collection_prefix() const {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
 
@@ -1733,7 +1708,7 @@ std::string Collection::get_default_sorting_field() {
     return default_sorting_field;
 }
 
-Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, nlohmann::json & document) {
+Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, nlohmann::json & document) const {
     std::string json_doc_str;
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
@@ -1755,7 +1730,7 @@ const std::vector<Index *> &Collection::_get_indexes() const {
 }
 
 Option<bool> Collection::parse_filter_query(const std::string& simple_filter_query,
-                                                      std::vector<filter>& filters) {
+                                                      std::vector<filter>& filters) const {
     std::vector<std::string> filter_blocks;
     StringUtils::split(simple_filter_query, filter_blocks, "&&");
 
@@ -1947,7 +1922,8 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
     return Option<bool>(true);
 }
 
-void Collection::synonym_reduction(const std::vector<std::string>& tokens, std::vector<std::vector<std::string>>& results) {
+void Collection::synonym_reduction(const std::vector<std::string>& tokens,
+                                   std::vector<std::vector<std::string>>& results) const {
     std::set<uint64_t> processed_syn_hashes;
     synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
 }
@@ -1961,6 +1937,7 @@ Option<bool> Collection::add_synonym(const synonym_t& synonym) {
         }
     }
 
+    std::unique_lock write_lock(mutex);
     synonym_definitions[synonym.id] = synonym;
 
     if(!synonym.root.empty()) {
@@ -1973,6 +1950,8 @@ Option<bool> Collection::add_synonym(const synonym_t& synonym) {
         }
     }
 
+    write_lock.unlock();
+
     bool inserted = store->insert(Collection::get_synonym_key(name, synonym.id), synonym.to_json().dump());
     if(!inserted) {
         return Option<bool>(500, "Error while storing the synonym on disk.");
@@ -1982,6 +1961,8 @@ Option<bool> Collection::add_synonym(const synonym_t& synonym) {
 }
 
 bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
+    std::shared_lock lock(mutex);
+
     if(synonym_definitions.count(id) != 0) {
         synonym = synonym_definitions[id];
         return true;
@@ -1993,7 +1974,7 @@ bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
 void Collection::synonym_reduction_internal(const std::vector<std::string>& tokens,
                                             size_t start_window_size, size_t start_index_pos,
                                             std::set<uint64_t>& processed_syn_hashes,
-                                            std::vector<std::vector<std::string>>& results) {
+                                            std::vector<std::vector<std::string>>& results) const {
 
     bool recursed = false;
 
@@ -2021,7 +2002,7 @@ void Collection::synonym_reduction_internal(const std::vector<std::string>& toke
                 const auto& syn_ids = syn_itr->second;
 
                 for(const auto& syn_id: syn_ids) {
-                    const auto &syn_def = synonym_definitions[syn_id];
+                    const auto &syn_def = synonym_definitions.at(syn_id);
 
                     for (const auto &syn_def_tokens: syn_def.synonyms) {
                         std::vector<std::string> new_tokens;
@@ -2085,6 +2066,7 @@ void Collection::synonym_reduction_internal(const std::vector<std::string>& toke
 }
 
 Option<bool> Collection::remove_synonym(const std::string &id) {
+    std::unique_lock lock(mutex);
     const auto& syn_iter = synonym_definitions.find(id);
 
     if(syn_iter != synonym_definitions.end()) {
@@ -2111,6 +2093,30 @@ Option<bool> Collection::remove_synonym(const std::string &id) {
     return Option<bool>(404, "Could not find that `id`.");
 }
 
-spp::sparse_hash_map<std::string, synonym_t> &Collection::get_synonyms() {
+spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
+    std::shared_lock lock(mutex);
     return synonym_definitions;
+}
+
+std::vector<Index *> Collection::init_indices() {
+    std::vector<Index*> index_list;
+
+    for(const field& field: fields) {
+        search_schema.emplace(field.name, field);
+
+        if(field.is_facet()) {
+            facet_schema.emplace(field.name, field);
+        }
+
+        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool()) {
+            sort_schema.emplace(field.name, field);
+        }
+    }
+
+    for(size_t i = 0; i < num_memory_shards; i++) {
+        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
+        index_list.push_back(index);
+    }
+
+    return index_list;
 }

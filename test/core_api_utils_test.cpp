@@ -39,7 +39,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
     }

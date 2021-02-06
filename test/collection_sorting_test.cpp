@@ -43,7 +43,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
                                  field("points", field_types::INT32, false),
                                  field("cast", field_types::STRING_ARRAY, false)};
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -150,7 +150,7 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
                                  field("points", field_types::INT64, false),
                                  field("cast", field_types::STRING_ARRAY, false)};
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -209,7 +209,7 @@ TEST_F(CollectionSortingTest, SortOnFloatFields) {
 
     std::vector<sort_by> sort_fields_desc = { sort_by("score", "DESC"), sort_by("average", "DESC") };
 
-    coll_float_fields = collectionManager.get_collection("coll_float_fields");
+    coll_float_fields = collectionManager.get_collection("coll_float_fields").get();
     if(coll_float_fields == nullptr) {
         coll_float_fields = collectionManager.create_collection("coll_float_fields", 4, fields, "score").get();
     }
@@ -277,7 +277,7 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
                                  field("max", field_types::INT32, false),
                                  };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -316,7 +316,7 @@ TEST_F(CollectionSortingTest, NegativeInt64Value) {
                                  field("points", field_types::INT64, false),
     };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
