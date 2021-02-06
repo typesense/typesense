@@ -47,7 +47,7 @@ TEST_F(CollectionFacetingTest, FacetFieldStringFiltering) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll_str = collectionManager.get_collection("coll_str");
+    coll_str = collectionManager.get_collection("coll_str").get();
     if(coll_str == nullptr) {
         coll_str = collectionManager.create_collection("coll_str", 1, fields, "points").get();
     }
@@ -112,7 +112,7 @@ TEST_F(CollectionFacetingTest, FacetFieldStringArrayFiltering) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 1, fields, "age").get();
     }
@@ -194,7 +194,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -504,7 +504,7 @@ TEST_F(CollectionFacetingTest, FacetCountsBool) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -558,7 +558,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -694,7 +694,7 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
 
     std::vector<sort_by> sort_fields_desc = { sort_by("average", "DESC") };
 
-    coll_float_fields = collectionManager.get_collection("coll_float_fields");
+    coll_float_fields = collectionManager.get_collection("coll_float_fields").get();
     if(coll_float_fields == nullptr) {
         coll_float_fields = collectionManager.create_collection("coll_float_fields", 4, fields, "average").get();
     }
@@ -756,7 +756,7 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }

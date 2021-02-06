@@ -47,7 +47,7 @@ protected:
 
 TEST_F(CollectionManagerTest, CollectionCreation) {
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collection1 = collectionManager2.get_collection("collection1");
+    collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
@@ -239,7 +239,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(load_op.ok());
 
-    collection1 = collectionManager2.get_collection("collection1");
+    collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
     std::vector<std::string> facet_fields_expected = {"cast"};
@@ -262,16 +262,16 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
 
-    auto& synonyms = collection1->get_synonyms();
+    const auto& synonyms = collection1->get_synonyms();
     ASSERT_EQ(2, synonyms.size());
 
-    ASSERT_STREQ("id1", synonyms["id1"].id.c_str());
-    ASSERT_EQ(2, synonyms["id1"].root.size());
-    ASSERT_EQ(1, synonyms["id1"].synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at("id1").id.c_str());
+    ASSERT_EQ(2, synonyms.at("id1").root.size());
+    ASSERT_EQ(1, synonyms.at("id1").synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms["id3"].id.c_str());
-    ASSERT_EQ(0, synonyms["id3"].root.size());
-    ASSERT_EQ(2, synonyms["id3"].synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at("id3").id.c_str());
+    ASSERT_EQ(0, synonyms.at("id3").root.size());
+    ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
@@ -287,8 +287,8 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 
     infile.close();
 
-    ASSERT_FALSE(nullptr == collectionManager.get_collection_with_id(0));
-    ASSERT_FALSE(nullptr == collectionManager.get_collection("collection1"));
+    ASSERT_FALSE(nullptr == collectionManager.get_collection_with_id(0).get());
+    ASSERT_FALSE(nullptr == collectionManager.get_collection("collection1").get());
 
     collectionManager.drop_collection("collection1");
 
@@ -303,8 +303,8 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, num_keys);
     ASSERT_TRUE(it->status().ok());
 
-    ASSERT_EQ(nullptr, collectionManager.get_collection("collection1"));
-    ASSERT_EQ(nullptr, collectionManager.get_collection_with_id(0));
+    ASSERT_EQ(nullptr, collectionManager.get_collection("collection1").get());
+    ASSERT_EQ(nullptr, collectionManager.get_collection_with_id(0).get());
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;

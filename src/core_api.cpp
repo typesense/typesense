@@ -43,14 +43,7 @@ index_operation_t get_index_operation(const std::string& action) {
 
 bool get_collections(http_req & req, http_res & res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    std::vector<Collection*> collections = collectionManager.get_collections();
-    nlohmann::json json_response = nlohmann::json::array();
-
-    for(Collection* collection: collections) {
-        nlohmann::json collection_json = collection->get_summary_json();
-        json_response.push_back(collection_json);
-    }
-
+    nlohmann::json json_response = collectionManager.get_collection_summaries();
     res.set_200(json_response.dump());
     return true;
 }
@@ -170,22 +163,14 @@ bool post_create_collection(http_req & req, http_res & res) {
 bool del_drop_collection(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req.params["collection"]);
 
-    if(!collection) {
-        res.set_404();
+    if(!drop_op.ok()) {
+        res.set(drop_op.code(), drop_op.error());
         return false;
     }
 
-    nlohmann::json collection_json = collection->get_summary_json();
-    Option<bool> drop_result = collectionManager.drop_collection(req.params["collection"]);
-
-    if(!drop_result.ok()) {
-        res.set(drop_result.code(), drop_result.error());
-        return false;
-    }
-
-    res.set_200(collection_json.dump());
+    res.set_200(drop_op.get().dump());
     return true;
 }
 
@@ -349,8 +334,8 @@ bool post_multi_search(http_req& req, http_res& res) {
 }
 
 bool get_collection_summary(http_req & req, http_res & res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -366,7 +351,7 @@ bool get_collection_summary(http_req & req, http_res & res) {
 bool get_export_documents(http_req & req, http_res & res) {
     // NOTE: this is a streaming response end-point so this handler will be called multiple times
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         req.last_chunk_aggregate = true;
@@ -459,7 +444,7 @@ bool post_import_documents(http_req& req, http_res& res) {
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         req.last_chunk_aggregate = true;
@@ -564,7 +549,7 @@ bool post_add_document(http_req & req, http_res & res) {
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -587,7 +572,7 @@ bool patch_update_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -609,7 +594,7 @@ bool get_fetch_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
     if(collection == nullptr) {
         res.set_404();
         return false;
@@ -630,7 +615,7 @@ bool del_remove_document(http_req & req, http_res & res) {
     std::string doc_id = req.params["id"];
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
     if(collection == nullptr) {
         res.set_404();
         return false;
@@ -662,7 +647,7 @@ bool del_remove_documents(http_req & req, http_res & res) {
 
     // NOTE: this is a streaming response end-point so this handler will be called multiple times
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         req.last_chunk_aggregate = true;
@@ -728,7 +713,7 @@ bool del_remove_documents(http_req & req, http_res & res) {
         for(size_t i=0; i<deletion_state->index_ids.size(); i++) {
             deletion_state->offsets.push_back(0);
         }
-        deletion_state->collection = collection;
+        deletion_state->collection = collection.get();
         deletion_state->num_removed = 0;
         req.data = deletion_state;
     } else {
@@ -855,7 +840,7 @@ bool del_alias(http_req & req, http_res & res) {
 
 bool get_overrides(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -865,7 +850,7 @@ bool get_overrides(http_req &req, http_res &res) {
     nlohmann::json res_json;
     res_json["overrides"] = nlohmann::json::array();
 
-    std::map<std::string, override_t>& overrides = collection->get_overrides();
+    const std::map<std::string, override_t>& overrides = collection->get_overrides();
     for(const auto & kv: overrides) {
         nlohmann::json override = kv.second.to_json();
         res_json["overrides"].push_back(override);
@@ -877,7 +862,7 @@ bool get_overrides(http_req &req, http_res &res) {
 
 bool get_override(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -886,10 +871,10 @@ bool get_override(http_req &req, http_res &res) {
 
     std::string override_id = req.params["id"];
 
-    std::map<std::string, override_t>& overrides = collection->get_overrides();
+    const std::map<std::string, override_t>& overrides = collection->get_overrides();
 
     if(overrides.count(override_id) != 0) {
-        nlohmann::json override = overrides[override_id].to_json();
+        nlohmann::json override = overrides.at(override_id).to_json();
         res.set_200(override.dump());
         return true;
     }
@@ -900,7 +885,7 @@ bool get_override(http_req &req, http_res &res) {
 
 bool put_override(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     std::string override_id = req.params["id"];
 
@@ -941,7 +926,7 @@ bool put_override(http_req &req, http_res &res) {
 
 bool del_override(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -1170,7 +1155,7 @@ bool post_config(http_req &req, http_res &res) {
 
 bool get_synonyms(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -1180,7 +1165,7 @@ bool get_synonyms(http_req &req, http_res &res) {
     nlohmann::json res_json;
     res_json["synonyms"] = nlohmann::json::array();
 
-    auto& synonyms = collection->get_synonyms();
+    const auto& synonyms = collection->get_synonyms();
     for(const auto & kv: synonyms) {
         nlohmann::json synonym = kv.second.to_view_json();
         res_json["synonyms"].push_back(synonym);
@@ -1192,7 +1177,7 @@ bool get_synonyms(http_req &req, http_res &res) {
 
 bool get_synonym(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();
@@ -1216,7 +1201,7 @@ bool get_synonym(http_req &req, http_res &res) {
 
 bool put_synonym(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     std::string synonym_id = req.params["id"];
 
@@ -1258,7 +1243,7 @@ bool put_synonym(http_req &req, http_res &res) {
 
 bool del_synonym(http_req &req, http_res &res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection *collection = collectionManager.get_collection(req.params["collection"]);
+    auto collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
         res.set_404();

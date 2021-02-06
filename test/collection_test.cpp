@@ -35,7 +35,7 @@ protected:
         query_fields = {"title"};
         sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
 
-        collection = collectionManager.get_collection("collection");
+        collection = collectionManager.get_collection("collection").get();
         if(collection == nullptr) {
             collection = collectionManager.create_collection("collection", 4, search_fields, "points").get();
         }
@@ -478,6 +478,9 @@ TEST_F(CollectionTest, Pagination) {
 TEST_F(CollectionTest, WildcardQuery) {
     nlohmann::json results = collection->search("*", query_fields, "points:>0", {}, sort_fields, 0, 3, 1, FREQUENCY,
                                                 false).get();
+
+    LOG(INFO) << results;
+
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<uint32_t>());
 
@@ -626,7 +629,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
             field("points", field_types::INT32, false)
     };
 
-    coll_multi_string = collectionManager.get_collection("coll_multi_string");
+    coll_multi_string = collectionManager.get_collection("coll_multi_string").get();
     if (coll_multi_string == nullptr) {
         coll_multi_string = collectionManager.create_collection("coll_multi_string", 4, fields, "points").get();
     }
@@ -654,7 +657,7 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
             field("points", field_types::INT32, false)
     };
 
-    coll_array_text = collectionManager.get_collection("coll_array_text");
+    coll_array_text = collectionManager.get_collection("coll_array_text").get();
     if (coll_array_text == nullptr) {
         coll_array_text = collectionManager.create_collection("coll_array_text", 4, fields, "points").get();
     }
@@ -837,7 +840,7 @@ TEST_F(CollectionTest, MultipleFields) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -956,7 +959,7 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -1044,7 +1047,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
         field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 1, fields, "points").get();
     }
@@ -1195,7 +1198,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
             field("points", field_types::INT32, false)
     };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -1289,7 +1292,7 @@ TEST_F(CollectionTest, ImportDocuments) {
         field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -1422,7 +1425,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("popular", "DESC"), sort_by("rating", "DESC") };
 
-    coll_bool = collectionManager.get_collection("coll_bool");
+    coll_bool = collectionManager.get_collection("coll_bool").get();
     if(coll_bool == nullptr) {
         coll_bool = collectionManager.create_collection("coll_bool", 4, fields, "rating").get();
     }
@@ -1531,7 +1534,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -1586,7 +1589,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    sample_collection = collectionManager.get_collection("sample_collection");
+    sample_collection = collectionManager.get_collection("sample_collection").get();
     if(sample_collection == nullptr) {
         sample_collection = collectionManager.create_collection("sample_collection", 4, fields, "age").get();
     }
@@ -1668,7 +1671,7 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    empty_coll = collectionManager.get_collection("empty_coll");
+    empty_coll = collectionManager.get_collection("empty_coll").get();
     if(empty_coll == nullptr) {
         empty_coll = collectionManager.create_collection("empty_coll", 4, fields, "age").get();
     }
@@ -1688,7 +1691,7 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "age").get();
     }
@@ -1716,7 +1719,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
 
     std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "average").get();
     }
@@ -1744,7 +1747,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
     Collection *collection_for_del;
-    collection_for_del = collectionManager.get_collection("collection_for_del");
+    collection_for_del = collectionManager.get_collection("collection_for_del").get();
     if(collection_for_del == nullptr) {
         collection_for_del = collectionManager.create_collection("collection_for_del", 4, search_fields, "points").get();
     }
@@ -1825,7 +1828,7 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -1898,7 +1901,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("age", "DESC") };
 
-    coll_large_text = collectionManager.get_collection("coll_large_text");
+    coll_large_text = collectionManager.get_collection("coll_large_text").get();
     if(coll_large_text == nullptr) {
         coll_large_text = collectionManager.create_collection("coll_large_text", 4, fields, "age").get();
     }
@@ -1991,7 +1994,7 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2016,7 +2019,7 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2074,7 +2077,7 @@ TEST_F(CollectionTest, SearchHighlightShouldUseHighlightTags) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2108,7 +2111,7 @@ TEST_F(CollectionTest, SearchHighlightWithNewLine) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2142,7 +2145,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2307,7 +2310,7 @@ TEST_F(CollectionTest, UpdateDocumentSorting) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2365,7 +2368,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2443,7 +2446,7 @@ TEST_F(CollectionTest, OptionalFields) {
         field("is_valid", field_types::BOOL, false, true),
     };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "max").get();
     }
@@ -2588,7 +2591,7 @@ TEST_F(CollectionTest, RemoveIfFound) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2650,7 +2653,7 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2674,6 +2677,8 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
                                  {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    LOG(INFO) << results;
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -2750,7 +2755,7 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2802,7 +2807,7 @@ TEST_F(CollectionTest, FieldWeightsNotProper) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2847,7 +2852,7 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2890,7 +2895,7 @@ TEST_F(CollectionTest, MultiFieldMatchRanking) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2940,7 +2945,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnArray) {
                                  field("skills", field_types::STRING_ARRAY, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2981,7 +2986,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnFieldOrder) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -3020,7 +3025,7 @@ TEST_F(CollectionTest, PrefixRankedAfterExactMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -3060,7 +3065,7 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }

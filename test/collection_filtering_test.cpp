@@ -47,7 +47,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -127,7 +127,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFieldWithColon) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -165,7 +165,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -219,7 +219,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -332,7 +332,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         // ensure that default_sorting_field is a non-array numerical field
         auto coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "years");
@@ -529,7 +529,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     std::vector<sort_by> sort_fields_desc = { sort_by("rating", "DESC") };
     std::vector<sort_by> sort_fields_asc = { sort_by("rating", "ASC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -669,7 +669,7 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
 
     std::vector<sort_by> sort_fields_desc = {sort_by("rating", "DESC")};
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if (coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -724,7 +724,7 @@ TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }

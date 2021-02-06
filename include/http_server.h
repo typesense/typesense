@@ -14,6 +14,7 @@ extern "C" {
 #include <cstdio>
 #include "http_data.h"
 #include "option.h"
+#include "threadpool.h"
 
 class ReplicationState;
 class HttpServer;
@@ -75,6 +76,8 @@ private:
 
     bool cors_enabled;
 
+    ThreadPool* thread_pool;
+
     bool (*auth_handler)(std::map<std::string, std::string>& params, const route_path& rpath,
                          const std::string& auth_key);
 
@@ -108,7 +111,9 @@ private:
 public:
     HttpServer(const std::string & version,
                const std::string & listen_address, uint32_t listen_port,
-               const std::string & ssl_cert_path, const std::string & ssl_cert_key_path, bool cors_enabled);
+               const std::string & ssl_cert_path,
+               const std::string & ssl_cert_key_path,
+               bool cors_enabled, ThreadPool* thread_pool);
 
     ~HttpServer();
 
@@ -163,6 +168,8 @@ public:
     static bool on_request_proceed_message(void *data);
 
     std::string get_version();
+
+    ThreadPool* get_thread_pool() const;
 
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";

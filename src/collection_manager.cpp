@@ -58,12 +58,21 @@ void CollectionManager::add_to_collections(Collection* collection) {
     collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
 }
 
-void CollectionManager::init(Store *store,
+void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key) {
+    std::unique_lock lock(mutex);
+
     this->store = store;
+    this->thread_pool = thread_pool;
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
+}
+
+// used only in tests!
+void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key) {
+    ThreadPool* thread_pool = new ThreadPool(8);
+    init(store, thread_pool, max_memory_ratio, auth_key);
 }
 
 Option<bool> CollectionManager::load(const size_t init_batch_size) {
@@ -120,12 +129,13 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
                                           StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
 
-        if(get_collection(this_collection_name)) {
+        if(get_collection(this_collection_name) != nullptr) {
             // To maintain idempotency, if the collection already exists in-memory, drop it from memory
             LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
             drop_collection(this_collection_name, false);
         }
 
+        std::unique_lock lock(mutex);
         Collection* collection = init_collection(collection_meta, collection_next_seq_id);
 
         LOG(INFO) << "Loading collection " << collection->get_name();
@@ -252,6 +262,8 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
 
 void CollectionManager::dispose() {
+    std::unique_lock lock(mutex);
+
     for(auto & name_collection: collections) {
         delete name_collection.second;
         name_collection.second = nullptr;
@@ -264,7 +276,9 @@ void CollectionManager::dispose() {
 bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
                                          const std::string& action,
                                          const std::string& collection,
-                                         std::map<std::string, std::string>& params) {
+                                         std::map<std::string, std::string>& params) const {
+    std::shared_lock lock(mutex);
+
     if(auth_key_sent.empty()) {
         return false;
     }
@@ -283,6 +297,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<field> & fields,
                                                          const std::string & default_sorting_field,
                                                          const uint64_t created_at) {
+    std::unique_lock lock(mutex);
+
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
@@ -328,7 +344,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
 
     nlohmann::json collection_meta;
     collection_meta[COLLECTION_NAME_KEY] = name;
-    collection_meta[COLLECTION_ID_KEY] = next_collection_id;
+    collection_meta[COLLECTION_ID_KEY] = next_collection_id.load();
     collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
     collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[COLLECTION_CREATED] = created_at;
@@ -354,7 +370,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     return Option<Collection*>(new_collection);
 }
 
-Collection* CollectionManager::get_collection(const std::string & collection_name) {
+Collection* CollectionManager::get_collection_unafe(const std::string & collection_name) const {
     if(collections.count(collection_name) != 0) {
         return collections.at(collection_name);
     }
@@ -370,17 +386,27 @@ Collection* CollectionManager::get_collection(const std::string & collection_nam
     return nullptr;
 }
 
-Collection* CollectionManager::get_collection_with_id(uint32_t collection_id) {
+locked_resource_view_t<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
+    std::shared_lock lock(mutex);
+    Collection* coll = get_collection_unafe(collection_name);
+    return locked_resource_view_t<Collection>(mutex, coll);
+}
+
+locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uint32_t collection_id) const {
+    std::shared_lock lock(mutex);
+
     if(collection_id_names.count(collection_id) != 0) {
         return get_collection(collection_id_names.at(collection_id));
     }
 
-    return nullptr;
+    return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-std::vector<Collection*> CollectionManager::get_collections() {
+std::vector<Collection*> CollectionManager::get_collections() const {
+    std::shared_lock lock(mutex);
+
     std::vector<Collection*> collection_vec;
-    for(auto kv: collections) {
+    for(const auto& kv: collections) {
         collection_vec.push_back(kv.second);
     }
 
@@ -392,11 +418,15 @@ std::vector<Collection*> CollectionManager::get_collections() {
     return collection_vec;
 }
 
-Option<bool> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    Collection* collection = get_collection(collection_name);
+Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
+    std::unique_lock lock(mutex);
+
+    Collection* collection = get_collection_unafe(collection_name);
     if(collection == nullptr) {
-        return Option<bool>(404, "No collection with name `" + collection_name + "` found.");
+        return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
     }
+
+    nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
         const std::string &collection_id_str = std::to_string(collection->get_collection_id());
@@ -418,10 +448,10 @@ Option<bool> CollectionManager::drop_collection(const std::string& collection_na
 
     delete collection;
 
-    return Option<bool>(true);
+    return Option<nlohmann::json>(collection_json);
 }
 
-uint32_t CollectionManager::get_next_collection_id() {
+uint32_t CollectionManager::get_next_collection_id() const {
     return next_collection_id;
 }
 
@@ -429,15 +459,14 @@ std::string CollectionManager::get_symlink_key(const std::string & symlink_name)
     return std::string(SYMLINK_PREFIX) + "_" + symlink_name;
 }
 
-void CollectionManager::set_next_collection_id(uint32_t next_id) {
-    next_collection_id = next_id;
-}
-
-spp::sparse_hash_map<std::string, std::string> & CollectionManager::get_symlinks() {
+spp::sparse_hash_map<std::string, std::string> CollectionManager::get_symlinks() const {
+    std::shared_lock lock(mutex);
     return collection_symlinks;
 }
 
-Option<std::string> CollectionManager::resolve_symlink(const std::string & symlink_name) {
+Option<std::string> CollectionManager::resolve_symlink(const std::string & symlink_name) const {
+    std::shared_lock lock(mutex);
+
     if(collection_symlinks.count(symlink_name) != 0) {
         return Option<std::string>(collection_symlinks.at(symlink_name));
     }
@@ -446,6 +475,8 @@ Option<std::string> CollectionManager::resolve_symlink(const std::string & symli
 }
 
 Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
+    std::unique_lock lock(mutex);
+
     if(collections.count(symlink_name) != 0) {
         return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
     }
@@ -460,6 +491,8 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
 }
 
 Option<bool> CollectionManager::delete_symlink(const std::string & symlink_name) {
+    std::unique_lock lock(mutex);
+
     bool removed = store->remove(get_symlink_key(symlink_name));
     if(!removed) {
         return Option<bool>(500, "Unable to delete from store.");
@@ -711,7 +744,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req_params["collection"]);
+    auto collection = collectionManager.get_collection(req_params["collection"]);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -766,4 +799,22 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
 
     return Option<bool>(true);
+}
+
+ThreadPool* CollectionManager::get_thread_pool() const {
+    return thread_pool;
+}
+
+nlohmann::json CollectionManager::get_collection_summaries() const {
+    std::shared_lock lock(mutex);
+
+    std::vector<Collection*> colls = get_collections();
+    nlohmann::json json_summaries = nlohmann::json::array();
+
+    for(Collection* collection: colls) {
+        nlohmann::json collection_json = collection->get_summary_json();
+        json_summaries.push_back(collection_json);
+    }
+
+    return json_summaries;
 }
