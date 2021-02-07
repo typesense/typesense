@@ -12,6 +12,7 @@
 #include <system_metrics.h>
 #include <tokenizer.h>
 #include <collection_manager.h>
+#include <h3api.h>
 #include "topster.h"
 #include "logger.h"
 
@@ -676,6 +677,43 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     for(const sort_by& _sort_field: sort_fields) {
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
+
+        if(sort_field_std.name.back() == ')') {
+            // check if this is a geo field
+            size_t paran_start = 0;
+            while(paran_start < sort_field_std.name.size() && sort_field_std.name[paran_start] != '(') {
+                paran_start++;
+            }
+
+            const std::string& actual_field_name = sort_field_std.name.substr(0, paran_start);
+
+            if(sort_schema.count(actual_field_name) == 0) {
+                std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
+                return Option<nlohmann::json>(404, error);
+            }
+
+            const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+            std::vector<std::string> geo_coords;
+            StringUtils::split(geo_coordstr, geo_coords, ",");
+
+            if(geo_coords.size() != 2) {
+                std::string error = "Geopoint sorting field `" + actual_field_name +
+                                    "` must be in the `field(24.56,10.45):ASC` format.";
+                return Option<nlohmann::json>(404, error);
+            }
+
+            if(!StringUtils::is_float(geo_coords[0]) || !StringUtils::is_float(geo_coords[1])) {
+                std::string error = "Geopoint sorting field `" + actual_field_name +
+                                    "` must be in the `field(24.56,10.45):ASC` format.";
+                return Option<nlohmann::json>(404, error);
+            }
+
+            GeoCoord x {degsToRads(std::stod(geo_coords[0])), degsToRads(std::stod(geo_coords[1]))};
+            H3Index geoHash = geoToH3(&x, FINEST_GEO_RESOLUTION);
+
+            sort_field_std.name = actual_field_name;
+            sort_field_std.geopoint = geoHash;
+        }
 
         if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
             std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
@@ -1729,6 +1767,47 @@ const std::vector<Index *> &Collection::_get_indexes() const {
     return indices;
 }
 
+Option<bool> Collection::parse_geopoint_filter_value(std::string& raw_value,
+                                                const std::string& format_err_msg,
+                                                std::string& processed_filter_val,
+                                                NUM_COMPARATOR& num_comparator) {
+
+    num_comparator = LESS_THAN_EQUALS;
+
+    if(!(raw_value[0] == '(' && raw_value[raw_value.size() - 1] == ')')) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    std::vector<std::string> filter_values;
+    StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+
+    // we will end up with: "10.45 34.56 2 km"
+
+    if(filter_values.size() != 3) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    if(!StringUtils::is_float(filter_values[0]) || !StringUtils::is_float(filter_values[1])) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    std::vector<std::string> dist_values;
+    StringUtils::split(filter_values[2], dist_values, " ");
+
+    if(dist_values.size() != 2) {
+        return Option<bool>(400, format_err_msg);
+    }
+
+    if(dist_values[1] != "km" && dist_values[1] != "mi") {
+        return Option<bool>(400, "Unit must be either `km` or `mi`.");
+    }
+
+    processed_filter_val = filter_values[0] + " " + filter_values[1] + " " + // co-ords
+                           dist_values[0] + " " +  dist_values[1];           // X km
+
+   return Option<bool>(true);
+}
+
 Option<bool> Collection::parse_filter_query(const std::string& simple_filter_query,
                                                       std::vector<filter>& filters) const {
     std::vector<std::string> filter_blocks;
@@ -1850,6 +1929,44 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 }
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
                 f = {field_name, {bool_value}, {EQUALS}};
+            }
+
+        } else if(_field.is_geopoint()) {
+            f = {field_name, {}, {}};
+
+            const std::string& format_err_msg = "Value of filter field `" + _field.name +
+                                                "`: must be in the `(-44.50, 170.29, 0.75 km)` format.";
+
+            NUM_COMPARATOR num_comparator;
+
+            // could be a single value or a list
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> filter_values;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, "),");
+
+                for(std::string& filter_value: filter_values) {
+                    filter_value += ")";
+                    std::string processed_filter_val;
+                    auto parse_op = parse_geopoint_filter_value(filter_value, format_err_msg, processed_filter_val, num_comparator);
+
+                    if(!parse_op.ok()) {
+                        return parse_op;
+                    }
+
+                    f.values.push_back(processed_filter_val);
+                    f.comparators.push_back(num_comparator);
+                }
+            } else {
+                // single value, e.g. (10.45, 34.56, 2 km)
+                std::string processed_filter_val;
+                auto parse_op = parse_geopoint_filter_value(raw_value, format_err_msg, processed_filter_val, num_comparator);
+
+                if(!parse_op.ok()) {
+                    return parse_op;
+                }
+
+                f.values.push_back(processed_filter_val);
+                f.comparators.push_back(num_comparator);
             }
 
         } else if(_field.is_string()) {
@@ -2108,7 +2225,7 @@ std::vector<Index *> Collection::init_indices() {
             facet_schema.emplace(field.name, field);
         }
 
-        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool()) {
+        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool() || field.is_geopoint()) {
             sort_schema.emplace(field.name, field);
         }
     }

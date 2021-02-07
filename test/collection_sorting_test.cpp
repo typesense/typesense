@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
+#include <h3api.h>
 #include "collection.h"
 
 class CollectionSortingTest : public ::testing::Test {
@@ -338,6 +339,141 @@ TEST_F(CollectionSortingTest, NegativeInt64Value) {
                              false).get();
 
     ASSERT_EQ(0, res["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointFiltering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+            {"Palais Garnier", "48.872576479306765, 2.332291112241466"},
+            {"Sacre Coeur", "48.888286721920934, 2.342340862419206"},
+            {"Arc de Triomphe", "48.87538726829884, 2.296113163780903"},
+            {"Place de la Concorde", "48.86536119187326, 2.321850747347093"},
+            {"Louvre Musuem", "48.86065813197502, 2.3381285349616725"},
+            {"Les Invalides", "48.856648379569904, 2.3118555692631357"},
+            {"Eiffel Tower", "48.85821022164442, 2.294239067890161"},
+            {"Notre-Dame de Paris", "48.852455825574495, 2.35071182406452"},
+            {"Musee Grevin", "48.872370541246816, 2.3431536410008906"},
+            {"Pantheon", "48.84620987789056, 2.345152755563131"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a large radius covering all points, with a point close to Pantheon
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(48.84442912268208, 2.3490714964332353)", "ASC")
+    };
+
+    auto results = coll1->search("*",
+                            {}, "loc: (48.84442912268208, 2.3490714964332353, 20 km)",
+                            {}, geo_sort_fields, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+
+    std::vector<std::string> expected_ids = {
+        "9", "7", "4", "3", "8", "5", "0", "6", "1", "2"
+    };
+
+    for(size_t i=0; i < expected_ids.size(); i++) {
+        ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
+    }
+
+    // desc, without filter
+    geo_sort_fields = {
+            sort_by("loc(48.84442912268208, 2.3490714964332353)", "DESC")
+    };
+
+    results = coll1->search("*",
+                            {}, "",
+                            {}, geo_sort_fields, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+
+    for(size_t i=0; i < expected_ids.size(); i++) {
+        ASSERT_STREQ(expected_ids[expected_ids.size() - 1 - i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
+    }
+
+    // with bad sort field formats
+    std::vector<sort_by> bad_geo_sort_fields = {
+        sort_by("loc(,2.3490714964332353)", "ASC")
+    };
+
+    auto res_op = coll1->search("*",
+                            {}, "",
+                            {}, bad_geo_sort_fields, 0, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Geopoint sorting field `loc` must be in the `field(24.56,10.45):ASC` format.", res_op.error().c_str());
+
+    bad_geo_sort_fields = {
+            sort_by("loc(x, y)", "ASC")
+    };
+
+    res_op = coll1->search("*",
+                                {}, "",
+                                {}, bad_geo_sort_fields, 0, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Geopoint sorting field `loc` must be in the `field(24.56,10.45):ASC` format.", res_op.error().c_str());
+
+    bad_geo_sort_fields = {
+        sort_by("loc(", "ASC")
+    };
+
+    res_op = coll1->search("*",
+                           {}, "",
+                           {}, bad_geo_sort_fields, 0, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Could not find a field named `loc(` in the schema for sorting.", res_op.error().c_str());
+
+    bad_geo_sort_fields = {
+        sort_by("loc)", "ASC")
+    };
+
+    res_op = coll1->search("*",
+                           {}, "",
+                           {}, bad_geo_sort_fields, 0, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Could not find a field named `loc)` in the schema for sorting.", res_op.error().c_str());
+
+    bad_geo_sort_fields = {
+            sort_by("l()", "ASC")
+    };
+
+    res_op = coll1->search("*",
+                           {}, "",
+                           {}, bad_geo_sort_fields, 0, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("Could not find a field named `l` in the schema for sorting.", res_op.error().c_str());
 
     collectionManager.drop_collection("coll1");
 }
