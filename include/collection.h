@@ -361,6 +361,11 @@ private:
 
     Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters) const;
 
+    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
+                                                    const std::string& format_err_msg,
+                                                    std::string& processed_filter_val,
+                                                    NUM_COMPARATOR& num_comparator);
+
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 

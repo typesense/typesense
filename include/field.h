@@ -11,6 +11,7 @@ namespace field_types {
     static const std::string INT64 = "int64";
     static const std::string FLOAT = "float";
     static const std::string BOOL = "bool";
+    static const std::string GEOPOINT = "geopoint";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";
     static const std::string INT64_ARRAY = "int64[]";
@@ -25,19 +26,30 @@ namespace fields {
     static const std::string optional = "optional";
 }
 
+static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
+static const uint8_t FINEST_GEO_RESOLUTION = 15;
+
 struct field {
     std::string name;
     std::string type;
     bool facet;
     bool optional;
 
+    uint8_t geo_resolution;
+
     field(const std::string & name, const std::string & type, const bool facet):
-        name(name), type(type), facet(facet), optional(false) {
+        name(name), type(type), facet(facet), optional(false), geo_resolution(DEFAULT_GEO_RESOLUTION) {
 
     }
 
     field(const std::string & name, const std::string & type, const bool facet, const bool optional):
-            name(name), type(type), facet(facet), optional(optional) {
+            name(name), type(type), facet(facet), optional(optional), geo_resolution(DEFAULT_GEO_RESOLUTION) {
+
+    }
+
+    field(const std::string & name, const std::string & type, const bool facet, const bool optional,
+          const uint8_t geo_resolution):
+            name(name), type(type), facet(facet), optional(optional), geo_resolution(geo_resolution) {
 
     }
 
@@ -74,6 +86,10 @@ struct field {
         return (type == field_types::BOOL || type == field_types::BOOL_ARRAY);
     }
 
+    bool is_geopoint() const {
+        return (type == field_types::GEOPOINT);
+    }
+
     bool is_string() const {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
@@ -89,7 +105,7 @@ struct field {
     }
 
     bool has_valid_type() const {
-        return is_string() || is_integer() || is_float() || is_bool();
+        return is_string() || is_integer() || is_float() || is_bool() || is_geopoint();
     }
 
     std::string faceted_name() const {
@@ -177,14 +193,21 @@ namespace sort_field_const {
 struct sort_by {
     std::string name;
     std::string order;
+    int64_t geopoint;
 
-    sort_by(const std::string & name, const std::string & order): name(name), order(order) {
+    sort_by(const std::string & name, const std::string & order): name(name), order(order), geopoint(0) {
+
+    }
+
+    sort_by(const std::string &name, const std::string &order, int64_t geopoint) :
+            name(name), order(order), geopoint(geopoint) {
 
     }
 
     sort_by& operator=(sort_by other) {
         name = other.name;
         order = other.order;
+        geopoint = other.geopoint;
         return *this;
     }
 };

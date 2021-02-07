@@ -9,6 +9,7 @@
 #include <string_utils.h>
 #include <art.h>
 #include <tokenizer.h>
+#include <h3api.h>
 #include "logger.h"
 
 Index::Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
@@ -130,8 +131,8 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             facet_id = facet_to_id[field_name];
         }
 
-        // non-string faceted field should be indexed as faceted string field as well
-        if(field_pair.second.facet && !field_pair.second.is_string()) {
+        // non-string, non-geo faceted field should be indexed as faceted string field as well
+        if(field_pair.second.facet && !field_pair.second.is_string() && field_pair.second.type != field_types::GEOPOINT) {
             art_tree *t = search_index.at(field_pair.second.faceted_name());
 
             if(field_pair.second.is_array()) {
@@ -193,6 +194,13 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             auto num_tree = numerical_index.at(field_name);
             bool value = document[field_name];
             num_tree->insert(value, seq_id);
+        } else if(field_pair.second.type == field_types::GEOPOINT) {
+            auto num_tree = numerical_index.at(field_name);
+            const std::vector<double>& latlong = document[field_name];
+            GeoCoord x {degsToRads(latlong[0]), degsToRads(latlong[1])};
+            H3Index geoHash = geoToH3(&x, field_pair.second.geo_resolution);
+            //LOG(INFO) << "Indexing h3 index " << geoHash << " for seq_id " << seq_id << " at res: " << size_t(field_pair.second.geo_resolution);
+            num_tree->insert(geoHash, seq_id);
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             art_tree *t = search_index.at(field_name);
             const std::vector<std::string>& strings = document[field_name];
@@ -226,7 +234,8 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
         // add numerical values automatically into sort index
         if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64 ||
-                field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL) {
+           field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL ||
+           field_pair.second.type == field_types::GEOPOINT) {
             spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(field_pair.first);
 
             if(field_pair.second.is_integer() ) {
@@ -236,6 +245,11 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                 doc_to_score->emplace(seq_id, ifloat);
             } else if(field_pair.second.is_bool()) {
                 doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
+            } else if(field_pair.second.is_geopoint()) {
+                const std::vector<double>& latlong = document[field_pair.first];
+                GeoCoord x {degsToRads(latlong[0]), degsToRads(latlong[1])};
+                H3Index geoHash = geoToH3(&x, FINEST_GEO_RESOLUTION);
+                doc_to_score->emplace(seq_id, (int64_t)(geoHash));
             }
         }
     }
@@ -302,6 +316,16 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
         } else if(field_pair.second.type == field_types::BOOL) {
             if(!document[field_name].is_boolean()) {
                 return Option<>(400, "Field `" + field_name  + "` must be a bool.");
+            }
+        } else if(field_pair.second.type == field_types::GEOPOINT) {
+            if(!document[field_name].is_array()) {
+                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
+            }
+            if(document[field_name].size() != 2) {
+                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
+            }
+            if(!document[field_name][0].is_number() || !document[field_name][1].is_number()) {
+                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
             }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             if(!document[field_name].is_array()) {
@@ -1023,6 +1047,80 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 num_tree->search(a_filter.comparators[value_index], bool_int64, &result_ids, result_ids_len);
                 value_index++;
             }
+
+        } else if(f.is_geopoint()) {
+            spp::sparse_hash_map<size_t, size_t> result_to_distance;
+            auto num_tree = numerical_index.at(a_filter.field_name);
+            uint32_t* temp_ids = nullptr;
+            size_t temp_ids_len = 0;
+
+            auto record_to_geo = sort_index.at(a_filter.field_name);
+
+            double indexed_edge_len = edgeLengthM(f.geo_resolution);
+
+            for(const std::string& filter_value: a_filter.values) {
+                std::vector<std::string> filter_value_parts;
+                StringUtils::split(filter_value, filter_value_parts, " ");  // x y 2 km
+                double radius = std::stof(filter_value_parts[2]);
+                const auto& unit = filter_value_parts[3];
+
+                if(unit == "km") {
+                    radius *= 1000;
+                } else {
+                    // assume "mi" (validated upstream)
+                    radius *= 1609.34;
+                }
+
+                GeoCoord location;
+                location.lat = degsToRads(std::stod(filter_value_parts[0]));
+                location.lon = degsToRads(std::stod(filter_value_parts[1]));
+                H3Index query_index = geoToH3(&location, f.geo_resolution);
+
+                //LOG(INFO) << "query latlon: " << std::stod(filter_value_parts[0]) << ", " << std::stod(filter_value_parts[1]);
+                //LOG(INFO) << "query h3 index: " << query_index << " at res: " << size_t(f.geo_resolution);
+
+                size_t k_rings = size_t(std::ceil(radius / indexed_edge_len));
+                size_t max_neighboring = maxKringSize(k_rings);
+                H3Index* neighboring_indices = static_cast<H3Index *>(calloc(max_neighboring, sizeof(H3Index)));
+                kRing(query_index, k_rings, neighboring_indices);
+
+                for (size_t hex_index = 0; hex_index < max_neighboring; hex_index++) {
+                    // Some indexes may be 0 to indicate fewer than the maximum number of indexes.
+                    if (neighboring_indices[hex_index] != 0) {
+                        //LOG(INFO) << "Neighbour index: " << neighboring_indices[hex_index];
+                        num_tree->search(EQUALS, neighboring_indices[hex_index], &temp_ids, temp_ids_len);
+                    }
+                }
+
+                free(neighboring_indices);
+
+                // `result_ids` will contain all IDs that are within K-ring hexagons
+                // we still need to do another round of exact filtering on them
+
+                H3Index query_point_index = geoToH3(&location, FINEST_GEO_RESOLUTION);
+                for(size_t result_index = 0; result_index < temp_ids_len; result_index++) {
+                    uint32_t result_id = temp_ids[result_index];
+                    size_t actual_dist_meters = h3Distance(query_point_index, record_to_geo->at(result_id));
+                    if(actual_dist_meters <= radius) {
+                        auto it = result_to_distance.find(result_id);
+                        if(it == result_to_distance.end()) {
+                            result_to_distance.emplace(result_id, actual_dist_meters);
+                        } else {
+                            result_to_distance.emplace(result_id, std::min(actual_dist_meters, it->second));
+                        }
+                    }
+                }
+            }
+
+            result_ids = new uint32_t[result_to_distance.size()];
+
+            // add IDs from `result_to_distance` to `result_ids`
+            size_t kv_index = 0;
+            for(const auto& kv: result_to_distance) {
+                result_ids[kv_index++] = kv.first;
+            }
+
+            result_ids_len = result_to_distance.size();
 
         } else if(f.is_string()) {
             art_tree* t = search_index.at(a_filter.field_name);
@@ -1827,15 +1925,31 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     spp::sparse_hash_map<uint32_t, int64_t>* field_values[3];
 
+    spp::sparse_hash_map<uint32_t, int64_t> geopoint_distances[3];
+
     for(size_t i = 0; i < sort_fields.size(); i++) {
         sort_order[i] = 1;
         if(sort_fields[i].order == sort_field_const::asc) {
             sort_order[i] = -1;
         }
 
-        field_values[i] = (sort_fields[i].name != sort_field_const::text_match) ?
-                          sort_index.at(sort_fields[i].name) :
-                          nullptr;
+        if(sort_fields[i].name == sort_field_const::text_match) {
+            field_values[i] = nullptr;
+        } else if(sort_schema.at(sort_fields[i].name).is_geopoint()) {
+            // we have to populate distances that will be used for match scoring
+            spp::sparse_hash_map<uint32_t, int64_t>* geopoints = sort_index.at(sort_fields[i].name);
+
+            for(size_t rindex=0; rindex<result_size; rindex++) {
+                const uint32_t seq_id = result_ids[rindex];
+                auto it = geopoints->find(seq_id);
+                int64_t dist = (it == geopoints->end()) ? INT32_MAX : h3Distance(sort_fields[i].geopoint, it->second);
+                geopoint_distances[i].emplace(seq_id, dist);
+            }
+
+            field_values[i] = &geopoint_distances[i];
+        } else {
+            field_values[i] = sort_index.at(sort_fields[i].name);
+        }
     }
 
     //auto begin = std::chrono::high_resolution_clock::now();
