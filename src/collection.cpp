@@ -1034,7 +1034,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 wrapper_doc["highlights"].push_back(h_json);
             }
 
-            wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
+            //wrapper_doc["seq_id"] = (uint32_t) field_order_kv->key;
 
             prune_document(document, include_fields, exclude_fields);
             wrapper_doc["document"] = document;

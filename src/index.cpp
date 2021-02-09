@@ -913,7 +913,7 @@ void Index::search_candidates(const uint8_t & field_id,
             size_t filtered_results_size = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
                                                                   result_size, &filtered_result_ids);
 
-            uint32_t* new_all_result_ids;
+            uint32_t* new_all_result_ids = nullptr;
             all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, filtered_result_ids,
                                   filtered_results_size, &new_all_result_ids);
             delete [] *all_result_ids;
@@ -928,7 +928,7 @@ void Index::search_candidates(const uint8_t & field_id,
             delete[] filtered_result_ids;
             delete[] result_ids;
         } else {
-            uint32_t* new_all_result_ids;
+            uint32_t* new_all_result_ids = nullptr;
             all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, result_ids,
                                   result_size, &new_all_result_ids);
             delete [] *all_result_ids;
