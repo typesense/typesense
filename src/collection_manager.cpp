@@ -510,6 +510,38 @@ AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
 }
 
+bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
+    std::string sort_field_expr;
+    char prev_non_space_char = 'a';
+
+    for(size_t i=0; i < sort_by_str.size(); i++) {
+        if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
+            if(i == sort_by_str.size()-1) {
+                sort_field_expr += sort_by_str[i];
+            }
+
+            std::vector<std::string> expression_parts;
+            StringUtils::split(sort_field_expr, expression_parts, ":");
+
+            if(expression_parts.size() != 2) {
+                return false;
+            }
+
+            StringUtils::toupper(expression_parts[1]);
+            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
+            sort_field_expr = "";
+        } else {
+            sort_field_expr += sort_by_str[i];
+        }
+
+        if(sort_by_str[i] != ' ') {
+            prev_non_space_char = sort_by_str[i];
+        }
+    }
+
+    return true;
+}
+
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params, std::string& results_json_str) {
     auto begin = std::chrono::high_resolution_clock::now();
@@ -714,25 +746,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     StringUtils::split(req_params[GROUP_BY], group_by_fields, ",");
 
     std::vector<sort_by> sort_fields;
-    if(req_params.count(SORT_BY) != 0) {
-        std::vector<std::string> sort_field_strs;
-        StringUtils::split(req_params[SORT_BY], sort_field_strs, ",");
+    bool parsed_sort_by = parse_sort_by_str(req_params[SORT_BY], sort_fields);
 
-        if(sort_field_strs.size() > 3) {
-            return Option<bool>(400,"Only upto 3 sort fields are allowed.");
-        }
+    if(!parsed_sort_by) {
+        return Option<bool>(400,std::string("Parameter `") + SORT_BY + "` is malformed.");
+    }
 
-        for(const std::string & sort_field_str: sort_field_strs) {
-            std::vector<std::string> expression_parts;
-            StringUtils::split(sort_field_str, expression_parts, ":");
-
-            if(expression_parts.size() != 2) {
-                return Option<bool>(400,std::string("Parameter `") + SORT_BY + "` is malformed.");
-            }
-
-            StringUtils::toupper(expression_parts[1]);
-            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
-        }
+    if(sort_fields.size() > 3) {
+        return Option<bool>(400, "Only upto 3 sort fields are allowed.");
     }
 
     if(req_params.count(PINNED_HITS) == 0) {

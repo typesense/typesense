@@ -396,3 +396,51 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2020", collection_option.get());
 }
+
+TEST_F(CollectionManagerTest, ParseSortByClause) {
+    std::vector<sort_by> sort_fields;
+    bool sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("points", sort_fields[0].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[1].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" points:desc , loc(24.56,10.45):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("points", sort_fields[0].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[1].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" loc(24.56,10.45):ASC, points:desc ", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[0].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("points", sort_fields[1].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(0, sort_fields.size());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(",", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
+
+}
