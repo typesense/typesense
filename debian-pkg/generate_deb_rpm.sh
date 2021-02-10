@@ -45,6 +45,7 @@ cd /tmp/typesense-rpm-build && alien --scripts -k -r -g -v /tmp/typesense-rpm-bu
 
 sed -i 's#%dir "/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 sed -i 's#%dir "/usr/bin/"##' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
+sed -i 's/%config/%config(noreplace)/g' `find /tmp/typesense-rpm-build/*/*.spec -maxdepth 10 -type f`
 
 SPEC_FILE="/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-1.spec"
 SPEC_FILE_COPY="/tmp/typesense-rpm-build/typesense-server-${TS_VERSION}/typesense-server-${TS_VERSION}-copy.spec"
