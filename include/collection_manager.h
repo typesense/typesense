@@ -157,6 +157,8 @@ public:
 
     static Option<bool> do_search(std::map<std::string, std::string>& req_params, std::string& results_json_str);
 
+    static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
+
     // symlinks
     Option<std::string> resolve_symlink(const std::string & symlink_name) const;
 
