@@ -73,7 +73,7 @@ public:
     void add_to_collections(Collection* collection);
 
     bool auth_key_matches(const std::string& auth_key_sent, const std::string& action,
-                          const std::string& collection, std::map<std::string, std::string>& params);
+                          const std::vector<std::string>& collections, std::map<std::string, std::string>& params) const;
 
     Option<Collection*> create_collection(const std::string& name, const size_t num_memory_shards,
                                           const std::vector<field> & fields,

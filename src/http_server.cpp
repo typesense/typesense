@@ -397,14 +397,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    bool authenticated = h2o_handler->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
+    const std::string & body = std::string(req->entity.base, req->entity.len);
+
+    bool authenticated = h2o_handler->http_server->auth_handler(query_map, body, *rpath, api_auth_key_sent);
     if(!authenticated) {
         std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                "` header must be sent.\"}";
         return send_response(req, 401, message);
     }
-
-    const std::string & body = std::string(req->entity.base, req->entity.len);
 
     http_req* request = new http_req(req, rpath->http_method, path_without_query, route_hash, query_map, body);
     http_res* response = new http_res();
@@ -728,8 +728,8 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
     }
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
-                                                  const std::string& auth_key)) {
+void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
+                                                  const route_path& rpath, const std::string& auth_key)) {
     auth_handler = handler;
 }
 
