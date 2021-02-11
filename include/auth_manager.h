@@ -94,6 +94,13 @@ private:
 
     static std::string fmt_error(std::string&& error, const std::string& key);
 
+    Option<bool> authenticate_parse_params(const std::string& scoped_api_key, const std::string& action,
+                                           const std::vector<std::string>& collections,
+                                           nlohmann::json& embedded_params) const;
+
+    bool auth_against_key(const std::vector<std::string>& collections, const std::string& action,
+                          const api_key_t &api_key, const bool search_only) const;
+
 public:
 
     AuthManager() = default;
@@ -108,25 +115,14 @@ public:
 
     Option<api_key_t> remove_key(uint32_t id);
 
-    bool authenticate(
-        const std::string& req_api_key,
-        const std::string& action,
-        const std::string& collection,
-        std::map<std::string, std::string>& params
-    );
-
-    Option<bool> authenticate_parse_params(
-        const std::string& scoped_api_key,
-        const std::string& action,
-        const std::string& collection,
-        nlohmann::json& embedded_params
-    );
-
     static const size_t KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
 
     bool auth_against_key(const std::string &collection, const std::string& action,
                           const api_key_t &api_key, const bool search_only) const;
+
+    bool authenticate(const std::string& req_api_key, const std::string& action,
+                      const std::vector<std::string>& collections, std::map<std::string, std::string>& params) const;
 
     static bool populate_req_params(std::map<std::string, std::string> &req_params,
                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item);

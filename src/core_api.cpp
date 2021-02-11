@@ -11,22 +11,47 @@
 #include "logger.h"
 #include "core_api_utils.h"
 
-bool handle_authentication(std::map<std::string, std::string>& req_params, const route_path& rpath,
-                           const std::string& auth_key) {
+bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body,
+                           const route_path& rpath, const std::string& auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    std::string collection = "*";
+    std::vector<std::string> collections;
 
-    if(req_params.count("collection") != 0) {
-        collection = req_params.at("collection");
-    }
+    get_collections_for_auth(req_params, body, rpath, collections);
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
         return true;
     }
 
-    return collectionManager.auth_key_matches(auth_key, rpath.action, collection, req_params);
+    return collectionManager.auth_key_matches(auth_key, rpath.action, collections, req_params);
+}
+
+void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
+                              const route_path &rpath, std::vector<std::string> &collections) {
+    if(req_params.count("collection") != 0) {
+        collections.emplace_back(req_params.at("collection"));
+    }
+
+    if(rpath.handler == post_multi_search) {
+        nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+
+        if(obj == nlohmann::json::value_t::discarded) {
+            LOG(ERROR) << "Multi search request body is malformed.";
+        }
+
+        if(obj != nlohmann::json::value_t::discarded && obj.count("searches") != 0 && obj["searches"].is_array()) {
+            for(auto& el : obj["searches"]) {
+                if(el.is_object() && el.count("collection") != 0) {
+                    collections.emplace_back(el["collection"].get<std::string>());
+                }
+            }
+        }
+    }
+
+    if(collections.empty()) {
+        collections.emplace_back("");
+    }
 }
 
 index_operation_t get_index_operation(const std::string& action) {
