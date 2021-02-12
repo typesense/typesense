@@ -177,7 +177,7 @@ public:
 
     int init_db();
 
-    void reset_db();
+    Store* get_store();
 
     void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
 

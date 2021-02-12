@@ -11,8 +11,11 @@
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
+#include <butil/file_util.h>
+#include <rocksdb/utilities/checkpoint.h>
 #include "string_utils.h"
 #include "logger.h"
+#include "file_utils.h"
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
 public:
@@ -48,6 +51,22 @@ private:
     rocksdb::Options options;
     rocksdb::WriteOptions write_options;
 
+    rocksdb::Status init_db() {
+        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+        if(!s.ok()) {
+            LOG(ERROR) << "Error while initializing store: " << s.ToString();
+            if(s.code() == rocksdb::Status::Code::kIOError) {
+                LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
+                           << "another Typesense server. ";
+                LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
+                           << "in the data db directory and try again.";
+            }
+        }
+
+        assert(s.ok());
+        return s;
+    }
+
 public:
 
     Store() = delete;
@@ -80,22 +99,6 @@ public:
 
     ~Store() {
         close();
-    }
-
-    rocksdb::Status init_db() {
-        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
-        if(!s.ok()) {
-            LOG(ERROR) << "Error while initializing store: " << s.ToString();
-            if(s.code() == rocksdb::Status::Code::kIOError) {
-                LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
-                           << "another Typesense server. ";
-                LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
-                           << "in the data db directory and try again.";
-            }
-        }
-
-        assert(s.ok());
-        return s;
     }
 
     bool insert(const std::string& key, const std::string& value) {
@@ -243,9 +246,64 @@ public:
         db = nullptr;
     }
 
+    int reload(bool clear_state_dir, const std::string& snapshot_path) {
+        close();
+
+        if(clear_state_dir) {
+            if (!butil::DeleteFile(butil::FilePath(state_dir_path), true)) {
+                LOG(WARNING) << "rm " << state_dir_path << " failed";
+                return -1;
+            }
+
+            LOG(INFO) << "rm " << state_dir_path << " success";
+        }
+
+        if(!snapshot_path.empty()) {
+            // tries to use link if possible, or else copies
+            if (!copy_dir(snapshot_path, state_dir_path)) {
+                LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << state_dir_path << " failed";
+                return -1;
+            }
+
+            LOG(INFO) << "copy snapshot " << snapshot_path << " to " << state_dir_path << " success";
+        }
+
+        if (!butil::CreateDirectory(butil::FilePath(state_dir_path))) {
+            LOG(WARNING) << "CreateDirectory " << state_dir_path << " failed";
+            return -1;
+        }
+
+        const rocksdb::Status& status = init_db();
+        if (!status.ok()) {
+            LOG(WARNING) << "Open DB " << state_dir_path << " failed, msg: " << status.ToString();
+            return -1;
+        }
+
+        LOG(INFO) << "DB open success!";
+
+        return 0;
+    }
+
     void flush() {
         rocksdb::FlushOptions options;
         db->Flush(options);
+    }
+
+    rocksdb::Status create_check_point(rocksdb::Checkpoint** checkpoint_ptr, const std::string& db_snapshot_path) {
+        rocksdb::Status status = rocksdb::Checkpoint::Create(db, checkpoint_ptr);
+        if(!status.ok()) {
+            LOG(ERROR) << "Checkpoint Create failed, msg:" << status.ToString();
+            return status;
+        }
+
+        status = (*checkpoint_ptr)->CreateCheckpoint(db_snapshot_path);
+
+        if(!status.ok()) {
+            LOG(WARNING) << "Checkpoint CreateCheckpoint failed at snapshot path: "
+                         << db_snapshot_path << ", msg:" << status.ToString();
+        }
+
+        return status;
     }
 
     // Only for internal tests
