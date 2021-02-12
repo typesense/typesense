@@ -5,6 +5,8 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <thread>
+#include <shared_mutex>
 #include <option.h>
 #include <rocksdb/db.h>
 #include <rocksdb/write_batch.h>
@@ -50,6 +52,10 @@ private:
     rocksdb::DB *db;
     rocksdb::Options options;
     rocksdb::WriteOptions write_options;
+
+    // Used to protect assignment to DB handle, which is otherwise thread safe
+    // So we use unique lock only for assignment, but shared locks for all other operations on DB
+    mutable std::shared_mutex mutex;
 
     rocksdb::Status init_db() {
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
@@ -102,16 +108,20 @@ public:
     }
 
     bool insert(const std::string& key, const std::string& value) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Put(write_options, key, value);
         return status.ok();
     }
 
     bool batch_write(rocksdb::WriteBatch& batch) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Write(write_options, &batch);
         return status.ok();
     }
 
     bool contains(const std::string& key) const {
+        std::shared_lock lock(mutex);
+
         std::string value;
         bool value_found;
         bool key_may_exist = db->KeyMayExist(rocksdb::ReadOptions(), key, &value, &value_found);
@@ -131,6 +141,7 @@ public:
     }
 
     StoreStatus get(const std::string& key, std::string& value) const {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
 
         if(status.ok()) {
@@ -146,22 +157,26 @@ public:
     }
 
     bool remove(const std::string& key) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Delete(write_options, key);
         return status.ok();
     }
 
     rocksdb::Iterator* scan(const std::string & prefix) {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
         iter->Seek(prefix);
         return iter;
     }
 
     rocksdb::Iterator* get_iterator() {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
         return it;
     };
 
     void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
         for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
             values.push_back(iter->value().ToString());
@@ -171,14 +186,17 @@ public:
     }
 
     void increment(const std::string & key, uint32_t value) {
+        std::shared_lock lock(mutex);
         db->Merge(write_options, key, StringUtils::serialize_uint32_t(value));
     }
 
     uint64_t get_latest_seq_number() const {
+        std::shared_lock lock(mutex);
         return db->GetLatestSequenceNumber();
     }
 
     Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number_org, const uint64_t max_updates) const {
+        std::shared_lock lock(mutex);
         const uint64_t local_latest_seq_num = db->GetLatestSequenceNumber();
 
         // Since GetUpdatesSince(0) == GetUpdatesSince(1)
@@ -242,12 +260,17 @@ public:
     }
 
     void close() {
+        std::unique_lock lock(mutex);
         delete db;
         db = nullptr;
     }
 
     int reload(bool clear_state_dir, const std::string& snapshot_path) {
-        close();
+        std::unique_lock lock(mutex);
+
+        // we don't use close() to avoid nested lock and because lock is required until db is re-initialized
+        delete db;
+        db = nullptr;
 
         if(clear_state_dir) {
             if (!butil::DeleteFile(butil::FilePath(state_dir_path), true)) {
@@ -285,11 +308,13 @@ public:
     }
 
     void flush() {
+        std::shared_lock lock(mutex);
         rocksdb::FlushOptions options;
         db->Flush(options);
     }
 
     rocksdb::Status create_check_point(rocksdb::Checkpoint** checkpoint_ptr, const std::string& db_snapshot_path) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = rocksdb::Checkpoint::Create(db, checkpoint_ptr);
         if(!status.ok()) {
             LOG(ERROR) << "Checkpoint Create failed, msg:" << status.ToString();

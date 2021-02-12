@@ -405,6 +405,9 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     LOG(INFO) << "on_snapshot_load";
 
+    // ensures that reads are rejected, as `store->reload()` unique locks the DB handle
+    caught_up = false;
+
     // Load snapshot from leader, replacing the running StateMachine
     std::string snapshot_path = reader->get_path();
     snapshot_path.append(std::string("/") + db_snapshot_name);
