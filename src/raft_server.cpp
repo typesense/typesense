@@ -77,10 +77,9 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         // `create_init_db_snapshot` can be handled separately only after leader starts
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
-        reset_db();
-        if (!butil::DeleteFile(butil::FilePath(store->get_state_dir_path()), true)) {
-            LOG(WARNING) << "rm " << store->get_state_dir_path() << " failed";
-            return -1;
+        int reload_store = store->reload(true, "");
+        if(reload_store != 0) {
+            return reload_store;
         }
 
         int init_db_status = init_db();
@@ -358,23 +357,14 @@ void* ReplicationState::save_snapshot(void* arg) {
 void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Closure* done) {
     LOG(INFO) << "on_snapshot_save";
 
-    rocksdb::Checkpoint* checkpoint = nullptr;
-    rocksdb::Status status = rocksdb::Checkpoint::Create(store->_get_db_unsafe(), &checkpoint);
-
-    if(!status.ok()) {
-        LOG(WARNING) << "Checkpoint Create failed, msg:" << status.ToString();
-        done->status().set_error(EIO, "Checkpoint Create failed.");
-    }
-
     std::string db_snapshot_path = writer->get_path() + "/" + db_snapshot_name;
-
+    rocksdb::Checkpoint* checkpoint = nullptr;
+    rocksdb::Status status = store->create_check_point(&checkpoint, db_snapshot_path);
     std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
-    status = checkpoint->CreateCheckpoint(db_snapshot_path);
 
     if(!status.ok()) {
-        LOG(WARNING) << "Checkpoint CreateCheckpoint failed at snapshot path: "
-                     << db_snapshot_path << ", msg:" << status.ToString();
-        done->status().set_error(EIO, "CreateCheckpoint failed.");
+        LOG(ERROR) << "Failure during checkpoint creation, msg:" << status.ToString();
+        done->status().set_error(EIO, "Checkpoint creation failure.");
     }
 
     SnapshotArg* arg = new SnapshotArg;
@@ -396,18 +386,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 }
 
 int ReplicationState::init_db() {
-    if (!butil::CreateDirectory(butil::FilePath(store->get_state_dir_path()))) {
-        LOG(WARNING) << "CreateDirectory " << store->get_state_dir_path() << " failed";
-        return -1;
-    }
-
-    const rocksdb::Status& status = store->init_db();
-    if (!status.ok()) {
-        LOG(WARNING) << "Open DB " << store->get_state_dir_path() << " failed, msg: " << status.ToString();
-        return -1;
-    }
-
-    LOG(INFO) << "DB open success!";
     LOG(INFO) << "Loading collections from disk...";
 
     Option<bool> init_op = CollectionManager::get_instance().load();
@@ -427,26 +405,14 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     LOG(INFO) << "on_snapshot_load";
 
-    // Load snapshot from reader, replacing the running StateMachine
-
-    reset_db();
-    if (!butil::DeleteFile(butil::FilePath(store->get_state_dir_path()), true)) {
-        LOG(WARNING) << "rm " << store->get_state_dir_path() << " failed";
-        return -1;
-    }
-
-    LOG(INFO) << "rm " << store->get_state_dir_path() << " success";
-
+    // Load snapshot from leader, replacing the running StateMachine
     std::string snapshot_path = reader->get_path();
     snapshot_path.append(std::string("/") + db_snapshot_name);
 
-    // tries to use link if possible, or else copies
-    if (!copy_dir(snapshot_path, store->get_state_dir_path())) {
-        LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " failed";
-        return -1;
+    int reload_store = store->reload(true, snapshot_path);
+    if(reload_store != 0) {
+        return reload_store;
     }
-
-    LOG(INFO) << "copy snapshot " << snapshot_path << " to " << store->get_state_dir_path() << " success";
 
     return init_db();
 }
@@ -539,10 +505,6 @@ ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_m
 
 }
 
-void ReplicationState::reset_db() {
-    store->close();
-}
-
 bool ReplicationState::is_alive() const {
     if(node == nullptr || !is_ready()) {
         return false;
@@ -612,13 +574,17 @@ http_message_dispatcher* ReplicationState::get_message_dispatcher() const {
     return message_dispatcher;
 }
 
+Store* ReplicationState::get_store() {
+    return store;
+}
+
 void InitSnapshotClosure::Run() {
     // Auto delete this after Run()
     std::unique_ptr<InitSnapshotClosure> self_guard(this);
 
     if(status().ok()) {
         LOG(INFO) << "Init snapshot succeeded!";
-        replication_state->reset_db();
+        replication_state->get_store()->reload(false, "");
         replication_state->init_db();
     } else {
         LOG(ERROR) << "Init snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
