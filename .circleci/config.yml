@@ -2,7 +2,7 @@ version: 2
 jobs:
   build:
     docker:
-      - image: typesense/typesense-development:25-JANUARY-2021-1
+      - image: typesense/typesense-development:05-FEBRUARY-2021-1
     environment:
       - PROJECT_DIR: /typesense
       - TYPESENSE_VERSION: $CIRCLE_BRANCH-$CIRCLE_SHA1
@@ -19,7 +19,7 @@ jobs:
             - external-Linux-cache
       - run: 
           name: build
-          command: $PROJECT_DIR/build.sh
+          command: $PROJECT_DIR/build.sh --clean
       - save_cache:
           key: external-Linux-cache-{{ .Branch }}-{{ checksum "last-changed-git-sha-for-dependency-listing" }}
           paths:
