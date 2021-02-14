@@ -146,7 +146,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
 }
 
 void ReplicationState::write_to_leader(http_req *request, http_res *response) const {
-    if(node->leader_id().is_empty()) {
+    if(!node || node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
 
@@ -301,11 +301,6 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         if(response->final) {
             delete request;
             delete response;
-        }
-
-        if(shut_down) {
-            iter.set_error_and_rollback();
-            return;
         }
     }
 }
