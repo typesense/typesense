@@ -45,10 +45,11 @@ public:
     await_t(): ready(false) {}
 
     void notify() {
-        {
-            std::lock_guard<std::mutex> lk(mcv);
-            ready = true;
-        }
+        // Ideally we don't need lock over notify but it is needed here because
+        // the parent object could be deleted after lock on mutex is released but
+        // before notify can be called on condition variable.
+        std::lock_guard<std::mutex> lk(mcv);
+        ready = true;
         cv.notify_all();
     }
 
@@ -63,7 +64,7 @@ struct http_res {
     uint32_t status_code;
     std::string content_type_header;
     std::string body;
-    bool final;
+    std::atomic<bool> final;
 
     // fulfilled by an async response handler to pass control back for further writes
     // use `mark_proceed` and `wait_proceed` instead of accessing this directly
@@ -429,5 +430,4 @@ struct http_message_dispatcher {
 struct AsyncIndexArg {
     http_req* req;
     http_res* res;
-    await_t* await;
 };

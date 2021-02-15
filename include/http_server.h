@@ -58,7 +58,7 @@ private:
 
     ReplicationState* replication_state;
 
-    bool exit_loop = false;
+    std::atomic<bool> exit_loop;
 
     std::string version;
 

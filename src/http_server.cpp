@@ -572,9 +572,10 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
         auto deferred_req_res = new deferred_req_res_t{&req, &res, this};
         req.defer_timer.data = deferred_req_res;
         h2o_timer_init(&req.defer_timer.timer, on_deferred_process_request);
+    } else {
+        h2o_timer_unlink(&req.defer_timer.timer);
     }
 
-    h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
 
     //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.await: " << res.await;
@@ -629,8 +630,10 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
 
     // returns control back to caller (raft replication or follower forward)
     LOG(INFO) << "response_abort: fulfilling req & res proceed.";
-    custom_generator->response->await.notify();
+
+    // order is important!
     custom_generator->request->await.notify();
+    custom_generator->response->await.notify();
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
