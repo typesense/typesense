@@ -14,7 +14,7 @@
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path,
                        const std::string & ssl_cert_key_path, bool cors_enabled):
-                       version(version), listen_address(listen_address), listen_port(listen_port),
+                       exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
                        ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path), cors_enabled(cors_enabled) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
