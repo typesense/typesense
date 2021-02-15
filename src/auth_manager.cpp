@@ -163,7 +163,7 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
         return true;
     }
 
-    LOG(INFO) << "api_keys.size() = " << api_keys.size();
+    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
 
     if(api_keys.count(req_api_key) == 0) {
         return false;

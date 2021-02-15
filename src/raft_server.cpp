@@ -158,7 +158,7 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
         }
 
         response->set_500("Could not find a leader.");
-        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        auto replication_arg = new AsyncIndexArg{request, response};
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     }
@@ -233,7 +233,7 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
             response->set_500(err);
         }
 
-        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        auto replication_arg = new AsyncIndexArg{request, response};
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     });
@@ -291,7 +291,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
         response->auto_dispose = false;
-        auto replication_arg = new AsyncIndexArg{request, response, nullptr};
+        auto replication_arg = new AsyncIndexArg{request, response};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
         //LOG(INFO) << "Raft write waiting to proceed";
@@ -423,6 +423,19 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
     braft::Configuration new_conf;
     new_conf.parse_from(nodes);
+
+    braft::NodeStatus nodeStatus;
+    node->get_status(&nodeStatus);
+
+    LOG(INFO) << "Term: " << nodeStatus.term
+             << ", last_index index: " << nodeStatus.last_index
+             << ", committed_index: " << nodeStatus.committed_index
+             << ", known_applied_index: " << nodeStatus.known_applied_index
+             << ", applying_index: " << nodeStatus.applying_index
+             << ", pending_index: " << nodeStatus.pending_index
+             << ", disk_index: " << nodeStatus.disk_index
+             << ", pending_queue_size: " << nodeStatus.pending_queue_size;
+
 
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
