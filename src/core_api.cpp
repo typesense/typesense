@@ -451,7 +451,6 @@ bool post_import_documents(http_req& req, http_res& res) {
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
-        req.last_chunk_aggregate = true;
         res.final = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
         HttpServer::stream_response(req, res);
@@ -459,7 +458,6 @@ bool post_import_documents(http_req& req, http_res& res) {
     }
 
     if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
-        req.last_chunk_aggregate = true;
         res.final = true;
         res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         HttpServer::stream_response(req, res);
@@ -469,7 +467,6 @@ bool post_import_documents(http_req& req, http_res& res) {
     const size_t IMPORT_BATCH_SIZE = std::stoi(req.params[BATCH_SIZE]);
 
     if(IMPORT_BATCH_SIZE == 0) {
-        req.last_chunk_aggregate = true;
         res.final = true;
         res.set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
         HttpServer::stream_response(req, res);
@@ -487,7 +484,6 @@ bool post_import_documents(http_req& req, http_res& res) {
     Collection* collection = collectionManager.get_collection(req.params["collection"]);
 
     if(collection == nullptr) {
-        req.last_chunk_aggregate = true;
         res.final = true;
         res.set_404();
         HttpServer::stream_response(req, res);

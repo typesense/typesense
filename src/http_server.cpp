@@ -703,6 +703,12 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
 
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
+
+    if(custom_generator->rpath->async_req && custom_generator->response->final &&
+        !custom_generator->request->last_chunk_aggregate) {
+        // premature termination of async request: handle this explicitly as otherwise, request is not being closed
+        h2o_dispose_request(req);
+    }
 }
 
 void HttpServer::destroy_request_response(http_req* request, http_res* response) {
