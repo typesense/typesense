@@ -5,14 +5,19 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <thread>
+#include <shared_mutex>
 #include <option.h>
 #include <rocksdb/db.h>
 #include <rocksdb/write_batch.h>
 #include <rocksdb/options.h>
 #include <rocksdb/merge_operator.h>
 #include <rocksdb/transaction_log.h>
+#include <butil/file_util.h>
+#include <rocksdb/utilities/checkpoint.h>
 #include "string_utils.h"
 #include "logger.h"
+#include "file_utils.h"
 
 class UInt64AddOperator : public rocksdb::AssociativeMergeOperator {
 public:
@@ -48,6 +53,26 @@ private:
     rocksdb::Options options;
     rocksdb::WriteOptions write_options;
 
+    // Used to protect assignment to DB handle, which is otherwise thread safe
+    // So we use unique lock only for assignment, but shared locks for all other operations on DB
+    mutable std::shared_mutex mutex;
+
+    rocksdb::Status init_db() {
+        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
+        if(!s.ok()) {
+            LOG(ERROR) << "Error while initializing store: " << s.ToString();
+            if(s.code() == rocksdb::Status::Code::kIOError) {
+                LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
+                           << "another Typesense server. ";
+                LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
+                           << "in the data db directory and try again.";
+            }
+        }
+
+        assert(s.ok());
+        return s;
+    }
+
 public:
 
     Store() = delete;
@@ -82,33 +107,21 @@ public:
         close();
     }
 
-    rocksdb::Status init_db() {
-        rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
-        if(!s.ok()) {
-            LOG(ERROR) << "Error while initializing store: " << s.ToString();
-            if(s.code() == rocksdb::Status::Code::kIOError) {
-                LOG(ERROR) << "It seems like the data directory " << state_dir_path << " is already being used by "
-                           << "another Typesense server. ";
-                LOG(ERROR) << "If you are SURE that this is not the case, delete the LOCK file "
-                           << "in the data db directory and try again.";
-            }
-        }
-
-        assert(s.ok());
-        return s;
-    }
-
     bool insert(const std::string& key, const std::string& value) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Put(write_options, key, value);
         return status.ok();
     }
 
     bool batch_write(rocksdb::WriteBatch& batch) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Write(write_options, &batch);
         return status.ok();
     }
 
     bool contains(const std::string& key) const {
+        std::shared_lock lock(mutex);
+
         std::string value;
         bool value_found;
         bool key_may_exist = db->KeyMayExist(rocksdb::ReadOptions(), key, &value, &value_found);
@@ -128,6 +141,7 @@ public:
     }
 
     StoreStatus get(const std::string& key, std::string& value) const {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Get(rocksdb::ReadOptions(), key, &value);
 
         if(status.ok()) {
@@ -143,22 +157,26 @@ public:
     }
 
     bool remove(const std::string& key) {
+        std::shared_lock lock(mutex);
         rocksdb::Status status = db->Delete(write_options, key);
         return status.ok();
     }
 
     rocksdb::Iterator* scan(const std::string & prefix) {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
         iter->Seek(prefix);
         return iter;
     }
 
     rocksdb::Iterator* get_iterator() {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
         return it;
     };
 
     void scan_fill(const std::string & prefix, std::vector<std::string> & values) {
+        std::shared_lock lock(mutex);
         rocksdb::Iterator *iter = db->NewIterator(rocksdb::ReadOptions());
         for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
             values.push_back(iter->value().ToString());
@@ -168,14 +186,17 @@ public:
     }
 
     void increment(const std::string & key, uint32_t value) {
+        std::shared_lock lock(mutex);
         db->Merge(write_options, key, StringUtils::serialize_uint32_t(value));
     }
 
     uint64_t get_latest_seq_number() const {
+        std::shared_lock lock(mutex);
         return db->GetLatestSequenceNumber();
     }
 
     Option<std::vector<std::string>*> get_updates_since(const uint64_t seq_number_org, const uint64_t max_updates) const {
+        std::shared_lock lock(mutex);
         const uint64_t local_latest_seq_num = db->GetLatestSequenceNumber();
 
         // Since GetUpdatesSince(0) == GetUpdatesSince(1)
@@ -239,13 +260,75 @@ public:
     }
 
     void close() {
+        std::unique_lock lock(mutex);
         delete db;
         db = nullptr;
     }
 
+    int reload(bool clear_state_dir, const std::string& snapshot_path) {
+        std::unique_lock lock(mutex);
+
+        // we don't use close() to avoid nested lock and because lock is required until db is re-initialized
+        delete db;
+        db = nullptr;
+
+        if(clear_state_dir) {
+            if (!butil::DeleteFile(butil::FilePath(state_dir_path), true)) {
+                LOG(WARNING) << "rm " << state_dir_path << " failed";
+                return -1;
+            }
+
+            LOG(INFO) << "rm " << state_dir_path << " success";
+        }
+
+        if(!snapshot_path.empty()) {
+            // tries to use link if possible, or else copies
+            if (!copy_dir(snapshot_path, state_dir_path)) {
+                LOG(WARNING) << "copy snapshot " << snapshot_path << " to " << state_dir_path << " failed";
+                return -1;
+            }
+
+            LOG(INFO) << "copy snapshot " << snapshot_path << " to " << state_dir_path << " success";
+        }
+
+        if (!butil::CreateDirectory(butil::FilePath(state_dir_path))) {
+            LOG(WARNING) << "CreateDirectory " << state_dir_path << " failed";
+            return -1;
+        }
+
+        const rocksdb::Status& status = init_db();
+        if (!status.ok()) {
+            LOG(WARNING) << "Open DB " << state_dir_path << " failed, msg: " << status.ToString();
+            return -1;
+        }
+
+        LOG(INFO) << "DB open success!";
+
+        return 0;
+    }
+
     void flush() {
+        std::shared_lock lock(mutex);
         rocksdb::FlushOptions options;
         db->Flush(options);
+    }
+
+    rocksdb::Status create_check_point(rocksdb::Checkpoint** checkpoint_ptr, const std::string& db_snapshot_path) {
+        std::shared_lock lock(mutex);
+        rocksdb::Status status = rocksdb::Checkpoint::Create(db, checkpoint_ptr);
+        if(!status.ok()) {
+            LOG(ERROR) << "Checkpoint Create failed, msg:" << status.ToString();
+            return status;
+        }
+
+        status = (*checkpoint_ptr)->CreateCheckpoint(db_snapshot_path);
+
+        if(!status.ok()) {
+            LOG(WARNING) << "Checkpoint CreateCheckpoint failed at snapshot path: "
+                         << db_snapshot_path << ", msg:" << status.ToString();
+        }
+
+        return status;
     }
 
     // Only for internal tests

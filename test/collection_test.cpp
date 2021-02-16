@@ -109,6 +109,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
 
+    ASSERT_STREQ("collection", results["request_params"]["collection_name"].get<std::string>().c_str());
     ASSERT_STREQ("the", results["request_params"]["q"].get<std::string>().c_str());
     ASSERT_EQ(10, results["request_params"]["per_page"].get<size_t>());
 

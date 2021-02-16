@@ -59,7 +59,7 @@ private:
 
     ReplicationState* replication_state;
 
-    bool exit_loop = false;
+    std::atomic<bool> exit_loop;
 
     std::string version;
 
@@ -78,7 +78,7 @@ private:
 
     ThreadPool* thread_pool;
 
-    bool (*auth_handler)(std::map<std::string, std::string>& params, const route_path& rpath,
+    bool (*auth_handler)(std::map<std::string, std::string>& params, const std::string& body, const route_path& rpath,
                          const std::string& auth_key);
 
     static void on_accept(h2o_socket_t *listener, const char *err);
@@ -125,8 +125,8 @@ public:
 
     uint64_t node_state() const;
 
-    void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path & rpath,
-                                          const std::string & auth_key));
+    void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
+                                          const route_path & rpath, const std::string & auth_key));
 
     void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
 
