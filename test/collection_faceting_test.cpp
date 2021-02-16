@@ -245,10 +245,10 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 
-    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][0]["count"]);
 
-    ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(3, (int) results["facet_counts"][0]["counts"][1]["count"]);
 
     // 2 facets, 1 text query with no filters
@@ -283,8 +283,8 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
 
     // facet with wildcard query
     facets.clear();
@@ -302,8 +302,8 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     ASSERT_STREQ("silver", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("gold", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("bronze", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
 
     // facet with facet filter query (allows typo correction!)
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
@@ -676,8 +676,8 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
 
     ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cello</mark>phanes", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cello</mark>phanes", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

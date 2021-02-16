@@ -354,7 +354,13 @@ private:
 
     static bool facet_count_str_compare(const facet_value_t& a,
                                         const facet_value_t& b) {
-        return a.count > b.count;
+        size_t a_count = a.count;
+        size_t b_count = b.count;
+
+        size_t a_value_size = UINT64_MAX - a.value.size();
+        size_t b_value_size = UINT64_MAX - b.value.size();
+
+        return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
     }
 
     void free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const;

@@ -14,7 +14,7 @@
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path,
                        const std::string & ssl_cert_key_path, bool cors_enabled, ThreadPool* thread_pool):
-                       version(version), listen_address(listen_address), listen_port(listen_port),
+                       exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
                        ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
                        cors_enabled(cors_enabled), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
@@ -398,14 +398,14 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    bool authenticated = h2o_handler->http_server->auth_handler(query_map, *rpath, api_auth_key_sent);
+    const std::string & body = std::string(req->entity.base, req->entity.len);
+
+    bool authenticated = h2o_handler->http_server->auth_handler(query_map, body, *rpath, api_auth_key_sent);
     if(!authenticated) {
         std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                "` header must be sent.\"}";
         return send_response(req, 401, message);
     }
-
-    const std::string & body = std::string(req->entity.base, req->entity.len);
 
     http_req* request = new http_req(req, rpath->http_method, path_without_query, route_hash, query_map, body);
     http_res* response = new http_res();
@@ -591,9 +591,10 @@ void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_m
         auto deferred_req_res = new deferred_req_res_t{&req, &res, this};
         req.defer_timer.data = deferred_req_res;
         h2o_timer_init(&req.defer_timer.timer, on_deferred_process_request);
+    } else {
+        h2o_timer_unlink(&req.defer_timer.timer);
     }
 
-    h2o_timer_unlink(&req.defer_timer.timer);
     h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
 
     //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.await: " << res.await;
@@ -648,8 +649,10 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
 
     // returns control back to caller (raft replication or follower forward)
     LOG(INFO) << "response_abort: fulfilling req & res proceed.";
-    custom_generator->response->await.notify();
+
+    // order is important!
     custom_generator->request->await.notify();
+    custom_generator->response->await.notify();
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
@@ -719,6 +722,12 @@ void HttpServer::stream_response(http_req& request, http_res& response) {
 
     const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
+
+    if(custom_generator->rpath->async_req && custom_generator->response->final &&
+        !custom_generator->request->last_chunk_aggregate) {
+        // premature termination of async request: handle this explicitly as otherwise, request is not being closed
+        h2o_dispose_request(req);
+    }
 }
 
 void HttpServer::destroy_request_response(http_req* request, http_res* response) {
@@ -747,8 +756,8 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
     }
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const route_path& rpath,
-                                                  const std::string& auth_key)) {
+void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
+                                                  const route_path& rpath, const std::string& auth_key)) {
     auth_handler = handler;
 }
 

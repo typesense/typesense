@@ -231,7 +231,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 }
 
 size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
-    LOG(INFO) << "curl_write_async_done";
+    //LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
     if(req_res->req->_req == nullptr) {

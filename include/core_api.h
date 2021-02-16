@@ -2,7 +2,7 @@
 
 #include "http_server.h"
 
-bool handle_authentication(std::map<std::string, std::string>& req_params, const route_path& rpath,
+bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body, const route_path& rpath,
                            const std::string& auth_key);
 
 // Collections
@@ -98,6 +98,9 @@ bool post_vote(http_req& req, http_res& res);
 bool post_config(http_req& req, http_res& res);
 
 // Misc helpers
+
+void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
+                              const route_path &rpath, std::vector<std::string> &collections);
 
 bool raft_write_send_response(void *data);
 

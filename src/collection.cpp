@@ -1186,6 +1186,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     result["request_params"] = nlohmann::json::object();;
+    result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = query;
 

@@ -139,16 +139,16 @@ uint32_t AuthManager::get_next_api_key_id() {
 }
 
 bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
-                               const std::string& collection, std::map<std::string, std::string>& params) const {
+                               const std::vector<std::string>& collections,
+                               std::map<std::string, std::string>& params) const {
 
     std::shared_lock lock(mutex);
-
     //LOG(INFO) << "AuthManager::authenticate()";
 
     if(req_api_key.size() > KEY_LEN) {
         // scoped API key: validate and if valid, extract params
         nlohmann::json embedded_params;
-        Option<bool> params_op = authenticate_parse_params(req_api_key, action, collection, embedded_params);
+        Option<bool> params_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
         if(!params_op.ok()) {
             // authentication failed
             return false;
@@ -179,10 +179,10 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
     }
 
     const api_key_t& api_key = api_keys.at(req_api_key);
-    return auth_against_key(collection, action, api_key, false);
+    return auth_against_key(collections, action, api_key, false);
 }
 
-bool AuthManager::auth_against_key(const std::string& collection, const std::string& action,
+bool AuthManager::auth_against_key(const std::vector<std::string>& collections, const std::string& action,
                                    const api_key_t& api_key, const bool search_only) const {
 
     if(uint64_t(std::time(0)) > api_key.expires_at) {
@@ -211,18 +211,30 @@ bool AuthManager::auth_against_key(const std::string& collection, const std::str
         }
     }
 
-    for(const std::string& allowed_collection: api_key.collections) {
-        if(allowed_collection == "*" || (allowed_collection == collection) || collection.empty() ||
-           std::regex_match (collection, std::regex(allowed_collection))) {
-            return true;
+    for(const std::string& req_collection: collections) {
+        bool coll_allowed = false;
+
+        for(const std::string& allowed_collection: api_key.collections) {
+            if(allowed_collection == "*" || (allowed_collection == req_collection) || req_collection.empty() ||
+               std::regex_match (req_collection, std::regex(allowed_collection))) {
+                coll_allowed = true;
+                break;
+            }
+        }
+
+        if(!coll_allowed) {
+            // even if one collection is not allowed, we reject the entire request
+            return false;
         }
     }
 
-    return false;
+    return true;
 }
 
 Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_api_key, const std::string& action,
-                                                    const std::string& collection, nlohmann::json& embedded_params) const {
+                                                    const std::vector<std::string>& collections,
+                                                    nlohmann::json& embedded_params) const {
+
     // allow only searches from scoped keys
     if(action != DOCUMENTS_SEARCH_ACTION) {
         LOG(ERROR) << "Scoped API keys can only be used for searches.";
@@ -248,7 +260,7 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
             const api_key_t& api_key = kv.second;
 
             // ensure that parent key collection filter matches queried collection
-            bool auth_success = auth_against_key(collection, action, api_key, true);
+            bool auth_success = auth_against_key(collections, action, api_key, true);
 
             if(!auth_success) {
                 LOG(ERROR) << fmt_error("Parent key does not allow queries against queried collection.", api_key.value);

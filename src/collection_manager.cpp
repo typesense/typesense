@@ -275,7 +275,7 @@ void CollectionManager::dispose() {
 
 bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
                                          const std::string& action,
-                                         const std::string& collection,
+                                         const std::vector<std::string>& collections,
                                          std::map<std::string, std::string>& params) const {
     std::shared_lock lock(mutex);
 
@@ -289,7 +289,7 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
     }
 
     // finally, check managed auth keys
-    return auth_manager.authenticate(auth_key_sent, action, collection, params);
+    return auth_manager.authenticate(auth_key_sent, action, collections, params);
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string& name,
