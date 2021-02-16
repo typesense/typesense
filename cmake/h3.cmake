@@ -16,6 +16,8 @@ endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${H3_NAME}/build/lib/libh3.a)
     message("Configuring ${H3_NAME}...")
+
+    file(REMOVE_RECURSE ${DEP_ROOT_DIR}/${H3_NAME}/build)
     file(MAKE_DIRECTORY ${DEP_ROOT_DIR}/${H3_NAME}/build)
 
     execute_process(COMMAND ${CMAKE_COMMAND}
@@ -32,6 +34,7 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H3_NAME}/build/lib/libh3.a)
         message("Building ${H3_NAME} locally...")
         execute_process(COMMAND ${CMAKE_COMMAND} --build
                 "${DEP_ROOT_DIR}/${H3_NAME}/build"
+                --target h3
                 RESULT_VARIABLE
                 H3_BUILD)
         if(NOT H3_BUILD EQUAL 0)
