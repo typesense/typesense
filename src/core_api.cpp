@@ -75,6 +75,8 @@ bool get_collections(http_req & req, http_res & res) {
 
 bool post_create_collection(http_req & req, http_res & res) {
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
+    const char* INDEX_ALL_FIELDS = "index_all_fields";
+
     nlohmann::json req_json;
 
     try {
@@ -126,6 +128,12 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
+    bool index_all_fields = false;
+
+    if(req_json.count(INDEX_ALL_FIELDS) != 0 && req_json[INDEX_ALL_FIELDS].is_boolean()) {
+        index_all_fields = req_json[INDEX_ALL_FIELDS].get<bool>();
+    }
+
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
         res.set_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
         return false;
@@ -171,9 +179,11 @@ bool post_create_collection(http_req & req, http_res & res) {
     }
 
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
+    const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr));
+
     const Option<Collection*> & collection_op =
             collectionManager.create_collection(req_json["name"], req_json[NUM_MEMORY_SHARDS].get<size_t>(),
-            fields, default_sorting_field);
+            fields, default_sorting_field, created_at, index_all_fields);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();

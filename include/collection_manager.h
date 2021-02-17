@@ -67,13 +67,6 @@ private:
     // Using a ID instead of a collection's name makes renaming possible
     std::atomic<uint32_t> next_collection_id;
 
-    static constexpr const char* COLLECTION_NAME_KEY = "name";
-    static constexpr const char* COLLECTION_ID_KEY = "id";
-    static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "fields";
-    static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
-    static constexpr const char* COLLECTION_CREATED = "created_at";
-    static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
-
     std::string bootstrap_auth_key;
 
     float max_memory_ratio;
@@ -135,7 +128,8 @@ public:
     Option<Collection*> create_collection(const std::string& name, const size_t num_memory_shards,
                                           const std::vector<field> & fields,
                                           const std::string & default_sorting_field,
-                                          const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)));
+                                          const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
+                                          const bool index_all_fields = false);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

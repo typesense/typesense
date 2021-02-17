@@ -4,6 +4,7 @@
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
+#include "json.hpp"
 
 namespace field_types {
     static const std::string STRING = "string";
@@ -110,6 +111,89 @@ struct field {
 
     std::string faceted_name() const {
         return (facet && !is_string()) ? "_fstr_" + name : name;
+    }
+
+    static bool get_type(const nlohmann::json& obj, std::string& field_type) {
+        if(obj.is_array()) {
+            if(obj.empty() || obj[0].is_array()) {
+                return false;
+            }
+
+            bool parseable = get_single_type(obj[0], field_type);
+            if(!parseable) {
+                return false;
+            }
+
+            field_type = field_type + "[]";
+            return true;
+        }
+
+        if(obj.is_object()) {
+            return false;
+        }
+
+        return get_single_type(obj, field_type);
+    }
+
+    static bool get_single_type(const nlohmann::json& obj, std::string& field_type) {
+        if(obj.is_string()) {
+            field_type = field_types::STRING;
+            return true;
+        }
+
+        if(obj.is_number_float()) {
+            field_type = field_types::FLOAT;
+            return true;
+        }
+
+        if(obj.is_number_integer()) {
+            field_type = field_types::INT64;
+            return true;
+        }
+
+        if(obj.is_boolean()) {
+            field_type = field_types::BOOL;
+            return true;
+        }
+
+        return false;
+    }
+
+    static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
+                                              const std::string & default_sorting_field, nlohmann::json& fields_json,
+                                              bool& found_default_sorting_field) {
+        for(const field & field: fields) {
+            nlohmann::json field_val;
+            field_val[fields::name] = field.name;
+            field_val[fields::type] = field.type;
+            field_val[fields::facet] = field.facet;
+            field_val[fields::optional] = field.optional;
+            fields_json.push_back(field_val);
+
+            if(!field.has_valid_type()) {
+                return Option<bool>(400, "Field `" + field.name +
+                                                "` has an invalid data type `" + field.type +
+                                                "`, see docs for supported data types.");
+            }
+
+            if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
+                                                        field.type == field_types::INT64 ||
+                                                        field.type == field_types::FLOAT)) {
+                return Option<bool>(400, "Default sorting field `" + default_sorting_field +
+                                                "` must be a single valued numerical field.");
+            }
+
+            if(field.name == default_sorting_field) {
+                if(field.optional) {
+                    return Option<bool>(400, "Default sorting field `" + default_sorting_field +
+                                                    "` cannot be an optional field.");
+                }
+
+                found_default_sorting_field = true;
+            }
+        }
+
+        return Option<bool>(true);
     }
 };
 

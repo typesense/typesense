@@ -354,5 +354,7 @@ public:
                                                      const std::map<std::string, field> & facet_schema,
                                                      bool is_update);
 
+    void refresh_search_schema(const std::unordered_map<std::string, field>& src_search_schema);
+
 };
 

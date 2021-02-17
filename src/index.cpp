@@ -2336,3 +2336,20 @@ const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() 
 const spp::sparse_hash_map<std::string, num_tree_t*>& Index::_get_numerical_index() const {
     return numerical_index;
 }
+
+void Index::refresh_search_schema(const std::unordered_map<std::string, field>& src_search_schema) {
+    for(const auto & fname_field: src_search_schema) {
+        search_schema.emplace(fname_field.first, fname_field.second);
+
+        if(search_index.count(fname_field.first) == 0) {
+            if(fname_field.second.is_string()) {
+                art_tree *t = new art_tree;
+                art_tree_init(t);
+                search_index.emplace(fname_field.first, t);
+            } else {
+                num_tree_t* num_tree = new num_tree_t;
+                numerical_index.emplace(fname_field.first, num_tree);
+            }
+        }
+    }
+}
