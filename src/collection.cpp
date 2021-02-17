@@ -40,13 +40,13 @@ struct match_index_t {
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field, const size_t num_memory_shards,
-                       const float max_memory_ratio):
+                       const float max_memory_ratio, const bool index_all_fields):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
-        indices(init_indices()) {
+        indices(init_indices()), index_all_fields(index_all_fields) {
 
     this->num_documents = 0;
 }
@@ -233,6 +233,67 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             if(record.is_update) {
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
                 get_doc_changes(document, record.old_doc, record.new_doc, record.del_doc);
+            }
+
+            // if `index_all_fields` is enabled, we will have to update schema first before indexing
+            if(index_all_fields) {
+                size_t old_field_count = fields.size();
+                for(const auto& kv: document.items()) {
+                    if (search_schema.count(kv.key()) == 0) {
+                        std::string field_type;
+                        bool parseable = field::get_type(kv.value(), field_type);
+                        if (parseable) {
+                            // this ensures that we can handle the same field having different types in different docs
+                            const std::string fname = kv.key();// + "_" + field_type;
+                            field new_field(fname, field_type, false);
+                            search_schema.emplace(fname, new_field);
+                            fields.emplace_back(new_field);
+                        }
+                    }
+                }
+
+                if(fields.size() != old_field_count) {
+                    // we should persist changes to fields in store
+                    std::string coll_meta_json;
+                    StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
+
+                    if(status != StoreStatus::FOUND) {
+                        record.index_failure(500, "Could not fetch collection meta from store.");
+                        continue;
+                    }
+
+                    nlohmann::json collection_meta;
+
+                    try {
+                        collection_meta = nlohmann::json::parse(coll_meta_json);
+                        bool found_default_sorting_field = false;
+                        nlohmann::json fields_json = nlohmann::json::array();;
+
+                        Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
+                                                                                   found_default_sorting_field);
+
+                        if(!fields_json_op.ok()) {
+                            record.index_failure(fields_json_op.code(), fields_json_op.error());
+                            continue;
+                        }
+
+                        collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
+                        bool persisted = store->insert(Collection::get_meta_key(name), collection_meta.dump());
+
+                        if(!persisted) {
+                            record.index_failure(500, "Could not persist collection meta to store.");
+                            continue;
+                        }
+
+                        for(auto index: indices) {
+                            index->refresh_search_schema(search_schema);
+                        }
+
+                    } catch(...) {
+                        record.index_failure(500, "Unable to parse collection meta.");
+                        continue;
+                    }
+                }
             }
         }
 

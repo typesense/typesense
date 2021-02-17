@@ -4,7 +4,6 @@
 #include "collection_manager.h"
 #include "logger.h"
 
-constexpr const char* CollectionManager::COLLECTION_NUM_MEMORY_SHARDS;
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
 CollectionManager::CollectionManager() {
@@ -13,10 +12,10 @@ CollectionManager::CollectionManager() {
 
 Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
                                                const uint32_t collection_next_seq_id) {
-    std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
+    std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
-    nlohmann::json fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
+    nlohmann::json fields_map = collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY];
 
     for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
         nlohmann::json & field_obj = it.value();
@@ -30,25 +29,31 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                           field_obj[fields::facet], field_obj[fields::optional]});
     }
 
-    std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
-    uint64_t created_at = collection_meta.find((const char*)COLLECTION_CREATED) != collection_meta.end() ?
-                       collection_meta[COLLECTION_CREATED].get<uint64_t>() : 0;
+    std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
 
-    size_t num_memory_shards = collection_meta.count(COLLECTION_NUM_MEMORY_SHARDS) != 0 ?
-                               collection_meta[COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
+    uint64_t created_at = collection_meta.find((const char*)Collection::COLLECTION_CREATED) != collection_meta.end() ?
+                       collection_meta[Collection::COLLECTION_CREATED].get<uint64_t>() : 0;
+
+    size_t num_memory_shards = collection_meta.count(Collection::COLLECTION_NUM_MEMORY_SHARDS) != 0 ?
+                               collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
                                DEFAULT_NUM_MEMORY_SHARDS;
+
+    size_t index_all_fields = collection_meta.count(Collection::COLLECTION_INDEX_ALL_FIELDS) != 0 ?
+                              collection_meta[Collection::COLLECTION_INDEX_ALL_FIELDS].get<bool>() :
+                              false;
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
-                                            collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
+                                            collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
                                             collection_next_seq_id,
                                             store,
                                             fields,
                                             default_sorting_field,
                                             num_memory_shards,
-                                            max_memory_ratio);
+                                            max_memory_ratio,
+                                            index_all_fields);
 
     return collection;
 }
@@ -111,7 +116,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        const std::string & this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
+        const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
         std::string collection_next_seq_id_str;
         StoreStatus next_seq_id_status = store->get(Collection::get_next_seq_id_key(this_collection_name),
                                                     collection_next_seq_id_str);
@@ -296,7 +301,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const size_t num_memory_shards,
                                                          const std::vector<field> & fields,
                                                          const std::string & default_sorting_field,
-                                                         const uint64_t created_at) {
+                                                         const uint64_t created_at,
+                                                         const bool index_all_fields) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -306,35 +312,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     bool found_default_sorting_field = false;
     nlohmann::json fields_json = nlohmann::json::array();;
 
-    for(const field & field: fields) {
-        nlohmann::json field_val;
-        field_val[fields::name] = field.name;
-        field_val[fields::type] = field.type;
-        field_val[fields::facet] = field.facet;
-        field_val[fields::optional] = field.optional;
-        fields_json.push_back(field_val);
+    Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
+                                                               found_default_sorting_field);
 
-        if(!field.has_valid_type()) {
-            return Option<Collection*>(400, "Field `" + field.name +
-                                            "` has an invalid data type `" + field.type +
-                                            "`, see docs for supported data types.");
-        }
-
-        if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
-                                                    field.type == field_types::INT64 ||
-                                                    field.type == field_types::FLOAT)) {
-            return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
-                                            "` must be a single valued numerical field.");
-        }
-
-        if(field.name == default_sorting_field) {
-            if(field.optional) {
-                return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
-                                                "` cannot be an optional field.");
-            }
-
-            found_default_sorting_field = true;
-        }
+    if(!fields_json_op.ok()) {
+        return Option<Collection*>(fields_json_op.code(), fields_json_op.error());
     }
 
     if(!found_default_sorting_field) {
@@ -343,16 +325,17 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     }
 
     nlohmann::json collection_meta;
-    collection_meta[COLLECTION_NAME_KEY] = name;
-    collection_meta[COLLECTION_ID_KEY] = next_collection_id.load();
-    collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
-    collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
-    collection_meta[COLLECTION_CREATED] = created_at;
-    collection_meta[COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
+    collection_meta[Collection::COLLECTION_NAME_KEY] = name;
+    collection_meta[Collection::COLLECTION_ID_KEY] = next_collection_id.load();
+    collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
+    collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
+    collection_meta[Collection::COLLECTION_CREATED] = created_at;
+    collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
+    collection_meta[Collection::COLLECTION_INDEX_ALL_FIELDS] = index_all_fields;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio);
+                                                this->max_memory_ratio, index_all_fields);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;

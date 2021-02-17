@@ -86,7 +86,8 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
-              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\",\"num_memory_shards\":4}",
+              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
+              "\"index_all_fields\":false,\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }

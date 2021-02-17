@@ -302,7 +302,7 @@ private:
 
     Store* store;
 
-    const std::vector<field> fields;
+    std::vector<field> fields;
 
     std::unordered_map<std::string, field> search_schema;
 
@@ -322,6 +322,8 @@ private:
     const float max_memory_ratio;
 
     const std::vector<Index*> indices;
+
+    const bool index_all_fields;
 
     // methods
 
@@ -399,13 +401,22 @@ public:
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 
+    static constexpr const char* COLLECTION_NAME_KEY = "name";
+    static constexpr const char* COLLECTION_ID_KEY = "id";
+    static constexpr const char* COLLECTION_SEARCH_FIELDS_KEY = "fields";
+    static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
+    static constexpr const char* COLLECTION_CREATED = "created_at";
+    static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
+    static constexpr const char* COLLECTION_INDEX_ALL_FIELDS = "index_all_fields";
+
     // methods
 
     Collection() = delete;
 
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
-               const std::string& default_sorting_field, const size_t num_memory_shards, const float max_memory_ratio);
+               const std::string& default_sorting_field, const size_t num_memory_shards,
+               const float max_memory_ratio, const bool index_all_fields);
 
     ~Collection();
 
@@ -515,6 +526,9 @@ public:
     Option<std::string> remove(const std::string & id, bool remove_from_store = true);
 
     Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
+
+    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
+                               std::string &value);
 
     size_t get_num_memory_shards();
 
