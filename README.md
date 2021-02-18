@@ -70,7 +70,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.18.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.19.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -165,7 +165,7 @@ We welcome community contributions to add more official client libraries. Please
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.18.0/guide/#search-ui](https://typesense.org/docs/0.18.0/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/0.19.0/guide/#search-ui](https://typesense.org/docs/0.19.0/guide/#search-ui) 
 
 ## Benchmarks
 
@@ -215,7 +215,7 @@ and unlocks new use cases. Typesense is also able to give you sorted results wit
 This helps reduce memory consumption.
 
 Algolia offers the following features that Typesense does not have currently: 
-synonyms, geo spatial searches, personalization & server-based search analytics.
+geo spatial searches, personalization & server-based search analytics.
 With Typesense, we intend to bridge this gap, but in the meantime, please let us know
 if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
 
@@ -293,4 +293,4 @@ Typesense requires the following dependencies:
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
 ---
-&copy; 2016-2020 Typesense Inc.
+&copy; 2016-2021 Typesense Inc.
