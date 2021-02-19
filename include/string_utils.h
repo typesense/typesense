@@ -291,5 +291,7 @@ struct StringUtils {
 
     static std::string hmac(const std::string& key, const std::string& msg);
 
+    static std::string hash_sha256(const std::string& str);
+
     //static size_t unicode_length(const std::string& bytes);
 };

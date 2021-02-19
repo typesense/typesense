@@ -123,3 +123,14 @@ TEST(StringUtilsTest, ShouldTrimString) {
     StringUtils::trim(str);
     ASSERT_STREQ("", str.c_str());
 }
+
+TEST(StringUtilsTest, ShouldComputeSHA256) {
+    ASSERT_STREQ("c3ab8ff13720e8ad9047dd39466b3c8974e592c2fa383d4a3960714caef0c4f2",
+                 StringUtils::hash_sha256("foobar").c_str());
+
+    ASSERT_STREQ("d8705968091d40b60436675240712c584c187eef091514d4092483dc342ca3de",
+                 StringUtils::hash_sha256("some random key").c_str());
+
+    ASSERT_STREQ("6613f67d3d78d48e2678faf55c33fabc5895c538ce70ea10218ce9b7eccbf394",
+                  StringUtils::hash_sha256("791a27668b3e01fc6ab3482b6e6a36255154df3ecd7dcec").c_str());
+}
