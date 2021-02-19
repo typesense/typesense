@@ -307,7 +307,10 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
 }
 
 std::string AuthManager::fmt_error(std::string&& error, const std::string& key) {
-    return error + " Key prefix: " + key.substr(0, api_key_t::PREFIX_LEN);
+    std::stringstream ss;
+    ss << error << " Key prefix: " << key.substr(0, api_key_t::PREFIX_LEN) << ", SHA256: "
+       << StringUtils::hash_sha256(key);
+    return ss.str();
 }
 
 Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {

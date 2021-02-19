@@ -3,6 +3,7 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <random>
+#include <openssl/sha.h>
 
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
@@ -104,6 +105,13 @@ std::string StringUtils::str2hex(const std::string &str, bool capital) {
     }
 
     return hexstr;
+}
+
+std::string StringUtils::hash_sha256(const std::string& str) {
+    const size_t SHA256_SIZE = 32;
+    unsigned char hash_buf[SHA256_SIZE];
+    SHA256(reinterpret_cast<const unsigned char *>(str.c_str()), str.size(), hash_buf);
+    return StringUtils::str2hex(std::string(reinterpret_cast<char*>(hash_buf), SHA256_SIZE));
 }
 
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
