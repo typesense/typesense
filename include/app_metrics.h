@@ -4,9 +4,12 @@
 #include "json.hpp"
 #include "logger.h"
 #include <string>
+#include <shared_mutex>
 
 class AppMetrics {
 private:
+    mutable std::shared_mutex mutex;
+
     // stores last complete window
     spp::sparse_hash_map<std::string, uint64_t>* counts;
     spp::sparse_hash_map<std::string, uint64_t>* durations;
@@ -44,14 +47,18 @@ public:
     void operator=(AppMetrics const&) = delete;
 
     void increment_count(const std::string& identifier, uint64_t count) {
+        std::unique_lock lock(mutex);
         (*current_counts)[identifier] += count;
     }
 
     void increment_duration(const std::string& identifier, uint64_t duration) {
+        std::unique_lock lock(mutex);
         (*current_durations)[identifier] += duration;
     }
 
     void window_reset() {
+        std::unique_lock lock(mutex);
+
         delete counts;
         counts = current_counts;
         current_counts = new spp::sparse_hash_map<std::string, uint64_t>();
@@ -61,7 +68,9 @@ public:
         current_durations = new spp::sparse_hash_map<std::string, uint64_t>();
     }
 
-    void get(const std::string& count_key, const std::string& latency_key, nlohmann::json &result) {
+    void get(const std::string& count_key, const std::string& latency_key, nlohmann::json &result) const {
+        std::shared_lock lock(mutex);
+
         result[count_key] = nlohmann::json::object();
         for(const auto& kv: *counts) {
             result[count_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
