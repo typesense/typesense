@@ -160,10 +160,11 @@ nlohmann::json Collection::get_summary_json() const {
 }
 
 Option<nlohmann::json> Collection::add(const std::string & json_str,
-                                       const index_operation_t& operation, const std::string& id) {
+                                       const index_operation_t& operation, const std::string& id,
+                                       const DIRTY_VALUES& dirty_values) {
     nlohmann::json document;
     std::vector<std::string> json_lines = {json_str};
-    const nlohmann::json& res = add_many(json_lines, document, operation, id);
+    const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values);
 
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
@@ -203,7 +204,8 @@ void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json 
 }
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
-                                    const index_operation_t& operation, const std::string& id) {
+                                    const index_operation_t& operation, const std::string& id,
+                                    const DIRTY_VALUES& dirty_values) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<std::vector<index_record>> iter_batch;
 
@@ -220,7 +222,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, id);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
-        index_record record(i, seq_id, document, operation);
+        index_record record(i, seq_id, document, operation, dirty_values);
 
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
@@ -237,62 +239,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             // if `index_all_fields` is enabled, we will have to update schema first before indexing
             if(index_all_fields) {
-                size_t old_field_count = fields.size();
-                for(const auto& kv: document.items()) {
-                    if (search_schema.count(kv.key()) == 0) {
-                        std::string field_type;
-                        bool parseable = field::get_type(kv.value(), field_type);
-                        if (parseable) {
-                            // this ensures that we can handle the same field having different types in different docs
-                            const std::string fname = kv.key();// + "_" + field_type;
-                            field new_field(fname, field_type, false);
-                            search_schema.emplace(fname, new_field);
-                            fields.emplace_back(new_field);
-                        }
-                    }
-                }
-
-                if(fields.size() != old_field_count) {
-                    // we should persist changes to fields in store
-                    std::string coll_meta_json;
-                    StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
-
-                    if(status != StoreStatus::FOUND) {
-                        record.index_failure(500, "Could not fetch collection meta from store.");
-                        continue;
-                    }
-
-                    nlohmann::json collection_meta;
-
-                    try {
-                        collection_meta = nlohmann::json::parse(coll_meta_json);
-                        bool found_default_sorting_field = false;
-                        nlohmann::json fields_json = nlohmann::json::array();;
-
-                        Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
-                                                                                   found_default_sorting_field);
-
-                        if(!fields_json_op.ok()) {
-                            record.index_failure(fields_json_op.code(), fields_json_op.error());
-                            continue;
-                        }
-
-                        collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
-                        bool persisted = store->insert(Collection::get_meta_key(name), collection_meta.dump());
-
-                        if(!persisted) {
-                            record.index_failure(500, "Could not persist collection meta to store.");
-                            continue;
-                        }
-
-                        for(auto index: indices) {
-                            index->refresh_search_schema(search_schema);
-                        }
-
-                    } catch(...) {
-                        record.index_failure(500, "Unable to parse collection meta.");
-                        continue;
-                    }
+                Option<bool> schema_change_op = check_and_update_schema(document);
+                if(!schema_change_op.ok()) {
+                    record.index_failure(schema_change_op.code(), schema_change_op.error());
                 }
             }
         }
@@ -353,7 +302,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                     if(!write_ok) {
                         // we will attempt to reindex the old doc on a best-effort basis
                         remove_document(index_record.new_doc, index_record.seq_id, false);
-                        index_in_memory(index_record.old_doc, index_record.seq_id, false);
+                        index_in_memory(index_record.old_doc, index_record.seq_id, false, index_record.dirty_values);
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
                         num_indexed++;
@@ -398,13 +347,15 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
     }
 }
 
-Option<uint32_t> Collection::index_in_memory(const nlohmann::json &document, uint32_t seq_id, bool is_update) {
+Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
+                                             bool is_update, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
     if(!is_update) {
-        // for update, validation should be done prior
+        // for non-update, validation should be done prior
         Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                         search_schema, facet_schema, is_update);
+                                                                         search_schema, facet_schema, is_update,
+                                                                         index_all_fields, dirty_values);
 
         if(!validation_op.ok()) {
             return validation_op;
@@ -433,7 +384,7 @@ size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & 
         CollectionManager::get_instance().get_thread_pool()->enqueue(
         [index, index_id, &num_indexed_vec, &iter_batch, this, &m_process, &num_processed, &cv_process]() {
             size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
-                                      search_schema, facet_schema);
+                                      search_schema, facet_schema, index_all_fields);
             std::unique_lock<std::mutex> lock(m_process);
             num_indexed_vec[index_id] = num_indexed;
             num_processed++;
@@ -2277,6 +2228,71 @@ spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     return synonym_definitions;
 }
 
+Option<bool> Collection::check_and_update_schema(nlohmann::json& document) {
+    std::unique_lock lock(mutex);
+
+    std::vector<field> new_fields;
+    for(const auto& kv: document.items()) {
+        // we will not index the special "id" key
+        if (search_schema.count(kv.key()) == 0 && kv.key() != "id") {
+            std::string field_type;
+            bool parseable = field::get_type(kv.value(), field_type);
+            if (parseable) {
+                const std::string& fname = kv.key();
+                field new_field(fname, field_type, false);
+                search_schema.emplace(fname, new_field);
+                fields.emplace_back(new_field);
+                new_fields.emplace_back(new_field);
+
+                if(new_field.is_sortable()) {
+                    sort_schema.emplace(new_field.name, new_field);
+                }
+            }
+        }
+    }
+
+    if(!new_fields.empty()) {
+        // we should persist changes to fields in store
+        std::string coll_meta_json;
+        StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
+
+        if(status != StoreStatus::FOUND) {
+            return Option<bool>(500, "Could not fetch collection meta from store.");
+        }
+
+        nlohmann::json collection_meta;
+
+        try {
+            collection_meta = nlohmann::json::parse(coll_meta_json);
+            bool found_default_sorting_field = false;
+            nlohmann::json fields_json = nlohmann::json::array();;
+
+            Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
+                                                                       found_default_sorting_field);
+
+            if(!fields_json_op.ok()) {
+                return Option<bool>(fields_json_op.code(), fields_json_op.error());
+            }
+
+            collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
+            bool persisted = store->insert(Collection::get_meta_key(name), collection_meta.dump());
+
+            if(!persisted) {
+                return Option<bool>(500, "Could not persist collection meta to store.");
+            }
+
+            for(auto index: indices) {
+                index->refresh_schemas(new_fields);
+            }
+
+        } catch(...) {
+            return Option<bool>(500, "Unable to parse collection meta.");
+        }
+    }
+
+    return Option<bool>(true);
+}
+
 std::vector<Index *> Collection::init_indices() {
     std::vector<Index*> index_list;
 
@@ -2287,7 +2303,7 @@ std::vector<Index *> Collection::init_indices() {
             facet_schema.emplace(field.name, field);
         }
 
-        if(field.is_single_integer() || field.is_single_float() || field.is_single_bool() || field.is_geopoint()) {
+        if(field.is_sortable()) {
             sort_schema.emplace(field.name, field);
         }
     }
@@ -2298,4 +2314,18 @@ std::vector<Index *> Collection::init_indices() {
     }
 
     return index_list;
+}
+
+DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {
+    StringUtils::toupper(dirty_values);
+    auto dirty_values_op = magic_enum::enum_cast<DIRTY_VALUES>(dirty_values);
+    DIRTY_VALUES dirty_values_action;
+
+    if(dirty_values_op.has_value()) {
+        dirty_values_action = dirty_values_op.value();
+    } else {
+        dirty_values_action = index_all_fields ? DIRTY_VALUES::COERCE_OR_IGNORE : DIRTY_VALUES::REJECT;
+    }
+
+    return dirty_values_action;
 }

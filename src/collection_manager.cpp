@@ -189,6 +189,9 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
         auto begin = std::chrono::high_resolution_clock::now();
 
+        std::string default_dirty_values = "";
+        auto dirty_values = collection->parse_dirty_values_option(default_dirty_values);
+
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             num_found_docs++;
             const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
@@ -203,7 +206,8 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             }
 
             num_valid_docs++;
-            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE));
+
+            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
 
             // Peek and check for last record right here so that we handle batched indexing correctly
             // Without doing this, the "last batch" would have to be indexed outside the loop.

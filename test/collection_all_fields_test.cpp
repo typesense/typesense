@@ -44,7 +44,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, true).get();
     }
@@ -81,12 +81,62 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_STREQ("7", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     // reject field with a different type than already inferred type
+    // default for `index_all_fields` is `DIRTY_FIELD_COERCE_IGNORE`
+
+    // unable to coerce
     auto doc_json = R"({"cast":"William Barnes","points":63,"starring":"Will Ferrell",
                         "starring_facet":"Will Ferrell","title":"Anchorman 2: The Legend Continues"})";
 
     Option<nlohmann::json> add_op = coll1->add(doc_json);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_STREQ("Field `cast` must be a string array.", add_op.error().c_str());
+    ASSERT_STREQ("Field `cast` must be an array.", add_op.error().c_str());
+
+    // coerce integer to string
+    doc_json = R"({"cast": ["William Barnes"],"points": 63, "starring":"Will Ferrell",
+                        "starring_facet":"Will Ferrell","title": 300})";
+
+    add_op = coll1->add(doc_json);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("300", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("300", results["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // with dirty values set to `DIRTY_FIELD_COERCE_IGNORE`
+    // `cast` field should not be indexed into store
+    doc_json = R"({"cast":"William Barnes","points":63,"starring":"Will Ferrell",
+                    "starring_facet":"Will Ferrell","title":"With bad cast field."})";
+
+    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_IGNORE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("With bad cast field", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("With bad cast field.", results["hits"][0]["document"]["title"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("cast"));
+
+    // with dirty values set to `DIRTY_FIELD_IGNORE`
+    // no coercion should happen, `title` field will just be ignored, but record indexed
+    doc_json = R"({"cast": ["Jeremy Livingston"],"points":63,"starring":"Will Ferrell",
+                    "starring_facet":"Will Ferrell","title": 1200 })";
+
+    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::IGNORE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("1200", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("Jeremy Livingston", {"cast"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("title"));
+
+    // with dirty values set to `DIRTY_FIELD_REJECT`
+    doc_json = R"({"cast": ["Jeremy Livingston"],"points":63,"starring":"Will Ferrell",
+                    "starring_facet":"Will Ferrell","title": 1200 })";
+
+    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_STREQ("Field `title` must be a string.", add_op.error().c_str());
 
     collectionManager.drop_collection("coll1");
 }

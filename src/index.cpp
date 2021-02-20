@@ -122,7 +122,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     for(const auto& field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
-        if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
+        if(document.count(field_name) == 0) {
             continue;
         }
 
@@ -258,11 +258,13 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     return Option<>(201);
 }
 
-Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
                                                  const std::map<std::string, field> & facet_schema,
-                                                 bool is_update) {
+                                                 bool is_update,
+                                                 bool index_all_fields,
+                                                 const DIRTY_VALUES& dirty_values) {
 
     bool has_default_sort_field = (document.count(default_sorting_field) != 0);
 
@@ -284,7 +286,7 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
     for(const auto& field_pair: search_schema) {
         const std::string& field_name = field_pair.first;
 
-        if((field_pair.second.optional || is_update) && document.count(field_name) == 0) {
+        if((field_pair.second.optional || is_update || index_all_fields) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -293,79 +295,83 @@ Option<uint32_t> Index::validate_index_in_memory(const nlohmann::json &document,
                                  "but is not found in the document.");
         }
 
-        if(field_pair.second.type == field_types::STRING) {
-            if(!document[field_name].is_string()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a string.");
+        if(field_pair.second.type == field_types::STRING && !document[field_name].is_string()) {
+            Option<uint32_t> coerce_op = coerce_string(dirty_values, document, field_name, -1);
+            if(!coerce_op.ok()) {
+                return coerce_op;
             }
         } else if(field_pair.second.type == field_types::INT32) {
             if(!document[field_name].is_number_integer()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int32.");
+                Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, document, field_name, -1);
+                if(!coerce_op.ok()) {
+                    return coerce_op;
+                }
             }
 
             if(document[field_name].get<int64_t>() > INT32_MAX) {
-                return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                if(dirty_values == DIRTY_VALUES::IGNORE) {
+                    document.erase(field_name);
+                    continue;
+                } else {
+                    return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
+                }
             }
-        } else if(field_pair.second.type == field_types::INT64) {
-            if(!document[field_name].is_number_integer()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int64.");
+        } else if(field_pair.second.type == field_types::INT64 && !document[field_name].is_number_integer()) {
+            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, false);
+            if(!coerce_op.ok()) {
+                return coerce_op;
             }
-        } else if(field_pair.second.type == field_types::FLOAT) {
-            if(!document[field_name].is_number()) { // allows integer to be passed to a float field
-                return Option<>(400, "Field `" + field_name  + "` must be a float.");
+        } else if(field_pair.second.type == field_types::FLOAT && !document[field_name].is_number()) {
+            // using `is_number` allows integer to be passed to a float field
+            Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, false);
+            if(!coerce_op.ok()) {
+                return coerce_op;
             }
-        } else if(field_pair.second.type == field_types::BOOL) {
-            if(!document[field_name].is_boolean()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a bool.");
+        } else if(field_pair.second.type == field_types::BOOL && !document[field_name].is_boolean()) {
+            Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, false);
+            if(!coerce_op.ok()) {
+                return coerce_op;
             }
-        } else if(field_pair.second.type == field_types::GEOPOINT) {
+        } else if(field_pair.second.is_array()) {
             if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
-            }
-            if(document[field_name].size() != 2) {
-                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
-            }
-            if(!document[field_name][0].is_number() || !document[field_name][1].is_number()) {
-                return Option<>(400, "Field `" + field_name  + "` must be in the [lat,long] format.");
-            }
-        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a string array.");
-            }
-            if(document[field_name].size() > 0 && !document[field_name][0].is_string()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a string array.");
-            }
-        } else if(field_pair.second.type == field_types::INT32_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
+                if(dirty_values == DIRTY_VALUES::IGNORE || dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+                    document.erase(field_name);
+                    continue;
+                } else {
+                    return Option<>(400, "Field `" + field_name  + "` must be an array.");
+                }
             }
 
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int32 array.");
-            }
-        } else if(field_pair.second.type == field_types::INT64_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
-            }
+            for(size_t arr_index=0; arr_index < document[field_name].size(); arr_index++) {
+                const auto& item = document[field_name][arr_index];
 
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number_integer()) {
-                return Option<>(400, "Field `" + field_name  + "` must be an int64 array.");
-            }
-        } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a float array.");
-            }
-
-            if(document[field_name].size() > 0 && !document[field_name][0].is_number()) {
-                // allows integer to be passed to a float array field
-                return Option<>(400, "Field `" + field_name  + "` must be a float array.");
-            }
-        } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
-            if(!document[field_name].is_array()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
-            }
-
-            if(document[field_name].size() > 0 && !document[field_name][0].is_boolean()) {
-                return Option<>(400, "Field `" + field_name  + "` must be a bool array.");
+                if (field_pair.second.type == field_types::STRING_ARRAY && !item.is_string()) {
+                    Option<uint32_t> coerce_op = coerce_string(dirty_values, document, field_name, arr_index);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                } else if (field_pair.second.type == field_types::INT32_ARRAY && !item.is_number_integer()) {
+                    Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, document, field_name, arr_index);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                } else if (field_pair.second.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
+                    Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, true);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                } else if (field_pair.second.type == field_types::FLOAT_ARRAY && !item.is_number()) {
+                    // we check for `is_number` to allow whole numbers to be passed into float fields
+                    Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, true);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                } else if (field_pair.second.type == field_types::BOOL_ARRAY && !item.is_boolean()) {
+                    Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, true);
+                    if (!coerce_op.ok()) {
+                        return coerce_op;
+                    }
+                }
             }
         }
     }
@@ -451,7 +457,8 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
 size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
-                                 const std::map<std::string, field> & facet_schema) {
+                                 const std::map<std::string, field> & facet_schema,
+                                 bool index_all_fields) {
 
     size_t num_indexed = 0;
 
@@ -464,7 +471,10 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
         if(index_rec.operation != DELETE) {
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
-                                                                      search_schema, facet_schema, index_rec.is_update);
+                                                                      search_schema, facet_schema,
+                                                                      index_rec.is_update,
+                                                                      index_all_fields,
+                                                                      index_rec.dirty_values);
 
             if(!validation_op.ok()) {
                 index_rec.index_failure(validation_op.code(), validation_op.error());
@@ -1985,7 +1995,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             }
         }
 
-        const int64_t default_score = 0;
+        const int64_t default_score = INT64_MIN;
         int64_t scores[3] = {0};
         size_t match_score_index = 0;
 
@@ -2001,7 +2011,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             if (sort_order[0] == -1) {
                 scores[0] = -scores[0];
             }
-            scores[1] = 0;
         }
 
         if(sort_fields.size() > 1) {
@@ -2015,7 +2024,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             if (sort_order[1] == -1) {
                 scores[1] = -scores[1];
             }
-            scores[2] = 0;
         }
 
         if(sort_fields.size() > 2) {
@@ -2337,19 +2345,258 @@ const spp::sparse_hash_map<std::string, num_tree_t*>& Index::_get_numerical_inde
     return numerical_index;
 }
 
-void Index::refresh_search_schema(const std::unordered_map<std::string, field>& src_search_schema) {
-    for(const auto & fname_field: src_search_schema) {
-        search_schema.emplace(fname_field.first, fname_field.second);
+void Index::refresh_schemas(const std::vector<field>& new_fields) {
+    std::unique_lock lock(mutex);
 
-        if(search_index.count(fname_field.first) == 0) {
-            if(fname_field.second.is_string()) {
+    for(const auto & new_field: new_fields) {
+        search_schema.emplace(new_field.name, new_field);
+
+        if(search_index.count(new_field.name) == 0) {
+            if(new_field.is_string()) {
                 art_tree *t = new art_tree;
                 art_tree_init(t);
-                search_index.emplace(fname_field.first, t);
+                search_index.emplace(new_field.name, t);
             } else {
                 num_tree_t* num_tree = new num_tree_t;
-                numerical_index.emplace(fname_field.first, num_tree);
+                numerical_index.emplace(new_field.name, num_tree);
             }
         }
+
+        if(sort_index.count(new_field.name) == 0) {
+            spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+            sort_index.emplace(new_field.name, doc_to_score);
+        }
     }
+}
+
+Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                      const std::string &field_name, const int array_index) {
+    std::string suffix = array_index != -1 ? "an array of" : "a";
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::IGNORE) {
+        if(array_index == -1) {
+            document.erase(field_name);
+        } else {
+            document[field_name].erase(document[field_name].begin() + array_index);
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // we will try to coerce the value to a string
+
+    if (document[field_name].is_number_integer()) {
+        document[field_name] = std::to_string((int64_t)document[field_name]);
+    }
+
+    else if(document[field_name].is_number_float()) {
+        document[field_name] = std::to_string((float)document[field_name]);
+    }
+
+    else if(document[field_name].is_boolean()) {
+        document[field_name] = document[field_name] == true ? "true" : "false";
+    }
+
+    else {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+            if(array_index == -1) {
+                document.erase(field_name);
+            } else {
+                document[field_name].erase(document[field_name].begin() + array_index);
+            }
+        } else {
+            // DIRTY_FIELD_COERCE_REJECT
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
+        }
+    }
+
+    return Option<>(200);
+}
+
+Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                     const std::string &field_name, const int array_index) {
+    std::string suffix = array_index != -1 ? "an array of" : "an";
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::IGNORE) {
+        if(array_index == -1) {
+            document.erase(field_name);
+        } else {
+            document[field_name].erase(document[field_name].begin() + array_index);
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into an integer
+
+    if(document[field_name].is_number_float()) {
+        document[field_name] = static_cast<int32_t>(document[field_name].get<float>());
+    }
+
+    else if(document[field_name].is_boolean()) {
+        document[field_name] = document[field_name] == true ? 1 : 0;
+    }
+
+    else if(document[field_name].is_string() && StringUtils::is_int32_t(document[field_name])) {
+        document[field_name] = std::atol(document[field_name].get<std::string>().c_str());
+    }
+
+    else {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+            document.erase(field_name);
+        } else {
+            // DIRTY_FIELD_COERCE_REJECT
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
+        }
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t> Index::coerce_int64_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                       const std::string &field_name, const int array_index) {
+    std::string suffix = array_index != -1 ? "an array of" : "an";
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::IGNORE) {
+        if(array_index == -1) {
+            document.erase(field_name);
+        } else {
+            document[field_name].erase(document[field_name].begin() + array_index);
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into an integer
+
+    if(document[field_name].is_number_float()) {
+        document[field_name] = static_cast<int64_t>(document[field_name].get<float>());
+    }
+
+    else if(document[field_name].is_boolean()) {
+        document[field_name] = document[field_name] == true ? 1 : 0;
+    }
+
+    else if(document[field_name].is_string() && StringUtils::is_int64_t(document[field_name])) {
+        document[field_name] = std::atoll(document[field_name].get<std::string>().c_str());
+    }
+
+    else {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+            if(array_index == -1) {
+                document.erase(field_name);
+            } else {
+                document[field_name].erase(document[field_name].begin() + array_index);
+            }
+        } else {
+            // DIRTY_FIELD_COERCE_REJECT
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
+        }
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t>
+Index::coerce_bool(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                   const std::string &field_name, const int array_index) {
+    std::string suffix = array_index != -1 ? "a array of" : "a";
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::IGNORE) {
+        if(array_index == -1) {
+            document.erase(field_name);
+        } else {
+            document[field_name].erase(document[field_name].begin() + array_index);
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into a bool
+    if (document[field_name].is_number_integer() &&
+        (document[field_name].get<int64_t>() == 1 || document[field_name].get<int64_t>() == 0)) {
+        document[field_name] = document[field_name].get<int64_t>() == 1;
+    }
+
+    else if(document[field_name].is_string()) {
+        std::string str_val = document[field_name].get<std::string>();
+        StringUtils::tolowercase(str_val);
+        if(str_val == "true") {
+            document[field_name] = true;
+            return Option<uint32_t>(200);
+        } else if(str_val == "false") {
+            document[field_name] = false;
+            return Option<uint32_t>(200);
+        }
+    }
+
+    else {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+            if(array_index == -1) {
+                document.erase(field_name);
+            } else {
+                document[field_name].erase(document[field_name].begin() + array_index);
+            }
+        } else {
+            // DIRTY_FIELD_COERCE_REJECT
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+        }
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t>
+Index::coerce_float(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                    const std::string &field_name, const int array_index) {
+    std::string suffix = array_index != -1 ? "a array of" : "a";
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::IGNORE) {
+        if(array_index == -1) {
+            document.erase(field_name);
+        } else {
+            document[field_name].erase(document[field_name].begin() + array_index);
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into a float
+
+    if(document[field_name].is_string() && StringUtils::is_float(document[field_name])) {
+        document[field_name] = std::atof(document[field_name].get<std::string>().c_str());
+    }
+
+    else if(document[field_name].is_boolean()) {
+        document[field_name] = document[field_name] == true ? 1.0 : 0.0;
+    }
+
+    else {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_IGNORE) {
+            if(array_index == -1) {
+                document.erase(field_name);
+            } else {
+                document[field_name].erase(document[field_name].begin() + array_index);
+            }
+        } else {
+            // DIRTY_FIELD_COERCE_REJECT
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
+        }
+    }
+
+    return Option<uint32_t>(200);
 }
