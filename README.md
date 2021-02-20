@@ -192,6 +192,8 @@ and smart defaults so it just works well out-of-the-box, without you having to t
 Elasticsearch also runs on the JVM, which by itself can be quite an effort to tune to run optimally. Typesense, on the other hand, 
 is a single light-weight self-contained native binary, so it's simple to setup and operate.
 
+See a side-by-side feature comparison [here](https://typesense.org/typesense-vs-algolia-vs-elasticsearch-vs-meilisearch/).
+
 ### How does this differ from Algolia?
 
 Algolia is a proprietary, hosted, search-as-a-service product that works well, when cost is not an issue. From our experience,
@@ -219,6 +221,8 @@ Algolia offers the following features that Typesense does not have currently:
 geo spatial searches, personalization & server-based search analytics.
 With Typesense, we intend to bridge this gap, but in the meantime, please let us know
 if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
+
+See a side-by-side feature comparison [here](https://typesense.org/typesense-vs-algolia-vs-elasticsearch-vs-meilisearch/).
 
 ### Speed is great, but what about the memory footprint?
 
