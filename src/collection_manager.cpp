@@ -413,6 +413,9 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
     }
 
+    // to handle alias resolution
+    const std::string actual_coll_name = collection->get_name();
+
     nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
@@ -426,11 +429,11 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
         delete iter;
 
-        store->remove(Collection::get_next_seq_id_key(collection_name));
-        store->remove(Collection::get_meta_key(collection_name));
+        store->remove(Collection::get_next_seq_id_key(actual_coll_name));
+        store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
-    collections.erase(collection_name);
+    collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
 
     delete collection;

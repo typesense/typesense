@@ -435,6 +435,15 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("collection1", collection_option.get());
 
+    // try to drop a collection using the alias `collection1_link`
+    auto drop_op = cmanager.drop_collection("collection1_link");
+    ASSERT_TRUE(drop_op.ok());
+
+    // try to list collections now
+    nlohmann::json summaries = cmanager.get_collection_summaries();
+    ASSERT_EQ(0, summaries.size());
+
+    // remap alias to another non-existing collection
     inserted = cmanager.upsert_symlink("collection1_link", "collection2");
     ASSERT_TRUE(inserted.ok());
     collection_option = cmanager.resolve_symlink("collection1_link");
