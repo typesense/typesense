@@ -17,6 +17,7 @@
 #include <set>
 #include "string_utils.h"
 #include "num_tree.h"
+#include "magic_enum.hpp"
 
 struct token_t {
     size_t position;
@@ -103,6 +104,12 @@ enum index_operation_t {
     DELETE
 };
 
+enum class DIRTY_VALUES {
+    COERCE_OR_IGNORE = 1,
+    COERCE_OR_REJECT = 2,
+    REJECT = 3,
+    IGNORE = 4,
+};
 
 struct index_record {
     size_t position;                    // position of record in the original request
@@ -118,8 +125,12 @@ struct index_record {
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
-    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation):
-            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), is_update(false), indexed(false) {
+    const DIRTY_VALUES dirty_values;
+
+    index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation,
+                 const DIRTY_VALUES& dirty_values):
+            position(record_pos), seq_id(seq_id), doc(doc), operation(operation), is_update(false),
+            indexed(false), dirty_values(dirty_values) {
 
     }
 
@@ -226,6 +237,21 @@ private:
     static uint64_t facet_token_hash(const field & a_field, const std::string &token);
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
+
+    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                          const std::string &field_name, const int array_index);
+
+    static Option<uint32_t> coerce_int32_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                           const std::string &field_name, const int array_index);
+
+    static Option<uint32_t> coerce_int64_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                           const std::string &field_name, const int array_index);
+
+    static Option<uint32_t> coerce_float(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                         const std::string &field_name, const int array_index);
+
+    static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+                                        const std::string &field_name, const int array_index);
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -335,7 +361,8 @@ public:
                                      std::vector<index_record> & iter_batch,
                                      const std::string & default_sorting_field,
                                      const std::unordered_map<std::string, field> & search_schema,
-                                     const std::map<std::string, field> & facet_schema);
+                                     const std::map<std::string, field> & facet_schema,
+                                     bool index_all_fields);
 
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
                                          const std::vector<uint32_t*>& leaf_to_indices,
@@ -348,13 +375,15 @@ public:
 
     uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const;
 
-    static Option<uint32_t> validate_index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+    static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema,
-                                                     bool is_update);
+                                                     bool is_update,
+                                                     bool index_all_fields,
+                                                     const DIRTY_VALUES& dirty_values);
 
-    void refresh_search_schema(const std::unordered_map<std::string, field>& src_search_schema);
+    void refresh_schemas(const std::vector<field>& new_fields);
 
 };
 

@@ -294,4 +294,8 @@ struct StringUtils {
     static std::string hash_sha256(const std::string& str);
 
     //static size_t unicode_length(const std::string& bytes);
+
+    static bool begins_with(const std::string& str, const std::string& prefix) {
+        return str.rfind(prefix, 0) == 0;
+    }
 };

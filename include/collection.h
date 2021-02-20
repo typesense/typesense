@@ -323,7 +323,7 @@ private:
 
     const std::vector<Index*> indices;
 
-    const bool index_all_fields;
+    const std::atomic<bool> index_all_fields;
 
     // methods
 
@@ -348,6 +348,8 @@ private:
                             const std::vector<std::string>& hidden_hits,
                             std::map<size_t, std::vector<uint32_t>>& include_ids,
                             std::vector<uint32_t> & excluded_ids) const;
+
+    Option<bool> check_and_update_schema(nlohmann::json& document);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -457,7 +459,8 @@ public:
 
     Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document) const;
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id, bool is_update);
+    Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
+                                     bool is_update, const DIRTY_VALUES& dirty_values);
 
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
                                const spp::sparse_hash_set<std::string> & exclude_fields);
@@ -490,10 +493,12 @@ public:
     size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
 
     Option<nlohmann::json> add(const std::string & json_str,
-                               const index_operation_t& operation=CREATE, const std::string& id="");
+                               const index_operation_t& operation=CREATE, const std::string& id="",
+                               const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT);
 
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
-                            const index_operation_t& operation=CREATE, const std::string& id="");
+                            const index_operation_t& operation=CREATE, const std::string& id="",
+                            const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
@@ -533,6 +538,8 @@ public:
     size_t get_num_memory_shards();
 
     size_t get_num_documents() const;
+
+    DIRTY_VALUES parse_dirty_values_option(std::string& dirty_values) const;
 
     // Override operations
 

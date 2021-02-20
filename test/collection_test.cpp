@@ -1339,7 +1339,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records, document);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1621,7 +1621,19 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22, \"average\": 78}";
     const Option<nlohmann::json> & bad_facet_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_facet_field_op.ok());
-    ASSERT_STREQ("Field `tags` must be a string array.", bad_facet_field_op.error().c_str());
+    ASSERT_STREQ("Field `tags` must be an array.", bad_facet_field_op.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
+    const Option<nlohmann::json> & bad_array_field_op = sample_collection->add(doc_str);
+    ASSERT_FALSE(bad_array_field_op.ok());
+    ASSERT_STREQ("Field `tags` must be an array of string.", bad_array_field_op.error().c_str());
+
+    // with coercion should work
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
+    const Option<nlohmann::json> &bad_array_field_coercion_op = sample_collection->add(doc_str, CREATE, "",
+                                                                                       DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(bad_array_field_coercion_op.ok());
+    ASSERT_STREQ("Field `tags` must be an array of string.", bad_array_field_coercion_op.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": 34}";
     const Option<nlohmann::json> & empty_facet_field_op = sample_collection->add(doc_str);
@@ -1639,7 +1651,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
                  bad_default_sorting_field_op3.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
-    const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str, CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(bad_rank_field_op.ok());
     ASSERT_STREQ("Field `average` must be an int32.", bad_rank_field_op.error().c_str());
 
@@ -2007,7 +2019,7 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     auto add_op = coll1->add(doc.dump());
     ASSERT_FALSE(add_op.ok());
-    ASSERT_STREQ("Field `categories` must be a string array.", add_op.error().c_str());
+    ASSERT_STREQ("Field `categories` must be an array.", add_op.error().c_str());
 
     collectionManager.drop_collection("coll1");
 }

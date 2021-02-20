@@ -100,8 +100,8 @@ bool post_create_collection(http_req & req, http_res & res) {
         req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
     }
 
-    if(req_json.count("fields") == 0) {
-        res.set_400("Parameter `fields` is required.");
+    if(req_json.count("fields") == 0 && req_json.count(INDEX_ALL_FIELDS) == 0) {
+        res.set_400("Parameter `fields` or `index_all_fields` is required.");
         return false;
     }
 
@@ -436,6 +436,7 @@ bool post_import_documents(http_req& req, http_res& res) {
     //LOG(INFO) << "req.first_chunk=" << req.first_chunk_aggregate << ", last_chunk=" << req.last_chunk_aggregate;
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
+    const char *DIRTY_VALUES = "dirty_values";
 
     if(req.params.count(BATCH_SIZE) == 0) {
         req.params[BATCH_SIZE] = "40";
@@ -443,6 +444,10 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(req.params.count(ACTION) == 0) {
         req.params[ACTION] = "create";
+    }
+
+    if(req.params.count(DIRTY_VALUES) == 0) {
+        req.params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
     if(!StringUtils::is_uint32_t(req.params[BATCH_SIZE])) {
@@ -539,7 +544,10 @@ bool post_import_documents(http_req& req, http_res& res) {
 
     if(!single_partial_record_body) {
         nlohmann::json document;
-        nlohmann::json json_res = collection->add_many(json_lines, document, operation);
+
+        const auto& dirty_values = collection->parse_dirty_values_option(req.params[DIRTY_VALUES]);
+        nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
+                                                       dirty_values);
         //const std::string& import_summary_json = json_res.dump();
         //response_stream << import_summary_json << "\n";
 
@@ -570,6 +578,8 @@ bool post_import_documents(http_req& req, http_res& res) {
 
 bool post_add_document(http_req & req, http_res & res) {
     const char *ACTION = "action";
+    const char *DIRTY_VALUES = "dirty_values";
+
     if(req.params.count(ACTION) == 0) {
         req.params[ACTION] = "create";
     }
@@ -577,6 +587,10 @@ bool post_add_document(http_req & req, http_res & res) {
     if(req.params[ACTION] != "create" && req.params[ACTION] != "update" && req.params[ACTION] != "upsert") {
         res.set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         return false;
+    }
+
+    if(req.params.count(DIRTY_VALUES) == 0) {
+        req.params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -588,7 +602,9 @@ bool post_add_document(http_req & req, http_res & res) {
     }
 
     const index_operation_t operation = get_index_operation(req.params[ACTION]);
-    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation);
+    const auto& dirty_values = collection->parse_dirty_values_option(req.params[DIRTY_VALUES]);
+
+    Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation, "", dirty_values);
 
     if(!inserted_doc_op.ok()) {
         res.set(inserted_doc_op.code(), inserted_doc_op.error());

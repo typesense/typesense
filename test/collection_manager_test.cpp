@@ -278,6 +278,79 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(4, results["hits"].size());
 }
 
+TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
+    Collection *coll1;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
+    std::vector<field> fields = {
+        field("max", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "max", 0, true).get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        Option<nlohmann::json> add_op = coll1->add(document.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    infile.close();
+
+    ASSERT_EQ(1, coll1->get_collection_id());
+    ASSERT_EQ(3, coll1->get_sort_fields().size());
+
+    std::unordered_map<std::string, field> schema = collection1->get_schema();
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager & collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key");
+    auto load_op = collectionManager2.load();
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_coll = collectionManager2.get_collection("coll1").get();
+    ASSERT_NE(nullptr, restored_coll);
+
+    std::vector<std::string> facet_fields_expected = {};
+    auto restored_schema = restored_coll->get_schema();
+
+    ASSERT_EQ(1, restored_coll->get_collection_id());
+    ASSERT_EQ(6, restored_coll->get_next_seq_id());
+    ASSERT_EQ(facet_fields_expected, restored_coll->get_facet_fields());
+    ASSERT_EQ(3, restored_coll->get_sort_fields().size());
+    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[0].name);
+    ASSERT_EQ("average", restored_coll->get_sort_fields()[1].name);
+    ASSERT_EQ("max", restored_coll->get_sort_fields()[2].name);
+
+    // ensures that the "id" field is not added to the schema
+    ASSERT_EQ(6, restored_schema.size());
+
+    ASSERT_EQ("max", restored_coll->get_default_sorting_field());
+
+    ASSERT_EQ(1, restored_schema.count("title"));
+    ASSERT_EQ(1, restored_schema.count("max"));
+    ASSERT_EQ(1, restored_schema.count("description"));
+    ASSERT_EQ(1, restored_schema.count("scores"));
+    ASSERT_EQ(1, restored_schema.count("average"));
+    ASSERT_EQ(1, restored_schema.count("is_valid"));
+
+    for(const auto& kv: restored_schema) {
+        ASSERT_FALSE(kv.second.optional);
+    }
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
+}
+
 TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::string json_line;

@@ -105,6 +105,10 @@ struct field {
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
     }
 
+    bool is_sortable() const {
+        return is_single_integer() || is_single_float() || is_single_bool() || is_geopoint();
+    }
+
     bool has_valid_type() const {
         return is_string() || is_integer() || is_float() || is_bool() || is_geopoint();
     }
