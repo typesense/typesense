@@ -834,12 +834,111 @@ TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
                                 {}, {}, 0, 10, 1, FREQUENCY, true);
 
     auto results = res_op.get();
-    LOG(INFO) << results;
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
     ASSERT_STREQ("23", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+            {"123", "Company 1", "50"},
+            {"125", "Company 2", "150"},
+            {"127", "Company 3", "250"},
+            {"129", "Stark Industries 4", "500"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["company_name"] = records[i][1];
+        doc["num_employees"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("num_employees", "ASC") };
+
+    auto results = coll1->search("*",
+                                {}, "num_employees:>=100 && num_employees:<=300",
+                                {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // when filter number is well below all values
+    results = coll1->search("*",
+                                 {}, "num_employees:>=100 && num_employees:<=10",
+                                 {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // check boundaries
+    results = coll1->search("*",
+                            {}, "num_employees:>=150 && num_employees:<=250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*",
+                            {}, "num_employees:>150 && num_employees:<250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+
+    results = coll1->search("*",
+                            {}, "num_employees:>50 && num_employees:<250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // extreme boundaries
+
+    results = coll1->search("*",
+                            {}, "num_employees:>50 && num_employees:<=500",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("129", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*",
+                            {}, "num_employees:>=50 && num_employees:<500",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // no match
+    results = coll1->search("*",
+                            {}, "num_employees:>3000 && num_employees:<10",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }

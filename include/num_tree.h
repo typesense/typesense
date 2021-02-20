@@ -68,22 +68,23 @@ public:
                 delete[] val_ids;
             }
         } else if(comparator == GREATER_THAN || comparator == GREATER_THAN_EQUALS) {
-            auto it = int64map.lower_bound(value);  // iter values will be >= value
+            // iter entries will be >= value, or end() if all entries are before value
+            auto iter_ge_value = int64map.lower_bound(value);
 
-            if(it == int64map.end()) {
+            if(iter_ge_value == int64map.end()) {
                 return ;
             }
 
-            if(comparator == GREATER_THAN && it->first == value) {
-                it++;
+            if(comparator == GREATER_THAN && iter_ge_value->first == value) {
+                iter_ge_value++;
             }
 
             std::vector<uint32_t> consolidated_ids;
-            while(it != int64map.end()) {
-                for(size_t i = 0; i < it->second->getLength(); i++) {
-                    consolidated_ids.push_back(it->second->at(i));
+            while(iter_ge_value != int64map.end()) {
+                for(size_t i = 0; i < iter_ge_value->second->getLength(); i++) {
+                    consolidated_ids.push_back(iter_ge_value->second->at(i));
                 }
-                it++;
+                iter_ge_value++;
             }
 
             std::sort(consolidated_ids.begin(), consolidated_ids.end());
@@ -96,39 +97,24 @@ public:
             *ids = out;
 
         } else if(comparator == LESS_THAN || comparator == LESS_THAN_EQUALS) {
-            auto max_iter = int64map.lower_bound(value);  // iter values will be >= value
-
-            if(comparator == LESS_THAN) {
-                if(max_iter == int64map.end()) {
-                    max_iter--;
-                }
-
-                else if(max_iter == int64map.begin() && max_iter->first != value) {
-                    return ;
-                }
-
-                else if(max_iter != int64map.begin() && max_iter->first >= value) {
-                    max_iter--;
-                }
-            } else {
-                if(max_iter == int64map.end()) {
-                    max_iter--;
-                }
-            }
+            // iter entries will be >= value, or end() if all entries are before value
+            auto iter_ge_value = int64map.lower_bound(value);
 
             std::vector<uint32_t> consolidated_ids;
             auto it = int64map.begin();
 
-            while(true) {
+            while(it != iter_ge_value) {
                 for(size_t i = 0; i < it->second->getLength(); i++) {
                     consolidated_ids.push_back(it->second->at(i));
                 }
-
-                if(it == max_iter) {
-                    break;
-                }
-
                 it++;
+            }
+
+            // for LESS_THAN_EQUALS, check if last iter entry is equal to value
+            if(it != int64map.end() && comparator == LESS_THAN_EQUALS && it->first == value) {
+                for(size_t i = 0; i < it->second->getLength(); i++) {
+                    consolidated_ids.push_back(it->second->at(i));
+                }
             }
 
             std::sort(consolidated_ids.begin(), consolidated_ids.end());
