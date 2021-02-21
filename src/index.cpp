@@ -107,9 +107,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         points = get_points_from_doc(document, default_sorting_field);
     }
 
-    if(!is_update) {
-        seq_ids.append(seq_id);
-    }
+    seq_ids.append(seq_id);
 
     std::unordered_map<std::string, size_t> facet_to_id;
     size_t i_facet = 0;
@@ -2322,7 +2320,9 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         }
     }
 
-    seq_ids.remove_value(seq_id);
+    if(seq_ids.contains(seq_id)) {
+        seq_ids.remove_value(seq_id);
+    }
 
     return Option<uint32_t>(seq_id);
 }
