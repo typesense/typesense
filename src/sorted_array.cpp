@@ -89,6 +89,10 @@ uint32_t sorted_array::at(uint32_t index) {
 }
 
 bool sorted_array::contains(uint32_t value) {
+    if(length == 0) {
+        return false;
+    }
+
     uint32_t actual;
     for_lower_bound_search(in, length, value, &actual);
     return actual == value;

@@ -89,7 +89,7 @@ private:
     }
 
 public:
-    static const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
+    static constexpr const size_t DEFAULT_NUM_MEMORY_SHARDS = 4;
 
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
