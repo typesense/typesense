@@ -480,8 +480,6 @@ TEST_F(CollectionTest, WildcardQuery) {
     nlohmann::json results = collection->search("*", query_fields, "points:>0", {}, sort_fields, 0, 3, 1, FREQUENCY,
                                                 false).get();
 
-    LOG(INFO) << results;
-
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<uint32_t>());
 
@@ -1639,10 +1637,10 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     const Option<nlohmann::json> & empty_facet_field_op = sample_collection->add(doc_str);
     ASSERT_TRUE(empty_facet_field_op.ok());
 
-    doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
+    doc_str = "{\"name\": \"foo\", \"age\": [\"34\"], \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_default_sorting_field_op1.ok());
-    ASSERT_STREQ("Default sorting field `age` must be a single valued numerical field.", bad_default_sorting_field_op1.error().c_str());
+    ASSERT_STREQ("Field `age` must be an int32.", bad_default_sorting_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op3 = sample_collection->add(doc_str);
@@ -2690,8 +2688,6 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
                                  {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
-
-    LOG(INFO) << results;
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());

@@ -122,6 +122,8 @@ typedef struct {
 } art_document;
 
 enum token_ordering {
+    NOT_SET,
+
     FREQUENCY,
     MAX_SCORE
 };

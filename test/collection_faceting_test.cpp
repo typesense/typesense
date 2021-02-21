@@ -780,10 +780,6 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
                                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10).get();
 
-    LOG(INFO) << results;
-
-    return;
-
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 

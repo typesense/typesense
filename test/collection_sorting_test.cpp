@@ -129,17 +129,112 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
     Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", 4, fields, "name");
-    EXPECT_FALSE(collection_op.ok());
-    EXPECT_EQ("Default sorting field `name` must be a single valued numerical field.", collection_op.error());
+    ASSERT_FALSE(collection_op.ok());
+    ASSERT_EQ("Default sorting field `name` must be a single valued numerical field.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
 
     // Default sorting field must exist as a field in schema
 
     sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
     collection_op = collectionManager.create_collection("sample_collection", 4, fields, "NOT-DEFINED");
-    EXPECT_FALSE(collection_op.ok());
-    EXPECT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
+    ASSERT_FALSE(collection_op.ok());
+    ASSERT_EQ("Default sorting field is defined as `NOT-DEFINED` but is not found in the schema.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
+}
+
+TEST_F(CollectionSortingTest, NoDefaultSortingField) {
+    Collection *coll1;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields).get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll1->add(json_line);
+    }
+
+    infile.close();
+
+    // without a default sorting field, matches should be sorted by (text_match, seq_id)
+    auto results = coll1->search("rocket", {"title"}, "", {}, {}, 1, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(5, results["found"]);
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(24, results["out_of"]);
+
+    std::vector<std::string> ids = {"16", "15", "7", "0", "22"};
+
+    for(size_t i=0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"].get<std::string>());
+    }
+
+    // try removing a document and doing wildcard (tests the seq_id array used for wildcard searches)
+    auto remove_op = coll1->remove("0");
+    ASSERT_TRUE(remove_op.ok());
+
+    results = coll1->search("*", {}, "", {}, {}, 1, 30, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(23, results["found"]);
+    ASSERT_EQ(23, results["hits"].size());
+    ASSERT_EQ(23, results["out_of"]);
+
+    for(size_t i=23; i >= 1; i--) {
+        std::string doc_id = (i == 4) ? "foo" : std::to_string(i);
+        ASSERT_EQ(doc_id, results["hits"][23 - i]["document"]["id"].get<std::string>());
+    }
+}
+
+TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) {
+    // when no default sorting field is provided, tokens must be ordered on frequency
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    }
+
+    // since only top 10 tokens are fetched for prefixes, the "end" should not show up in the results
+    std::vector<std::string> tokens = {
+        "enter", "elephant", "enamel", "ercot", "enyzme", "energy",
+        "epoch", "epyc", "express", "everest", "end"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        size_t num_repeat = tokens.size() - i;
+
+        std::string title = tokens[i];
+
+        for(size_t j = 0; j < num_repeat; j++) {
+            nlohmann::json doc;
+            doc["title"] = title;
+            doc["points"] = num_repeat;
+            coll1->add(doc.dump());
+        }
+    }
+
+    auto results = coll1->search("e", {"title"}, "", {}, {}, 0, 100, 1, NOT_SET, true).get();
+
+    // 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2
+    ASSERT_EQ(65, results["found"]);
+
+    // we have to ensure that no result contains the word "end" since it occurs least number of times
+    bool found_end = false;
+    for(auto& res: results["hits"].items()) {
+        if(res.value()["document"]["title"] == "end") {
+            found_end = true;
+        }
+    }
+
+    ASSERT_FALSE(found_end);
 }
 
 TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {

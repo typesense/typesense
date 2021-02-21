@@ -56,6 +56,7 @@ struct search_args {
     size_t typo_tokens_threshold;
     std::vector<std::string> group_by_fields;
     size_t group_limit;
+    std::string default_sorting_field;
     size_t all_result_ids_len;
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -76,14 +77,15 @@ struct search_args {
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
-                const std::vector<std::string>& group_by_fields, size_t group_limit):
+                const std::vector<std::string>& group_by_fields, size_t group_limit,
+                const std::string& default_sorting_field):
             q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens), q_synonyms(q_synonyms),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
-            group_by_fields(group_by_fields), group_limit(group_limit),
+            group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             all_result_ids_len(0) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
@@ -168,6 +170,9 @@ private:
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
+
+    // this is used for wildcard queries
+    sorted_array seq_ids;
 
     StringUtils string_utils;
 
@@ -349,7 +354,8 @@ public:
                 std::vector<std::vector<KV*>> & override_result_kvs,
                 const size_t typo_tokens_threshold,
                 const size_t group_limit,
-                const std::vector<std::string>& group_by_fields) const;
+                const std::vector<std::string>& group_by_fields,
+                const std::string& default_sorting_field) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
 

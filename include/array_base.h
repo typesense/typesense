@@ -37,9 +37,9 @@ public:
     }
 
     // len determines length of output buffer (default: length of input)
-    uint32_t* uncompress(uint32_t len=0);
+    uint32_t* uncompress(uint32_t len=0) const;
 
     uint32_t getSizeInBytes();
 
-    uint32_t getLength();
+    uint32_t getLength() const;
 };
