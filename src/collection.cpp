@@ -491,7 +491,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const int num_typos,
                                   const size_t per_page, const size_t page,
-                                  const token_ordering token_order, const bool prefix,
+                                  token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
@@ -755,7 +755,11 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     */
     if(sort_fields_std.empty()) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
-        sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
+        if(!default_sorting_field.empty()) {
+            sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
+        } else {
+            sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
+        }
     }
 
     bool found_match_score = false;
@@ -801,6 +805,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
     }
 
+    if(token_order == NOT_SET) {
+        if(default_sorting_field.empty()) {
+            token_order = FREQUENCY;
+        } else {
+            token_order = MAX_SCORE;
+        }
+    }
+
     std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
@@ -833,7 +845,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                    sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                    per_page, page, token_order, prefix,
                                    drop_tokens_threshold, typo_tokens_threshold,
-                                   group_by_fields, group_limit);
+                                   group_by_fields, group_limit, default_sorting_field);
 
         search_args_vec.push_back(search_params);
 
@@ -2264,11 +2276,9 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document) {
 
         try {
             collection_meta = nlohmann::json::parse(coll_meta_json);
-            bool found_default_sorting_field = false;
             nlohmann::json fields_json = nlohmann::json::array();;
 
-            Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
-                                                                       found_default_sorting_field);
+            Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json);
 
             if(!fields_json_op.ok()) {
                 return Option<bool>(fields_json_op.code(), fields_json_op.error());

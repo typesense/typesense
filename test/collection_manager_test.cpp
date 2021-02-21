@@ -304,6 +304,13 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(1, coll1->get_collection_id());
     ASSERT_EQ(3, coll1->get_sort_fields().size());
 
+    // index a document with a bad field value with COERCE_OR_IGNORE setting
+    auto doc_json = R"({"title": "Unique record.", "max": 25, "scores": [22, "how", 44],
+                        "average": "bad data", "is_valid": true})";
+
+    Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_IGNORE);
+    ASSERT_TRUE(add_op.ok());
+
     std::unordered_map<std::string, field> schema = collection1->get_schema();
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
@@ -324,7 +331,8 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     auto restored_schema = restored_coll->get_schema();
 
     ASSERT_EQ(1, restored_coll->get_collection_id());
-    ASSERT_EQ(6, restored_coll->get_next_seq_id());
+    ASSERT_EQ(7, restored_coll->get_next_seq_id());
+    ASSERT_EQ(7, restored_coll->get_num_documents());
     ASSERT_EQ(facet_fields_expected, restored_coll->get_facet_fields());
     ASSERT_EQ(3, restored_coll->get_sort_fields().size());
     ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[0].name);
@@ -346,6 +354,24 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     for(const auto& kv: restored_schema) {
         ASSERT_FALSE(kv.second.optional);
     }
+
+    // try searching for record with bad data
+    auto results = restored_coll->search("unique", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("Unique record.", results["hits"][0]["document"]["title"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("average"));
+    ASSERT_EQ(2, results["hits"][0]["document"]["scores"].size());
+    ASSERT_EQ(22, results["hits"][0]["document"]["scores"][0]);
+    ASSERT_EQ(44, results["hits"][0]["document"]["scores"][1]);
+
+    // try sorting on `average`, a field that not all records have
+    ASSERT_EQ(7, restored_coll->get_num_documents());
+
+    sort_fields = { sort_by("average", "DESC") };
+    results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(7, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
     collectionManager2.drop_collection("coll1");

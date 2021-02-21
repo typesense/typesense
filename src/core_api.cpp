@@ -108,8 +108,7 @@ bool post_create_collection(http_req & req, http_res & res) {
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
-        res.set_400("Parameter `default_sorting_field` is required.");
-        return false;
+        req_json[DEFAULT_SORTING_FIELD] = "";
     }
 
     if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {

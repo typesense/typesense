@@ -164,8 +164,9 @@ struct field {
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
-                                              const std::string & default_sorting_field, nlohmann::json& fields_json,
-                                              bool& found_default_sorting_field) {
+                                              const std::string & default_sorting_field, nlohmann::json& fields_json) {
+        bool found_default_sorting_field = false;
+
         for(const field & field: fields) {
             nlohmann::json field_val;
             field_val[fields::name] = field.name;
@@ -195,6 +196,11 @@ struct field {
 
                 found_default_sorting_field = true;
             }
+        }
+
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
+            return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
+                                            "` but is not found in the schema.");
         }
 
         return Option<bool>(true);
@@ -276,6 +282,7 @@ namespace sort_field_const {
     static const std::string asc = "ASC";
     static const std::string desc = "DESC";
     static const std::string text_match = "_text_match";
+    static const std::string seq_id = "_seq_id";
 }
 
 struct sort_by {

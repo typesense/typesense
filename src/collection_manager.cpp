@@ -304,7 +304,7 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
 Option<Collection*> CollectionManager::create_collection(const std::string& name,
                                                          const size_t num_memory_shards,
                                                          const std::vector<field> & fields,
-                                                         const std::string & default_sorting_field,
+                                                         const std::string& default_sorting_field,
                                                          const uint64_t created_at,
                                                          const bool index_all_fields) {
     std::unique_lock lock(mutex);
@@ -313,19 +313,12 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
 
-    bool found_default_sorting_field = false;
     nlohmann::json fields_json = nlohmann::json::array();;
 
-    Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json,
-                                                               found_default_sorting_field);
+    Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json);
 
     if(!fields_json_op.ok()) {
         return Option<Collection*>(fields_json_op.code(), fields_json_op.error());
-    }
-
-    if(!found_default_sorting_field) {
-        return Option<Collection*>(400, "Default sorting field is defined as `" + default_sorting_field +
-                                        "` but is not found in the schema.");
     }
 
     nlohmann::json collection_meta;
@@ -765,12 +758,16 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const size_t drop_tokens_threshold = (size_t) std::stoi(req_params[DROP_TOKENS_THRESHOLD]);
     const size_t typo_tokens_threshold = (size_t) std::stoi(req_params[TYPO_TOKENS_THRESHOLD]);
 
-    if(req_params.count(RANK_TOKENS_BY) == 0) {
-        req_params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
-    }
+    token_ordering token_order = NOT_SET;
 
-    StringUtils::toupper(req_params[RANK_TOKENS_BY]);
-    token_ordering token_order = (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") ? MAX_SCORE : FREQUENCY;
+    if(req_params.count(RANK_TOKENS_BY) != 0) {
+        StringUtils::toupper(req_params[RANK_TOKENS_BY]);
+        if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
+            token_order = MAX_SCORE;
+        } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
+            token_order = FREQUENCY;
+        }
+    }
 
     Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
                                                           sort_fields, std::stoi(req_params[NUM_TYPOS]),

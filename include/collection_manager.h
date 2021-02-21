@@ -127,7 +127,7 @@ public:
 
     Option<Collection*> create_collection(const std::string& name, const size_t num_memory_shards,
                                           const std::vector<field> & fields,
-                                          const std::string & default_sorting_field,
+                                          const std::string & default_sorting_field="",
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
                                           const bool index_all_fields = false);
 

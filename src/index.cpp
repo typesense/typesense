@@ -67,16 +67,14 @@ Index::~Index() {
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
     int64_t points = 0;
 
-    if(!default_sorting_field.empty()) {
-        if(document[default_sorting_field].is_number_float()) {
-            // serialize float to an integer and reverse the inverted range
-            float n = document[default_sorting_field];
-            memcpy(&points, &n, sizeof(int32_t));
-            points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
-            points = -1 * (INT32_MAX - points);
-        } else {
-            points = document[default_sorting_field];
-        }
+    if(document[default_sorting_field].is_number_float()) {
+        // serialize float to an integer and reverse the inverted range
+        float n = document[default_sorting_field];
+        memcpy(&points, &n, sizeof(int32_t));
+        points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
+        points = -1 * (INT32_MAX - points);
+    } else {
+        points = document[default_sorting_field];
     }
 
     return points;
@@ -99,10 +97,18 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
     int64_t points = 0;
 
-    if(is_update && document.count(default_sorting_field) == 0) {
-        points = sort_index[default_sorting_field]->at(seq_id);
+    if(document.count(default_sorting_field) == 0) {
+        if(sort_index.count(default_sorting_field) != 0 && sort_index[default_sorting_field]->count(seq_id)) {
+            points = sort_index[default_sorting_field]->at(seq_id);
+        } else {
+            points = INT64_MIN;
+        }
     } else {
         points = get_points_from_doc(document, default_sorting_field);
+    }
+
+    if(!is_update) {
+        seq_ids.append(seq_id);
     }
 
     std::unordered_map<std::string, size_t> facet_to_id;
@@ -266,21 +272,11 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                                  bool index_all_fields,
                                                  const DIRTY_VALUES& dirty_values) {
 
-    bool has_default_sort_field = (document.count(default_sorting_field) != 0);
+    bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
-    if(!has_default_sort_field && !is_update) {
+    if(!is_update && missing_default_sort_field) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
-    }
-
-    if(has_default_sort_field &&
-        !document[default_sorting_field].is_number_integer() && !document[default_sorting_field].is_number_float()) {
-        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` must be a single valued numerical field.");
-    }
-
-    if(has_default_sort_field && search_schema.at(default_sorting_field).is_single_float() &&
-       document[default_sorting_field].get<float>() > std::numeric_limits<float>::max()) {
-        return Option<>(400, "Default sorting field `" + default_sorting_field  + "` exceeds maximum value of a float.");
     }
 
     for(const auto& field_pair: search_schema) {
@@ -317,18 +313,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 }
             }
         } else if(field_pair.second.type == field_types::INT64 && !document[field_name].is_number_integer()) {
-            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, false);
+            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, -1);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
         } else if(field_pair.second.type == field_types::FLOAT && !document[field_name].is_number()) {
             // using `is_number` allows integer to be passed to a float field
-            Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, false);
+            Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, -1);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
         } else if(field_pair.second.type == field_types::BOOL && !document[field_name].is_boolean()) {
-            Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, false);
+            Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, -1);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
@@ -356,18 +352,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                         return coerce_op;
                     }
                 } else if (field_pair.second.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
-                    Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, true);
+                    Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, document, field_name, arr_index);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (field_pair.second.type == field_types::FLOAT_ARRAY && !item.is_number()) {
                     // we check for `is_number` to allow whole numbers to be passed into float fields
-                    Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, true);
+                    Option<uint32_t> coerce_op = coerce_float(dirty_values, document, field_name, arr_index);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (field_pair.second.type == field_types::BOOL_ARRAY && !item.is_boolean()) {
-                    Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, true);
+                    Option<uint32_t> coerce_op = coerce_bool(dirty_values, document, field_name, arr_index);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
@@ -1335,7 +1331,8 @@ void Index::run_search(search_args* search_params) {
            search_params->searched_queries,
            search_params->raw_result_kvs, search_params->override_result_kvs,
            search_params->typo_tokens_threshold,
-           search_params->group_limit, search_params->group_by_fields);
+           search_params->group_limit, search_params->group_by_fields,
+           search_params->default_sorting_field);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1427,7 +1424,8 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
                    std::vector<std::vector<KV*>> & override_result_kvs,
                    const size_t typo_tokens_threshold,
                    const size_t group_limit,
-                   const std::vector<std::string>& group_by_fields) const {
+                   const std::vector<std::string>& group_by_fields,
+                   const std::string& default_sorting_field) const {
 
     std::shared_lock lock(mutex);
 
@@ -1491,27 +1489,22 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
 
         // if a filter is not specified, use the sorting index to generate the list of all document ids
         if(filters.empty()) {
-            std::string all_records_field;
+            if(default_sorting_field.empty()) {
+                filter_ids_length = seq_ids.getLength();
+                filter_ids = seq_ids.uncompress();
+            } else {
+                const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index.at(default_sorting_field);
+                filter_ids_length = kvs->size();
+                filter_ids = new uint32_t[filter_ids_length];
 
-            // get the first non-optional field
-            for(const auto& kv: sort_schema) {
-                if(!kv.second.optional && kv.first != sort_field_const::text_match) {
-                    all_records_field = kv.first;
-                    break;
+                size_t i = 0;
+                for(const auto& kv: *kvs) {
+                    filter_ids[i++] = kv.first;
                 }
+
+                // ids populated from hash map will not be sorted, but sorting is required for intersection & other ops
+                std::sort(filter_ids, filter_ids+filter_ids_length);
             }
-
-            const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index.at(all_records_field);
-            filter_ids_length = kvs->size();
-            filter_ids = new uint32_t[filter_ids_length];
-
-            size_t i = 0;
-            for(const auto& kv: *kvs) {
-                filter_ids[i++] = kv.first;
-            }
-
-            // ids populated from hash map will not be sorted, but sorting is required for intersection & other ops
-            std::sort(filter_ids, filter_ids+filter_ids_length);
         }
 
         if(!curated_ids.empty()) {
@@ -1919,7 +1912,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits) const {
 
-    std::vector<uint32_t*> leaf_to_indices;
+    std::vector<uint32_t *> leaf_to_indices;
     for (art_leaf *token_leaf: query_suggestion) {
         uint32_t *indices = new uint32_t[result_size];
         token_leaf->values->ids.indexOf(result_ids, result_size, indices);
@@ -1937,19 +1930,25 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     spp::sparse_hash_map<uint32_t, int64_t> geopoint_distances[3];
 
-    for(size_t i = 0; i < sort_fields.size(); i++) {
+    spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value, seq_id_sentinel_value;
+    spp::sparse_hash_map<uint32_t, int64_t> *TEXT_MATCH_SENTINEL = &text_match_sentinel_value;
+    spp::sparse_hash_map<uint32_t, int64_t> *SEQ_ID_SENTINEL = &seq_id_sentinel_value;
+
+    for (size_t i = 0; i < sort_fields.size(); i++) {
         sort_order[i] = 1;
-        if(sort_fields[i].order == sort_field_const::asc) {
+        if (sort_fields[i].order == sort_field_const::asc) {
             sort_order[i] = -1;
         }
 
-        if(sort_fields[i].name == sort_field_const::text_match) {
-            field_values[i] = nullptr;
-        } else if(sort_schema.at(sort_fields[i].name).is_geopoint()) {
+        if (sort_fields[i].name == sort_field_const::text_match) {
+            field_values[i] = TEXT_MATCH_SENTINEL;
+        } else if (sort_fields[i].name == sort_field_const::seq_id) {
+            field_values[i] = SEQ_ID_SENTINEL;
+        } else if (sort_schema.at(sort_fields[i].name).is_geopoint()) {
             // we have to populate distances that will be used for match scoring
-            spp::sparse_hash_map<uint32_t, int64_t>* geopoints = sort_index.at(sort_fields[i].name);
+            spp::sparse_hash_map<uint32_t, int64_t> *geopoints = sort_index.at(sort_fields[i].name);
 
-            for(size_t rindex=0; rindex<result_size; rindex++) {
+            for (size_t rindex = 0; rindex < result_size; rindex++) {
                 const uint32_t seq_id = result_ids[rindex];
                 auto it = geopoints->find(seq_id);
                 int64_t dist = (it == geopoints->end()) ? INT32_MAX : h3Distance(sort_fields[i].geopoint, it->second);
@@ -1964,23 +1963,23 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     //auto begin = std::chrono::high_resolution_clock::now();
 
-    for(size_t i=0; i<result_size; i++) {
+    for (size_t i = 0; i < result_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
         uint64_t match_score = 0;
 
-        if(query_suggestion.size() <= 1) {
+        if (query_suggestion.size() <= 1) {
             match_score = single_token_match_score;
         } else {
             std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
 
-            for(const auto& kv: array_token_positions) {
-                const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
-                if(token_positions.empty()) {
+            for (const auto& kv: array_token_positions) {
+                const std::vector<std::vector<uint16_t>> &token_positions = kv.second;
+                if (token_positions.empty()) {
                     continue;
                 }
-                const Match & match = Match(seq_id, token_positions, false);
+                const Match &match = Match(seq_id, token_positions, false);
                 uint64_t this_match_score = match.get_match_score(total_cost);
 
                 match_score += this_match_score;
@@ -2000,40 +1999,49 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         size_t match_score_index = 0;
 
         // avoiding loop
-        if(sort_fields.size() > 0) {
-            if (field_values[0] != nullptr) {
-                auto it = field_values[0]->find(seq_id);
-                scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
-            } else {
+        if (sort_fields.size() > 0) {
+            if (field_values[0] == TEXT_MATCH_SENTINEL) {
                 scores[0] = int64_t(match_score);
                 match_score_index = 0;
+            } else if (field_values[0] == SEQ_ID_SENTINEL) {
+                scores[0] = seq_id;
+            } else {
+                auto it = field_values[0]->find(seq_id);
+                scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
             }
             if (sort_order[0] == -1) {
                 scores[0] = -scores[0];
             }
         }
 
+
         if(sort_fields.size() > 1) {
-            if (field_values[1] != nullptr) {
-                auto it = field_values[1]->find(seq_id);
-                scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
-            } else {
+            if (field_values[1] == TEXT_MATCH_SENTINEL) {
                 scores[1] = int64_t(match_score);
                 match_score_index = 1;
+            } else if (field_values[1] == SEQ_ID_SENTINEL) {
+                scores[1] = seq_id;
+            } else {
+                auto it = field_values[1]->find(seq_id);
+                scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
             }
+
             if (sort_order[1] == -1) {
                 scores[1] = -scores[1];
             }
         }
 
         if(sort_fields.size() > 2) {
-            if(field_values[2] != nullptr) {
-                auto it = field_values[2]->find(seq_id);
-                scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
-            } else {
+            if(field_values[2] != TEXT_MATCH_SENTINEL) {
                 scores[2] = int64_t(match_score);
                 match_score_index = 2;
+            } else if (field_values[2] == SEQ_ID_SENTINEL) {
+                scores[2] = seq_id;
+            } else {
+                auto it = field_values[2]->find(seq_id);
+                scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
             }
+
             if(sort_order[2] == -1) {
                 scores[2] = -scores[2];
             }
@@ -2313,6 +2321,8 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
             sort_index[field_name]->erase(seq_id);
         }
     }
+
+    seq_ids.remove_value(seq_id);
 
     return Option<uint32_t>(seq_id);
 }
