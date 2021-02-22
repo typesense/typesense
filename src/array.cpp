@@ -47,6 +47,7 @@ void array::load(const uint32_t *sorted_array, const uint32_t array_length, cons
 
     uint32_t size_required = (uint32_t) (unsorted_append_size_required(max, array_length) * FOR_GROWTH_FACTOR);
     uint8_t *out = (uint8_t *) malloc(size_required * sizeof *out);
+    memset(out, 0, size_required);
     uint32_t actual_size = for_compress_unsorted(sorted_array, out, array_length);
 
     free(in);
@@ -103,6 +104,7 @@ void array::remove_index(uint32_t start_index, uint32_t end_index) {
 
     uint32_t size_required = (uint32_t) (unsorted_append_size_required(max, new_index) * FOR_GROWTH_FACTOR);
     uint8_t *out = (uint8_t *) malloc(size_required * sizeof *out);
+    memset(out, 0, size_required);
     uint32_t actual_size = for_compress_unsorted(new_array, out, new_index);
 
     delete[] curr_array;

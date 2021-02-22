@@ -156,6 +156,11 @@ TEST(SortedArrayTest, Uncompress) {
 TEST(SortedArrayTest, RemoveValue) {
     sorted_array arr;
 
+    // remove value on an empty arr
+    arr.append(100);
+    arr.remove_value(100);
+    arr.remove_value(110);
+
     const size_t SIZE = 10*1000;
     for(size_t i=0; i<SIZE; i++) {
         arr.append(i);

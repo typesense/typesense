@@ -8,6 +8,7 @@ void sorted_array::load(const uint32_t *sorted_array, const uint32_t array_lengt
 
     uint32_t size_required = (uint32_t) (sorted_append_size_required(max, array_length) * FOR_GROWTH_FACTOR);
     uint8_t *out = (uint8_t *) malloc(size_required * sizeof *out);
+    memset(out, 0, size_required);
     uint32_t actual_size = for_compress_sorted(sorted_array, out, array_length);
 
     free(in);
