@@ -38,15 +38,13 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     Collection *coll1;
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
-    std::vector<field> fields = {
-        field("points", field_types::INT32, false)
-    };
+    std::vector<field> fields = {};
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, true).get();
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, true).get();
     }
 
     std::string json_line;
@@ -137,6 +135,12 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(add_op.ok());
     ASSERT_STREQ("Field `title` must be a string.", add_op.error().c_str());
+
+    // try querying using an non-existing sort field
+    sort_fields = { sort_by("not-found", "DESC") };
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `not-found` in the schema for sorting.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }

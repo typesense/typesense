@@ -2360,6 +2360,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
 
     for(const auto & new_field: new_fields) {
         search_schema.emplace(new_field.name, new_field);
+        sort_schema.emplace(new_field.name, new_field);
 
         if(search_index.count(new_field.name) == 0) {
             if(new_field.is_string()) {

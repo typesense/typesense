@@ -142,9 +142,13 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     std::vector<field> fields;
 
-    if(!req_json["fields"].is_array() || req_json["fields"].size() == 0) {
-        res.set_400("Wrong format for `fields`. It should be an array like: "
-                    "[{\"name\": \"<field_name>\", \"type\": \"<field_type>\"}]");
+    if(req_json.count("fields") == 0) {
+        req_json["fields"] = nlohmann::json::array();
+    }
+
+    if(!req_json["fields"].is_array()) {
+        res.set_400("Wrong format for `fields`. It should be an array of objects containing "
+                    "`name`, `type` and optionally, `facet` properties.");
         return false;
     }
 
