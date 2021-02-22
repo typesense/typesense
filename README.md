@@ -159,7 +159,14 @@ While you can definitely use CURL to interact with Typesense Server directly, we
 
 If we don't offer an API client in your language, you can still use any popular HTTP client library to access Typesense's APIs directly. 
 
-We welcome community contributions to add more official client libraries. Please reach out to us at contact@typsense.org or open an issue on Github to collaborate with us on the architecture. 🙏
+Here are some community-contributed clients and integrations:
+
+- [API client for Go](https://github.com/typesense/typesense)
+- [API client for C#](https://github.com/DAXGRID/typesense-dotnet)
+- [Laravel Scout driver](https://github.com/devloopsnet/laravel-scout-typesense-engine)
+- [Symfony integration](https://github.com/acseo/TypesenseBundle)
+
+We welcome community contributions to add more official client libraries and integrations. Please reach out to us at contact@typsense.org or open an issue on Github to collaborate with us on the architecture. 🙏
 
 ## Search UI Components
 
