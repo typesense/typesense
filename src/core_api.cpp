@@ -285,12 +285,7 @@ bool get_search(http_req & req, http_res & res) {
     Option<bool> search_op = CollectionManager::do_search(req.params, results_json_str);
 
     if(!search_op.ok()) {
-        if(search_op.code() == 404) {
-            res.set_404();
-        } else {
-            res.set(search_op.code(), search_op.error());
-        }
-
+        res.set(search_op.code(), search_op.error());
         return false;
     }
 
