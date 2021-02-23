@@ -85,6 +85,10 @@ protected:
 TEST_F(CollectionTest, VerifyCountOfDocuments) {
     // we have 1 dummy record to match the line numbers on the fixtures file with sequence numbers
     ASSERT_EQ(24+1, collection->get_num_documents());
+
+    // check default no specific dirty values option is sent for a collection that has explicit schema
+    std::string empty_dirty_values;
+    ASSERT_EQ(DIRTY_VALUES::REJECT, collection->parse_dirty_values_option(empty_dirty_values));
 }
 
 TEST_F(CollectionTest, RetrieveADocumentById) {
@@ -1622,7 +1626,8 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     ASSERT_STREQ("Field `tags` must be an array.", bad_facet_field_op.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
-    const Option<nlohmann::json> & bad_array_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_array_field_op = sample_collection->add(doc_str, CREATE, "",
+                                                                               DIRTY_VALUES::REJECT);
     ASSERT_FALSE(bad_array_field_op.ok());
     ASSERT_STREQ("Field `tags` must be an array of string.", bad_array_field_op.error().c_str());
 
@@ -1630,8 +1635,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
     const Option<nlohmann::json> &bad_array_field_coercion_op = sample_collection->add(doc_str, CREATE, "",
                                                                                        DIRTY_VALUES::COERCE_OR_REJECT);
-    ASSERT_FALSE(bad_array_field_coercion_op.ok());
-    ASSERT_STREQ("Field `tags` must be an array of string.", bad_array_field_coercion_op.error().c_str());
+    ASSERT_TRUE(bad_array_field_coercion_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": 34}";
     const Option<nlohmann::json> & empty_facet_field_op = sample_collection->add(doc_str);
@@ -2495,12 +2499,15 @@ TEST_F(CollectionTest, OptionalFields) {
     ASSERT_EQ(5, res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_STREQ("description", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
 
-    // sort_by optional `average` field should be rejected
+    // sort_by optional `average` field should be allowed (default used for missing values)
     std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
     auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Cannot sort by `average` as it is defined as an optional field.", res_op.error().c_str());
-    
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+
+    ASSERT_EQ(6, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"][5]["document"].count("average"));  // record with missing average is last
+
     // try deleting a record having optional field
     Option<std::string> remove_op = coll1->remove("1");
     ASSERT_TRUE(remove_op.ok());

@@ -63,7 +63,9 @@ uint32_t Collection::get_next_seq_id() {
 }
 
 Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::json& document,
-                                        const index_operation_t& operation, const std::string& id) {
+                                        const index_operation_t& operation,
+                                        const DIRTY_VALUES dirty_values,
+                                        const std::string& id) {
     try {
         document = nlohmann::json::parse(json_str);
     } catch(const std::exception& e) {
@@ -87,6 +89,17 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
     if(document.count("id") != 0 && document["id"] == "") {
         return Option<doc_seq_id_t>(400, "The `id` should not be empty.");
     }
+
+    bool meta_key_found = document.count(DOC_META_KEY) != 0;
+    if(operation == CREATE && meta_key_found) {
+        return Option<doc_seq_id_t>(400, "Document cannot contain a `" + std::string(DOC_META_KEY) + "` key.");
+    }
+
+    int dirty_values_integer = magic_enum::enum_integer(dirty_values);
+    if(!meta_key_found) {
+        document[DOC_META_KEY] = nlohmann::json::object();
+    }
+    document[DOC_META_KEY][DOC_META_DIRTY_VALUES_KEY] = dirty_values_integer;
 
     if(document.count("id") == 0) {
         if(operation == UPDATE) {
@@ -219,7 +232,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
-        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, id);
+        Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, dirty_values, id);
 
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
         index_record record(i, seq_id, document, operation, dirty_values);
@@ -351,15 +364,12 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
                                              bool is_update, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
-    if(!is_update) {
-        // for non-update, validation should be done prior
-        Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                         search_schema, facet_schema, is_update,
-                                                                         index_all_fields, dirty_values);
+    Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+                                                                     search_schema, facet_schema, is_update,
+                                                                     index_all_fields, dirty_values);
 
-        if(!validation_op.ok()) {
-            return validation_op;
-        }
+    if(!validation_op.ok()) {
+        return validation_op;
     }
 
     Index* index = indices[seq_id % num_memory_shards];
@@ -730,11 +740,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
             std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
             return Option<nlohmann::json>(404, error);
-        }
-
-        if(sort_schema.count(sort_field_std.name) != 0 && sort_schema.at(sort_field_std.name).optional) {
-            std::string error = "Cannot sort by `" + sort_field_std.name + "` as it is defined as an optional field.";
-            return Option<nlohmann::json>(400, error);
         }
 
         StringUtils::toupper(sort_field_std.order);
@@ -2251,7 +2256,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document) {
             bool parseable = field::get_type(kv.value(), field_type);
             if (parseable) {
                 const std::string& fname = kv.key();
-                field new_field(fname, field_type, false);
+                field new_field(fname, field_type, false, true);
                 search_schema.emplace(fname, new_field);
                 fields.emplace_back(new_field);
                 new_fields.emplace_back(new_field);
@@ -2327,6 +2332,7 @@ std::vector<Index *> Collection::init_indices() {
 }
 
 DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {
+    // no need for a shared lock here since `index_all_fields` is atomic
     StringUtils::toupper(dirty_values);
     auto dirty_values_op = magic_enum::enum_cast<DIRTY_VALUES>(dirty_values);
     DIRTY_VALUES dirty_values_action;
@@ -2334,7 +2340,7 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     if(dirty_values_op.has_value()) {
         dirty_values_action = dirty_values_op.value();
     } else {
-        dirty_values_action = index_all_fields ? DIRTY_VALUES::COERCE_OR_IGNORE : DIRTY_VALUES::REJECT;
+        dirty_values_action = index_all_fields ? DIRTY_VALUES::COERCE_OR_REJECT : DIRTY_VALUES::REJECT;
     }
 
     return dirty_values_action;

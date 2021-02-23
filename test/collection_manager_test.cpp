@@ -304,11 +304,11 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(1, coll1->get_collection_id());
     ASSERT_EQ(3, coll1->get_sort_fields().size());
 
-    // index a document with a bad field value with COERCE_OR_IGNORE setting
+    // index a document with a bad field value with COERCE_OR_DROP setting
     auto doc_json = R"({"title": "Unique record.", "max": 25, "scores": [22, "how", 44],
                         "average": "bad data", "is_valid": true})";
 
-    Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_IGNORE);
+    Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
@@ -351,8 +351,14 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(1, restored_schema.count("average"));
     ASSERT_EQ(1, restored_schema.count("is_valid"));
 
+    // all detected schema are optional fields, while defined schema is not
+
     for(const auto& kv: restored_schema) {
-        ASSERT_FALSE(kv.second.optional);
+        if(kv.first == "max") {
+            ASSERT_FALSE(kv.second.optional);
+        } else {
+            ASSERT_TRUE(kv.second.optional);
+        }
     }
 
     // try searching for record with bad data

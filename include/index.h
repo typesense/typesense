@@ -107,10 +107,10 @@ enum index_operation_t {
 };
 
 enum class DIRTY_VALUES {
-    COERCE_OR_IGNORE = 1,
-    COERCE_OR_REJECT = 2,
-    REJECT = 3,
-    IGNORE = 4,
+    REJECT = 1,
+    DROP = 2,
+    COERCE_OR_REJECT = 3,
+    COERCE_OR_DROP = 4,
 };
 
 struct index_record {
@@ -243,19 +243,19 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                           const std::string &field_name, const int array_index);
 
-    static Option<uint32_t> coerce_int32_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+    static Option<uint32_t> coerce_int32_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                            const std::string &field_name, const int array_index);
 
-    static Option<uint32_t> coerce_int64_t(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+    static Option<uint32_t> coerce_int64_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                            const std::string &field_name, const int array_index);
 
-    static Option<uint32_t> coerce_float(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+    static Option<uint32_t> coerce_float(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                          const std::string &field_name, const int array_index);
 
-    static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, nlohmann::json &document,
+    static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                         const std::string &field_name, const int array_index);
 
 public:
@@ -358,7 +358,6 @@ public:
                 const std::string& default_sorting_field) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
-
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
                                      const std::string & default_sorting_field, bool is_update);

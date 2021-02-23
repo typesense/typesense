@@ -189,9 +189,6 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
         auto begin = std::chrono::high_resolution_clock::now();
 
-        std::string default_dirty_values = "";
-        auto dirty_values = collection->parse_dirty_values_option(default_dirty_values);
-
         while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
             num_found_docs++;
             const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
@@ -203,6 +200,18 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             } catch(const std::exception& e) {
                 LOG(ERROR) << "JSON error: " << e.what();
                 return Option<bool>(false, "Bad JSON.");
+            }
+
+            auto dirty_values = DIRTY_VALUES::REJECT;
+
+            if (document.count(Collection::DOC_META_KEY) != 0 &&
+                document[Collection::DOC_META_KEY].count(Collection::DOC_META_DIRTY_VALUES_KEY) != 0) {
+
+                auto dirty_values_op = magic_enum::enum_cast<DIRTY_VALUES>(
+                        document[Collection::DOC_META_KEY][Collection::DOC_META_DIRTY_VALUES_KEY]);
+                if(dirty_values_op.has_value()) {
+                    dirty_values = dirty_values_op.value();
+                }
             }
 
             num_valid_docs++;
