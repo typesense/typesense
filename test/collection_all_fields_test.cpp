@@ -60,6 +60,22 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     query_fields = {"starring"};
     std::vector<std::string> facets;
 
+    // check default no specific dirty values option is sent for a collection that has schema detection enabled
+    std::string dirty_values;
+    ASSERT_EQ(DIRTY_VALUES::COERCE_OR_REJECT, coll1->parse_dirty_values_option(dirty_values));
+
+    dirty_values = "coerce_or_reject";
+    ASSERT_EQ(DIRTY_VALUES::COERCE_OR_REJECT, coll1->parse_dirty_values_option(dirty_values));
+
+    dirty_values = "COERCE_OR_DROP";
+    ASSERT_EQ(DIRTY_VALUES::COERCE_OR_DROP, coll1->parse_dirty_values_option(dirty_values));
+
+    dirty_values = "reject";
+    ASSERT_EQ(DIRTY_VALUES::REJECT, coll1->parse_dirty_values_option(dirty_values));
+
+    dirty_values = "DROP";
+    ASSERT_EQ(DIRTY_VALUES::DROP, coll1->parse_dirty_values_option(dirty_values));
+
     // same should succeed when verbatim filter is made
     auto results = coll1->search("will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
 
@@ -100,12 +116,12 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("300", results["hits"][0]["document"]["title"].get<std::string>().c_str());
 
-    // with dirty values set to `DIRTY_FIELD_COERCE_IGNORE`
+    // with dirty values set to `COERCE_OR_DROP`
     // `cast` field should not be indexed into store
     doc_json = R"({"cast":"William Barnes","points":63,"starring":"Will Ferrell",
                     "starring_facet":"Will Ferrell","title":"With bad cast field."})";
 
-    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_IGNORE);
+    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
     results = coll1->search("With bad cast field", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
@@ -113,12 +129,12 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_STREQ("With bad cast field.", results["hits"][0]["document"]["title"].get<std::string>().c_str());
     ASSERT_EQ(0, results["hits"][0]["document"].count("cast"));
 
-    // with dirty values set to `DIRTY_FIELD_IGNORE`
-    // no coercion should happen, `title` field will just be ignored, but record indexed
+    // with dirty values set to `DROP`
+    // no coercion should happen, `title` field will just be dropped, but record indexed
     doc_json = R"({"cast": ["Jeremy Livingston"],"points":63,"starring":"Will Ferrell",
                     "starring_facet":"Will Ferrell","title": 1200 })";
 
-    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::IGNORE);
+    add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::DROP);
     ASSERT_TRUE(add_op.ok());
 
     results = coll1->search("1200", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
@@ -128,7 +144,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(0, results["hits"][0]["document"].count("title"));
 
-    // with dirty values set to `DIRTY_FIELD_REJECT`
+    // with dirty values set to `REJECT`
     doc_json = R"({"cast": ["Jeremy Livingston"],"points":63,"starring":"Will Ferrell",
                     "starring_facet":"Will Ferrell","title": 1200 })";
 
@@ -143,4 +159,86 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_EQ("Could not find a field named `not-found` in the schema for sorting.", res_op.error());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, HandleArrayTypes) {
+    Collection *coll1;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, true).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["int_values"] = {1, 2};
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    // coercion of string -> int
+
+    doc["int_values"] = {"3"};
+
+    add_op = coll1->add(doc.dump(), UPDATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    // bad array type value should be dropped when stored
+
+    doc["title"] = "SECOND";
+    doc["int_values"] = {{3}};
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES:: DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("second", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // check that the "bad" value does not exists in the stored document
+    ASSERT_EQ(1, results["hits"][0]["document"].count("int_values"));
+    ASSERT_EQ(0, results["hits"][0]["document"]["int_values"].size());
+
+    // bad array type should follow coercion rules
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `int_values` must be an array of int64.", add_op.error());
+
+    // non array field should be handled as per coercion rule
+    doc["title"] = "THIRD";
+    doc["int_values"] = 3;
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `int_values` must be an array.", add_op.error());
+
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+    results = coll1->search("third", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("int_values"));
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, NonOptionalFieldShouldNotBeDropped) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("points", field_types::INT32, false, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, true).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["points"] = {100};
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::DROP);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `points` must be an int32.", add_op.error());
+
+    add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `points` must be an int32.", add_op.error());
 }

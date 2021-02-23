@@ -105,6 +105,15 @@ struct field {
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
     }
 
+    bool is_singular() const {
+        return !is_array();
+    }
+
+    bool has_numerical_index() const {
+        return (type == field_types::INT32 || type == field_types::INT64 ||
+                type == field_types::FLOAT || type == field_types::BOOL);
+    }
+
     bool is_sortable() const {
         return is_single_integer() || is_single_float() || is_single_bool() || is_geopoint();
     }

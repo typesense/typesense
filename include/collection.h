@@ -411,6 +411,11 @@ public:
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_INDEX_ALL_FIELDS = "index_all_fields";
 
+    // DON'T CHANGE THESE VALUES!
+    // this key is used as namespace key to store metadata about the document
+    static constexpr const char* DOC_META_KEY = "$TSM$_";
+    static constexpr const char* DOC_META_DIRTY_VALUES_KEY = "dirty_values";
+
     // methods
 
     Collection() = delete;
@@ -453,7 +458,9 @@ public:
     std::string get_default_sorting_field();
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
-                                const index_operation_t& operation, const std::string& id="");
+                                const index_operation_t& operation,
+                                const DIRTY_VALUES dirty_values,
+                                const std::string& id="");
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 
