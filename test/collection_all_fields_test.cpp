@@ -242,6 +242,94 @@ TEST_F(CollectionAllFieldsTest, NonOptionalFieldShouldNotBeDropped) {
     add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `points` must be an int32.", add_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "", 0, schema_detect_types::AUTO).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["scores"] = {100, 200, 300};
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    // now update both values and reinsert
+    doc["title"] = "SECOND";
+    doc["scores"] = {100, 250, "300", 400};
+
+    add_op = coll1->add(doc.dump(), UPDATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("second", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("SECOND", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(4, results["hits"][0]["document"]["scores"].size());
+
+    ASSERT_EQ(100, results["hits"][0]["document"]["scores"][0].get<size_t>());
+    ASSERT_EQ(250, results["hits"][0]["document"]["scores"][1].get<size_t>());
+    ASSERT_EQ(300, results["hits"][0]["document"]["scores"][2].get<size_t>());
+    ASSERT_EQ(400, results["hits"][0]["document"]["scores"][3].get<size_t>());
+
+    // insert multiple docs at the same time
+    const size_t NUM_DOCS = 20;
+    std::vector<std::string> json_lines;
+    
+    for(size_t i = 0; i < NUM_DOCS; i++) {
+        const std::string &i_str = std::to_string(i);
+        doc["title"] = std::string("upserted ") + std::to_string(StringUtils::hash_wy(i_str.c_str(), i_str.size()));
+        doc["scores"] = {i};
+        doc["max"] = i;
+        doc["id"] = std::to_string(i+10);
+
+        json_lines.push_back(doc.dump());
+    }
+
+    nlohmann::json insert_doc;
+    auto res = coll1->add_many(json_lines, insert_doc, UPSERT);
+    ASSERT_TRUE(res["success"].get<bool>());
+
+    // now we will replace all `max` values with the same value and assert that
+    json_lines.clear();
+    insert_doc.clear();
+
+    for(size_t i = 0; i < NUM_DOCS; i++) {
+        const std::string &i_str = std::to_string(i);
+        doc.clear();
+        doc["title"] = std::string("updated ") + std::to_string(StringUtils::hash_wy(i_str.c_str(), i_str.size()));
+        doc["scores"] = {1000, 2000};
+        doc["max"] = 2000;
+        doc["id"] = std::to_string(i+10);
+
+        json_lines.push_back(doc.dump());
+    }
+
+    res = coll1->add_many(json_lines, insert_doc, UPDATE);
+    ASSERT_TRUE(res["success"].get<bool>());
+
+    results = coll1->search("updated", {"title"}, "", {}, {}, 0, 50, 1, FREQUENCY, false).get();
+    ASSERT_EQ(20, results["hits"].size());
+
+    for(auto& hit: results["hits"]) {
+        ASSERT_EQ(2000, hit["document"]["max"].get<int>());
+        ASSERT_EQ(2, hit["document"]["scores"].size());
+        ASSERT_EQ(1000, hit["document"]["scores"][0].get<int>());
+        ASSERT_EQ(2000, hit["document"]["scores"][1].get<int>());
+    }
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
@@ -267,4 +355,61 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     ASSERT_EQ(2, results["hits"][0]["document"]["int_values"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["int_values"][0].get<std::string>());
     ASSERT_EQ("2", results["hits"][0]["document"]["int_values"][1].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
+    nlohmann::json fields_json = nlohmann::json::array();
+    nlohmann::json all_field;
+    all_field[fields::name] = "*";
+    all_field[fields::type] = "stringify";
+    fields_json.emplace_back(all_field);
+
+    std::string auto_detect_schema;
+    std::vector<field> fields;
+
+    auto parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(1, fields.size());
+    ASSERT_EQ("stringify", auto_detect_schema);
+    ASSERT_EQ(true, fields[0].optional);
+    ASSERT_EQ(false, fields[0].facet);
+    ASSERT_EQ("*", fields[0].name);
+    ASSERT_EQ("stringify", fields[0].type);
+
+    // reject when you try to set optional to false or facet to true
+    fields_json[0][fields::optional] = false;
+    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("Field `*` must be an optional field.", parse_op.error());
+
+    fields_json[0][fields::optional] = true;
+    fields_json[0][fields::facet] = true;
+    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("Field `*` cannot be a facet field.", parse_op.error());
+
+    fields_json[0][fields::facet] = false;
+
+    // can have only one "*" field
+    fields_json.emplace_back(all_field);
+
+    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("There can be only one field named `*`.", parse_op.error());
+
+    // try with the `auto` type
+    fields_json.clear();
+    fields.clear();
+    all_field[fields::type] = "auto";
+    fields_json.emplace_back(all_field);
+
+    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ("auto", fields[0].type);
 }

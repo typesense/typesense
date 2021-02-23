@@ -91,7 +91,7 @@ TEST_F(CollectionTest, VerifyCountOfDocuments) {
     ASSERT_EQ(DIRTY_VALUES::REJECT, collection->parse_dirty_values_option(empty_dirty_values));
 }
 
-TEST_F(CollectionTest, MetaKeyIsNotReturnedAsDocumentField) {
+TEST_F(CollectionTest, MetaKeyChecks) {
     nlohmann::json results = collection->search("the", query_fields, "", {}, sort_fields, 0, 10).get();
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
@@ -100,6 +100,16 @@ TEST_F(CollectionTest, MetaKeyIsNotReturnedAsDocumentField) {
         nlohmann::json doc = results["hits"].at(i)["document"];
         ASSERT_EQ(0, doc.count(Collection::DOC_META_KEY));
     }
+
+    // don't allow a document with meta key to be indexed since it is reserved
+    nlohmann::json doc;
+    doc["title"] = "foo bar";
+    doc["points"] = 100;
+    doc[Collection::DOC_META_KEY] = "override";
+
+    auto op = collection->add(doc.dump());
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Document cannot contain a `$TSM$_` key.", op.error());
 }
 
 TEST_F(CollectionTest, RetrieveADocumentById) {
@@ -113,6 +123,9 @@ TEST_F(CollectionTest, RetrieveADocumentById) {
     doc = doc_option.get();
     id = doc["id"];
     ASSERT_STREQ("foo", id.c_str());
+
+    // returned document should not have internal doc meta key
+    ASSERT_EQ(0, doc.count(Collection::DOC_META_KEY));
 
     doc_option = collection->get("baz");
     ASSERT_FALSE(doc_option.ok());
@@ -652,7 +665,9 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
     document["title"] = "The brown fox was the tallest of the lot and the quickest of the trot.";
     document["points"] = 100;
 
-    coll_multi_string->add(document.dump());
+    auto doc = coll_multi_string->add(document.dump()).get();
+
+    ASSERT_EQ(0, doc.count(Collection::DOC_META_KEY));
 
     query_fields = {"title"};
     nlohmann::json results = coll_multi_string->search("the", query_fields, "", {}, sort_fields, 0, 10, 1,
