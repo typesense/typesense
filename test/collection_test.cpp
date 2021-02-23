@@ -91,6 +91,17 @@ TEST_F(CollectionTest, VerifyCountOfDocuments) {
     ASSERT_EQ(DIRTY_VALUES::REJECT, collection->parse_dirty_values_option(empty_dirty_values));
 }
 
+TEST_F(CollectionTest, MetaKeyIsNotReturnedAsDocumentField) {
+    nlohmann::json results = collection->search("the", query_fields, "", {}, sort_fields, 0, 10).get();
+    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(7, results["found"].get<int>());
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json doc = results["hits"].at(i)["document"];
+        ASSERT_EQ(0, doc.count(Collection::DOC_META_KEY));
+    }
+}
+
 TEST_F(CollectionTest, RetrieveADocumentById) {
     Option<nlohmann::json> doc_option = collection->get("1");
     ASSERT_TRUE(doc_option.ok());

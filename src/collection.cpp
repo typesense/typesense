@@ -40,13 +40,13 @@ struct match_index_t {
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field, const size_t num_memory_shards,
-                       const float max_memory_ratio, const bool index_all_fields):
+                       const float max_memory_ratio, const std::string& auto_detect_schema):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
-        indices(init_indices()), index_all_fields(index_all_fields) {
+        indices(init_indices()), auto_detect_schema(auto_detect_schema) {
 
     this->num_documents = 0;
 }
@@ -237,6 +237,10 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
         index_record record(i, seq_id, document, operation, dirty_values);
 
+        if(document.count(Collection::DOC_META_KEY) != 0) {
+            document.erase(Collection::DOC_META_KEY);
+        }
+
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
         record.is_update = false;
@@ -250,8 +254,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 get_doc_changes(document, record.old_doc, record.new_doc, record.del_doc);
             }
 
-            // if `index_all_fields` is enabled, we will have to update schema first before indexing
-            if(index_all_fields) {
+            // if `auto_detect_schema` is enabled, we will have to update schema first before indexing
+            if(auto_detect_schema != schema_detect_types::OFF) {
                 Option<bool> schema_change_op = check_and_update_schema(document);
                 if(!schema_change_op.ok()) {
                     record.index_failure(schema_change_op.code(), schema_change_op.error());
@@ -366,7 +370,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                                      search_schema, facet_schema, is_update,
-                                                                     index_all_fields, dirty_values);
+                                                                     auto_detect_schema, dirty_values);
 
     if(!validation_op.ok()) {
         return validation_op;
@@ -394,7 +398,7 @@ size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & 
         CollectionManager::get_instance().get_thread_pool()->enqueue(
         [index, index_id, &num_indexed_vec, &iter_batch, this, &m_process, &num_processed, &cv_process]() {
             size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
-                                      search_schema, facet_schema, index_all_fields);
+                                      search_schema, facet_schema, auto_detect_schema);
             std::unique_lock<std::mutex> lock(m_process);
             num_indexed_vec[index_id] = num_indexed;
             num_processed++;
@@ -421,7 +425,11 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
                                 const spp::sparse_hash_set<std::string>& exclude_fields) {
     auto it = document.begin();
     for(; it != document.end(); ) {
-        if(exclude_fields.count(it.key()) != 0 || (include_fields.size() != 0 && include_fields.count(it.key()) == 0)) {
+        if(document.count(Collection::DOC_META_KEY) != 0) {
+            document.erase(Collection::DOC_META_KEY);
+        }
+
+        if(exclude_fields.count(it.key()) != 0 || (!include_fields.empty() && include_fields.count(it.key()) == 0)) {
             it = document.erase(it);
         } else {
             ++it;
@@ -1570,6 +1578,10 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
         return Option<nlohmann::json>(500, "Error while parsing stored document.");
     }
 
+    if(document.count(Collection::DOC_META_KEY) != 0) {
+        document.erase(Collection::DOC_META_KEY);
+    }
+
     return Option<nlohmann::json>(document);
 }
 
@@ -2257,6 +2269,15 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document) {
             if (parseable) {
                 const std::string& fname = kv.key();
                 field new_field(fname, field_type, false, true);
+
+                if(auto_detect_schema == schema_detect_types::STRINGIFY) {
+                    if(new_field.is_array()) {
+                        new_field.type = field_types::STRING_ARRAY;
+                    } else {
+                        new_field.type = field_types::STRING;
+                    }
+                }
+
                 search_schema.emplace(fname, new_field);
                 fields.emplace_back(new_field);
                 new_fields.emplace_back(new_field);
@@ -2332,7 +2353,8 @@ std::vector<Index *> Collection::init_indices() {
 }
 
 DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {
-    // no need for a shared lock here since `index_all_fields` is atomic
+    std::shared_lock lock(mutex);
+
     StringUtils::toupper(dirty_values);
     auto dirty_values_op = magic_enum::enum_cast<DIRTY_VALUES>(dirty_values);
     DIRTY_VALUES dirty_values_action;
@@ -2340,7 +2362,8 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     if(dirty_values_op.has_value()) {
         dirty_values_action = dirty_values_op.value();
     } else {
-        dirty_values_action = index_all_fields ? DIRTY_VALUES::COERCE_OR_REJECT : DIRTY_VALUES::REJECT;
+        dirty_values_action = (auto_detect_schema == schema_detect_types::OFF) ? DIRTY_VALUES::REJECT
+                                                                               : DIRTY_VALUES::COERCE_OR_REJECT;
     }
 
     return dirty_values_action;

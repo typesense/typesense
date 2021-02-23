@@ -323,7 +323,7 @@ private:
 
     const std::vector<Index*> indices;
 
-    const std::atomic<bool> index_all_fields;
+    const std::string auto_detect_schema;
 
     // methods
 
@@ -409,7 +409,7 @@ public:
     static constexpr const char* COLLECTION_DEFAULT_SORTING_FIELD_KEY = "default_sorting_field";
     static constexpr const char* COLLECTION_CREATED = "created_at";
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
-    static constexpr const char* COLLECTION_INDEX_ALL_FIELDS = "index_all_fields";
+    static constexpr const char* COLLECTION_AUTO_DETECT_SCHEMA = "auto_detect_schema";
 
     // DON'T CHANGE THESE VALUES!
     // this key is used as namespace key to store metadata about the document
@@ -423,7 +423,7 @@ public:
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
                const std::string& default_sorting_field, const size_t num_memory_shards,
-               const float max_memory_ratio, const bool index_all_fields);
+               const float max_memory_ratio, const std::string& auto_detect_schema);
 
     ~Collection();
 

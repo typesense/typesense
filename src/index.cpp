@@ -273,7 +273,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                                  const std::unordered_map<std::string, field> & search_schema,
                                                  const std::map<std::string, field> & facet_schema,
                                                  bool is_update,
-                                                 bool index_all_fields,
+                                                 const std::string& auto_detect_schema,
                                                  const DIRTY_VALUES& dirty_values) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
@@ -460,7 +460,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
                                  const std::map<std::string, field> & facet_schema,
-                                 bool index_all_fields) {
+                                 const std::string& auto_detect_schema) {
 
     size_t num_indexed = 0;
 
@@ -475,7 +475,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
                                                                       default_sorting_field,
                                                                       search_schema, facet_schema,
                                                                       index_rec.is_update,
-                                                                      index_all_fields,
+                                                                      auto_detect_schema,
                                                                       index_rec.dirty_values);
 
             if(!validation_op.ok()) {

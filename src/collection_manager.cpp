@@ -38,9 +38,9 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
                                DEFAULT_NUM_MEMORY_SHARDS;
 
-    size_t index_all_fields = collection_meta.count(Collection::COLLECTION_INDEX_ALL_FIELDS) != 0 ?
-                              collection_meta[Collection::COLLECTION_INDEX_ALL_FIELDS].get<bool>() :
-                              false;
+    std::string auto_detect_schema = collection_meta.count(Collection::COLLECTION_AUTO_DETECT_SCHEMA) != 0 ?
+                              collection_meta[Collection::COLLECTION_AUTO_DETECT_SCHEMA].get<std::string>() :
+                              schema_detect_types::OFF;
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
@@ -53,7 +53,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             default_sorting_field,
                                             num_memory_shards,
                                             max_memory_ratio,
-                                            index_all_fields);
+                                            auto_detect_schema);
 
     return collection;
 }
@@ -315,7 +315,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<field> & fields,
                                                          const std::string& default_sorting_field,
                                                          const uint64_t created_at,
-                                                         const bool index_all_fields) {
+                                                         const std::string& auto_detect_schema) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -337,11 +337,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
     collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
-    collection_meta[Collection::COLLECTION_INDEX_ALL_FIELDS] = index_all_fields;
+    collection_meta[Collection::COLLECTION_AUTO_DETECT_SCHEMA] = auto_detect_schema;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio, index_all_fields);
+                                                this->max_memory_ratio, auto_detect_schema);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
