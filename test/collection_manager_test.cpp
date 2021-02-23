@@ -82,12 +82,12 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(3, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
-    ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\","
+    ASSERT_EQ("{\"auto_detect_schema\":\"off\",\"created_at\":12345,\"default_sorting_field\":\"points\","
               "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
               "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
-              "\"index_all_fields\":false,\"name\":\"collection1\",\"num_memory_shards\":4}",
+              "\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -288,7 +288,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "max", 0, true).get();
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "max", 0, schema_detect_types::AUTO).get();
     }
 
     std::string json_line;

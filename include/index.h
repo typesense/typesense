@@ -367,7 +367,7 @@ public:
                                      const std::string & default_sorting_field,
                                      const std::unordered_map<std::string, field> & search_schema,
                                      const std::map<std::string, field> & facet_schema,
-                                     bool index_all_fields);
+                                     const std::string& auto_detect_schema);
 
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
                                          const std::vector<uint32_t*>& leaf_to_indices,
@@ -385,7 +385,7 @@ public:
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema,
                                                      bool is_update,
-                                                     bool index_all_fields,
+                                                     const std::string& auto_detect_schema,
                                                      const DIRTY_VALUES& dirty_values);
 
     void refresh_schemas(const std::vector<field>& new_fields);

@@ -27,6 +27,12 @@ namespace fields {
     static const std::string optional = "optional";
 }
 
+namespace schema_detect_types {
+    static const std::string OFF = "off";
+    static const std::string STRINGIFY = "stringify";
+    static const std::string AUTO = "auto";
+}
+
 static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
 static const uint8_t FINEST_GEO_RESOLUTION = 15;
 
@@ -52,6 +58,10 @@ struct field {
           const uint8_t geo_resolution):
             name(name), type(type), facet(facet), optional(optional), geo_resolution(geo_resolution) {
 
+    }
+
+    bool is_auto() const {
+        return (type == schema_detect_types::AUTO || type == schema_detect_types::STRINGIFY);
     }
 
     bool is_single_integer() const {
@@ -119,7 +129,7 @@ struct field {
     }
 
     bool has_valid_type() const {
-        return is_string() || is_integer() || is_float() || is_bool() || is_geopoint();
+        return is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
     }
 
     std::string faceted_name() const {
@@ -128,7 +138,7 @@ struct field {
 
     static bool get_type(const nlohmann::json& obj, std::string& field_type) {
         if(obj.is_array()) {
-            if(obj.empty() || obj[0].is_array()) {
+            if(obj.empty()) {
                 return false;
             }
 
@@ -173,7 +183,8 @@ struct field {
     }
 
     static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
-                                              const std::string & default_sorting_field, nlohmann::json& fields_json) {
+                                              const std::string & default_sorting_field,
+                                              nlohmann::json& fields_json) {
         bool found_default_sorting_field = false;
 
         for(const field & field: fields) {

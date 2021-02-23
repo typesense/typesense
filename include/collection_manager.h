@@ -129,7 +129,7 @@ public:
                                           const std::vector<field> & fields,
                                           const std::string & default_sorting_field="",
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
-                                          const bool index_all_fields = false);
+                                          const std::string& auto_detect_schema = schema_detect_types::OFF);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

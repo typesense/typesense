@@ -44,7 +44,8 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, true).get();
+        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, schema_detect_types::AUTO);
+        coll1 = coll_op.get();
     }
 
     std::string json_line;
@@ -166,7 +167,7 @@ TEST_F(CollectionAllFieldsTest, HandleArrayTypes) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, true).get();
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::AUTO).get();
     }
 
     nlohmann::json doc;
@@ -227,7 +228,7 @@ TEST_F(CollectionAllFieldsTest, NonOptionalFieldShouldNotBeDropped) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, true).get();
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0).get();
     }
 
     nlohmann::json doc;
@@ -241,4 +242,29 @@ TEST_F(CollectionAllFieldsTest, NonOptionalFieldShouldNotBeDropped) {
     add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `points` must be an int32.", add_op.error());
+}
+
+TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
+    Collection *coll1;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::STRINGIFY).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["int_values"] = {1, 2};
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
+
+    ASSERT_EQ(1, results["hits"][0]["document"].count("int_values"));
+    ASSERT_EQ(2, results["hits"][0]["document"]["int_values"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["int_values"][0].get<std::string>());
+    ASSERT_EQ("2", results["hits"][0]["document"]["int_values"][1].get<std::string>());
 }

@@ -75,7 +75,6 @@ bool get_collections(http_req & req, http_res & res) {
 
 bool post_create_collection(http_req & req, http_res & res) {
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
-    const char* INDEX_ALL_FIELDS = "index_all_fields";
 
     nlohmann::json req_json;
 
@@ -100,8 +99,8 @@ bool post_create_collection(http_req & req, http_res & res) {
         req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
     }
 
-    if(req_json.count("fields") == 0 && req_json.count(INDEX_ALL_FIELDS) == 0) {
-        res.set_400("Parameter `fields` or `index_all_fields` is required.");
+    if(req_json.count("fields") == 0) {
+        res.set_400("Parameter `fields` is required.");
         return false;
     }
 
@@ -127,12 +126,6 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    bool index_all_fields = false;
-
-    if(req_json.count(INDEX_ALL_FIELDS) != 0 && req_json[INDEX_ALL_FIELDS].is_boolean()) {
-        index_all_fields = req_json[INDEX_ALL_FIELDS].get<bool>();
-    }
-
     if(collectionManager.get_collection(req_json["name"]) != nullptr) {
         res.set_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
         return false;
@@ -142,15 +135,14 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     std::vector<field> fields;
 
-    if(req_json.count("fields") == 0) {
-        req_json["fields"] = nlohmann::json::array();
-    }
-
-    if(!req_json["fields"].is_array()) {
-        res.set_400("Wrong format for `fields`. It should be an array of objects containing "
+    if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
+        res.set_400("The `fields` value should be an array of objects containing "
                     "`name`, `type` and optionally, `facet` properties.");
         return false;
     }
+
+    std::string auto_detect_schema = schema_detect_types::OFF;
+    size_t num_auto_detect_fields = 0;
 
     for(nlohmann::json & field_json: req_json["fields"]) {
         if(!field_json.is_object() ||
@@ -176,17 +168,35 @@ bool post_create_collection(http_req & req, http_res & res) {
             field_json["optional"] = false;
         }
 
+        if(field_json["name"] == "*") {
+            if(field_json["type"] == schema_detect_types::AUTO || field_json["type"] == schema_detect_types::STRINGIFY) {
+                auto_detect_schema = field_json["type"];
+                num_auto_detect_fields++;
+            } else {
+                res.set_400(std::string("The `type` of field `") +
+                            field_json["name"].get<std::string>() + "` is invalid.");
+                return false;
+            }
+
+            continue;
+        }
+
         fields.emplace_back(
             field(field_json["name"], field_json["type"], field_json["facet"], field_json["optional"])
         );
     }
 
+    if(num_auto_detect_fields > 1) {
+        res.set_400("There can be only one field with name `*`.");
+        return false;
+    }
+
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
-    const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr));
+    const auto created_at = static_cast<uint64_t>(std::time(nullptr));
 
     const Option<Collection*> & collection_op =
             collectionManager.create_collection(req_json["name"], req_json[NUM_MEMORY_SHARDS].get<size_t>(),
-            fields, default_sorting_field, created_at, index_all_fields);
+            fields, default_sorting_field, created_at, auto_detect_schema);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();
