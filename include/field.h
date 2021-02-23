@@ -225,6 +225,75 @@ struct field {
 
         return Option<bool>(true);
     }
+
+    static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
+                                              std::string& auto_detect_schema,
+                                              std::vector<field>& fields) {
+        size_t num_auto_detect_fields = 0;
+
+        for(nlohmann::json & field_json: fields_json) {
+            if(!field_json.is_object() ||
+               field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
+               !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
+
+                return Option<bool>(400, "Wrong format for `fields`. It should be an array of objects containing "
+                            "`name`, `type`, `optional` and `facet` properties.");
+            }
+
+            if(field_json.count(fields::facet) != 0 && !field_json.at(fields::facet).is_boolean()) {
+                return Option<bool>(400, std::string("The `facet` property of the field `") +
+                            field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json.count(fields::optional) != 0 && !field_json.at(fields::optional).is_boolean()) {
+                return Option<bool>(400, std::string("The `optional` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json["name"] == "*") {
+                if(field_json["type"] == schema_detect_types::AUTO || field_json["type"] == schema_detect_types::STRINGIFY) {
+                    auto_detect_schema = field_json["type"];
+                    num_auto_detect_fields++;
+                } else {
+                    return Option<bool>(400, "The `type` of field `*` is invalid.");
+                }
+
+                if(field_json.count("facet") == 0) {
+                    field_json["facet"] = false;
+                }
+
+                if(field_json.count("optional") == 0) {
+                    field_json["optional"] = true;
+                }
+
+                if(field_json["optional"] == false) {
+                    return Option<bool>(400, "Field `*` must be an optional field.");
+                }
+
+                if(field_json["facet"] == true) {
+                    return Option<bool>(400, "Field `*` cannot be a facet field.");
+                }
+            }
+
+            if(field_json.count("facet") == 0) {
+                field_json["facet"] = false;
+            }
+
+            if(field_json.count("optional") == 0) {
+                field_json["optional"] = false;
+            }
+
+            fields.emplace_back(
+                field(field_json["name"], field_json["type"], field_json["facet"], field_json["optional"])
+            );
+        }
+
+        if(num_auto_detect_fields > 1) {
+            return Option<bool>(400,"There can be only one field named `*`.");
+        }
+
+        return Option<bool>(true);
+    }
 };
 
 struct filter {

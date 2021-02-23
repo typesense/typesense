@@ -169,13 +169,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     override_t::parse(override_json_include, "", override_include);
 
     nlohmann::json override_json = {
-            {"id", "exclude-rule"},
-            {
-             "rule", {
-                           {"query", "of"},
-                           {"match", override_t::MATCH_EXACT}
-                   }
-            }
+        {"id", "exclude-rule"},
+        {
+         "rule", {
+                       {"query", "of"},
+                       {"match", override_t::MATCH_EXACT}
+               }
+        }
     };
     override_json["excludes"] = nlohmann::json::array();
     override_json["excludes"][0] = nlohmann::json::object();
@@ -304,8 +304,9 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(1, coll1->get_collection_id());
     ASSERT_EQ(3, coll1->get_sort_fields().size());
 
-    // index a document with a bad field value with COERCE_OR_DROP setting
-    auto doc_json = R"({"title": "Unique record.", "max": 25, "scores": [22, "how", 44],
+    // index a document with a 2 bad field values with COERCE_OR_DROP setting
+    // `title` is an integer and `average` is a string
+    auto doc_json = R"({"title": 12345, "max": 25, "scores": [22, "how", 44],
                         "average": "bad data", "is_valid": true})";
 
     Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
@@ -362,11 +363,14 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     }
 
     // try searching for record with bad data
-    auto results = restored_coll->search("unique", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+    auto results = restored_coll->search("12345", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_STREQ("Unique record.", results["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // int to string conversion should be done for `title` while `average` field must be dropped
+    ASSERT_STREQ("12345", results["hits"][0]["document"]["title"].get<std::string>().c_str());
     ASSERT_EQ(0, results["hits"][0]["document"].count("average"));
+
     ASSERT_EQ(2, results["hits"][0]["document"]["scores"].size());
     ASSERT_EQ(22, results["hits"][0]["document"]["scores"][0]);
     ASSERT_EQ(44, results["hits"][0]["document"]["scores"][1]);

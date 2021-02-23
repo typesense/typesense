@@ -243,6 +243,9 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
+    static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
+                                nlohmann::json &new_doc, nlohmann::json &del_doc);
+
     static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                           const std::string &field_name, const int array_index);
 

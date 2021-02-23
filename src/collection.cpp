@@ -58,6 +58,7 @@ Collection::~Collection() {
 }
 
 uint32_t Collection::get_next_seq_id() {
+    std::shared_lock lock(mutex);
     store->increment(get_next_seq_id_key(name), 1);
     return next_seq_id++;
 }
@@ -154,7 +155,7 @@ nlohmann::json Collection::get_summary_json() const {
     json_response["name"] = name;
     json_response["num_memory_shards"] = num_memory_shards.load();
     json_response["num_documents"] = num_documents.load();
-    json_response["created_at"] = created_at;
+    json_response["created_at"] = created_at.load();
 
     nlohmann::json fields_arr;
 
@@ -195,27 +196,6 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
     return Option<nlohmann::json>(document);
 }
 
-void Collection::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                                 nlohmann::json &new_doc, nlohmann::json &del_doc) {
-
-    for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
-        new_doc[it.key()] = it.value();
-    }
-
-    for(auto it = document.begin(); it != document.end(); ++it) {
-        // adds new key or overrides existing key from `old_doc`
-        new_doc[it.key()] = it.value();
-
-        // if the update document contains a field that exists in old, we record that (for delete + reindex)
-        bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
-        if(field_exists_in_old_doc) {
-            // key exists in the stored doc, so it must be reindexed
-            // we need to check for this because a field can be optional
-            del_doc[it.key()] = old_doc[it.key()];
-        }
-    }
-}
-
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values) {
@@ -251,7 +231,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             record.is_update = !doc_seq_id_op.get().is_new;
             if(record.is_update) {
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
-                get_doc_changes(document, record.old_doc, record.new_doc, record.del_doc);
             }
 
             // if `auto_detect_schema` is enabled, we will have to update schema first before indexing
@@ -313,6 +292,8 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
             if(index_record.indexed.ok()) {
                 if(index_record.is_update) {
+                    //get_doc_changes(index_record.doc, index_record.old_doc, index_record.new_doc, index_record.del_doc);
+
                     const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                     bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
@@ -425,11 +406,9 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
                                 const spp::sparse_hash_set<std::string>& exclude_fields) {
     auto it = document.begin();
     for(; it != document.end(); ) {
-        if(document.count(Collection::DOC_META_KEY) != 0) {
-            document.erase(Collection::DOC_META_KEY);
-        }
-
-        if(exclude_fields.count(it.key()) != 0 || (!include_fields.empty() && include_fields.count(it.key()) == 0)) {
+        if (exclude_fields.count(it.key()) != 0 ||
+           (!include_fields.empty() && include_fields.count(it.key()) == 0) ||
+           document.count(Collection::DOC_META_KEY) != 0) {
             it = document.erase(it);
         } else {
             ++it;
@@ -1586,12 +1565,15 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
 }
 
 void Collection::remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store) {
-    std::unique_lock lock(mutex);
     const std::string& id = document["id"];
 
-    Index* index = indices[seq_id % num_memory_shards];
-    index->remove(seq_id, document);
-    num_documents -= 1;
+    {
+        std::unique_lock lock(mutex);
+
+        Index* index = indices[seq_id % num_memory_shards];
+        index->remove(seq_id, document);
+        num_documents -= 1;
+    }
 
     if(remove_from_store) {
         store->remove(get_doc_id_key(id));
@@ -1687,7 +1669,7 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
 }
 
 size_t Collection::get_num_memory_shards() {
-    return num_memory_shards;
+    return num_memory_shards.load();
 }
 
 uint32_t Collection::get_seq_id_from_key(const std::string & key) {
@@ -1712,11 +1694,12 @@ std::string Collection::get_doc_id_key(const std::string & doc_id) const {
 }
 
 std::string Collection::get_name() const {
+    std::shared_lock lock(mutex);
     return name;
 }
 
 uint64_t Collection::get_created_at() const {
-    return created_at;
+    return created_at.load();
 }
 
 size_t Collection::get_num_documents() const {
@@ -1724,7 +1707,7 @@ size_t Collection::get_num_documents() const {
 }
 
 uint32_t Collection::get_collection_id() const {
-    return collection_id;
+    return collection_id.load();
 }
 
 Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const {
@@ -1743,6 +1726,8 @@ Option<uint32_t> Collection::doc_id_to_seq_id(const std::string & doc_id) const 
 }
 
 std::vector<std::string> Collection::get_facet_fields() {
+    std::shared_lock lock(mutex);
+
     std::vector<std::string> facet_fields_copy;
     for(auto it = facet_schema.begin(); it != facet_schema.end(); ++it) {
         facet_fields_copy.push_back(it->first);
@@ -1752,6 +1737,8 @@ std::vector<std::string> Collection::get_facet_fields() {
 }
 
 std::vector<field> Collection::get_sort_fields() {
+    std::shared_lock lock(mutex);
+
     std::vector<field> sort_fields_copy;
     for(auto it = sort_schema.begin(); it != sort_schema.end(); ++it) {
         sort_fields_copy.push_back(it->second);
@@ -1761,10 +1748,12 @@ std::vector<field> Collection::get_sort_fields() {
 }
 
 std::vector<field> Collection::get_fields() {
+    std::shared_lock lock(mutex);
     return fields;
 }
 
 std::unordered_map<std::string, field> Collection::get_schema() {
+    std::shared_lock lock(mutex);
     return search_schema;
 };
 
@@ -1785,6 +1774,7 @@ std::string Collection::get_seq_id_collection_prefix() const {
 }
 
 std::string Collection::get_default_sorting_field() {
+    std::shared_lock lock(mutex);
     return default_sorting_field;
 }
 

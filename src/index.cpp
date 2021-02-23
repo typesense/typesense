@@ -485,6 +485,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
+                get_doc_changes(index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
                 index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 index->remove(index_rec.seq_id, index_rec.del_doc);
             }
@@ -2626,4 +2627,24 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
     }
 
     return Option<uint32_t>(200);
+}
+
+void Index::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc, nlohmann::json &new_doc,
+                            nlohmann::json &del_doc) {
+    for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
+        new_doc[it.key()] = it.value();
+    }
+
+    for(auto it = document.begin(); it != document.end(); ++it) {
+        // adds new key or overrides existing key from `old_doc`
+        new_doc[it.key()] = it.value();
+
+        // if the update document contains a field that exists in old, we record that (for delete + reindex)
+        bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
+        if(field_exists_in_old_doc) {
+            // key exists in the stored doc, so it must be reindexed
+            // we need to check for this because a field can be optional
+            del_doc[it.key()] = old_doc[it.key()];
+        }
+    }
 }

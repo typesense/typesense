@@ -291,9 +291,9 @@ private:
 
     const std::string name;
 
-    const uint32_t collection_id;
+    const std::atomic<uint32_t> collection_id;
 
-    const uint64_t created_at;
+    const std::atomic<uint64_t> created_at;
 
     std::atomic<size_t> num_documents;
 
@@ -485,10 +485,6 @@ public:
                      size_t &num_indexed);
 
     bool is_exceeding_memory_threshold() const;
-
-    static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                         nlohmann::json &new_doc,
-                         nlohmann::json &del_doc);
 
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                             std::vector<std::string>& q_exclude_tokens) const;

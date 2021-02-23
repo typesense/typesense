@@ -133,8 +133,6 @@ bool post_create_collection(http_req & req, http_res & res) {
 
     // field specific validation
 
-    std::vector<field> fields;
-
     if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
         res.set_400("The `fields` value should be an array of objects containing "
                     "`name`, `type` and optionally, `facet` properties.");
@@ -142,52 +140,11 @@ bool post_create_collection(http_req & req, http_res & res) {
     }
 
     std::string auto_detect_schema = schema_detect_types::OFF;
-    size_t num_auto_detect_fields = 0;
+    std::vector<field> fields;
+    auto parse_op = field::json_fields_to_fields(req_json["fields"], auto_detect_schema, fields);
 
-    for(nlohmann::json & field_json: req_json["fields"]) {
-        if(!field_json.is_object() ||
-            field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
-            !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
-
-            res.set_400("Wrong format for `fields`. It should be an array of objects containing "
-                        "`name`, `type` and optionally, `facet` properties.");
-            return false;
-        }
-
-        if(field_json.count("facet") != 0 && !field_json.at(fields::facet).is_boolean()) {
-            res.set_400(std::string("The `facet` property of the field `") +
-                        field_json.at(fields::name).get<std::string>() + "` should be a boolean.");
-            return false;
-        }
-
-        if(field_json.count("facet") == 0) {
-            field_json["facet"] = false;
-        }
-
-        if(field_json.count("optional") == 0) {
-            field_json["optional"] = false;
-        }
-
-        if(field_json["name"] == "*") {
-            if(field_json["type"] == schema_detect_types::AUTO || field_json["type"] == schema_detect_types::STRINGIFY) {
-                auto_detect_schema = field_json["type"];
-                num_auto_detect_fields++;
-            } else {
-                res.set_400(std::string("The `type` of field `") +
-                            field_json["name"].get<std::string>() + "` is invalid.");
-                return false;
-            }
-
-            continue;
-        }
-
-        fields.emplace_back(
-            field(field_json["name"], field_json["type"], field_json["facet"], field_json["optional"])
-        );
-    }
-
-    if(num_auto_detect_fields > 1) {
-        res.set_400("There can be only one field with name `*`.");
+    if(!parse_op.ok()) {
+        res.set(parse_op.code(), parse_op.error());
         return false;
     }
 
