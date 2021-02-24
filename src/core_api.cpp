@@ -543,7 +543,7 @@ bool post_import_documents(http_req& req, http_res& res) {
 
 bool post_add_document(http_req & req, http_res & res) {
     const char *ACTION = "action";
-    const char *DIRTY_VALUES = "dirty_values";
+    const char *DIRTY_VALUES_PARAM = "dirty_values";
 
     if(req.params.count(ACTION) == 0) {
         req.params[ACTION] = "create";
@@ -554,8 +554,8 @@ bool post_add_document(http_req & req, http_res & res) {
         return false;
     }
 
-    if(req.params.count(DIRTY_VALUES) == 0) {
-        req.params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
+    if(req.params.count(DIRTY_VALUES_PARAM) == 0) {
+        req.params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -567,7 +567,7 @@ bool post_add_document(http_req & req, http_res & res) {
     }
 
     const index_operation_t operation = get_index_operation(req.params[ACTION]);
-    const auto& dirty_values = collection->parse_dirty_values_option(req.params[DIRTY_VALUES]);
+    const auto& dirty_values = collection->parse_dirty_values_option(req.params[DIRTY_VALUES_PARAM]);
 
     Option<nlohmann::json> inserted_doc_op = collection->add(req.body, operation, "", dirty_values);
 
@@ -591,7 +591,14 @@ bool patch_update_document(http_req & req, http_res & res) {
         return false;
     }
 
-    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, index_operation_t::UPDATE, doc_id);
+    const char* DIRTY_VALUES_PARAM = "dirty_values";
+
+    if(req.params.count(DIRTY_VALUES_PARAM) == 0) {
+        req.params[DIRTY_VALUES_PARAM] = "";  // set it empty as default will depend on whether schema is enabled
+    }
+
+    const auto& dirty_values = collection->parse_dirty_values_option(req.params[DIRTY_VALUES_PARAM]);
+    Option<nlohmann::json> upserted_doc_op = collection->add(req.body, index_operation_t::UPDATE, doc_id, dirty_values);
 
     if(!upserted_doc_op.ok()) {
         res.set(upserted_doc_op.code(), upserted_doc_op.error());

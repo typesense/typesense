@@ -180,6 +180,10 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
     std::vector<std::string> json_lines = {json_str};
     const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values);
 
+    if(document.count(Collection::DOC_META_KEY) != 0) {
+        document.erase(Collection::DOC_META_KEY);
+    }
+
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
 
@@ -217,10 +221,6 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         const uint32_t seq_id = doc_seq_id_op.ok() ? doc_seq_id_op.get().seq_id : 0;
         index_record record(i, seq_id, document, operation, dirty_values);
 
-        if(document.count(Collection::DOC_META_KEY) != 0) {
-            document.erase(Collection::DOC_META_KEY);
-        }
-
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
         record.is_update = false;
@@ -235,7 +235,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
 
             // if `auto_detect_schema` is enabled, we will have to update schema first before indexing
             if(auto_detect_schema != schema_detect_types::OFF) {
-                Option<bool> schema_change_op = check_and_update_schema(document);
+                Option<bool> schema_change_op = check_and_update_schema(record.doc, dirty_values);
                 if(!schema_change_op.ok()) {
                     record.index_failure(schema_change_op.code(), schema_change_op.error());
                 }
@@ -263,6 +263,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
             batch_index(iter_batch, json_lines, num_indexed);
             for(size_t i_index = 0; i_index < get_num_memory_shards(); i_index++) {
+                // to return the document for the single doc add cases
+                if(iter_batch[i_index].size() == 1) {
+                    const auto& rec = iter_batch[i_index][0];
+                    document = rec.is_update ? rec.new_doc : rec.doc;
+                }
                 iter_batch[i_index].clear();
             }
         }
@@ -292,8 +297,6 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
             if(index_record.indexed.ok()) {
                 if(index_record.is_update) {
-                    //get_doc_changes(index_record.doc, index_record.old_doc, index_record.new_doc, index_record.del_doc);
-
                     const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                     bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
@@ -2247,36 +2250,45 @@ spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     return synonym_definitions;
 }
 
-Option<bool> Collection::check_and_update_schema(nlohmann::json& document) {
+Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
     std::vector<field> new_fields;
-    for(const auto& kv: document.items()) {
-        // we will not index the special "id" key
-        if (search_schema.count(kv.key()) == 0 && kv.key() != "id") {
+
+    auto kv = document.begin();
+    for(; kv != document.end(); ) {
+        // we will not index the special "id" or doc meta keys
+        if (search_schema.count(kv.key()) == 0 && kv.key() != "id" && kv.key() != Collection::DOC_META_KEY) {
             std::string field_type;
             bool parseable = field::get_type(kv.value(), field_type);
-            if (parseable) {
-                const std::string& fname = kv.key();
-                field new_field(fname, field_type, false, true);
-
-                if(auto_detect_schema == schema_detect_types::STRINGIFY) {
-                    if(new_field.is_array()) {
-                        new_field.type = field_types::STRING_ARRAY;
-                    } else {
-                        new_field.type = field_types::STRING;
-                    }
-                }
-
-                search_schema.emplace(fname, new_field);
-                fields.emplace_back(new_field);
-                new_fields.emplace_back(new_field);
-
-                if(new_field.is_sortable()) {
-                    sort_schema.emplace(new_field.name, new_field);
+            if(!parseable) {
+                if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
+                    return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
+                } else {
+                    // DROP or COERCE_OR_DROP
+                    kv = document.erase(kv);
+                    continue;
                 }
             }
+
+            const std::string &fname = kv.key();
+            field new_field(fname, field_type, false, true);
+            if (auto_detect_schema == schema_detect_types::STRINGIFY) {
+                if (new_field.is_array()) {
+                    new_field.type = field_types::STRING_ARRAY;
+                } else {
+                    new_field.type = field_types::STRING;
+                }
+            }
+            search_schema.emplace(fname, new_field);
+            fields.emplace_back(new_field);
+            new_fields.emplace_back(new_field);
+            if (new_field.is_sortable()) {
+                sort_schema.emplace(new_field.name, new_field);
+            }
         }
+
+        kv++;
     }
 
     if(!new_fields.empty()) {

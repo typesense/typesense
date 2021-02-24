@@ -346,15 +346,101 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
 
     Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
     ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+
+    ASSERT_EQ("1", added_doc["int_values"][0].get<std::string>());
+    ASSERT_EQ("2", added_doc["int_values"][1].get<std::string>());
 
     auto results = coll1->search("first", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-
+    ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
 
     ASSERT_EQ(1, results["hits"][0]["document"].count("int_values"));
     ASSERT_EQ(2, results["hits"][0]["document"]["int_values"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["int_values"][0].get<std::string>());
     ASSERT_EQ("2", results["hits"][0]["document"]["int_values"][1].get<std::string>());
+
+    // try with DROP
+    doc["title"] = "SECOND";
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("second", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("SECOND", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["document"].count("int_values"));
+    ASSERT_EQ(0, results["hits"][0]["document"]["int_values"].size());  // since both array values are dropped
+
+    // try with REJECT
+    doc["title"] = "THIRD";
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+
+    // singular field coercion
+    doc["single_int"] = 100;
+    doc["title"] = "FOURTH";
+
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+
+    // uncoercable field, e.g. nested dict
+    doc["dict"] = nlohmann::json::object();
+    doc["dict"]["one"] = 1;
+    doc["dict"]["two"] = 2;
+
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Type of field `dict` is invalid.", add_op.error());
+
+    // try with coerce_or_reject
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Type of field `dict` is invalid.", add_op.error());
+
+    // try with drop
+    doc["title"] = "FIFTH";
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("fifth", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("FIFTH", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
+
+    // try with coerce_or_drop
+    doc["title"] = "SIXTH";
+    add_op = coll1->add(doc.dump(), CREATE, "66", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("sixth", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("SIXTH", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
+    Collection *coll1;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::AUTO).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "FIRST";
+    doc["single_float"]  = 50.50;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    // try updating a value
+    nlohmann::json update_doc;
+    update_doc["single_float"]  = "123";
+
+    add_op = coll1->add(update_doc.dump(), UPDATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
 
     collectionManager.drop_collection("coll1");
 }

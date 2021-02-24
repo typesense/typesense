@@ -349,7 +349,7 @@ private:
                             std::map<size_t, std::vector<uint32_t>>& include_ids,
                             std::vector<uint32_t> & excluded_ids) const;
 
-    Option<bool> check_and_update_schema(nlohmann::json& document);
+    Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
