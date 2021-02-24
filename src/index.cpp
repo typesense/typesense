@@ -296,14 +296,17 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                  "but is not found in the document.");
         }
 
+        nlohmann::json::iterator dummy_iter;
+        bool array_ele_erased = false;
+
         if(a_field.type == field_types::STRING && !document[field_name].is_string()) {
-            Option<uint32_t> coerce_op = coerce_string(dirty_values, a_field, document, field_name, -1);
+            Option<uint32_t> coerce_op = coerce_string(dirty_values, auto_detect_schema, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
         } else if(a_field.type == field_types::INT32) {
             if(!document[field_name].is_number_integer()) {
-                Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, -1);
+                Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
                 if(!coerce_op.ok()) {
                     return coerce_op;
                 }
@@ -318,18 +321,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 }
             }
         } else if(a_field.type == field_types::INT64 && !document[field_name].is_number_integer()) {
-            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, -1);
+            Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
         } else if(a_field.type == field_types::FLOAT && !document[field_name].is_number()) {
             // using `is_number` allows integer to be passed to a float field
-            Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, -1);
+            Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
         } else if(a_field.type == field_types::BOOL && !document[field_name].is_boolean()) {
-            Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, -1);
+            Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
@@ -344,35 +347,42 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 }
             }
 
-            for(size_t arr_index=0; arr_index < document[field_name].size(); arr_index++) {
-                const auto& item = document[field_name][arr_index];
+            nlohmann::json::iterator it = document[field_name].begin();
+            for(; it != document[field_name].end(); ) {
+                const auto& item = it.value();
+                array_ele_erased = false;
 
                 if (a_field.type == field_types::STRING_ARRAY && !item.is_string()) {
-                    Option<uint32_t> coerce_op = coerce_string(dirty_values, a_field, document, field_name, arr_index);
+                    Option<uint32_t> coerce_op = coerce_string(dirty_values, auto_detect_schema, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (a_field.type == field_types::INT32_ARRAY && !item.is_number_integer()) {
-                    Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, arr_index);
+                    Option<uint32_t> coerce_op = coerce_int32_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (a_field.type == field_types::INT64_ARRAY && !item.is_number_integer()) {
-                    Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, arr_index);
+                    Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (a_field.type == field_types::FLOAT_ARRAY && !item.is_number()) {
                     // we check for `is_number` to allow whole numbers to be passed into float fields
-                    Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, arr_index);
+                    Option<uint32_t> coerce_op = coerce_float(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
                 } else if (a_field.type == field_types::BOOL_ARRAY && !item.is_boolean()) {
-                    Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, arr_index);
+                    Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
+                }
+
+                if(!array_ele_erased) {
+                    // if it is erased, the iterator will be reassigned
+                    it++;
                 }
             }
         }
@@ -2389,20 +2399,27 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
     }
 }
 
-Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                      const std::string &field_name, const int array_index) {
-    std::string suffix = array_index != -1 ? "an array of" : "a";
-    auto& item = array_index != -1 ? document[field_name][array_index] : document[field_name];
+Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const std::string& auto_detect_schema,
+                                      const field& a_field, nlohmann::json &document,
+                                      const std::string &field_name, nlohmann::json::iterator& array_iter,
+                                      bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "an array of" : "a";
+    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
     }
 
-    if(a_field.optional && dirty_values == DIRTY_VALUES::DROP) {
-        if(array_index == -1) {
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
+        }
+
+        if(!is_array) {
             document.erase(field_name);
         } else {
-            document[field_name].erase(document[field_name].begin() + array_index);
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
         }
         return Option<uint32_t>(200);
     }
@@ -2422,11 +2439,16 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const fi
     }
 
     else {
-        if(a_field.optional && dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
-            if(array_index == -1) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " string.");
+            }
+
+            if(!is_array) {
                 document.erase(field_name);
             } else {
-                document[field_name].erase(document[field_name].begin() + array_index);
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
@@ -2438,19 +2460,25 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const fi
 }
 
 Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                       const std::string &field_name, const int array_index) {
-    std::string suffix = array_index != -1 ? "an array of" : "an";
-    auto& item = array_index != -1 ? document[field_name][array_index] : document[field_name];
+                                       const std::string &field_name,
+                                       nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "an array of" : "an";
+    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
     }
 
-    if(a_field.optional && dirty_values == DIRTY_VALUES::DROP) {
-        if(array_index == -1) {
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
+        }
+
+        if(!is_array) {
             document.erase(field_name);
         } else {
-            document[field_name].erase(document[field_name].begin() + array_index);
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
         }
         return Option<uint32_t>(200);
     }
@@ -2470,11 +2498,16 @@ Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, const f
     }
 
     else {
-        if(a_field.optional && dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
-            if(array_index == -1) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
+            }
+
+            if(!is_array) {
                 document.erase(field_name);
             } else {
-                item.erase(item.begin() + array_index);
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
@@ -2486,19 +2519,25 @@ Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, const f
 }
 
 Option<uint32_t> Index::coerce_int64_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                       const std::string &field_name, const int array_index) {
-    std::string suffix = array_index != -1 ? "an array of" : "an";
-    auto& item = array_index != -1 ? document[field_name][array_index] : document[field_name];
+                                       const std::string &field_name,
+                                       nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "an array of" : "an";
+    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
     }
 
-    if(a_field.optional && dirty_values == DIRTY_VALUES::DROP) {
-        if(array_index == -1) {
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
+        }
+
+        if(!is_array) {
             document.erase(field_name);
         } else {
-            document[field_name].erase(document[field_name].begin() + array_index);
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
         }
         return Option<uint32_t>(200);
     }
@@ -2518,11 +2557,16 @@ Option<uint32_t> Index::coerce_int64_t(const DIRTY_VALUES& dirty_values, const f
     }
 
     else {
-        if(a_field.optional && dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
-            if(array_index == -1) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int64.");
+            }
+
+            if(!is_array) {
                 document.erase(field_name);
             } else {
-                document[field_name].erase(document[field_name].begin() + array_index);
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
@@ -2534,19 +2578,25 @@ Option<uint32_t> Index::coerce_int64_t(const DIRTY_VALUES& dirty_values, const f
 }
 
 Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                    const std::string &field_name, const int array_index) {
-    std::string suffix = array_index != -1 ? "a array of" : "a";
-    auto& item = array_index != -1 ? document[field_name][array_index] : document[field_name];
+                                    const std::string &field_name,
+                                    nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "a array of" : "a";
+    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
     }
 
-    if(a_field.optional && dirty_values == DIRTY_VALUES::DROP) {
-        if(array_index == -1) {
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+        }
+
+        if(!is_array) {
             document.erase(field_name);
         } else {
-            document[field_name].erase(document[field_name].begin() + array_index);
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
         }
         return Option<uint32_t>(200);
     }
@@ -2570,11 +2620,16 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
     }
 
     else {
-        if(a_field.optional && dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
-            if(array_index == -1) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+            }
+
+            if(!is_array) {
                 document.erase(field_name);
             } else {
-                document[field_name].erase(document[field_name].begin() + array_index);
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
@@ -2586,19 +2641,25 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
 }
 
 Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                     const std::string &field_name, const int array_index) {
-    std::string suffix = array_index != -1 ? "a array of" : "a";
-    auto& item = array_index != -1 ? document[field_name][array_index] : document[field_name];
+                                     const std::string &field_name,
+                                     nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "a array of" : "a";
+    auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
         return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
     }
 
-    if(a_field.optional && dirty_values == DIRTY_VALUES::DROP) {
-        if(array_index == -1) {
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
+        }
+
+        if(!is_array) {
             document.erase(field_name);
         } else {
-            document[field_name].erase(document[field_name].begin() + array_index);
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
         }
         return Option<uint32_t>(200);
     }
@@ -2614,11 +2675,16 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
     }
 
     else {
-        if(a_field.optional && dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
-            if(array_index == -1) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " float.");
+            }
+
+            if(!is_array) {
                 document.erase(field_name);
             } else {
-                document[field_name].erase(document[field_name].begin() + array_index);
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
             }
         } else {
             // COERCE_OR_REJECT / non-optional + DROP

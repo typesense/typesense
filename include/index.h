@@ -246,20 +246,28 @@ private:
     static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
                                 nlohmann::json &new_doc, nlohmann::json &del_doc);
 
-    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                          const std::string &field_name, const int array_index);
+    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& auto_detect_schema,
+                                          const field& a_field, nlohmann::json &document,
+                                          const std::string &field_name,
+                                          nlohmann::json::iterator& array_iter,
+                                          bool is_array,
+                                          bool& array_ele_erased);
 
     static Option<uint32_t> coerce_int32_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                           const std::string &field_name, const int array_index);
+                                           const std::string &field_name,
+                                           nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
     static Option<uint32_t> coerce_int64_t(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                           const std::string &field_name, const int array_index);
+                                           const std::string &field_name,
+                                           nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
     static Option<uint32_t> coerce_float(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                         const std::string &field_name, const int array_index);
+                                         const std::string &field_name,
+                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
     static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
-                                        const std::string &field_name, const int array_index);
+                                        const std::string &field_name,
+                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
