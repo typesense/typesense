@@ -246,7 +246,7 @@ private:
     static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
                                 nlohmann::json &new_doc, nlohmann::json &del_doc);
 
-    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& auto_detect_schema,
+    static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
                                           const field& a_field, nlohmann::json &document,
                                           const std::string &field_name,
                                           nlohmann::json::iterator& array_iter,
@@ -378,7 +378,7 @@ public:
                                      const std::string & default_sorting_field,
                                      const std::unordered_map<std::string, field> & search_schema,
                                      const std::map<std::string, field> & facet_schema,
-                                     const std::string& auto_detect_schema);
+                                     const std::string& fallback_field_type);
 
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
                                          const std::vector<uint32_t*>& leaf_to_indices,
@@ -396,7 +396,7 @@ public:
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema,
                                                      bool is_update,
-                                                     const std::string& auto_detect_schema,
+                                                     const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 
     void refresh_schemas(const std::vector<field>& new_fields);

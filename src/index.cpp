@@ -273,7 +273,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                                  const std::unordered_map<std::string, field> & search_schema,
                                                  const std::map<std::string, field> & facet_schema,
                                                  bool is_update,
-                                                 const std::string& auto_detect_schema,
+                                                 const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
@@ -300,7 +300,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
         bool array_ele_erased = false;
 
         if(a_field.type == field_types::STRING && !document[field_name].is_string()) {
-            Option<uint32_t> coerce_op = coerce_string(dirty_values, auto_detect_schema, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+            Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
@@ -353,7 +353,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 array_ele_erased = false;
 
                 if (a_field.type == field_types::STRING_ARRAY && !item.is_string()) {
-                    Option<uint32_t> coerce_op = coerce_string(dirty_values, auto_detect_schema, a_field, document, field_name, it, true, array_ele_erased);
+                    Option<uint32_t> coerce_op = coerce_string(dirty_values, fallback_field_type, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
                     }
@@ -470,7 +470,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
                                  const std::map<std::string, field> & facet_schema,
-                                 const std::string& auto_detect_schema) {
+                                 const std::string& fallback_field_type) {
 
     size_t num_indexed = 0;
 
@@ -485,7 +485,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
                                                                       default_sorting_field,
                                                                       search_schema, facet_schema,
                                                                       index_rec.is_update,
-                                                                      auto_detect_schema,
+                                                                      fallback_field_type,
                                                                       index_rec.dirty_values);
 
             if(!validation_op.ok()) {
@@ -2399,7 +2399,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
     }
 }
 
-Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const std::string& auto_detect_schema,
+Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
                                       const field& a_field, nlohmann::json &document,
                                       const std::string &field_name, nlohmann::json::iterator& array_iter,
                                       bool is_array, bool& array_ele_erased) {

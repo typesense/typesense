@@ -40,13 +40,13 @@ struct match_index_t {
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field, const size_t num_memory_shards,
-                       const float max_memory_ratio, const std::string& auto_detect_schema):
+                       const float max_memory_ratio, const std::string& fallback_field_type):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
-        indices(init_indices()), auto_detect_schema(auto_detect_schema) {
+        indices(init_indices()), fallback_field_type(fallback_field_type) {
 
     this->num_documents = 0;
 }
@@ -233,8 +233,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
             }
 
-            // if `auto_detect_schema` is enabled, we will have to update schema first before indexing
-            if(auto_detect_schema != schema_detect_types::OFF) {
+            // if `fallback_field_type` is enabled, we will have to update schema first before indexing
+            if(!fallback_field_type.empty()) {
                 Option<bool> schema_change_op = check_and_update_schema(record.doc, dirty_values);
                 if(!schema_change_op.ok()) {
                     record.index_failure(schema_change_op.code(), schema_change_op.error());
@@ -354,7 +354,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
                                                                      search_schema, facet_schema, is_update,
-                                                                     auto_detect_schema, dirty_values);
+                                                                     fallback_field_type, dirty_values);
 
     if(!validation_op.ok()) {
         return validation_op;
@@ -382,7 +382,7 @@ size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & 
         CollectionManager::get_instance().get_thread_pool()->enqueue(
         [index, index_id, &num_indexed_vec, &iter_batch, this, &m_process, &num_processed, &cv_process]() {
             size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
-                                      search_schema, facet_schema, auto_detect_schema);
+                                      search_schema, facet_schema, fallback_field_type);
             std::unique_lock<std::mutex> lock(m_process);
             num_indexed_vec[index_id] = num_indexed;
             num_processed++;
@@ -2273,13 +2273,21 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
 
             const std::string &fname = kv.key();
             field new_field(fname, field_type, false, true);
-            if (auto_detect_schema == schema_detect_types::STRINGIFY) {
-                if (new_field.is_array()) {
-                    new_field.type = field_types::STRING_ARRAY;
-                } else {
-                    new_field.type = field_types::STRING;
+
+            if(!fallback_field_type.empty()) {
+                if (field_types::is_string_or_array(fallback_field_type)) {
+                    // Supporting single/array field detection only for strings, as it does not seem to be too useful for
+                    // other field types.
+                    if (new_field.is_array()) {
+                        new_field.type = field_types::STRING_ARRAY;
+                    } else {
+                        new_field.type = field_types::STRING;
+                    }
+                } else if(fallback_field_type != field_types::AUTO) {
+                    new_field.type = fallback_field_type;
                 }
             }
+
             search_schema.emplace(fname, new_field);
             fields.emplace_back(new_field);
             new_fields.emplace_back(new_field);
@@ -2364,8 +2372,7 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     if(dirty_values_op.has_value()) {
         dirty_values_action = dirty_values_op.value();
     } else {
-        dirty_values_action = (auto_detect_schema == schema_detect_types::OFF) ? DIRTY_VALUES::REJECT
-                                                                               : DIRTY_VALUES::COERCE_OR_REJECT;
+        dirty_values_action = fallback_field_type.empty() ? DIRTY_VALUES::REJECT : DIRTY_VALUES::COERCE_OR_REJECT;
     }
 
     return dirty_values_action;
