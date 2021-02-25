@@ -42,9 +42,14 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
+    // try to create collection with random fallback field type
+    auto bad_coll_op = collectionManager.create_collection("coll_bad", 1, fields, "", 0, "blah");
+    ASSERT_FALSE(bad_coll_op.ok());
+    ASSERT_EQ("Field `*` has an invalid type.", bad_coll_op.error());
+
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, schema_detect_types::AUTO);
+        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
         coll1 = coll_op.get();
     }
 
@@ -167,7 +172,7 @@ TEST_F(CollectionAllFieldsTest, HandleArrayTypes) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::AUTO).get();
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, field_types::AUTO).get();
     }
 
     nlohmann::json doc;
@@ -255,7 +260,7 @@ TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 4, fields, "", 0, schema_detect_types::AUTO).get();
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "", 0, field_types::AUTO).get();
     }
 
     nlohmann::json doc;
@@ -337,7 +342,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::STRINGIFY).get();
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, "string*").get();
     }
 
     nlohmann::json doc;
@@ -420,12 +425,44 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, StringSingularAllValues) {
+    Collection *coll1;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, "string").get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["int_values"] = {1, 2};
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `int_values` must be a string.", add_op.error());
+
+    doc["int_values"] = 123;
+
+    add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    auto added_doc = add_op.get();
+
+    ASSERT_EQ("FIRST", added_doc["title"].get<std::string>());
+    ASSERT_EQ("123", added_doc["int_values"].get<std::string>());
+
+    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
+    ASSERT_EQ("123", results["hits"][0]["document"]["int_values"].get<std::string>());
+}
+
 TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
     Collection *coll1;
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, schema_detect_types::AUTO).get();
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, field_types::AUTO).get();
     }
 
     nlohmann::json doc;
@@ -449,32 +486,32 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     nlohmann::json fields_json = nlohmann::json::array();
     nlohmann::json all_field;
     all_field[fields::name] = "*";
-    all_field[fields::type] = "stringify";
+    all_field[fields::type] = "string*";
     fields_json.emplace_back(all_field);
 
-    std::string auto_detect_schema;
+    std::string fallback_field_type;
     std::vector<field> fields;
 
-    auto parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    auto parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ(1, fields.size());
-    ASSERT_EQ("stringify", auto_detect_schema);
+    ASSERT_EQ("string*", fallback_field_type);
     ASSERT_EQ(true, fields[0].optional);
     ASSERT_EQ(false, fields[0].facet);
     ASSERT_EQ("*", fields[0].name);
-    ASSERT_EQ("stringify", fields[0].type);
+    ASSERT_EQ("string*", fields[0].type);
 
     // reject when you try to set optional to false or facet to true
     fields_json[0][fields::optional] = false;
-    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("Field `*` must be an optional field.", parse_op.error());
 
     fields_json[0][fields::optional] = true;
     fields_json[0][fields::facet] = true;
-    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("Field `*` cannot be a facet field.", parse_op.error());
@@ -484,7 +521,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     // can have only one "*" field
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("There can be only one field named `*`.", parse_op.error());
@@ -495,7 +532,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     all_field[fields::type] = "auto";
     fields_json.emplace_back(all_field);
 
-    parse_op = field::json_fields_to_fields(fields_json, auto_detect_schema, fields);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("auto", fields[0].type);
 }

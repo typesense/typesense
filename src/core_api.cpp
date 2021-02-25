@@ -121,7 +121,8 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    if(req_json[NUM_MEMORY_SHARDS].get<size_t>() == 0) {
+    size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
+    if(num_memory_shards == 0) {
         res.set_400(std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
         return false;
     }
@@ -139,9 +140,9 @@ bool post_create_collection(http_req & req, http_res & res) {
         return false;
     }
 
-    std::string auto_detect_schema = schema_detect_types::OFF;
+    std::string fallback_field_type;
     std::vector<field> fields;
-    auto parse_op = field::json_fields_to_fields(req_json["fields"], auto_detect_schema, fields);
+    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
 
     if(!parse_op.ok()) {
         res.set(parse_op.code(), parse_op.error());
@@ -149,11 +150,8 @@ bool post_create_collection(http_req & req, http_res & res) {
     }
 
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
-    const auto created_at = static_cast<uint64_t>(std::time(nullptr));
-
     const Option<Collection*> & collection_op =
-            collectionManager.create_collection(req_json["name"], req_json[NUM_MEMORY_SHARDS].get<size_t>(),
-            fields, default_sorting_field, created_at, auto_detect_schema);
+            collectionManager.create_collection(req_json, num_memory_shards, default_sorting_field);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();

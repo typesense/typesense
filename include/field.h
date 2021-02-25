@@ -7,6 +7,9 @@
 #include "json.hpp"
 
 namespace field_types {
+    // first field value indexed will determine the type
+    static const std::string AUTO = "auto";
+
     static const std::string STRING = "string";
     static const std::string INT32 = "int32";
     static const std::string INT64 = "int64";
@@ -18,6 +21,10 @@ namespace field_types {
     static const std::string INT64_ARRAY = "int64[]";
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
+
+    static bool is_string_or_array(const std::string type_def) {
+        return type_def == "string*";
+    }
 }
 
 namespace fields {
@@ -25,12 +32,6 @@ namespace fields {
     static const std::string type = "type";
     static const std::string facet = "facet";
     static const std::string optional = "optional";
-}
-
-namespace schema_detect_types {
-    static const std::string OFF = "off";
-    static const std::string STRINGIFY = "stringify";
-    static const std::string AUTO = "auto";
 }
 
 static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
@@ -61,7 +62,7 @@ struct field {
     }
 
     bool is_auto() const {
-        return (type == schema_detect_types::AUTO || type == schema_detect_types::STRINGIFY);
+        return (type == field_types::AUTO);
     }
 
     bool is_single_integer() const {
@@ -129,7 +130,11 @@ struct field {
     }
 
     bool has_valid_type() const {
-        return is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
+        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
+        if(!is_basic_type) {
+            return field_types::is_string_or_array(type);
+        }
+        return true;
     }
 
     std::string faceted_name() const {
@@ -227,7 +232,7 @@ struct field {
     }
 
     static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
-                                              std::string& auto_detect_schema,
+                                              std::string& fallback_field_type,
                                               std::vector<field>& fields) {
         size_t num_auto_detect_fields = 0;
 
@@ -251,13 +256,6 @@ struct field {
             }
 
             if(field_json["name"] == "*") {
-                if(field_json["type"] == schema_detect_types::AUTO || field_json["type"] == schema_detect_types::STRINGIFY) {
-                    auto_detect_schema = field_json["type"];
-                    num_auto_detect_fields++;
-                } else {
-                    return Option<bool>(400, "The `type` of field `*` is invalid.");
-                }
-
                 if(field_json.count("facet") == 0) {
                     field_json["facet"] = false;
                 }
@@ -273,6 +271,19 @@ struct field {
                 if(field_json["facet"] == true) {
                     return Option<bool>(400, "Field `*` cannot be a facet field.");
                 }
+
+                field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
+                                     field_json["optional"]);
+
+                if(fallback_field.has_valid_type()) {
+                    fallback_field_type = fallback_field.type;
+                    num_auto_detect_fields++;
+                } else {
+                    return Option<bool>(400, "The `type` of field `*` is invalid.");
+                }
+
+                fields.emplace_back(fallback_field);
+                continue;
             }
 
             if(field_json.count("facet") == 0) {

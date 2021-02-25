@@ -38,9 +38,9 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
                                DEFAULT_NUM_MEMORY_SHARDS;
 
-    std::string auto_detect_schema = collection_meta.count(Collection::COLLECTION_AUTO_DETECT_SCHEMA) != 0 ?
-                              collection_meta[Collection::COLLECTION_AUTO_DETECT_SCHEMA].get<std::string>() :
-                              schema_detect_types::OFF;
+    std::string fallback_field_type = collection_meta.count(Collection::COLLECTION_FALLBACK_FIELD_TYPE) != 0 ?
+                              collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
+                              "";
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
@@ -53,7 +53,7 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             default_sorting_field,
                                             num_memory_shards,
                                             max_memory_ratio,
-                                            auto_detect_schema);
+                                            fallback_field_type);
 
     return collection;
 }
@@ -315,11 +315,19 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<field> & fields,
                                                          const std::string& default_sorting_field,
                                                          const uint64_t created_at,
-                                                         const std::string& auto_detect_schema) {
+                                                         const std::string& fallback_field_type) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
+    }
+
+    // validated `fallback_field_type`
+    if(!fallback_field_type.empty()) {
+        field fallback_field_type_def("temp", fallback_field_type, false);
+        if(!fallback_field_type_def.has_valid_type()) {
+            return Option<Collection*>(400, std::string("Field `*` has an invalid type."));
+        }
     }
 
     nlohmann::json fields_json = nlohmann::json::array();;
@@ -337,11 +345,11 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
     collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
-    collection_meta[Collection::COLLECTION_AUTO_DETECT_SCHEMA] = auto_detect_schema;
+    collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio, auto_detect_schema);
+                                                this->max_memory_ratio, fallback_field_type);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -834,4 +842,22 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
     }
 
     return json_summaries;
+}
+
+Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json,
+                                                         const size_t num_memory_shards,
+                                                         const std::string& default_sorting_field) {
+    std::string fallback_field_type;
+    std::vector<field> fields;
+    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
+
+    if(!parse_op.ok()) {
+        return Option<Collection*>(parse_op.code(), parse_op.error());
+    }
+
+    const auto created_at = static_cast<uint64_t>(std::time(nullptr));
+
+    return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
+                                                                fields, default_sorting_field, created_at,
+                                                                fallback_field_type);
 }
