@@ -258,7 +258,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 New: If you have general questions about Typesense or just want to say hello, join our [Slack Community](https://join.slack.com/t/typesensecommunity/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+👋 🌐 New: If you have general questions about Typesense or just want to say hello, join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 If you run into any problems or issues, please create a Github issue and we'll try our best to help.
 
