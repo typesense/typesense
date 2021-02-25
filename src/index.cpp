@@ -1144,6 +1144,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
             }
 
             result_ids_len = result_to_distance.size();
+            delete [] temp_ids;
 
         } else if(f.is_string()) {
             art_tree* t = search_index.at(a_filter.field_name);
