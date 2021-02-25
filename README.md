@@ -258,7 +258,9 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-If you have any questions or run into any problems, please create a Github issue and we'll try our best to help.
+👋 🌐 New: If you have general questions about Typesense or just want to say hello, join our [Slack Community](https://join.slack.com/t/typesensecommunity/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+
+If you run into any problems or issues, please create a Github issue and we'll try our best to help.
 
 We strive to provide good support through our issue trackers on Github. However, if you'd like to receive private & prioritized support with:
 
@@ -266,6 +268,7 @@ We strive to provide good support through our issue trackers on Github. However,
 - Phone / video calls to discuss your specific use case and get recommendations on best practices
 - Private discussions over Slack
 - Guidance around deployment, ops and scaling best practices
+- Prioritized feature requests
 
 We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
 
