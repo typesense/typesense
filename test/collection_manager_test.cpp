@@ -424,8 +424,8 @@ TEST_F(CollectionManagerTest, Symlinking) {
     CollectionManager & cmanager = CollectionManager::get_instance();
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-    Store *store = new Store(state_dir_path);
-    cmanager.init(store, 1.0, "auth_key");
+    Store *new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
     cmanager.load();
 
     // try resolving on a blank slate
@@ -514,6 +514,8 @@ TEST_F(CollectionManagerTest, Symlinking) {
     collection_option = cmanager2.resolve_symlink("company_3");
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2020", collection_option.get());
+
+    delete new_store;
 }
 
 TEST_F(CollectionManagerTest, ParseSortByClause) {
