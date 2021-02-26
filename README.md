@@ -32,6 +32,7 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 - [Benchmarks](#benchmarks)
 - [FAQ](#faq)
 - [Support](#support)
+- [Contributing](#contributing)
 - [Getting Latest Updates](#getting-latest-updates)
 - [Build from Source](#build-from-source)
 
@@ -258,7 +259,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 New: If you have general questions about Typesense or just want to say hello, join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+👋 🌐 New: If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 If you run into any problems or issues, please create a Github issue and we'll try our best to help.
 
@@ -272,11 +273,17 @@ We strive to provide good support through our issue trackers on Github. However,
 
 We do offer Paid Support options. Please reach out to us at contact@typesense.org to sign up.
 
+## Contributing
+
+We are a lean team on a mission to democratize search and we'll take all the help we can get! If you'd like to get involved, here's information on where we could use your help: [Contributing.md](https://github.com/typesense/typesense/blob/master/CONTRIBUTING.md)
+
 ## Getting Latest Updates
 
 If you'd like to get updates when we release new versions, click on the "Watch" button on the top and select "Releases only". Github will then send you notifications along with a changelog with each new release.
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
+
+👋 🌐 New: We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 ## Build from source
 
