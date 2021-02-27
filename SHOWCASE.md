@@ -15,3 +15,4 @@ Please add to this file and send us a PR:
 - [furn.nl](https://furn.nl) - Dutch furniture comparison website
 - [FlyGRN](https://flygrn.com) - Flight Ticket Search Engine that ranks flights on carbon emissions and gives greener alternatives
 - [Otaku Square](https://www.otakusquare.com) - Online retailer for pop-culture (e.g. anime, games, movies) merchandise
+- [Have A Class](https://haveaclass.com/) - Find the perfect teacher online
