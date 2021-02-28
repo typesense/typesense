@@ -22,7 +22,7 @@ long HttpClient::post_response_async(const std::string &url, const std::shared_p
                                      const std::shared_ptr<http_res> response, HttpServer* server) {
     deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
-    struct curl_slist *chunk = nullptr;
+    struct curl_slist* chunk = nullptr;
 
     CURL *curl = init_curl_async(url, req_res, chunk);
     if(curl == nullptr) {
@@ -251,7 +251,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     return 0;
 }
 
-CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist *chunk) {
+CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
