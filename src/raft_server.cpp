@@ -159,7 +159,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         }
 
         response->set_500("Could not find a leader.");
-        auto replication_arg = new AsyncIndexArg{request, response};
+        auto replication_arg = new request_response_t{request, response};
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     }
@@ -229,7 +229,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_500(err);
         }
 
-        auto replication_arg = new AsyncIndexArg{request, response};
+        auto replication_arg = new request_response_t{request, response};
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
     });
@@ -285,8 +285,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
 
-        // FIXME: AsyncIndexArg lifecycle should be managed by caller
-        AsyncIndexArg* replication_arg = new AsyncIndexArg{request_generated, response_generated};
+        request_response_t* replication_arg = new request_response_t{request_generated, response_generated};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
         //LOG(INFO) << "Raft write waiting to proceed response->final=" << response_generated->final;

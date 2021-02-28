@@ -202,17 +202,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
                 return Option<bool>(false, "Bad JSON.");
             }
 
-            auto dirty_values = DIRTY_VALUES::REJECT;
-
-            if (document.count(Collection::DOC_META_KEY) != 0 &&
-                document[Collection::DOC_META_KEY].count(Collection::DOC_META_DIRTY_VALUES_KEY) != 0) {
-
-                auto dirty_values_op = magic_enum::enum_cast<DIRTY_VALUES>(
-                        document[Collection::DOC_META_KEY][Collection::DOC_META_DIRTY_VALUES_KEY]);
-                if(dirty_values_op.has_value()) {
-                    dirty_values = dirty_values_op.value();
-                }
-            }
+            auto dirty_values = DIRTY_VALUES::DROP;
 
             num_valid_docs++;
 

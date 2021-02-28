@@ -309,11 +309,6 @@ struct http_req {
     }
 };
 
-struct request_response {
-    const std::shared_ptr<http_req>& req;
-    const std::shared_ptr<http_res>& res;
-};
-
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
@@ -459,11 +454,11 @@ struct http_message_dispatcher {
     }
 };
 
-struct AsyncIndexArg {
+struct request_response_t {
     std::shared_ptr<http_req> req;
     std::shared_ptr<http_res> res;
 
-    AsyncIndexArg(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res): req(req), res(res) {
+    request_response_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res): req(req), res(res) {
 
     }
 };
