@@ -114,7 +114,7 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
     return actual_nodes_config;
 }
 
-void ReplicationState::write(http_req* request, http_res* response) {
+void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     if(!node) {
         return ;
     }
@@ -145,7 +145,7 @@ void ReplicationState::write(http_req* request, http_res* response) {
     return node->apply(task);
 }
 
-void ReplicationState::write_to_leader(http_req *request, http_res *response) const {
+void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) const {
     if(!node || node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
@@ -153,7 +153,8 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
         if(request->_req->proceed_req && response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
-            request->await.notify();
+            request->_req = nullptr;
+            request->notify();
             return ;
         }
 
@@ -166,7 +167,7 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
     if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
         //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
-        request->await.notify();
+        request->notify();
         return ;
     }
 
@@ -191,12 +192,7 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
                 response->proxied_stream = true;
-                response->auto_dispose = false;
                 long status = HttpClient::post_response_async(url, request, response, server);
-
-                // must manage life cycle for forwarded requests
-                delete request;
-                delete response;
 
                 //LOG(INFO) << "Import call done.";
 
@@ -255,57 +251,51 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
-        http_res* response;
-        http_req* request;
-
         // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
         braft::AsyncClosureGuard closure_guard(iter.done());
+        std::shared_ptr<http_req> request_generated = std::make_shared<http_req>();
+        std::shared_ptr<http_res> response_generated = std::make_shared<http_res>();
 
         if (iter.done()) {
             // This task is applied by this node, get value from the closure to avoid additional parsing.
             ReplicationClosure* c = dynamic_cast<ReplicationClosure*>(iter.done());
-            response = c->get_response();
-            request = c->get_request();
-
+            request_generated = c->get_request();
+            response_generated = c->get_response();
             //LOG(INFO) << ":::" << "body size inside apply: " << request->body.size();
         } else {
             // Parse request from the log
-            response = new http_res;
-
-            request = new http_req;
-            request->deserialize(iter.data().to_string());
-
+            const std::string &data_str = iter.data().to_string();
+            request_generated->deserialize(iter.data().to_string());
             //LOG(INFO) << "Parsed request from the log, body_size: " << request->body.size();
+
+            /* uint64_t hash = StringUtils::hash_wy(data_str.c_str(), data_str.size());
+               if(hash == 12066143973577129900) {
+                LOG(INFO) << "get stuck here...";
+            }*/
         }
 
-        if(request->_req == nullptr && request->body == "INIT_SNAPSHOT") {
+        if(request_generated->_req == nullptr && request_generated->body == "INIT_SNAPSHOT") {
             // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
             InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(this);
             node->snapshot(init_snapshot_closure);
-            delete request;
-            delete response;
             continue ;
         }
 
         // Now that the log has been parsed, perform the actual operation
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
-        response->auto_dispose = false;
-        auto replication_arg = new AsyncIndexArg{request, response};
+
+        // FIXME: AsyncIndexArg lifecycle should be managed by caller
+        AsyncIndexArg* replication_arg = new AsyncIndexArg{request_generated, response_generated};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        //LOG(INFO) << "Raft write waiting to proceed";
-        response->await.wait();
-        //LOG(INFO) << "Raft write ready to proceed, response->final=" << response->final;
-
-        if(response->final) {
-            delete request;
-            delete response;
-        }
+        //LOG(INFO) << "Raft write waiting to proceed response->final=" << response_generated->final;
+        response_generated->wait();
+        //LOG(INFO) << "Raft write ready to proceed, response->final=" << response_generated->final;
     }
 }
 
-void ReplicationState::read(http_res* response) {
+void ReplicationState::read(const std::shared_ptr<http_res>& response) {
     // NOT USED:
     // For consistency, reads to followers could be rejected.
     // Currently, we don't do implement reads via raft.
@@ -536,11 +526,12 @@ uint64_t ReplicationState::node_state() const {
     return node_status.state;
 }
 
-void ReplicationState::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
+void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req,
+                                   const std::shared_ptr<http_res>& res) {
     LOG(INFO) << "Triggerring an on demand snapshot...";
 
-    thread_pool->enqueue([&snapshot_path, &req, &res, this]() {
-        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, &req, &res);
+    thread_pool->enqueue([&snapshot_path, req, res, this]() {
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
         ext_snapshot_path = snapshot_path;
         node->snapshot(snapshot_closure);
     });
@@ -610,7 +601,6 @@ void OnDemandSnapshotClosure::Run() {
 
     req->last_chunk_aggregate = true;
     res->final = true;
-    res->auto_dispose = false;
 
     nlohmann::json response;
     uint32_t status_code;
@@ -629,14 +619,9 @@ void OnDemandSnapshotClosure::Run() {
     res->status_code = status_code;
     res->body = response.dump();
 
-    deferred_req_res_t* req_res = new deferred_req_res_t{req, res, nullptr};
-    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
-
-    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    deferred_req_res_t req_res{req, res, nullptr};
+    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
 
     // wait for response to be sent
-    req_res->res->await.wait();
-
-    delete req;
-    delete res;
+    res->wait();
 }

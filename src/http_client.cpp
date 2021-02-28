@@ -18,7 +18,8 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl, res_headers);
 }
 
-long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response, HttpServer* server) {
+long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
+                                     const std::shared_ptr<http_res> response, HttpServer* server) {
     deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
     struct curl_slist *chunk = nullptr;
@@ -179,7 +180,7 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
             //LOG(INFO) << "Waiting for request body to be ready";
-            req_res->req->await.wait();
+            req_res->req->wait();
             //LOG(INFO) << "Request body is ready";
             //LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
         }
@@ -223,8 +224,8 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until response is sent
-    //LOG(INFO) << "Waiting for response to be sent";
-    req_res->res->await.wait();
+    //LOG(INFO) << "Waiting on req_res " << req_res->res;
+    req_res->res->wait();
     //LOG(INFO) << "Response sent";
 
     return res_size;
@@ -245,7 +246,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until final response is flushed or response object will be destroyed by caller
-    req_res->res->await.wait();
+    req_res->res->wait();
 
     return 0;
 }

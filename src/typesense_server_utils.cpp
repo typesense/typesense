@@ -263,7 +263,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
-    while (!quit_raft_service.load()) {
+    while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
         // post-increment to ensure that we refresh right away on a fresh boot
         if(raft_counter++ % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership

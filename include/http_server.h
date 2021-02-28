@@ -28,13 +28,21 @@ struct h2o_custom_generator_t {
     h2o_generator_t super;
     h2o_custom_req_handler_t* h2o_handler;
     route_path* rpath;
-    http_req* request;
-    http_res* response;
+    std::shared_ptr<http_req> request;
+    std::shared_ptr<http_res> response;
+
+    std::shared_ptr<http_req>& req() {
+        return request;
+    }
+
+    std::shared_ptr<http_res>& res() {
+        return response;
+    }
 };
 
 struct deferred_req_res_t {
-    http_req* req;
-    http_res* res;
+    const std::shared_ptr<http_req> req;
+    const std::shared_ptr<http_res> res;
     HttpServer* server;
 };
 
@@ -128,25 +136,26 @@ public:
     void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
                                           const route_path & rpath, const std::string & auth_key));
 
-    void get(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+    void get(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
-    void post(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+    void post(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
-    void put(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+    void put(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
-    void patch(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+    void patch(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
-    void del(const std::string & path, bool (*handler)(http_req & req, http_res & res), bool async_req=false, bool async_res=false);
+    void del(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res), bool async_req=false, bool async_res=false);
 
     void on(const std::string & message, bool (*handler)(void*));
 
     void send_message(const std::string & type, void* data);
 
-    void send_response(http_req* request, http_res* response);
+    void send_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
-    static void destroy_request_response(http_req* request, http_res* response);
+    static void destroy_request_response(const std::shared_ptr<http_req>& request,
+                                         const std::shared_ptr<http_res>& response);
 
-    static void stream_response(http_req& request, http_res& response);
+    static void stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
@@ -175,14 +184,14 @@ public:
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";
     static constexpr const char* REQUEST_PROCEED_MESSAGE = "REQUEST_PROCEED";
 
-    static int process_request(http_req* request, http_res* response, route_path *rpath,
+    static int process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response, route_path *rpath,
                                const h2o_custom_req_handler_t *req_handler);
 
     static void on_deferred_process_request(h2o_timer_t *entry);
 
-    void defer_processing(http_req& req, http_res& res, size_t timeout_ms);
+    void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res, size_t timeout_ms);
 
-    void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
+    void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     bool trigger_vote();
 };
