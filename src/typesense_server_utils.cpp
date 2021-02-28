@@ -132,7 +132,7 @@ int init_logger(Config & config, const std::string & server_version) {
 }
 
 bool on_send_response(void *data) {
-    request_response* req_res = static_cast<request_response*>(data);
+    request_response_t* req_res = static_cast<request_response_t*>(data);
     server->send_response(req_res->req, req_res->res);
     delete req_res;
 

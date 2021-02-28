@@ -91,17 +91,6 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         return Option<doc_seq_id_t>(400, "The `id` should not be empty.");
     }
 
-    bool meta_key_found = document.count(DOC_META_KEY) != 0;
-    if(operation == CREATE && meta_key_found) {
-        return Option<doc_seq_id_t>(400, "Document cannot contain a `" + std::string(DOC_META_KEY) + "` key.");
-    }
-
-    int dirty_values_integer = magic_enum::enum_integer(dirty_values);
-    if(!meta_key_found) {
-        document[DOC_META_KEY] = nlohmann::json::object();
-    }
-    document[DOC_META_KEY][DOC_META_DIRTY_VALUES_KEY] = dirty_values_integer;
-
     if(document.count("id") == 0) {
         if(operation == UPDATE) {
             return Option<doc_seq_id_t>(400, "For update, the `id` key must be provided.");
@@ -179,10 +168,6 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
     nlohmann::json document;
     std::vector<std::string> json_lines = {json_str};
     const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values);
-
-    if(document.count(Collection::DOC_META_KEY) != 0) {
-        document.erase(Collection::DOC_META_KEY);
-    }
 
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
@@ -410,8 +395,7 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
     auto it = document.begin();
     for(; it != document.end(); ) {
         if (exclude_fields.count(it.key()) != 0 ||
-           (!include_fields.empty() && include_fields.count(it.key()) == 0) ||
-           document.count(Collection::DOC_META_KEY) != 0) {
+           (!include_fields.empty() && include_fields.count(it.key()) == 0)) {
             it = document.erase(it);
         } else {
             ++it;
@@ -1560,10 +1544,6 @@ Option<nlohmann::json> Collection::get(const std::string & id) const {
         return Option<nlohmann::json>(500, "Error while parsing stored document.");
     }
 
-    if(document.count(Collection::DOC_META_KEY) != 0) {
-        document.erase(Collection::DOC_META_KEY);
-    }
-
     return Option<nlohmann::json>(document);
 }
 
@@ -2258,7 +2238,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
     auto kv = document.begin();
     for(; kv != document.end(); ) {
         // we will not index the special "id" or doc meta keys
-        if (search_schema.count(kv.key()) == 0 && kv.key() != "id" && kv.key() != Collection::DOC_META_KEY) {
+        if (search_schema.count(kv.key()) == 0 && kv.key() != "id") {
             std::string field_type;
             bool parseable = field::get_type(kv.value(), field_type);
             if(!parseable) {

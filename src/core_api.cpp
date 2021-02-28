@@ -371,7 +371,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     }
 
     if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
-        // FIXME: remove meta key from doc
         res->body = it->value().ToString();
         it->Next();
 
@@ -1081,8 +1080,8 @@ bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_re
 
 bool raft_write_send_response(void *data) {
     //LOG(INFO) << "raft_write_send_response called";
-    AsyncIndexArg* index_arg = static_cast<AsyncIndexArg*>(data);
-    std::unique_ptr<AsyncIndexArg> index_arg_guard(index_arg);
+    request_response_t* index_arg = static_cast<request_response_t*>(data);
+    std::unique_ptr<request_response_t> index_arg_guard(index_arg);
 
     bool async_res = false;
 

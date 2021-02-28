@@ -664,15 +664,13 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     //LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
     //LOG(INFO) << "response.final: " <<  custom_generator->response->final;
 
+    custom_generator->res()->notify();
+
     if(custom_generator->res()->proxied_stream) {
         // request progression should not be tied to response generation
         //LOG(INFO) << "Ignoring request proceed";
-        custom_generator->res()->notify();
         return ;
     }
-
-    // FIXME: should this be at the end of the function?
-    custom_generator->res()->notify();
 
     // if the request itself is async, we will proceed the request to fetch input content
     if (custom_generator->rpath->async_req) {
