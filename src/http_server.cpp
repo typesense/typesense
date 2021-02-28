@@ -300,8 +300,15 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 
 void HttpServer::on_res_generator_dispose(void *self) {
     //LOG(INFO) << "on_res_generator_dispose fires";
-    h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(self);
-    destroy_request_response(res_generator->request, res_generator->response);
+    h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
+    destroy_request_response(custom_generator->req(), custom_generator->res());
+
+    /*LOG(INFO) << "Deleting custom_generator, res: " << custom_generator->res();
+              << ", refcount: " << custom_generator->res().use_count();*/
+
+    delete custom_generator;
+
+    //LOG(INFO) << "Deleted custom_generator";
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
@@ -407,19 +414,25 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         return send_response(req, 401, message);
     }
 
-    http_req* request = new http_req(req, rpath->http_method, path_without_query, route_hash, query_map, body);
-    http_res* response = new http_res();
+    std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
+                                                                   route_hash, query_map, body);
+    std::shared_ptr<http_res> response = std::make_shared<http_res>();
 
     // add custom generator with a dispose function for cleaning up resources
-    h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(
-        h2o_mem_alloc_shared(&req->pool, sizeof(*custom_generator), on_res_generator_dispose)
+    h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
+    custom_gen->super = h2o_generator_t {response_proceed, response_abort};
+    custom_gen->request = request;
+    custom_gen->response = response;
+    custom_gen->rpath = rpath;
+    custom_gen->h2o_handler = h2o_handler;
+    response->generator = &custom_gen->super;
+
+    h2o_custom_generator_t** allocated_generator = static_cast<h2o_custom_generator_t**>(
+        h2o_mem_alloc_shared(&req->pool, sizeof(*allocated_generator), on_res_generator_dispose)
     );
-    custom_generator->super = h2o_generator_t {response_proceed, response_abort};
-    custom_generator->request = request;
-    custom_generator->response = response;
-    custom_generator->rpath = rpath;
-    custom_generator->h2o_handler = h2o_handler;
-    response->generator = &custom_generator->super;
+    *allocated_generator = custom_gen;
+
+    //LOG(INFO) << "Init res: " << custom_gen->response << ", ref count: " << custom_gen->response.use_count();
 
     // routes match and is an authenticated request
     // do any additional pre-request middleware operations here
@@ -440,7 +453,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         //LOG(INFO) << "Partial request body length: " << req->entity.len;
 
         req->write_req.cb = async_req_cb;
-        req->write_req.ctx = custom_generator;
+        req->write_req.ctx = custom_gen;
         req->proceed_req(req, req->entity.len, H2O_SEND_STATE_IN_PROGRESS);
     }
 
@@ -453,8 +466,8 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     // This quirk is because of the underlying buffer/window sizes. We will have to deal with both cases.
     h2o_custom_generator_t* custom_generator = static_cast<h2o_custom_generator_t*>(ctx);
 
-    http_req* request = custom_generator->request;
-    http_res* response = custom_generator->response;
+    const std::shared_ptr<http_req>& request = custom_generator->req();
+    const std::shared_ptr<http_res>& response = custom_generator->res();
 
     std::string chunk_str(chunk.base, chunk.len);
 
@@ -526,7 +539,7 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     return 0;
 }
 
-int HttpServer::process_request(http_req* request, http_res* response, route_path *rpath,
+int HttpServer::process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response, route_path *rpath,
                                 const h2o_custom_req_handler_t *handler) {
 
     //LOG(INFO) << "process_request called";
@@ -545,32 +558,22 @@ int HttpServer::process_request(http_req* request, http_res* response, route_pat
         return 0;
     }
 
+    auto http_server = handler->http_server;
     auto message_dispatcher = handler->http_server->get_message_dispatcher();
     auto api_handler = rpath->handler;
 
-    handler->http_server->get_thread_pool()->enqueue([api_handler, message_dispatcher, request, response]() {
-        (api_handler)(*request, *response);
-        request_response req_res{request, response};
-        response->auto_dispose = false;
+    // LOG(INFO) << "Before enqueue res: " << response
+    handler->http_server->get_thread_pool()->enqueue([http_server, api_handler, message_dispatcher,
+                                                      request, response]() {
+        // call the API handler
+        (api_handler)(request, response);
+
+        deferred_req_res_t req_res{request, response, http_server};
         message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
 
-        // wait until response is sent
-        response->await.wait();
-
-        delete request;
-        delete response;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        response->wait();
     });
-
-    /*
-    // for reads, we will invoke the request handler and handle response as well
-    (rpath->handler)(*request, *response);
-
-    if(!rpath->async_res) {
-        // If a handler is marked as async res, it's responsible for sending the response itself in an async fashion
-        // otherwise, we send the whole body response on behalf of the handler
-        handler->http_server->send_response(request, response);
-    }
-    */
 
     return 0;
 }
@@ -582,26 +585,29 @@ void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
     route_path* found_rpath = nullptr;
     deferred_req_res->server->get_route(deferred_req_res->req->route_hash, &found_rpath);
     if(found_rpath) {
-        found_rpath->handler(*deferred_req_res->req, *deferred_req_res->res);
+        found_rpath->handler(deferred_req_res->req, deferred_req_res->res);
     }
 }
 
-void HttpServer::defer_processing(http_req& req, http_res& res, size_t timeout_ms) {
-    if(req.defer_timer.data == nullptr) {
-        auto deferred_req_res = new deferred_req_res_t{&req, &res, this};
-        req.defer_timer.data = deferred_req_res;
-        h2o_timer_init(&req.defer_timer.timer, on_deferred_process_request);
+void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
+                                  size_t timeout_ms) {
+    if(req->defer_timer.data == nullptr) {
+        auto deferred_req_res = new deferred_req_res_t{req, res, this};
+        req->defer_timer.data = deferred_req_res;
+        h2o_timer_init(&req->defer_timer.timer, on_deferred_process_request);
     } else {
-        h2o_timer_unlink(&req.defer_timer.timer);
+        h2o_timer_unlink(&req->defer_timer.timer);
     }
 
-    h2o_timer_link(ctx.loop, timeout_ms, &req.defer_timer.timer);
+    h2o_timer_link(ctx.loop, timeout_ms, &req->defer_timer.timer);
 
-    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res.await: " << res.await;
+    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res->await: " << res->await;
 
     if(exit_loop) {
         // otherwise, replication thread could be stuck waiting on a future
-        res.await.notify();
+        req->_req = nullptr;
+        req->notify();
+        res->notify();
     }
 }
 
@@ -620,23 +626,23 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::send_response(http_req* request, http_res* response) {
+void HttpServer::send_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     //LOG(INFO) << "send_response, request->_req=" << request->_req;
 
     if(request->_req == nullptr) {
-        // indicates serialized request and response -- lifecycle must be managed here
-        return destroy_request_response(request, response);
+        // indicates serialized request and response
+        return ;
     }
 
     h2o_req_t* req = request->_req;
-    h2o_generator_t& generator = *response->generator;
+    h2o_generator_t* generator = static_cast<h2o_generator_t*>(response->generator);
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     req->res.status = response->status_code;
     req->res.reason = http_res::get_status_reason(response->status_code);
     h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE,
             nullptr, response->content_type_header.c_str(), response->content_type_header.size());
-    h2o_start_response(req, &generator);
+    h2o_start_response(req, generator);
     h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
 }
 
@@ -644,93 +650,99 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
     LOG(INFO) << "response_abort called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
-    custom_generator->request->_req = nullptr;
-    custom_generator->response->final = true;
+    custom_generator->req()->_req = nullptr;
+    custom_generator->res()->final = true;
 
     // returns control back to caller (raft replication or follower forward)
-    LOG(INFO) << "response_abort: fulfilling req & res proceed.";
-
-    // order is important!
-    custom_generator->request->await.notify();
-    custom_generator->response->await.notify();
+    //LOG(INFO) << "response_abort: fulfilling req & res proceed.";
 }
 
 void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     //LOG(INFO) << "response_proceed called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
-    custom_generator->response->await.notify();
-
     //LOG(INFO) << "proxied_stream: " << custom_generator->response->proxied_stream;
     //LOG(INFO) << "response.final: " <<  custom_generator->response->final;
 
-    if(custom_generator->response->proxied_stream) {
+    if(custom_generator->res()->proxied_stream) {
         // request progression should not be tied to response generation
         //LOG(INFO) << "Ignoring request proceed";
+        custom_generator->res()->notify();
         return ;
     }
 
+    // FIXME: should this be at the end of the function?
+    custom_generator->res()->notify();
+
     // if the request itself is async, we will proceed the request to fetch input content
     if (custom_generator->rpath->async_req) {
-        auto stream_state = (custom_generator->response->final) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+        auto stream_state = (custom_generator->res()->final) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
 
         // `written` is ignored by http1.1 implementation, so meant only for http 2+
-        size_t written = custom_generator->request->chunk_len;
-        custom_generator->request->chunk_len = 0;
+        size_t written = custom_generator->req()->chunk_len;
+        custom_generator->req()->chunk_len = 0;
 
-        if(custom_generator->request->_req->proceed_req) {
+        if(custom_generator->req()->_req->proceed_req) {
             //LOG(INFO) << "response_proceed: proceeding req";
-            custom_generator->request->_req->proceed_req(custom_generator->request->_req, written, stream_state);
+            custom_generator->req()->_req->proceed_req(custom_generator->req()->_req, written,
+                                                             stream_state);
         }
     } else {
         // otherwise, call the handler since it will be the handler that will be producing content
         // (streaming response but not request)
-        custom_generator->h2o_handler->http_server->defer_processing(*custom_generator->request,
-                                                                     *custom_generator->response, 1);
+        custom_generator->h2o_handler->http_server->defer_processing(custom_generator->req(),
+                                                                     custom_generator->res(), 1);
     }
 }
 
-void HttpServer::stream_response(http_req& request, http_res& response) {
+void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     //LOG(INFO) << "stream_response called";
-    if(request._req == nullptr) {
+
+    if(request->_req == nullptr) {
         // raft log replay or when underlying request is aborted
         //LOG(INFO) << "stream_response, request._req == nullptr";
-        destroy_request_response(&request, &response);
+        response->notify();
         return;
     }
 
-    h2o_req_t* req = request._req;
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response.generator);
+    h2o_req_t* req = request->_req;
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
 
     if (req->res.status == 0) {
         //LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
         //          << ",response.status_code=" << response.status_code;
-        response.status_code = (response.status_code == 0) ? 503 : response.status_code; // just to be sure
-        req->res.status = response.status_code;
-        req->res.reason = http_res::get_status_reason(response.status_code);
+        response->status_code = (response->status_code == 0) ? 503 : response->status_code; // just to be sure
+        req->res.status = response->status_code;
+        req->res.reason = http_res::get_status_reason(response->status_code);
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       response.content_type_header.c_str(),
-                       response.content_type_header.size());
+                       response->content_type_header.c_str(),
+                       response->content_type_header.size());
         h2o_start_response(req, &custom_generator->super);
     }
 
     //LOG(INFO) << "stream_response, body_size: " << response.body.size() << ", response_final="
     //          << custom_generator->response->final;
 
-    h2o_iovec_t body = h2o_strdup(&req->pool, response.body.c_str(), SIZE_MAX);
-    response.body = "";
+    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
+    response->body = "";
 
-    const h2o_send_state_t state = custom_generator->response->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    const h2o_send_state_t state = custom_generator->res()->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
     h2o_send(req, &body, 1, state);
 
-    if(custom_generator->rpath->async_req && custom_generator->response->final &&
-        !custom_generator->request->last_chunk_aggregate) {
+    if(custom_generator->rpath->async_req && custom_generator->res()->final &&
+        !custom_generator->req()->last_chunk_aggregate) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed
+        LOG(INFO) << "Premature termination of async request, disposing req object.";
         h2o_dispose_request(req);
     }
+
+    // LOG(INFO) << "stream_response after send";
 }
 
-void HttpServer::destroy_request_response(http_req* request, http_res* response) {
+void HttpServer::destroy_request_response(const std::shared_ptr<http_req>& request,
+                                          const std::shared_ptr<http_res>& response) {
+    //LOG(INFO) << "destroy_request_response";
+
     if(request->defer_timer.data != nullptr) {
         deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(request->defer_timer.data);
         h2o_timer_unlink(&request->defer_timer.timer);
@@ -742,18 +754,11 @@ void HttpServer::destroy_request_response(http_req* request, http_res* response)
 
     //LOG(INFO) << "destroy_request_response, response: " << response << ", response->auto_dispose: " << response->auto_dispose;
 
-    if(response->auto_dispose) {
-        //LOG(INFO) << "destroy_request_response: deleting req/res";
-        delete request;
-        delete response;
-    } else {
-        // lifecycle of proxied/replicated resources are managed externally
-        // we will just nullify _req to indicate that original request is dead
-        //LOG(INFO) << "Ignoring request/response cleanup since auto_dispose is false.";
-        response->final = true;
-        request->_req = nullptr;
-        response->await.notify();
-    }
+    request->_req = nullptr;
+    response->final = true;
+
+    request->notify();
+    response->notify();
 }
 
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
@@ -761,35 +766,35 @@ void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::str
     auth_handler = handler;
 }
 
-void HttpServer::get(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+void HttpServer::get(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("GET", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::post(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+void HttpServer::post(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("POST", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::put(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+void HttpServer::put(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("PUT", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::patch(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+void HttpServer::patch(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("PATCH", path_parts, handler, async_req, async_res);
     routes.emplace_back(rpath.route_hash(), rpath);
 }
 
-void HttpServer::del(const std::string & path, bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) {
+void HttpServer::del(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("DELETE", path_parts, handler, async_req, async_res);
@@ -859,7 +864,7 @@ uint64_t HttpServer::node_state() const {
 bool HttpServer::on_stream_response_message(void *data) {
     //LOG(INFO) << "on_stream_response_message";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
-    stream_response(*req_res->req, *req_res->res);
+    stream_response(req_res->req, req_res->res);
     return true;
 }
 
@@ -882,7 +887,7 @@ bool HttpServer::has_exited() const {
     return exit_loop;
 }
 
-void HttpServer::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
+void HttpServer::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     return replication_state->do_snapshot(snapshot_path, req, res);
 }
 

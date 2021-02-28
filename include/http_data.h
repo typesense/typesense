@@ -66,20 +66,36 @@ struct http_res {
     std::string body;
     std::atomic<bool> final;
 
-    // fulfilled by an async response handler to pass control back for further writes
-    // use `mark_proceed` and `wait_proceed` instead of accessing this directly
-    await_t await;
-
-    h2o_generator_t* generator = nullptr;
+    void* generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
     bool proxied_stream = false;
 
-    // indicates whether this object is eligible for disposal at the end of req/res cycle
-    bool auto_dispose = true;
+    std::mutex mcv;
+    std::condition_variable cv;
+    bool ready;
 
-    http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true) {
+    http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true), ready(false) {
 
+    }
+
+    ~http_res() {
+        //LOG(INFO) << "http_res " << this;
+    }
+
+    void wait() {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        cv.wait(lk, [&] { return ready; });
+        ready = false;
+    }
+
+    void notify() {
+        // Ideally we don't need lock over notify but it is needed here because
+        // the parent object could be deleted after lock on mutex is released but
+        // before notify can be called on condition variable.
+        std::lock_guard<std::mutex> lk(mcv);
+        ready = true;
+        cv.notify_all();
     }
 
     static const char* get_status_reason(uint32_t status_code) {
@@ -183,19 +199,20 @@ struct http_req {
 
     void* data;
 
-    // used during forwarding of requests from follower to leader
-    // use `mark_proceed` and `wait_proceed` instead of accessing this directly
-    await_t await;
-
     // for deffered processing of async handlers
     h2o_custom_timer_t defer_timer;
 
     uint64_t start_ts;
     bool deserialized_request;
 
+    std::mutex mcv;
+    std::condition_variable cv;
+    bool ready;
+
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true) {
+                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -206,7 +223,7 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false) {
+            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -238,6 +255,21 @@ struct http_req {
                 LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) " << full_url_path;
             }
         }
+    }
+
+    void wait() {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        cv.wait(lk, [&] { return ready; });
+        ready = false;
+    }
+
+    void notify() {
+        // Ideally we don't need lock over notify but it is needed here because
+        // the parent object could be deleted after lock on mutex is released but
+        // before notify can be called on condition variable.
+        std::lock_guard<std::mutex> lk(mcv);
+        ready = true;
+        cv.notify_all();
     }
 
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
@@ -278,20 +310,20 @@ struct http_req {
 };
 
 struct request_response {
-    http_req* req;
-    http_res* res;
+    const std::shared_ptr<http_req>& req;
+    const std::shared_ptr<http_res>& res;
 };
 
 struct route_path {
     std::string http_method;
     std::vector<std::string> path_parts;
-    bool (*handler)(http_req &, http_res &);
+    bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&);
     bool async_req;
     bool async_res;
     std::string action;
 
     route_path(const std::string &httpMethod, const std::vector<std::string> &pathParts,
-               bool (*handler)(http_req &, http_res &), bool async_req, bool async_res) :
+               bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) :
             http_method(httpMethod), path_parts(pathParts), handler(handler),
             async_req(async_req), async_res(async_res) {
         action = _get_action();
@@ -428,6 +460,10 @@ struct http_message_dispatcher {
 };
 
 struct AsyncIndexArg {
-    http_req* req;
-    http_res* res;
+    std::shared_ptr<http_req> req;
+    std::shared_ptr<http_res> res;
+
+    AsyncIndexArg(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res): req(req), res(res) {
+
+    }
 };

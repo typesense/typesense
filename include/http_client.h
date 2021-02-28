@@ -52,7 +52,8 @@ public:
     static long post_response(const std::string & url, const std::string & body, std::string & response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
 
-    static long post_response_async(const std::string &url, http_req* request, http_res* response,
+    static long post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
+                                    const std::shared_ptr<http_res> response,
                                     HttpServer* server);
 
     static long put_response(const std::string & url, const std::string & body, std::string & response,

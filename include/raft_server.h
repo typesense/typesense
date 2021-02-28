@@ -18,21 +18,21 @@ class ReplicationState;
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
-    http_req* request;
-    http_res* response;
+    const std::shared_ptr<http_req> request;
+    const std::shared_ptr<http_res> response;
 
 public:
-    ReplicationClosure(http_req* request, http_res* response): request(request), response(response) {
+    ReplicationClosure(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response): request(request), response(response) {
 
     }
 
     ~ReplicationClosure() {}
 
-    http_req* get_request() const {
+    const std::shared_ptr<http_req> get_request() const {
         return request;
     }
 
-    http_res* get_response() const {
+    const std::shared_ptr<http_res> get_response() const {
         return response;
     }
 
@@ -76,12 +76,12 @@ public:
 class OnDemandSnapshotClosure : public braft::Closure {
 private:
     ReplicationState* replication_state;
-    http_req* req;
-    http_res* res;
+    const std::shared_ptr<http_req>& req;
+    const std::shared_ptr<http_res>& res;
 
 public:
 
-    OnDemandSnapshotClosure(ReplicationState* replication_state, http_req* req, http_res* res):
+    OnDemandSnapshotClosure(ReplicationState* replication_state, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res):
     replication_state(replication_state), req(req), res(res) {}
 
     ~OnDemandSnapshotClosure() {}
@@ -135,10 +135,10 @@ public:
               const std::string & raft_dir, const std::string & nodes);
 
     // Generic write method for synchronizing all writes
-    void write(http_req* request, http_res* response);
+    void write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     // Generic read method for consistent reads, not used for now
-    void read(http_res* response);
+    void read(const std::shared_ptr<http_res>& response);
 
     // updates cluster membership
     void refresh_nodes(const std::string & nodes);
@@ -179,7 +179,7 @@ public:
 
     Store* get_store();
 
-    void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
+    void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
@@ -220,8 +220,10 @@ private:
 
         // have to do a dummy write, otherwise snapshot will not trigger
         if(create_init_db_snapshot) {
-            http_req* request = new http_req(nullptr, "POST", "/INIT_SNAPSHOT", 0, {}, "INIT_SNAPSHOT");
-            http_res* response = new http_res();
+            std::map<std::string, std::string> params;
+            std::shared_ptr<http_req> request = std::make_shared<http_req>(nullptr, "POST", "/INIT_SNAPSHOT", 0, params,
+                                                                           "INIT_SNAPSHOT");
+            std::shared_ptr<http_res> response = std::make_shared<http_res>();
             write(request, response);
         }
 
@@ -254,7 +256,7 @@ private:
         LOG(INFO) << "Node stops following " << ctx;
     }
 
-    void write_to_leader(http_req *request, http_res *response) const;
+    void write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) const;
 
     void do_dummy_write();
 
