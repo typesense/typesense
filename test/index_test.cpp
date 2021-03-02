@@ -57,3 +57,35 @@ TEST(IndexTest, ScrubReindexDoc) {
     ASSERT_STREQ("The Lawyer", del_doc3["title"].get<std::string>().c_str());
     ASSERT_STREQ("Bar", del_doc3["foo"].get<std::string>().c_str());
 }
+
+TEST(IndexTest, PointInPolygon180thMeridian) {
+    // somewhere in far eastern russia
+    GeoCoord verts[3] = {
+        {67.63378886620751, 179.87924212491276},
+        {67.6276069384328, -179.8364939577639},
+        {67.5749950728145, 179.94421673458666}
+    };
+
+    Geofence poly1{3, verts};
+    double offset = Index::transform_for_180th_meridian(poly1);
+
+    GeoCoord point1 = {67.61896440098865, 179.9998420463554};
+    GeoCoord point2 = {67.6332378896519, 179.88828622883355};
+    GeoCoord point3 = {67.62717271243574, -179.85954137693625};
+
+    GeoCoord point4 = {67.65842784263879, -179.79268650445243};
+    GeoCoord point5 = {67.62016647245217, 179.83764198608083};
+
+    Index::transform_for_180th_meridian(point1, offset);
+    Index::transform_for_180th_meridian(point2, offset);
+    Index::transform_for_180th_meridian(point3, offset);
+    Index::transform_for_180th_meridian(point4, offset);
+    Index::transform_for_180th_meridian(point5, offset);
+
+    ASSERT_TRUE(Index::is_point_in_polygon(poly1, point1));
+    ASSERT_TRUE(Index::is_point_in_polygon(poly1, point2));
+    ASSERT_TRUE(Index::is_point_in_polygon(poly1, point3));
+
+    ASSERT_FALSE(Index::is_point_in_polygon(poly1, point4));
+    ASSERT_FALSE(Index::is_point_in_polygon(poly1, point5));
+}

@@ -51,6 +51,22 @@ public:
         *ids = out;
     }
 
+    size_t get(int64_t value, std::vector<uint32_t>& geo_result_ids) {
+        const auto& it = int64map.find(value);
+        if(it == int64map.end()) {
+            return 0;
+        }
+
+        uint32_t* ids = it->second->uncompress();
+        for(size_t i = 0; i < it->second->getLength(); i++) {
+            geo_result_ids.push_back(ids[i]);
+        }
+
+        delete [] ids;
+
+        return it->second->getLength();
+    }
+
     void search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len) {
         if(int64map.empty()) {
             return ;

@@ -1072,79 +1072,147 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
             }
 
         } else if(f.is_geopoint()) {
-            spp::sparse_hash_map<size_t, size_t> result_to_distance;
             auto num_tree = numerical_index.at(a_filter.field_name);
-            uint32_t* temp_ids = nullptr;
-            size_t temp_ids_len = 0;
-
             auto record_to_geo = sort_index.at(a_filter.field_name);
 
             double indexed_edge_len = edgeLengthM(f.geo_resolution);
 
             for(const std::string& filter_value: a_filter.values) {
                 std::vector<std::string> filter_value_parts;
-                StringUtils::split(filter_value, filter_value_parts, " ");  // x y 2 km
-                double radius = std::stof(filter_value_parts[2]);
-                const auto& unit = filter_value_parts[3];
+                StringUtils::split(filter_value, filter_value_parts, ",");  // x, y, 2 km (or) list of points
 
-                if(unit == "km") {
-                    radius *= 1000;
-                } else {
-                    // assume "mi" (validated upstream)
-                    radius *= 1609.34;
-                }
+                std::vector<uint32_t> geo_result_ids;
 
-                GeoCoord location;
-                location.lat = degsToRads(std::stod(filter_value_parts[0]));
-                location.lon = degsToRads(std::stod(filter_value_parts[1]));
-                H3Index query_index = geoToH3(&location, f.geo_resolution);
+                bool is_polygon = StringUtils::is_float(filter_value_parts.back());
 
-                //LOG(INFO) << "query latlon: " << std::stod(filter_value_parts[0]) << ", " << std::stod(filter_value_parts[1]);
-                //LOG(INFO) << "query h3 index: " << query_index << " at res: " << size_t(f.geo_resolution);
+                if(is_polygon) {
+                    const int num_verts = int(filter_value_parts.size()) / 2;
+                    GeoCoord* verts = new GeoCoord[num_verts];
 
-                size_t k_rings = size_t(std::ceil(radius / indexed_edge_len));
-                size_t max_neighboring = maxKringSize(k_rings);
-                H3Index* neighboring_indices = static_cast<H3Index *>(calloc(max_neighboring, sizeof(H3Index)));
-                kRing(query_index, k_rings, neighboring_indices);
-
-                for (size_t hex_index = 0; hex_index < max_neighboring; hex_index++) {
-                    // Some indexes may be 0 to indicate fewer than the maximum number of indexes.
-                    if (neighboring_indices[hex_index] != 0) {
-                        //LOG(INFO) << "Neighbour index: " << neighboring_indices[hex_index];
-                        num_tree->search(EQUALS, neighboring_indices[hex_index], &temp_ids, temp_ids_len);
+                    for(size_t point_index = 0; point_index < size_t(num_verts); point_index++) {
+                        double lat = degsToRads(std::stod(filter_value_parts[point_index * 2]));
+                        double lon = degsToRads(std::stod(filter_value_parts[point_index * 2 + 1]));
+                        verts[point_index] = {lat, lon};
                     }
-                }
 
-                free(neighboring_indices);
+                    Geofence geo_fence = {num_verts, verts};
+                    GeoPolygon geo_polygon = {geo_fence, 0, nullptr};
+                    double lon_offset = transform_for_180th_meridian(geo_fence);
 
-                // `result_ids` will contain all IDs that are within K-ring hexagons
-                // we still need to do another round of exact filtering on them
+                    size_t num_hexagons = maxPolyfillSize(&geo_polygon, f.geo_resolution);
 
-                H3Index query_point_index = geoToH3(&location, FINEST_GEO_RESOLUTION);
-                for(size_t result_index = 0; result_index < temp_ids_len; result_index++) {
-                    uint32_t result_id = temp_ids[result_index];
-                    size_t actual_dist_meters = h3Distance(query_point_index, record_to_geo->at(result_id));
-                    if(actual_dist_meters <= radius) {
-                        auto it = result_to_distance.find(result_id);
-                        if(it == result_to_distance.end()) {
-                            result_to_distance.emplace(result_id, actual_dist_meters);
-                        } else {
-                            result_to_distance.emplace(result_id, std::min(actual_dist_meters, it->second));
+                    H3Index* hexagons = static_cast<H3Index *>(calloc(num_hexagons, sizeof(H3Index)));
+
+                    polyfill(&geo_polygon, f.geo_resolution, hexagons);
+
+                    // we will have to expand by kring=1 to ensure that hexagons completely cover the polygon
+                    // see: https://github.com/uber/h3/issues/332
+                    std::set<uint64_t> expanded_hexagons;
+
+                    for (size_t hex_index = 0; hex_index < num_hexagons; hex_index++) {
+                        // Some indexes may be 0 to indicate fewer than the maximum number of indexes.
+                        if (hexagons[hex_index] != 0) {
+                            expanded_hexagons.emplace(hexagons[hex_index]);
+
+                            size_t k_rings = 1;
+                            size_t max_neighboring = maxKringSize(k_rings);
+                            H3Index* neighboring_indices = static_cast<H3Index *>(calloc(max_neighboring, sizeof(H3Index)));
+                            kRing(hexagons[hex_index], k_rings, neighboring_indices);
+
+                            for (size_t neighbour_index = 0; neighbour_index < max_neighboring; neighbour_index++) {
+                                if (neighboring_indices[neighbour_index] != 0) {
+                                    expanded_hexagons.emplace(neighboring_indices[neighbour_index]);
+                                }
+                            }
+
+                            free(neighboring_indices);
                         }
                     }
+
+                    for(auto hex_id: expanded_hexagons) {
+                         num_tree->get(hex_id, geo_result_ids);
+                    }
+
+                    // we will do an exact filtering again with point-in-poly checks
+                    std::vector<uint32_t> exact_geo_result_ids;
+                    for(auto result_id: geo_result_ids) {
+                        GeoCoord point;
+                        h3ToGeo(record_to_geo->at(result_id), &point);
+                        point.lon = point.lon < 0.0 ? point.lon + lon_offset : point.lon;
+
+                        if(is_point_in_polygon(geo_fence, point)) {
+                            exact_geo_result_ids.push_back(result_id);
+                        }
+                    }
+            
+                    std::sort(exact_geo_result_ids.begin(), exact_geo_result_ids.end());
+
+                    uint32_t *out = nullptr;
+                    result_ids_len = ArrayUtils::or_scalar(&exact_geo_result_ids[0], exact_geo_result_ids.size(),
+                                                         result_ids, result_ids_len, &out);
+
+                    delete [] result_ids;
+                    result_ids = out;
+
+                    free(hexagons);
+                    delete [] verts;
+                } else {
+                    double radius = std::stof(filter_value_parts[2]);
+                    const auto& unit = filter_value_parts[3];
+
+                    if(unit == "km") {
+                        radius *= 1000;
+                    } else {
+                        // assume "mi" (validated upstream)
+                        radius *= 1609.34;
+                    }
+
+                    GeoCoord location;
+                    location.lat = degsToRads(std::stod(filter_value_parts[0]));
+                    location.lon = degsToRads(std::stod(filter_value_parts[1]));
+                    H3Index query_index = geoToH3(&location, f.geo_resolution);
+
+                    //LOG(INFO) << "query latlon: " << std::stod(filter_value_parts[0]) << ", " << std::stod(filter_value_parts[1]);
+                    //LOG(INFO) << "query h3 index: " << query_index << " at res: " << size_t(f.geo_resolution);
+
+                    size_t k_rings = size_t(std::ceil(radius / indexed_edge_len));
+                    size_t max_neighboring = maxKringSize(k_rings);
+                    H3Index* neighboring_indices = static_cast<H3Index *>(calloc(max_neighboring, sizeof(H3Index)));
+                    kRing(query_index, k_rings, neighboring_indices);
+
+                    for (size_t hex_index = 0; hex_index < max_neighboring; hex_index++) {
+                        // Some indexes may be 0 to indicate fewer than the maximum number of indexes.
+                        if (neighboring_indices[hex_index] != 0) {
+                            //LOG(INFO) << "Neighbour index: " << neighboring_indices[hex_index];
+                            num_tree->get(neighboring_indices[hex_index], geo_result_ids);
+                        }
+                    }
+
+                    free(neighboring_indices);
+
+                    // `geo_result_ids` will contain all IDs that are within K-ring hexagons
+                    // we still need to do another round of exact filtering on them
+
+                    std::vector<uint32_t> exact_geo_result_ids;
+
+                    H3Index query_point_index = geoToH3(&location, FINEST_GEO_RESOLUTION);
+                    for(auto result_id: geo_result_ids) {
+                        size_t actual_dist_meters = h3Distance(query_point_index, record_to_geo->at(result_id));
+                        if(actual_dist_meters <= radius) {
+                            exact_geo_result_ids.push_back(result_id);
+                        }
+                    }
+
+                    std::sort(exact_geo_result_ids.begin(), exact_geo_result_ids.end());
+
+                    uint32_t *out = nullptr;
+                    result_ids_len = ArrayUtils::or_scalar(&exact_geo_result_ids[0], exact_geo_result_ids.size(),
+                                                         result_ids, result_ids_len, &out);
+
+                    delete [] result_ids;
+                    result_ids = out;
                 }
             }
-
-            result_ids = new uint32_t[result_to_distance.size()];
-
-            // add IDs from `result_to_distance` to `result_ids`
-            size_t kv_index = 0;
-            for(const auto& kv: result_to_distance) {
-                result_ids[kv_index++] = kv.first;
-            }
-
-            result_ids_len = result_to_distance.size();
-            delete [] temp_ids;
 
         } else if(f.is_string()) {
             art_tree* t = search_index.at(a_filter.field_name);
@@ -2714,4 +2782,59 @@ void Index::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_
             del_doc[it.key()] = old_doc[it.key()];
         }
     }
+}
+
+// https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
+// NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`
+bool Index::is_point_in_polygon(const Geofence& poly, const GeoCoord &point) {
+    int i, j;
+    bool c = false;
+
+    for (i = 0, j = poly.numVerts - 1; i < poly.numVerts; j = i++) {
+        if ((((poly.verts[i].lat <= point.lat) && (point.lat < poly.verts[j].lat))
+             || ((poly.verts[j].lat <= point.lat) && (point.lat < poly.verts[i].lat)))
+            && (point.lon < (poly.verts[j].lon - poly.verts[i].lon) * (point.lat - poly.verts[i].lat)
+                            / (poly.verts[j].lat - poly.verts[i].lat) + poly.verts[i].lon)) {
+
+            c = !c;
+        }
+    }
+
+    return c;
+}
+
+double Index::transform_for_180th_meridian(Geofence &poly) {
+    double offset = 0.0;
+    double maxLon = -1000, minLon = 1000;
+
+    for(int v=0; v < poly.numVerts; v++) {
+        if(poly.verts[v].lon < minLon) {
+            minLon = poly.verts[v].lon;
+        }
+
+        if(poly.verts[v].lon > maxLon) {
+            maxLon = poly.verts[v].lon;
+        }
+
+        if(std::abs(minLon - maxLon) > 180) {
+            offset = 360.0;
+        }
+    }
+
+    int i, j;
+    for (i = 0, j = poly.numVerts - 1; i < poly.numVerts; j = i++) {
+        if (poly.verts[i].lon < 0.0) {
+            poly.verts[i].lon += offset;
+        }
+
+        if (poly.verts[j].lon < 0.0) {
+            poly.verts[j].lon += offset;
+        }
+    }
+
+    return offset;
+}
+
+void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
+    point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
 }

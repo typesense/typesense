@@ -32,6 +32,7 @@ namespace fields {
     static const std::string type = "type";
     static const std::string facet = "facet";
     static const std::string optional = "optional";
+    static const std::string geo_resolution = "geo_resolution";
 }
 
 static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
@@ -198,6 +199,10 @@ struct field {
             field_val[fields::type] = field.type;
             field_val[fields::facet] = field.facet;
             field_val[fields::optional] = field.optional;
+            if(field.is_geopoint()) {
+                field_val[fields::geo_resolution] = field.geo_resolution;
+            }
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -253,6 +258,19 @@ struct field {
             if(field_json.count(fields::optional) != 0 && !field_json.at(fields::optional).is_boolean()) {
                 return Option<bool>(400, std::string("The `optional` property of the field `") +
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json.count(fields::geo_resolution) != 0) {
+                if(!field_json.at(fields::geo_resolution).is_number_integer()) {
+                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` should be an integer."));
+                }
+
+                int field_geo_res = field_json.at(fields::geo_resolution).get<int>();
+                if(field_geo_res < 0 || field_geo_res > 15) {
+                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
+                           field_json[fields::name].get<std::string>() + std::string("` should be between 0 and 15."));
+                }
             }
 
             if(field_json["name"] == "*") {

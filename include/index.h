@@ -15,6 +15,7 @@
 #include <field.h>
 #include <option.h>
 #include <set>
+#include <h3api.h>
 #include "string_utils.h"
 #include "num_tree.h"
 #include "magic_enum.hpp"
@@ -384,6 +385,12 @@ public:
                                          const std::vector<uint32_t*>& leaf_to_indices,
                                          const size_t result_index,
                                          std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> &array_token_positions);
+
+    static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
+
+    static double transform_for_180th_meridian(Geofence& poly);
+
+    static void transform_for_180th_meridian(GeoCoord& point, double offset);
 
     // the following methods are not synchronized because their parent calls are synchronized
 
