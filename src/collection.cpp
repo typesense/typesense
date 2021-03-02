@@ -154,6 +154,11 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::type] = coll_field.type;
         field_json[fields::facet] = coll_field.facet;
         field_json[fields::optional] = coll_field.optional;
+
+        if(coll_field.is_geopoint()) {
+            field_json[fields::geo_resolution] = size_t(coll_field.geo_resolution);
+        }
+
         fields_arr.push_back(field_json);
     }
 
@@ -1794,31 +1799,50 @@ Option<bool> Collection::parse_geopoint_filter_value(std::string& raw_value,
     }
 
     std::vector<std::string> filter_values;
-    StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
+    auto raw_val_without_paran = raw_value.substr(1, raw_value.size() - 2);
+    StringUtils::split(raw_val_without_paran, filter_values, ",");
 
-    // we will end up with: "10.45 34.56 2 km"
+    // we will end up with: "10.45 34.56 2 km" or a geo polygon
 
-    if(filter_values.size() != 3) {
+    if(filter_values.size() < 3) {
         return Option<bool>(400, format_err_msg);
     }
 
-    if(!StringUtils::is_float(filter_values[0]) || !StringUtils::is_float(filter_values[1])) {
-        return Option<bool>(400, format_err_msg);
+    // do validation: format should match either a point + radius or polygon
+
+    size_t num_floats = 0;
+    for(const auto& fvalue: filter_values) {
+        if(StringUtils::is_float(fvalue)) {
+            num_floats++;
+        }
     }
 
-    std::vector<std::string> dist_values;
-    StringUtils::split(filter_values[2], dist_values, " ");
-
-    if(dist_values.size() != 2) {
-        return Option<bool>(400, format_err_msg);
+    bool is_polygon = (num_floats == filter_values.size());
+    if(!is_polygon) {
+        // we have to ensure that this is a point + radius match
+        if(!StringUtils::is_float(filter_values[0]) || !StringUtils::is_float(filter_values[1])) {
+            return Option<bool>(400, format_err_msg);
+        }
     }
 
-    if(dist_values[1] != "km" && dist_values[1] != "mi") {
-        return Option<bool>(400, "Unit must be either `km` or `mi`.");
-    }
+    if(is_polygon) {
+        processed_filter_val = raw_val_without_paran;
+    } else {
+        // point + radius
+        std::vector<std::string> dist_values;
+        StringUtils::split(filter_values[2], dist_values, " ");
 
-    processed_filter_val = filter_values[0] + " " + filter_values[1] + " " + // co-ords
-                           dist_values[0] + " " +  dist_values[1];           // X km
+        if(dist_values.size() != 2) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        if(dist_values[1] != "km" && dist_values[1] != "mi") {
+            return Option<bool>(400, "Unit must be either `km` or `mi`.");
+        }
+
+        processed_filter_val = filter_values[0] + ", " + filter_values[1] + ", " + // co-ords
+                               dist_values[0] + ", " +  dist_values[1];           // X km
+    }
 
    return Option<bool>(true);
 }
@@ -1950,7 +1974,8 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
             f = {field_name, {}, {}};
 
             const std::string& format_err_msg = "Value of filter field `" + _field.name +
-                                                "`: must be in the `(-44.50, 170.29, 0.75 km)` format.";
+                                                "`: must be in the `(-44.50, 170.29, 0.75 km)` or "
+                                                "(56.33, -65.97, 23.82, -127.82) format.";
 
             NUM_COMPARATOR num_comparator;
 

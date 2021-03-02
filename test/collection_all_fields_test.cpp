@@ -535,4 +535,20 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("auto", fields[0].type);
+
+    fields_json.clear();
+    all_field[fields::name] = "loc";
+    all_field[fields::type] = "geopoint";
+    all_field[fields::geo_resolution] = "blah";
+    fields_json.emplace_back(all_field);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("The `geo_resolution` property of the field `loc` should be an integer.", parse_op.error());
+
+    fields_json.clear();
+    all_field[fields::geo_resolution] = 24;
+    fields_json.emplace_back(all_field);
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("The `geo_resolution` property of the field `loc` should be between 0 and 15.", parse_op.error());
 }

@@ -24,10 +24,11 @@ protected:
         collectionManager.load();
 
         search_fields = {
-                field("title", field_types::STRING, false),
-                field("starring", field_types::STRING, false),
-                field("cast", field_types::STRING_ARRAY, true, true),
-                field("points", field_types::INT32, false)
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true, true),
+            field("location", field_types::GEOPOINT, false, true, 14),
+            field("points", field_types::INT32, false)
         };
 
         sort_fields = { sort_by("points", "DESC") };
@@ -56,8 +57,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(1, collection1->get_sort_fields().size());
-    ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
+    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -86,6 +88,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
+              "{\"facet\":false,\"geo_resolution\":14,\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
@@ -248,8 +251,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(1, collection1->get_sort_fields().size());
-    ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
+    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
