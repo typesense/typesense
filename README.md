@@ -7,7 +7,11 @@
 
 <p align="center">
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
- <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>  
+ <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
+  <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
+  <br/>
+  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg"><img src="https://img.shields.io/badge/slack%20community-join-orange"></a>
+  <a href="https://typesense.org/api"><img src="https://img.shields.io/badge/documentation-read-blue"></a>
 </p>
 <br>
 <p align="center">
