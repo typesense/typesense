@@ -27,6 +27,7 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 ## Quick Links
 
 - [Features](#features)
+- [Who's using this](#whos-using-this)
 - [Install](#install)
 - [Quick Start](#quick-start)
 - [Step-by-step Walk-through](#step-by-step-walk-through)
@@ -57,6 +58,12 @@ Here are a couple of **live demos** that show Typesense in action on large datas
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 
 **Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+
+## Who's using this?
+
+Typesense is used by a range of users across different industries. We've only recently started documenting who's using it in our [Showcase](SHOWCASE.md).
+
+If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
 
 ## Install
 
