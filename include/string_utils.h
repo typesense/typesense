@@ -8,6 +8,7 @@
 #include <iconv.h>
 #include <vector>
 #include <random>
+#include <map>
 #include "wyhash_v5.h"
 
 struct StringUtils {
@@ -97,7 +98,7 @@ struct StringUtils {
     // Convert string of chars to its representative string of hex numbers
     static std::string str2hex(const std::string& str, bool capital = false);
 
-    static std::string url_decode(std::string text) {
+    static std::string url_decode(const std::string& text) {
         char h;
         std::ostringstream escaped;
         escaped.fill('0');
@@ -298,4 +299,6 @@ struct StringUtils {
     static bool begins_with(const std::string& str, const std::string& prefix) {
         return str.rfind(prefix, 0) == 0;
     }
+
+    static std::map<std::string, std::string> parse_query_string(const std::string& query);
 };

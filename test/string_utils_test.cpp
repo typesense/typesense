@@ -134,3 +134,90 @@ TEST(StringUtilsTest, ShouldComputeSHA256) {
     ASSERT_STREQ("6613f67d3d78d48e2678faf55c33fabc5895c538ce70ea10218ce9b7eccbf394",
                   StringUtils::hash_sha256("791a27668b3e01fc6ab3482b6e6a36255154df3ecd7dcec").c_str());
 }
+
+TEST(StringUtilsTest, ShouldParseQueryString) {
+    std::string qs = "?q=bar&filter_by=points: >100 && points: <200";
+    auto qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
+
+    qs = "?q=bar&filter_by=points%3A%20%3E100%20%26%26%20points%3A%20%3C200";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
+
+    qs = "?q=bar&filter_by=points%3A%20%3E100%20%26%26%20points%3A%20%3C200&";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
+
+    qs = "q=bar&filter_by=baz&&";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("baz&", qmap["filter_by"]);
+
+    qs = "q=bar&filter_by=";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("", qmap["filter_by"]);
+
+    qs = "q=bar&filter_by=&";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("", qmap["filter_by"]);
+
+    qs = "q=bar&filter_by=points :> 100&enable_typos";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(3, qmap.size());
+    ASSERT_EQ("bar", qmap["q"]);
+    ASSERT_EQ("points :> 100", qmap["filter_by"]);
+    ASSERT_EQ("", qmap["enable_typos"]);
+
+    qs = "foo=" + StringUtils::randstring(2000);
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(0, qmap.size());
+
+    qs = "foo=bar&baz=&bazinga=true";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(3, qmap.size());
+    ASSERT_EQ("bar", qmap["foo"]);
+    ASSERT_EQ("", qmap["baz"]);
+    ASSERT_EQ("true", qmap["bazinga"]);
+
+    qs = "foo";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(1, qmap.size());
+    ASSERT_EQ("", qmap["foo"]);
+
+    qs = "?foo=";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(1, qmap.size());
+    ASSERT_EQ("", qmap["foo"]);
+
+    qs = "?foo";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(1, qmap.size());
+    ASSERT_EQ("", qmap["foo"]);
+
+    qs = "?";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(0, qmap.size());
+
+    qs = "";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(0, qmap.size());
+
+    qs = "&";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(0, qmap.size());
+
+    qs = "&&";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(0, qmap.size());
+}

@@ -102,8 +102,6 @@ private:
     h2o_pathconf_t *register_handler(h2o_hostconf_t *hostconf, const char *path,
                                      int (*on_req)(h2o_handler_t *, h2o_req_t *));
 
-    static std::map<std::string, std::string> parse_query(const std::string& query);
-
     static int catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req);
 
     static void response_proceed(h2o_generator_t *generator, h2o_req_t *req);

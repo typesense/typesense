@@ -246,29 +246,6 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
     return pathconf;
 }
 
-std::map<std::string, std::string> HttpServer::parse_query(const std::string& query) {
-    std::map<std::string, std::string> query_map;
-    std::regex pattern("([\\w+%-]+)=([^&]*)");
-
-    auto words_begin = std::sregex_iterator(query.begin(), query.end(), pattern);
-    auto words_end = std::sregex_iterator();
-
-    for (std::sregex_iterator i = words_begin; i != words_end; i++) {
-        std::string key = (*i)[1].str();
-        std::string raw_value = (*i)[2].str();
-        std::string value = StringUtils::url_decode(raw_value);
-        if(query_map.count(key) == 0) {
-            query_map[key] = value;
-        } else if(key == "filter_by") {
-            query_map[key] = query_map[key] + "&&" + value;
-        } else {
-            query_map[key] = value;
-        }
-    }
-
-    return query_map;
-}
-
 uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                                 route_path** found_rpath) {
     for (const auto& index_route : routes) {
@@ -376,7 +353,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
                         h2o_iovec_init(H2O_STRLIT(""));
 
     std::string query_str(query.base, query.len);
-    std::map<std::string, std::string> query_map = parse_query(query_str);
+    std::map<std::string, std::string> query_map = StringUtils::parse_query_string(query_str);
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.
     std::string api_auth_key_sent = "";
