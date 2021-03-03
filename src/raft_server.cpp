@@ -475,21 +475,26 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
                 }
 
                 uint64_t leader_seq = std::atoll(api_res.c_str());
-                if(leader_seq < seq_num) {
-                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
-                    this->caught_up = false;
-                    return ;
-                }
 
-                const uint64_t seq_diff = leader_seq - seq_num;
+                // Since leader waits for writes on followers to finish, follower's storage offset could be
+                // momentarily ahead of the leader's. So we will use std::abs() for checking the difference.
+                const int64_t seq_diff = std::abs(int64_t(leader_seq) - int64_t(seq_num));
 
                 if(seq_diff < CATCHUP_MIN_SEQUENCE_DIFF) {
                     this->caught_up = true;
                     return ;
                 }
 
+                // However, if the difference is large, then something is wrong
+                if(leader_seq < seq_num) {
+                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
+                    this->caught_up = false;
+                    return ;
+                }
+
                 float seq_progress = (float(seq_num) / leader_seq) * 100;
                 LOG(INFO) << "Follower progress percentage: " << seq_progress;
+
                 this->caught_up = (seq_progress >= catch_up_threshold_percentage);
             }
         });
