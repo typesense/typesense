@@ -166,6 +166,19 @@ TEST(StringUtilsTest, ShouldParseQueryString) {
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("", qmap["filter_by"]);
 
+    qs = "q=bread && breakfast&filter_by=";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("bread && breakfast", qmap["q"]);
+    ASSERT_EQ("", qmap["filter_by"]);
+
+    qs = "q=bread & breakfast&filter_by=";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(3, qmap.size());
+    ASSERT_EQ("bread ", qmap["q"]);
+    ASSERT_EQ("", qmap[" breakfast"]);
+    ASSERT_EQ("", qmap["filter_by"]);
+
     qs = "q=bar&filter_by=&";
     qmap = StringUtils::parse_query_string(qs);
     ASSERT_EQ(2, qmap.size());
@@ -188,6 +201,24 @@ TEST(StringUtilsTest, ShouldParseQueryString) {
     ASSERT_EQ(3, qmap.size());
     ASSERT_EQ("bar", qmap["foo"]);
     ASSERT_EQ("", qmap["baz"]);
+    ASSERT_EQ("true", qmap["bazinga"]);
+
+    qs = "foo=bar&bazinga=true&foo=buzz";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("buzz", qmap["foo"]);
+    ASSERT_EQ("true", qmap["bazinga"]);
+
+    qs = "filter_by=points:>100&bazinga=true&filter_by=points:<=200";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("points:>100&&points:<=200", qmap["filter_by"]);
+    ASSERT_EQ("true", qmap["bazinga"]);
+
+    qs = "filter_by=points:>100 && brand:= nike&bazinga=true&filter_by=points:<=200";
+    qmap = StringUtils::parse_query_string(qs);
+    ASSERT_EQ(2, qmap.size());
+    ASSERT_EQ("points:>100 && brand:= nike&&points:<=200", qmap["filter_by"]);
     ASSERT_EQ("true", qmap["bazinga"]);
 
     qs = "foo";
