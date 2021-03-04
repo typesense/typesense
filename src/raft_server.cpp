@@ -487,7 +487,8 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
                 // However, if the difference is large, then something could be wrong
                 if(leader_seq < seq_num) {
-                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
+                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num
+                               << ", catchup_min_sequence_diff: " << catchup_min_sequence_diff;
                     this->caught_up = false;
                     return ;
                 }
