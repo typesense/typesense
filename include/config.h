@@ -32,6 +32,7 @@ private:
     float max_memory_ratio;
     int snapshot_interval_seconds;
 
+    size_t catch_up_min_sequence_diff;
     size_t catch_up_threshold_percentage;
 
     std::string config_file;
@@ -48,6 +49,7 @@ protected:
         this->enable_cors = false;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
+        this->catch_up_min_sequence_diff = 3000;
         this->catch_up_threshold_percentage = 95;
         this->log_slow_requests_time_ms = -1;
     }
@@ -179,6 +181,10 @@ public:
         return this->snapshot_interval_seconds;
     }
 
+    int get_catch_up_min_sequence_diff() const {
+        return this->catch_up_min_sequence_diff;
+    }
+
     int get_catch_up_threshold_percentage() const {
         return this->catch_up_threshold_percentage;
     }
@@ -245,6 +251,10 @@ public:
 
         if(!get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS").empty()) {
             this->snapshot_interval_seconds = std::stoi(get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS"));
+        }
+
+        if(!get_env("TYPESENSE_CATCH_UP_MIN_SEQUENCE_DIFF").empty()) {
+            this->catch_up_min_sequence_diff = std::stoi(get_env("TYPESENSE_CATCH_UP_MIN_SEQUENCE_DIFF"));
         }
 
         if(!get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE").empty()) {
@@ -344,6 +354,10 @@ public:
             this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
         }
 
+        if(reader.Exists("server", "catch-up-min-sequence-diff")) {
+            this->catch_up_min_sequence_diff = (int) reader.GetInteger("server", "catch-up-min-sequence-diff", 3000);
+        }
+
         if(reader.Exists("server", "catch-up-threshold-percentage")) {
             this->catch_up_threshold_percentage = (int) reader.GetInteger("server", "catch-up-threshold-percentage", 95);
         }
@@ -421,6 +435,10 @@ public:
 
         if(options.exist("snapshot-interval-seconds")) {
             this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
+        }
+
+        if(options.exist("catch-up-min-sequence-diff")) {
+            this->catch_up_min_sequence_diff = options.get<int>("catch-up-min-sequence-diff");
         }
 
         if(options.exist("catch-up-threshold-percentage")) {
