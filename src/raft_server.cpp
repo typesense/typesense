@@ -478,14 +478,14 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
                 // Since leader waits for writes on followers to finish, follower's storage offset could be
                 // momentarily ahead of the leader's. So we will use std::abs() for checking the difference.
-                const int64_t seq_diff = std::abs(int64_t(leader_seq) - int64_t(seq_num));
+                const uint64_t seq_diff = std::abs(int64_t(leader_seq) - int64_t(seq_num));
 
-                if(seq_diff < CATCHUP_MIN_SEQUENCE_DIFF) {
+                if(seq_diff < catchup_min_sequence_diff) {
                     this->caught_up = true;
                     return ;
                 }
 
-                // However, if the difference is large, then something is wrong
+                // However, if the difference is large, then something could be wrong
                 if(leader_seq < seq_num) {
                     LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
                     this->caught_up = false;
@@ -502,10 +502,11 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 }
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl, size_t catch_up_threshold_percentage,
+                                   bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
                                    bool create_init_db_snapshot, std::atomic<bool>& quit_service):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
-        message_dispatcher(message_dispatcher), catch_up_threshold_percentage(catch_up_threshold_percentage),
+        message_dispatcher(message_dispatcher),
+        catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
         api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
 
 }

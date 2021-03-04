@@ -78,6 +78,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
+    options.add<int>("catch-up-min-sequence-diff", '\0', "The absolute storage sequence difference within which a follower is deemed to have caught up with leader.", false, 3000);
     options.add<int>("catch-up-threshold-percentage", '\0', "The threshold at which a follower is deemed to have caught up with leader.", false, 95);
     options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
 
@@ -392,7 +393,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     // first we start the peering service
 
     ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
-                                       ssl_enabled, config.get_catch_up_threshold_percentage(),
+                                       ssl_enabled, config.get_catch_up_min_sequence_diff(),
+                                       config.get_catch_up_threshold_percentage(),
                                        create_init_db_snapshot, quit_raft_service);
 
     std::thread raft_thread([&replication_state, &config, &state_dir]() {

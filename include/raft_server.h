@@ -94,7 +94,6 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
-    static const size_t CATCHUP_MIN_SEQUENCE_DIFF = 3000;
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
@@ -104,6 +103,7 @@ private:
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
+    const size_t catchup_min_sequence_diff;
     const size_t catch_up_threshold_percentage;
     std::atomic<bool> caught_up;
 
@@ -126,7 +126,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t catch_up_threshold_percentage,
+                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
                      bool create_init_db_snapshot, std::atomic<bool>& quit_service);
 
     // Starts this node
