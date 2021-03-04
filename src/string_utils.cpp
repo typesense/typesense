@@ -141,17 +141,17 @@ std::map<std::string, std::string> StringUtils::parse_query_string(const std::st
 
         if(start_of_new_param || end_of_params) {
             // Save accumulated key_value
+            if(end_of_params && query[i] != '&') {
+                key_value += query[i];
+            }
+
             size_t j = 0;
             bool iterating_on_key = true;
             std::string key;
             std::string value;
 
-            if(end_of_params && query[i] != '&') {
-                key_value += query[i];
-            }
-
             while(j < key_value.size()) {
-                if(key_value[j] == '=') {
+                if(key_value[j] == '=' && iterating_on_key) {
                     iterating_on_key = false;
                 } else if(iterating_on_key) {
                     key += key_value[j];
