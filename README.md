@@ -12,6 +12,7 @@
   <br/>
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg"><img src="https://img.shields.io/badge/slack%20community-join-orange"></a>
   <a href="https://typesense.org/api"><img src="https://img.shields.io/badge/documentation-read-blue"></a>
+  <a href="https://calendly.com/jason-typesense/typesense-office-hours"><img src="https://img.shields.io/badge/office%20hours-join-orange"></a>
 </p>
 <br>
 <p align="center">
@@ -271,6 +272,8 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 ## Support
 
 👋 🌐 New: If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
+
+We also do virtual office hours every Friday. Reserve a time slot [here](https://calendly.com/jason-typesense/typesense-office-hours).
 
 If you run into any problems or issues, please create a Github issue and we'll try our best to help.
 
