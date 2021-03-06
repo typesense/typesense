@@ -32,6 +32,7 @@ namespace fields {
     static const std::string type = "type";
     static const std::string facet = "facet";
     static const std::string optional = "optional";
+    static const std::string index = "index";
     static const std::string geo_resolution = "geo_resolution";
 }
 
@@ -43,22 +44,13 @@ struct field {
     std::string type;
     bool facet;
     bool optional;
+    bool index;
 
     uint8_t geo_resolution;
 
-    field(const std::string & name, const std::string & type, const bool facet):
-        name(name), type(type), facet(facet), optional(false), geo_resolution(DEFAULT_GEO_RESOLUTION) {
-
-    }
-
-    field(const std::string & name, const std::string & type, const bool facet, const bool optional):
-            name(name), type(type), facet(facet), optional(optional), geo_resolution(DEFAULT_GEO_RESOLUTION) {
-
-    }
-
-    field(const std::string & name, const std::string & type, const bool facet, const bool optional,
-          const uint8_t geo_resolution):
-            name(name), type(type), facet(facet), optional(optional), geo_resolution(geo_resolution) {
+    field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
+          bool index = true, const uint8_t geo_resolution = DEFAULT_GEO_RESOLUTION) :
+            name(name), type(type), facet(facet), optional(optional), index(index), geo_resolution(geo_resolution) {
 
     }
 
@@ -119,6 +111,10 @@ struct field {
 
     bool is_singular() const {
         return !is_array();
+    }
+
+    bool is_dynamic() const {
+        return name.find(".*") != std::string::npos;
     }
 
     bool has_numerical_index() const {
@@ -226,6 +222,10 @@ struct field {
 
                 found_default_sorting_field = true;
             }
+
+            if(field.is_dynamic() && !field.optional) {
+                return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
+            }
         }
 
         if(!default_sorting_field.empty() && !found_default_sorting_field) {
@@ -309,7 +309,12 @@ struct field {
             }
 
             if(field_json.count("optional") == 0) {
-                field_json["optional"] = false;
+                // actual value will depend on whether field name is dynamic or not (i.e. contains .*)
+                if(field_json["name"].get<std::string>().find(".*") != std::string::npos) {
+                    field_json["optional"] = true;
+                } else {
+                    field_json["optional"] = false;
+                }
             }
 
             fields.emplace_back(
@@ -472,6 +477,10 @@ struct facet_value_t {
 struct facet_hash_values_t {
     uint32_t length = 0;
     uint64_t* hashes = nullptr;
+
+    ~facet_hash_values_t() {
+        delete [] hashes;
+    }
 
     uint64_t size() const {
         return length;

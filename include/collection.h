@@ -321,9 +321,11 @@ private:
 
     const float max_memory_ratio;
 
-    const std::vector<Index*> indices;
-
     const std::string fallback_field_type;
+
+    std::vector<field> dynamic_fields;
+
+    const std::vector<Index*> indices;
 
     // methods
 
@@ -452,6 +454,8 @@ public:
     std::vector<field> get_sort_fields();
 
     std::vector<field> get_fields();
+
+    std::vector<field> get_dynamic_fields();
 
     std::unordered_map<std::string, field> get_schema();
 

@@ -855,6 +855,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                         facet_count_t& facet_count = a_facet.result_map[fhash];
 
+                        /*LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id
+                                  << ", hash: " <<  fhash;*/
+
                         facet_count.doc_id = doc_seq_id;
                         facet_count.array_pos = array_pos;
 
@@ -2467,6 +2470,18 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
             } else {
                 num_tree_t* num_tree = new num_tree_t;
                 numerical_index.emplace(new_field.name, num_tree);
+            }
+        }
+
+        if(new_field.is_facet()) {
+            facet_schema.emplace(new_field.name, new_field);
+            facet_index_v3.emplace(new_field.name, spp::sparse_hash_map<uint32_t, facet_hash_values_t>());
+
+            // initialize for non-string facet fields
+            if(!new_field.is_string()) {
+                art_tree *ft = new art_tree;
+                art_tree_init(ft);
+                search_index.emplace(new_field.faceted_name(), ft);
             }
         }
 

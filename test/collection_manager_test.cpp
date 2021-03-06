@@ -27,7 +27,8 @@ protected:
             field("title", field_types::STRING, false),
             field("starring", field_types::STRING, false),
             field("cast", field_types::STRING_ARRAY, true, true),
-            field("location", field_types::GEOPOINT, false, true, 14),
+            field(".*_year", field_types::INT32, true, true),
+            field("location", field_types::GEOPOINT, false, true, true, 14),
             field("points", field_types::INT32, false)
         };
 
@@ -88,6 +89,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
               "{\"facet\":false,\"geo_resolution\":14,\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4}",

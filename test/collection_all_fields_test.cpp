@@ -552,3 +552,217 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_FALSE(parse_op.ok());
     ASSERT_EQ("The `geo_resolution` property of the field `loc` should be between 0 and 15.", parse_op.error());
 }
+
+TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::STRING, true, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Amazon";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Walmart";
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
+    ASSERT_EQ("Amazon", results["hits"][1]["document"]["org_name"].get<std::string>());
+
+    ASSERT_EQ("Amazon", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("Walmart", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+
+    // add another type of .*_name field
+
+    doc.clear();
+    doc["title"]  = "Company";
+    doc["company_name"]  = "Stark";
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_EQ("company_name", results["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Stark", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("org_name", results["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("Amazon", results["facet_counts"][1]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][1]["counts"][0]["count"]);
+
+    ASSERT_EQ("Walmart", results["facet_counts"][1]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][1]["counts"][1]["count"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::STRING, true, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Amazon";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Walmart";
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
+    ASSERT_EQ("Amazon", results["hits"][1]["document"]["org_name"].get<std::string>());
+
+    ASSERT_EQ("Amazon", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("Walmart", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+
+    // add another type of .*_name field
+
+    doc.clear();
+    doc["title"]  = "Company";
+    doc["company_name"]  = "Stark";
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_EQ("company_name", results["facet_counts"][0]["field_name"].get<std::string>());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Stark", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("org_name", results["facet_counts"][1]["field_name"].get<std::string>());
+    ASSERT_EQ(2, results["facet_counts"][1]["counts"].size());
+    ASSERT_EQ("Amazon", results["facet_counts"][1]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][1]["counts"][0]["count"]);
+
+    ASSERT_EQ("Walmart", results["facet_counts"][1]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][1]["counts"][1]["count"]);
+
+    // Don't allow auto detection of schema when AUTO mode is not chosen
+    doc["description"]  = "Stark company.";
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res_op = coll1->search("*", {"description"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `description` in the schema.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
+    Collection *coll1;
+
+    std::vector<field> bad_fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::STRING, true, false),};
+
+    auto op = collectionManager.create_collection("coll1", 1, bad_fields, "", 0);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `.*_name` with wildcard name must be an optional field.", op.error());
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::STRING, true, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        op = collectionManager.create_collection("coll1", 1, fields, "", 0);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::STRING, false, true),
+                                 field(".*_year", field_types::INT32, true, true),
+                                 field("*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    ASSERT_EQ(4, coll1->get_fields().size());
+    ASSERT_EQ(2, coll1->get_dynamic_fields().size());
+
+    ASSERT_EQ(".*_name", coll1->get_dynamic_fields()[0].name);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
+    ASSERT_FALSE(coll1->get_dynamic_fields()[0].facet);
+
+    ASSERT_EQ(".*_year", coll1->get_dynamic_fields()[1].name);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
+    ASSERT_FALSE(coll1->get_dynamic_fields()[0].facet);
+
+    nlohmann::json doc;
+    doc["title"]  = "Amazon Inc.";
+    doc["org_name"]  = "Amazon";
+    doc["org_year"]  = 1994;
+    doc["rand_int"]  = 42;
+    doc["rand_str"]  = "fizzbuzz";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res_op = coll1->search("Amazon", {"org_name"}, "", {"org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a facet field named `org_name` in the schema.", res_op.error());
+
+    auto results = coll1->search("Amazon", {"org_name"}, "", {"org_year"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    res_op = coll1->search("fizzbuzz", {"rand_str"}, "", {"rand_str"}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_EQ("Could not find a facet field named `rand_str` in the schema.", res_op.error());
+
+    results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}

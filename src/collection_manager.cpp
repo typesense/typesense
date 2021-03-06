@@ -25,13 +25,17 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::optional] = false;
         }
 
+        if(field_obj.count(fields::index) == 0) {
+            field_obj[fields::index] = true;
+        }
+
         // handle older records indexed before geo_resolution field introduction
         if(field_obj.count(fields::geo_resolution) == 0) {
             field_obj[fields::geo_resolution] = size_t(DEFAULT_GEO_RESOLUTION);
         }
 
         fields.push_back({field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
-                          field_obj[fields::optional], field_obj[fields::geo_resolution]});
+                          field_obj[fields::optional], field_obj[fields::index], field_obj[fields::geo_resolution]});
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
