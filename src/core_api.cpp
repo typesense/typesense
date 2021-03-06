@@ -140,15 +140,6 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
         return false;
     }
 
-    std::string fallback_field_type;
-    std::vector<field> fields;
-    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
-
-    if(!parse_op.ok()) {
-        res->set(parse_op.code(), parse_op.error());
-        return false;
-    }
-
     const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
     const Option<Collection*> & collection_op =
             collectionManager.create_collection(req_json, num_memory_shards, default_sorting_field);

@@ -13,6 +13,7 @@
 #include <tokenizer.h>
 #include <collection_manager.h>
 #include <h3api.h>
+#include <regex>
 #include "topster.h"
 #include "logger.h"
 
@@ -46,7 +47,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
-        indices(init_indices()), fallback_field_type(fallback_field_type) {
+        fallback_field_type(fallback_field_type), dynamic_fields({}),
+        indices(init_indices()) {
 
     this->num_documents = 0;
 }
@@ -154,6 +156,7 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::type] = coll_field.type;
         field_json[fields::facet] = coll_field.facet;
         field_json[fields::optional] = coll_field.optional;
+        field_json[fields::index] = coll_field.index;
 
         if(coll_field.is_geopoint()) {
             field_json[fields::geo_resolution] = size_t(coll_field.geo_resolution);
@@ -223,8 +226,8 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
             }
 
-            // if `fallback_field_type` is enabled, we will have to update schema first before indexing
-            if(!fallback_field_type.empty()) {
+            // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
+            if(!fallback_field_type.empty() || !dynamic_fields.empty()) {
                 Option<bool> schema_change_op = check_and_update_schema(record.doc, dirty_values);
                 if(!schema_change_op.ok()) {
                     record.index_failure(schema_change_op.code(), schema_change_op.error());
@@ -1292,6 +1295,10 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
                                        const nlohmann::json &document, std::string &value) const {
 
     if(document.count(a_facet.field_name) == 0) {
+        if(search_schema.at(a_facet.field_name).optional) {
+            return false;
+        }
+
         LOG(ERROR) << "Could not find field " << a_facet.field_name << " in document during faceting.";
         LOG(ERROR) << "Facet field type: " << facet_schema.at(a_facet.field_name).type;
         LOG(ERROR) << "Actual document: " << document;
@@ -1738,6 +1745,11 @@ std::vector<field> Collection::get_sort_fields() {
 std::vector<field> Collection::get_fields() {
     std::shared_lock lock(mutex);
     return fields;
+}
+
+std::vector<field> Collection::get_dynamic_fields() {
+    std::shared_lock lock(mutex);
+    return dynamic_fields;
 }
 
 std::unordered_map<std::string, field> Collection::get_schema() {
@@ -2261,11 +2273,30 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
     std::vector<field> new_fields;
 
     auto kv = document.begin();
-    for(; kv != document.end(); ) {
-        // we will not index the special "id" or doc meta keys
+    while(kv != document.end()) {
+        // we will not index the special "id" key
         if (search_schema.count(kv.key()) == 0 && kv.key() != "id") {
+            const std::string &fname = kv.key();
+            field new_field(fname, field_types::STRING, false, true);
             std::string field_type;
-            bool parseable = field::get_type(kv.value(), field_type);
+            bool parseable;
+
+            // check against dynamic field definitions
+            for(const auto& dynamic_field: dynamic_fields) {
+                if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
+                    new_field = dynamic_field;
+                    new_field.name = fname;
+                    goto UPDATE_SCHEMA;
+                }
+            }
+
+            if(fallback_field_type.empty()) {
+                // we will not auto detect schema if auto detection is not enabled
+                kv++;
+                continue;
+            }
+
+            parseable = field::get_type(kv.value(), field_type);
             if(!parseable) {
                 if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
                     return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
@@ -2276,28 +2307,31 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                 }
             }
 
-            const std::string &fname = kv.key();
-            field new_field(fname, field_type, false, true);
+            new_field.type = field_type;
 
-            if(!fallback_field_type.empty()) {
-                if (field_types::is_string_or_array(fallback_field_type)) {
-                    // Supporting single/array field detection only for strings, as it does not seem to be too useful for
-                    // other field types.
-                    if (new_field.is_array()) {
-                        new_field.type = field_types::STRING_ARRAY;
-                    } else {
-                        new_field.type = field_types::STRING;
-                    }
-                } else if(fallback_field_type != field_types::AUTO) {
-                    new_field.type = fallback_field_type;
+            if (field_types::is_string_or_array(fallback_field_type)) {
+                // Supporting single/array field detection only for strings, as it does not seem to be too useful for
+                // other field types.
+                if (new_field.is_array()) {
+                    new_field.type = field_types::STRING_ARRAY;
+                } else {
+                    new_field.type = field_types::STRING;
                 }
+            } else if(fallback_field_type != field_types::AUTO) {
+                new_field.type = fallback_field_type;
             }
 
-            search_schema.emplace(fname, new_field);
+            UPDATE_SCHEMA:
+
+            search_schema.emplace(new_field.name, new_field);
             fields.emplace_back(new_field);
             new_fields.emplace_back(new_field);
             if (new_field.is_sortable()) {
                 sort_schema.emplace(new_field.name, new_field);
+            }
+
+            if(new_field.is_facet()) {
+                facet_schema.emplace(new_field.name, new_field);
             }
         }
 
@@ -2348,6 +2382,12 @@ std::vector<Index *> Collection::init_indices() {
     std::vector<Index*> index_list;
 
     for(const field& field: fields) {
+        if(field.is_dynamic()) {
+            // regexp fields are treated as dynamic fields
+            dynamic_fields.push_back(field);
+            continue;
+        }
+
         search_schema.emplace(field.name, field);
 
         if(field.is_facet()) {
