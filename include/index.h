@@ -166,8 +166,8 @@ private:
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
-    // seq_id => (facet => values)
-    spp::sparse_hash_map<uint32_t, std::vector<std::vector<uint64_t>>> facet_index_v2;
+    // facet_field => (seq_id => values)
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>> facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
@@ -227,10 +227,10 @@ private:
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
     void index_string_field(const std::string & text, const int64_t score, art_tree *t, uint32_t seq_id,
-                            int facet_id, const field & a_field);
+                            bool is_facet, const field & a_field);
 
     void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
-                                  uint32_t seq_id, int facet_id, const field & a_field);
+                                  uint32_t seq_id, bool is_facet, const field & a_field);
 
     void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
                                        const uint32_t indices_length);
@@ -313,10 +313,7 @@ public:
 
     static int64_t float_to_in64_t(float n);
 
-    uint64_t get_distinct_id(const std::unordered_map<std::string, size_t> &facet_to_id,
-                             const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
-
-    void get_facet_to_index(std::unordered_map<std::string, size_t>& facet_to_index) const;
+    uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 
     void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
                              const std::vector<art_leaf *> &query_suggestion,

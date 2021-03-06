@@ -468,3 +468,16 @@ struct facet_value_t {
     std::string highlighted;
     uint32_t count;
 };
+
+struct facet_hash_values_t {
+    uint32_t length = 0;
+    uint64_t* hashes = nullptr;
+
+    uint64_t size() const {
+        return length;
+    }
+
+    uint64_t back() const {
+        return hashes[length - 1];
+    }
+};
