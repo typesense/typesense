@@ -766,3 +766,30 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionAllFieldsTest, ContainingWildcardOnlyField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),
+                                 field(".*", field_types::BOOL, true, true),
+                                 field("*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["company_name"]  = "Amazon Inc.";
+    doc["num_employees"]  = 2000;
+    doc["country"]  = "USA";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `country` must be a bool.", add_op.error());
+
+    collectionManager.drop_collection("coll1");
+}

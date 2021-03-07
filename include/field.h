@@ -478,8 +478,36 @@ struct facet_hash_values_t {
     uint32_t length = 0;
     uint64_t* hashes = nullptr;
 
+    facet_hash_values_t() {
+        length = 0;
+        hashes = nullptr;
+    }
+
+    facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
+        length = hash_values.length;
+        hashes = hash_values.hashes;
+
+        hash_values.length = 0;
+        hash_values.hashes = nullptr;
+    }
+
+    facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
+        if (this != &other) {
+            delete[] hashes;
+
+            hashes = other.hashes;
+            length = other.length;
+
+            other.hashes = nullptr;
+            other.length = 0;
+        }
+
+        return *this;
+    }
+
     ~facet_hash_values_t() {
         delete [] hashes;
+        hashes = nullptr;
     }
 
     uint64_t size() const {

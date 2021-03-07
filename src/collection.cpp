@@ -354,7 +354,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     Index* index = indices[seq_id % num_memory_shards];
-    index->index_in_memory(document, seq_id, default_sorting_field, is_update);
+    index->index_in_memory(document, seq_id, default_sorting_field);
 
     num_documents += 1;
     return Option<>(200);
