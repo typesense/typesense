@@ -167,7 +167,7 @@ private:
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
     // facet_field => (seq_id => values)
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>> facet_index_v3;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>*> facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
@@ -369,7 +369,7 @@ public:
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field, bool is_update);
+                                     const std::string & default_sorting_field);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record> & iter_batch,
