@@ -19,3 +19,4 @@ Please add to this file and send us a PR:
 | [Otaku Square](https://www.otakusquare.com) | Online retailer for pop-culture (e.g. anime, games, movies) merchandise |
 | [Have A Class](https://haveaclass.com/) | Find the perfect teacher online |
 | [Follow up Boss](https://www.followupboss.com/) | Real-estate CRM software, using Typesense for user notes search. |
+| [Jobsort](https://www.jobsort.com/) | Job search engine for developers, by developers (quicksort for tech jobs.) |
