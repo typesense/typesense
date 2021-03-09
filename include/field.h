@@ -352,7 +352,7 @@ struct field {
 
             fields.emplace_back(
                 field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
-                      field_json[fields::optional], fields_json[fields::index], field_json[fields::geo_resolution])
+                      field_json[fields::optional], field_json[fields::index], field_json[fields::geo_resolution])
             );
         }
 
