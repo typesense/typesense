@@ -226,6 +226,14 @@ struct field {
             if(field.is_dynamic() && !field.optional) {
                 return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
             }
+
+            if(!field.index && !field.optional) {
+                return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
+            }
+
+            if(!field.index && field.is_auto()) {
+                return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
+            }
         }
 
         if(!default_sorting_field.empty() && !found_default_sorting_field) {
@@ -239,6 +247,7 @@ struct field {
     static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
                                               std::string& fallback_field_type,
                                               std::vector<field>& fields) {
+
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
@@ -260,6 +269,11 @@ struct field {
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
             }
 
+            if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
+                return Option<bool>(400, std::string("The `index` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
             if(field_json.count(fields::geo_resolution) != 0) {
                 if(!field_json.at(fields::geo_resolution).is_number_integer()) {
                     return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
@@ -274,21 +288,34 @@ struct field {
             }
 
             if(field_json["name"] == "*") {
-                if(field_json.count("facet") == 0) {
-                    field_json["facet"] = false;
+                if(field_json.count(fields::facet) == 0) {
+                    field_json[fields::facet] = false;
                 }
 
-                if(field_json.count("optional") == 0) {
-                    field_json["optional"] = true;
+                if(field_json.count(fields::optional) == 0) {
+                    field_json[fields::optional] = true;
                 }
 
-                if(field_json["optional"] == false) {
+                if(field_json.count(fields::index) == 0) {
+                    field_json[fields::index] = true;
+                }
+
+                if(field_json.count(fields::geo_resolution) != 0) {
+                    return Option<bool>(400, "Field `*` cannot contain a geo resolution.");
+                }
+
+                if(field_json[fields::optional] == false) {
                     return Option<bool>(400, "Field `*` must be an optional field.");
                 }
 
-                if(field_json["facet"] == true) {
+                if(field_json[fields::facet] == true) {
                     return Option<bool>(400, "Field `*` cannot be a facet field.");
                 }
+
+                if(field_json[fields::index] == false) {
+                    return Option<bool>(400, "Field `*` must be an index field.");
+                }
+
 
                 field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
                                      field_json["optional"]);
@@ -304,21 +331,28 @@ struct field {
                 continue;
             }
 
-            if(field_json.count("facet") == 0) {
-                field_json["facet"] = false;
+            if(field_json.count(fields::facet) == 0) {
+                field_json[fields::facet] = false;
             }
 
-            if(field_json.count("optional") == 0) {
-                // actual value will depend on whether field name is dynamic or not (i.e. contains .*)
-                if(field_json["name"].get<std::string>().find(".*") != std::string::npos) {
-                    field_json["optional"] = true;
-                } else {
-                    field_json["optional"] = false;
-                }
+            if(field_json.count(fields::index) == 0) {
+                field_json[fields::index] = true;
+            }
+
+            bool is_dynamic = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
+
+            if(field_json.count(fields::optional) == 0) {
+                // dynamic fields are always optional
+                field_json[fields::optional] = is_dynamic;
+            }
+
+            if(field_json.count(fields::geo_resolution) == 0) {
+                field_json[fields::geo_resolution] = DEFAULT_GEO_RESOLUTION;
             }
 
             fields.emplace_back(
-                field(field_json["name"], field_json["type"], field_json["facet"], field_json["optional"])
+                field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
+                      field_json[fields::optional], fields_json[fields::index], field_json[fields::geo_resolution])
             );
         }
 

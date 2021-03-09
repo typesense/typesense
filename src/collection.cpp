@@ -600,6 +600,12 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
 
         field search_field = search_schema.at(field_name);
+
+        if(!search_field.index) {
+            std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
+            return Option<nlohmann::json>(404, error);
+        }
+
         if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
             std::string error = "Field `" + field_name + "` should be a string or a string array.";
             return Option<nlohmann::json>(400, error);
@@ -2322,6 +2328,11 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
             }
 
             UPDATE_SCHEMA:
+
+            if(!new_field.index) {
+                kv++;
+                continue;
+            }
 
             search_schema.emplace(new_field.name, new_field);
             fields.emplace_back(new_field);
