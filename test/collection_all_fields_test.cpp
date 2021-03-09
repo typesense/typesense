@@ -502,6 +502,14 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ("*", fields[0].name);
     ASSERT_EQ("string*", fields[0].type);
 
+    // reject when you try to set geo property on * field
+    fields_json[0][fields::geo_resolution] = 10;
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+
+    ASSERT_FALSE(parse_op.ok());
+    ASSERT_EQ("Field `*` cannot contain a geo resolution.", parse_op.error());
+    fields_json[0].erase(fields::geo_resolution);
+
     // reject when you try to set optional to false or facet to true
     fields_json[0][fields::optional] = false;
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
@@ -790,6 +798,85 @@ TEST_F(CollectionAllFieldsTest, ContainingWildcardOnlyField) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `country` must be a bool.", add_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),
+                                 field("post", field_types::STRING, false, true, false),
+                                 field(".*_txt", field_types::STRING, true, true, false),
+                                 field("*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["company_name"]  = "Amazon Inc.";
+    doc["num_employees"]  = 2000;
+    doc["post"]  = "Some post.";
+    doc["description_txt"]  = "Rome was not built in a day.";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `description_txt` in the schema.", res_op.error());
+
+    res_op = coll1->search("Amazon", {"post"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Field `post` is marked as a non-indexed field in the schema.", res_op.error());
+
+    // try updating a document with non-indexable field
+    doc["post"] = "Some post updated.";
+    auto update_op = coll1->add(doc.dump(), UPDATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ("Some post updated.", res["hits"][0]["document"]["post"].get<std::string>());
+
+    // try to delete doc with non-indexable field
+    auto del_op = coll1->remove("0");
+    ASSERT_TRUE(del_op.ok());
+
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("post", field_types::STRING, false, false, false),
+              field(".*_txt", field_types::STRING, true, true, false),
+              field("*", field_types::AUTO, false, true)};
+
+    auto op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `post` must be optional since it is marked as non-indexable.", op.error());
+
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("post", field_types::STRING, false, true, false),
+              field(".*_txt", field_types::STRING, true, false, false),
+              field("*", field_types::AUTO, false, true)};
+
+    op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `.*_txt` with wildcard name must be an optional field.", op.error());
+
+    // don't allow catch all field to contain non-index field
+
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field(".*_txt", field_types::STRING, true, true, false),
+              field("*", field_types::AUTO, false, true, false)};
+
+    op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `*` cannot be marked as non-indexable.", op.error());
 
     collectionManager.drop_collection("coll1");
 }

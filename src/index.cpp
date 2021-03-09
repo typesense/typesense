@@ -125,7 +125,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
     for(const auto& field_pair: search_schema) {
         const std::string & field_name = field_pair.first;
 
-        if(document.count(field_name) == 0) {
+        if(document.count(field_name) == 0 || !field_pair.second.index) {
             continue;
         }
 
@@ -2335,6 +2335,10 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         }
 
         const auto& search_field = search_field_it->second;
+
+        if(!search_field.index) {
+            continue;
+        }
 
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
