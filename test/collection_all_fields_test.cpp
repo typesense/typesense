@@ -485,7 +485,7 @@ TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
 TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     nlohmann::json fields_json = nlohmann::json::array();
     nlohmann::json all_field;
-    all_field[fields::name] = "*";
+    all_field[fields::name] = ".*";
     all_field[fields::type] = "string*";
     fields_json.emplace_back(all_field);
 
@@ -499,7 +499,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ("string*", fallback_field_type);
     ASSERT_EQ(true, fields[0].optional);
     ASSERT_EQ(false, fields[0].facet);
-    ASSERT_EQ("*", fields[0].name);
+    ASSERT_EQ(".*", fields[0].name);
     ASSERT_EQ("string*", fields[0].type);
 
     // reject when you try to set geo property on * field
@@ -526,13 +526,13 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
 
     fields_json[0][fields::facet] = false;
 
-    // can have only one "*" field
+    // can have only one ".*" field
     fields_json.emplace_back(all_field);
 
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("There can be only one field named `*`.", parse_op.error());
+    ASSERT_EQ("There can be only one field named `.*`.", parse_op.error());
 
     // try with the `auto` type
     fields_json.clear();
@@ -729,7 +729,7 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     std::vector<field> fields = {field("title", field_types::STRING, true),
                                  field(".*_name", field_types::STRING, false, true),
                                  field(".*_year", field_types::INT32, true, true),
-                                 field("*", field_types::AUTO, false, true)};
+                                 field(".*", field_types::AUTO, false, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
@@ -780,12 +780,11 @@ TEST_F(CollectionAllFieldsTest, ContainingWildcardOnlyField) {
 
     std::vector<field> fields = {field("company_name", field_types::STRING, false),
                                  field("num_employees", field_types::INT32, false),
-                                 field(".*", field_types::BOOL, true, true),
-                                 field("*", field_types::AUTO, false, true)};
+                                 field(".*", field_types::BOOL, true, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::BOOL);
         ASSERT_TRUE(op.ok());
         coll1 = op.get();
     }
@@ -809,7 +808,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
                                  field("num_employees", field_types::INT32, false),
                                  field("post", field_types::STRING, false, true, false),
                                  field(".*_txt", field_types::STRING, true, true, false),
-                                 field("*", field_types::AUTO, false, true)};
+                                 field(".*", field_types::AUTO, false, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
@@ -851,7 +850,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
               field("num_employees", field_types::INT32, false),
               field("post", field_types::STRING, false, false, false),
               field(".*_txt", field_types::STRING, true, true, false),
-              field("*", field_types::AUTO, false, true)};
+              field(".*", field_types::AUTO, false, true)};
 
     auto op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
@@ -861,7 +860,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
               field("num_employees", field_types::INT32, false),
               field("post", field_types::STRING, false, true, false),
               field(".*_txt", field_types::STRING, true, false, false),
-              field("*", field_types::AUTO, false, true)};
+              field(".*", field_types::AUTO, false, true)};
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
@@ -872,11 +871,11 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),
               field(".*_txt", field_types::STRING, true, true, false),
-              field("*", field_types::AUTO, false, true, false)};
+              field(".*", field_types::AUTO, false, true, false)};
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `*` cannot be marked as non-indexable.", op.error());
+    ASSERT_EQ("Field `.*` cannot be marked as non-indexable.", op.error());
 
     collectionManager.drop_collection("coll1");
 }

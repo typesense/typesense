@@ -114,7 +114,7 @@ struct field {
     }
 
     bool is_dynamic() const {
-        return name.find(".*") != std::string::npos;
+        return name != ".*" && name.find(".*") != std::string::npos;
     }
 
     bool has_numerical_index() const {
@@ -287,7 +287,7 @@ struct field {
                 }
             }
 
-            if(field_json["name"] == "*") {
+            if(field_json["name"] == ".*") {
                 if(field_json.count(fields::facet) == 0) {
                     field_json[fields::facet] = false;
                 }
@@ -357,7 +357,7 @@ struct field {
         }
 
         if(num_auto_detect_fields > 1) {
-            return Option<bool>(400,"There can be only one field named `*`.");
+            return Option<bool>(400,"There can be only one field named `.*`.");
         }
 
         return Option<bool>(true);
