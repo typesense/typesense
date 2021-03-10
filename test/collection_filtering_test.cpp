@@ -1003,3 +1003,78 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, NumericalFilteringWithArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("prices", field_types::INT32_ARRAY, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"1", "T Shirt 1", "1", "2", "3"},
+        {"2", "T Shirt 2", "1", "2", "3"},
+        {"3", "T Shirt 3", "1", "2", "3"},
+        {"4", "T Shirt 4", "1", "1", "1"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["title"] = records[i][1];
+
+        std::vector<int32_t> prices;
+        for(size_t j = 2; j <= 4; j++) {
+            prices.push_back(std::stoi(records[i][j]));
+        }
+
+        doc["prices"] = prices;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // check equals on a repeating price
+    auto results = coll1->search("*",
+                                 {}, "prices:1",
+                                 {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    // check ranges
+
+    results = coll1->search("*",
+                            {}, "prices:>=1",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:>=2",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:<4",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:<=2",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
