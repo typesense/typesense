@@ -22,7 +22,9 @@ public:
             int64map.emplace(value, new sorted_array);
         }
 
-        int64map[value]->append(id);
+        if(!int64map[value]->contains(id)) {
+            int64map[value]->append(id);
+        }
     }
 
     void range_inclusive_search(int64_t start, int64_t end, uint32_t** ids, size_t& ids_len) {
@@ -104,6 +106,7 @@ public:
             }
 
             std::sort(consolidated_ids.begin(), consolidated_ids.end());
+            consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
             uint32_t *out = nullptr;
             ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -134,6 +137,7 @@ public:
             }
 
             std::sort(consolidated_ids.begin(), consolidated_ids.end());
+            consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
             uint32_t *out = nullptr;
             ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
