@@ -95,6 +95,8 @@ class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
 
+    mutable std::shared_mutex mutex;
+
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
     std::set<braft::PeerId> peers;
@@ -168,6 +170,7 @@ public:
 
     // Blocking this thread until the node is eventually down.
     void join() {
+        std::unique_lock lock(mutex);
         if (node) {
             node->join();
             delete node;
