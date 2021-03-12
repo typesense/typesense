@@ -39,6 +39,8 @@ bool CVTrie::add(const char *key, const uint8_t length, void *value) {
 
         }
     }*/
+
+    return true;
 }
 
 void *CVTrie::find(const char *key, const uint8_t length) {
