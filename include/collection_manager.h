@@ -69,7 +69,7 @@ private:
 
     std::string bootstrap_auth_key;
 
-    float max_memory_ratio;
+    std::atomic<float> max_memory_ratio;
 
     /// During load, sleep `LOAD_THROTTLE_PERCENT`% of time taken for indexing to prevent CPU saturation
     float LOAD_THROTTLE_PERCENT = 10;
@@ -102,13 +102,19 @@ public:
     CollectionManager(CollectionManager const&) = delete;
     void operator=(CollectionManager const&) = delete;
 
-    Collection* init_collection(const nlohmann::json & collection_meta, const uint32_t collection_next_seq_id);
+    static Collection* init_collection(const nlohmann::json & collection_meta,
+                                       const uint32_t collection_next_seq_id,
+                                       Store* store,
+                                       float max_memory_ratio);
+
+    static Option<bool> load_collection(const nlohmann::json& collection_meta,
+                                        const size_t init_batch_size, const StoreStatus& next_coll_id_status);
 
     void add_to_collections(Collection* collection);
 
     std::vector<Collection*> get_collections() const;
 
-    Collection* get_collection_unafe(const std::string & collection_name) const;
+    Collection* get_collection_unsafe(const std::string & collection_name) const;
 
     // PUBLICLY EXPOSED API
 

@@ -11,7 +11,9 @@ CollectionManager::CollectionManager() {
 }
 
 Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
-                                               const uint32_t collection_next_seq_id) {
+                                               const uint32_t collection_next_seq_id,
+                                               Store* store,
+                                               float max_memory_ratio) {
     std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
@@ -68,8 +70,11 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
-    collections.emplace(collection->get_name(), collection);
-    collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
+    const std::string& collection_name = collection->get_name();
+    const uint32_t collection_id = collection->get_collection_id();
+    std::unique_lock lock(mutex);
+    collections.emplace(collection_name, collection);
+    collection_id_names.emplace(collection_id, collection_name);
 }
 
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
@@ -116,151 +121,53 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
     LOG(INFO) << "Found " << collection_meta_jsons.size() << " collection(s) on disk.";
 
-    for(auto & collection_meta_json: collection_meta_jsons) {
-        nlohmann::json collection_meta;
+    const size_t PROC_COUNT = std::max<size_t>(1, std::thread::hardware_concurrency());
+    std::vector<nlohmann::json> coll_meta_buffer;
 
-        try {
-            collection_meta = nlohmann::json::parse(collection_meta_json);
-        } catch(...) {
+    for(size_t coll_index = 0; coll_index < collection_meta_jsons.size(); coll_index++) {
+        const auto& collection_meta_json = collection_meta_jsons[coll_index];
+        nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+        if(collection_meta == nlohmann::json::value_t::discarded) {
+            LOG(ERROR) << "Error while parsing collection meta.";
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
-        std::string collection_next_seq_id_str;
-        StoreStatus next_seq_id_status = store->get(Collection::get_next_seq_id_key(this_collection_name),
-                                                    collection_next_seq_id_str);
+        coll_meta_buffer.push_back(collection_meta);
 
-        if(next_seq_id_status == StoreStatus::ERROR) {
-            return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for collection "
-                                     "`" + this_collection_name + "`");
-        }
+        if(coll_meta_buffer.size() % PROC_COUNT == 0 || coll_index == collection_meta_jsons.size() - 1) {
+            size_t num_processed = 0;
+            std::mutex m_process;
+            std::condition_variable cv_process;
+            std::vector<Option<bool>> results;
 
-        if(next_seq_id_status == StoreStatus::NOT_FOUND && next_coll_id_status == StoreStatus::FOUND) {
-            return Option<bool>(500, "Next collection id was found, but collection's next sequence ID is missing for "
-                                     "`" + this_collection_name + "`");
-        }
+            LOG(INFO) << "coll_meta_buffer.size(): " << coll_meta_buffer.size();
 
-        uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
-                                          StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
-
-        if(get_collection(this_collection_name) != nullptr) {
-            // To maintain idempotency, if the collection already exists in-memory, drop it from memory
-            LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
-            drop_collection(this_collection_name, false);
-        }
-
-        std::unique_lock lock(mutex);
-        Collection* collection = init_collection(collection_meta, collection_next_seq_id);
-
-        LOG(INFO) << "Loading collection " << collection->get_name();
-
-        // initialize overrides
-        std::vector<std::string> collection_override_jsons;
-        store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
-
-        for(const auto & collection_override_json: collection_override_jsons) {
-            nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-            override_t override;
-            auto parse_op = override_t::parse(collection_override, "", override);
-            if(parse_op.ok()) {
-                collection->add_override(override);
-            } else {
-                LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
-            }
-        }
-
-        // initialize synonyms
-        std::vector<std::string> collection_synonym_jsons;
-        store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
-
-        for(const auto & collection_synonym_json: collection_synonym_jsons) {
-            nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-            synonym_t synonym(collection_synonym);
-            collection->add_synonym(synonym);
-        }
-
-        // Fetch records from the store and re-create memory index
-        std::vector<std::string> documents;
-        const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
-
-        rocksdb::Iterator* iter = store->scan(seq_id_prefix);
-        std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
-
-        std::vector<std::vector<index_record>> iter_batch;
-
-        for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-            iter_batch.push_back(std::vector<index_record>());
-        }
-
-        size_t num_found_docs = 0;
-        size_t num_valid_docs = 0;
-        size_t num_indexed_docs = 0;
-
-        auto begin = std::chrono::high_resolution_clock::now();
-
-        while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-            num_found_docs++;
-            const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
-
-            nlohmann::json document;
-
-            try {
-                document = nlohmann::json::parse(iter->value().ToString());
-            } catch(const std::exception& e) {
-                LOG(ERROR) << "JSON error: " << e.what();
-                return Option<bool>(false, "Bad JSON.");
+            for(const auto& buff_coll_meta: coll_meta_buffer) {
+                thread_pool->enqueue([&buff_coll_meta, init_batch_size, &next_coll_id_status, &m_process, &cv_process,
+                                      &num_processed, &results]() {
+                    Option<bool> res = load_collection(buff_coll_meta, init_batch_size, next_coll_id_status);
+                    std::unique_lock<std::mutex> lock(m_process);
+                    results.push_back(res);
+                    num_processed++;
+                    cv_process.notify_one();
+                });
             }
 
-            auto dirty_values = DIRTY_VALUES::DROP;
+            const size_t num_load_collections = coll_meta_buffer.size();
 
-            num_valid_docs++;
+            std::unique_lock<std::mutex> lock_process(m_process);
+            cv_process.wait(lock_process, [&](){
+                return num_processed == num_load_collections;
+            });
 
-            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
-
-            // Peek and check for last record right here so that we handle batched indexing correctly
-            // Without doing this, the "last batch" would have to be indexed outside the loop.
-            iter->Next();
-            bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
-
-            // batch must match atleast the number of shards
-            const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
-
-            if((num_valid_docs % batch_size == 0) || last_record) {
-                std::vector<size_t> indexed_counts;
-                indexed_counts.reserve(iter_batch.size());
-
-                collection->par_index_in_memory(iter_batch, indexed_counts);
-
-                for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-                    size_t num_records = iter_batch[i].size();
-                    size_t num_indexed = indexed_counts[i];
-
-                    if(num_indexed != num_records) {
-                        const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                        if(!index_error_op.ok()) {
-                            return Option<bool>(false, index_error_op.get());
-                        }
-                    }
-                    iter_batch[i].clear();
-                    num_indexed_docs += num_indexed;
+            for(size_t i = 0; i < num_load_collections; i++) {
+                if(!results[i].ok()) {
+                    return results[i];
                 }
             }
 
-            auto time_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::high_resolution_clock::now() - begin).count();
-
-            auto throttle_time_millis = uint64_t((LOAD_THROTTLE_PERCENT/100) * time_millis);
-
-            if(throttle_time_millis != 0) {
-                // we throttle only when we have accumulated atleast 1 ms worth of throttling time
-                begin = std::chrono::high_resolution_clock::now();
-                std::this_thread::sleep_for(std::chrono::milliseconds(throttle_time_millis));
-            }
+            coll_meta_buffer.clear();
         }
-
-        add_to_collections(collection);
-        LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
-                  << " documents into collection " << collection->get_name();
     }
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
@@ -273,6 +180,8 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
     }
 
     delete iter;
+
+    LOG(INFO) << "Done loading all collections.";
 
     return Option<bool>(true);
 }
@@ -315,7 +224,6 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::string& default_sorting_field,
                                                          const uint64_t created_at,
                                                          const std::string& fallback_field_type) {
-    std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -366,7 +274,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     return Option<Collection*>(new_collection);
 }
 
-Collection* CollectionManager::get_collection_unafe(const std::string & collection_name) const {
+Collection* CollectionManager::get_collection_unsafe(const std::string & collection_name) const {
     if(collections.count(collection_name) != 0) {
         return collections.at(collection_name);
     }
@@ -384,7 +292,7 @@ Collection* CollectionManager::get_collection_unafe(const std::string & collecti
 
 locked_resource_view_t<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
     std::shared_lock lock(mutex);
-    Collection* coll = get_collection_unafe(collection_name);
+    Collection* coll = get_collection_unsafe(collection_name);
     return locked_resource_view_t<Collection>(mutex, coll);
 }
 
@@ -415,9 +323,8 @@ std::vector<Collection*> CollectionManager::get_collections() const {
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    std::unique_lock lock(mutex);
+    auto collection = get_collection(collection_name);  // locked_resource_view_t
 
-    Collection* collection = get_collection_unafe(collection_name);
     if(collection == nullptr) {
         return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
     }
@@ -445,7 +352,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
 
-    delete collection;
+    delete collection.get();
 
     return Option<nlohmann::json>(collection_json);
 }
@@ -859,4 +766,159 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type);
+}
+
+Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
+                                                const size_t init_batch_size,
+                                                const StoreStatus& next_coll_id_status) {
+
+    auto& cm = CollectionManager::get_instance();
+
+    const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
+
+    std::string collection_next_seq_id_str;
+    StoreStatus next_seq_id_status = cm.store->get(Collection::get_next_seq_id_key(this_collection_name),
+                                                collection_next_seq_id_str);
+
+    if(next_seq_id_status == StoreStatus::ERROR) {
+        LOG(ERROR) << "Error while fetching collection's next sequence ID";
+        return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for collection "
+                                 "`" + this_collection_name + "`");
+    }
+
+    if(next_seq_id_status == StoreStatus::NOT_FOUND && next_coll_id_status == StoreStatus::FOUND) {
+        LOG(ERROR) << "collection's next sequence ID is missing";
+        return Option<bool>(500, "Next collection id was found, but collection's next sequence ID is missing for "
+                                 "`" + this_collection_name + "`");
+    }
+
+    uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
+                                      StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
+
+    {
+        std::shared_lock lock(cm.mutex);
+        Collection *existing_collection = cm.get_collection_unsafe(this_collection_name);
+
+        if(existing_collection != nullptr) {
+            // To maintain idempotency, if the collection already exists in-memory, drop it from memory
+            LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
+            lock.unlock();
+            cm.drop_collection(this_collection_name, false);
+        }
+    }
+
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f);
+
+    LOG(INFO) << "Loading collection " << collection->get_name();
+
+    // initialize overrides
+    std::vector<std::string> collection_override_jsons;
+    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
+
+    for(const auto & collection_override_json: collection_override_jsons) {
+        nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
+        override_t override;
+        auto parse_op = override_t::parse(collection_override, "", override);
+        if(parse_op.ok()) {
+            collection->add_override(override);
+        } else {
+            LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+        }
+    }
+
+    // initialize synonyms
+    std::vector<std::string> collection_synonym_jsons;
+    cm.store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+
+    for(const auto & collection_synonym_json: collection_synonym_jsons) {
+        nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
+        synonym_t synonym(collection_synonym);
+        collection->add_synonym(synonym);
+    }
+
+    // Fetch records from the store and re-create memory index
+    std::vector<std::string> documents;
+    const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+
+    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
+    std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+    std::vector<std::vector<index_record>> iter_batch;
+
+    for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
+        iter_batch.emplace_back(std::vector<index_record>());
+    }
+
+    size_t num_found_docs = 0;
+    size_t num_valid_docs = 0;
+    size_t num_indexed_docs = 0;
+
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+        num_found_docs++;
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+
+        nlohmann::json document;
+
+        try {
+            document = nlohmann::json::parse(iter->value().ToString());
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            return Option<bool>(false, "Bad JSON.");
+        }
+
+        auto dirty_values = DIRTY_VALUES::DROP;
+
+        num_valid_docs++;
+
+        iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+
+        // Peek and check for last record right here so that we handle batched indexing correctly
+        // Without doing this, the "last batch" would have to be indexed outside the loop.
+        iter->Next();
+        bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+        // batch must match atleast the number of shards
+        const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
+
+        if((num_valid_docs % batch_size == 0) || last_record) {
+            std::vector<size_t> indexed_counts;
+            indexed_counts.reserve(iter_batch.size());
+
+            collection->par_index_in_memory(iter_batch, indexed_counts);
+
+            for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
+                size_t num_records = iter_batch[i].size();
+                size_t num_indexed = indexed_counts[i];
+
+                if(num_indexed != num_records) {
+                    const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
+                    if(!index_error_op.ok()) {
+                        return Option<bool>(false, index_error_op.get());
+                    }
+                }
+                iter_batch[i].clear();
+                num_indexed_docs += num_indexed;
+            }
+        }
+
+        auto time_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin).count();
+
+        auto throttle_time_millis = uint64_t((cm.LOAD_THROTTLE_PERCENT/100) * time_millis);
+
+        if(throttle_time_millis != 0) {
+            // we throttle only when we have accumulated atleast 1 ms worth of throttling time
+            begin = std::chrono::high_resolution_clock::now();
+            std::this_thread::sleep_for(std::chrono::milliseconds(throttle_time_millis));
+        }
+    }
+
+    cm.add_to_collections(collection);
+
+    LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
+              << " documents into collection " << collection->get_name();
+
+    return Option<bool>(true);
 }

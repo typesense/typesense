@@ -41,9 +41,11 @@ protected:
     }
 
     virtual void TearDown() {
-        collectionManager.drop_collection("collection1");
-        collectionManager.dispose();
-        delete store;
+        if(store != nullptr) {
+            collectionManager.drop_collection("collection1");
+            collectionManager.dispose();
+            delete store;
+        }
     }
 };
 
@@ -102,7 +104,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100);
+    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(1, collection->get_fields().size());
@@ -118,7 +120,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"string\", \"facet\": false}], \"created_at\": 12345,"
                                   "\"default_sorting_field\": \"foo\"}");
 
-    collection = collectionManager.init_collection(collection_meta2, 100);
+    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
     ASSERT_EQ(12345, collection->get_created_at());
 
     delete collection;
@@ -521,6 +523,50 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2020", collection_option.get());
 
+    delete new_store;
+}
+
+TEST_F(CollectionManagerTest, LoadMultipleCollections) {
+    // to prevent fixture tear down from running as we are fudging with CollectionManager singleton
+    delete store;
+    store = nullptr;
+
+    CollectionManager & cmanager = CollectionManager::get_instance();
+    std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+    Store *new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.load();
+
+    for(size_t i = 0; i < 100; i++) {
+        auto schema = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true, true),
+            field(".*_year", field_types::INT32, true, true),
+            field("location", field_types::GEOPOINT, false, true, true, 14),
+            field("points", field_types::INT32, false)
+        };
+
+        cmanager.create_collection("collection" + std::to_string(i), 4, schema, "points").get();
+    }
+
+    ASSERT_EQ(100, cmanager.get_collections().size());
+
+    cmanager.dispose();
+    delete new_store;
+
+    new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.load();
+
+    ASSERT_EQ(100, cmanager.get_collections().size());
+
+    for(size_t i = 0; i < 100; i++) {
+        collectionManager.drop_collection("collection" + std::to_string(i));
+    }
+
+    collectionManager.dispose();
     delete new_store;
 }
 

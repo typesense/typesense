@@ -857,8 +857,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
 
-    Option<nlohmann::json> index_search_op({});  // stores the last error across all index threads
-
     // for grouping we have re-aggregate
 
     const size_t topster_size = std::max((size_t)1, max_hits);
