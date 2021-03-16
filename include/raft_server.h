@@ -81,8 +81,9 @@ private:
 
 public:
 
-    OnDemandSnapshotClosure(ReplicationState* replication_state, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res):
-    replication_state(replication_state), req(req), res(res) {}
+    OnDemandSnapshotClosure(ReplicationState *replication_state, const std::shared_ptr<http_req> &req,
+                            const std::shared_ptr<http_res> &res) :
+        replication_state(replication_state), req(req), res(res) {}
 
     ~OnDemandSnapshotClosure() {}
 
@@ -120,6 +121,10 @@ private:
     std::string ext_snapshot_path;
 
     int election_timeout_interval_ms;
+
+    std::mutex mcv;
+    std::condition_variable cv;
+    bool ready;
 
 public:
 
@@ -193,6 +198,18 @@ public:
 
     http_message_dispatcher* get_message_dispatcher() const;
 
+    void wait() {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        cv.wait(lk, [&] { return ready; });
+        ready = false;
+    }
+
+    void notify() {
+        std::lock_guard<std::mutex> lk(mcv);
+        ready = true;
+        cv.notify_all();
+    }
+
     static constexpr const char* REPLICATION_MSG = "raft_replication";
 
 private:
@@ -206,7 +223,6 @@ private:
         ReplicationState* replication_state;
         braft::SnapshotWriter* writer;
         std::string state_dir_path;
-        std::string db_dir_path;
         std::string db_snapshot_path;
         std::string ext_snapshot_path;
         braft::Closure* done;

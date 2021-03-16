@@ -309,7 +309,6 @@ void* ReplicationState::save_snapshot(void* arg) {
 
     SnapshotArg* sa = static_cast<SnapshotArg*>(arg);
     std::unique_ptr<SnapshotArg> arg_guard(sa);
-    brpc::ClosureGuard done_guard(sa->done);
 
     // add the db snapshot files to writer state
     butil::FileEnumerator dir_enum(butil::FilePath(sa->db_snapshot_path), false, butil::FileEnumerator::FILES);
@@ -322,14 +321,26 @@ void* ReplicationState::save_snapshot(void* arg) {
         }
     }
 
-    // if an external snapshot is requested, copy both state and data directory into that
+    sa->done->Run();
+
+    // if an external snapshot is requested, copy latest snapshot directory into that
     if(!sa->ext_snapshot_path.empty()) {
         LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
-        if(!butil::DirectoryExists(butil::FilePath(sa->ext_snapshot_path))) {
-            butil::CreateDirectory(butil::FilePath(sa->ext_snapshot_path), true);
+
+        const butil::FilePath& dest_state_dir = butil::FilePath(sa->ext_snapshot_path + "/state");
+
+        if(!butil::DirectoryExists(dest_state_dir)) {
+            butil::CreateDirectory(dest_state_dir, true);
         }
-        butil::CopyDirectory(butil::FilePath(sa->state_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
-        butil::CopyDirectory(butil::FilePath(sa->db_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
+
+        const butil::FilePath& src_snapshot_dir = butil::FilePath(sa->state_dir_path + "/snapshot");
+        const butil::FilePath& src_meta_dir = butil::FilePath(sa->state_dir_path + "/meta");
+
+        butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+
+        // notify on demand closure that external snapshotting is done
+        sa->replication_state->notify();
     }
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
@@ -359,7 +370,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     arg->replication_state = this;
     arg->writer = writer;
     arg->state_dir_path = raft_dir_path;
-    arg->db_dir_path = store->get_state_dir_path();
     arg->db_snapshot_path = db_snapshot_path;
     arg->done = done;
 
@@ -368,7 +378,7 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         ext_snapshot_path = "";
     }
 
-    // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
+    // Start a new bthread to avoid blocking StateMachine for slower operations that don't need a blocking view
     bthread_t tid;
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
@@ -520,7 +530,8 @@ ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_m
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher),
         catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
-        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
+        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service),
+        ready(false) {
 
 }
 
@@ -623,9 +634,10 @@ void InitSnapshotClosure::Run() {
 }
 
 void OnDemandSnapshotClosure::Run() {
-    // Auto delete this after Run()
+    // Auto delete this after Done()
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
+    replication_state->wait(); // until on demand snapshotting completes
     replication_state->set_ext_snapshot_path("");
 
     req->last_chunk_aggregate = true;
