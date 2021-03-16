@@ -540,16 +540,16 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     auto api_handler = rpath->handler;
 
     // LOG(INFO) << "Before enqueue res: " << response
-    handler->http_server->get_thread_pool()->enqueue([http_server, api_handler, message_dispatcher,
+    handler->http_server->get_thread_pool()->enqueue([http_server, rpath, message_dispatcher,
                                                       request, response]() {
         // call the API handler
-        (api_handler)(request, response);
+        (rpath->handler)(request, response);
 
-        deferred_req_res_t req_res{request, response, http_server};
-        message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        response->wait();
+        if(!rpath->async_res) {
+            deferred_req_res_t req_res{request, response, http_server};
+            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
+            response->wait();
+        }
     });
 
     return 0;
