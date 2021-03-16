@@ -43,13 +43,13 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     ASSERT_STREQ("here", tokens[6].c_str());
 
     // when normalization is disabled and keep empty is enabled
-    const std::string withoutnormalize = "Mise  à  jour.";
+    const std::string withoutnormalize = "Mise  à,  jour.";
     tokens.clear();
     Tokenizer(withoutnormalize, true, false, false).tokenize(tokens);
     ASSERT_EQ(5, tokens.size());
     ASSERT_STREQ("Mise", tokens[0].c_str());
     ASSERT_STREQ("", tokens[1].c_str());
-    ASSERT_STREQ("à", tokens[2].c_str());
+    ASSERT_STREQ("à,", tokens[2].c_str());
     ASSERT_STREQ("", tokens[3].c_str());
     ASSERT_STREQ("jour.", tokens[4].c_str());
 
@@ -61,6 +61,41 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     ASSERT_STREQ("Mise", tokens[0].c_str());
     ASSERT_STREQ("à", tokens[1].c_str());
     ASSERT_STREQ("jour.", tokens[2].c_str());
+
+    // single token
+    const std::string single_token = "foobar";
+    tokens.clear();
+    Tokenizer(single_token, false, false, false).tokenize(tokens);
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_STREQ("foobar", tokens[0].c_str());
+
+    // split tokens
+    const std::string split_tokens = "foo-bar-baz";
+    tokens.clear();
+    Tokenizer(split_tokens, false, false, false).tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_STREQ("foo", tokens[0].c_str());
+    ASSERT_STREQ("bar", tokens[1].c_str());
+    ASSERT_STREQ("baz", tokens[2].c_str());
+
+    tokens.clear();
+    Tokenizer(split_tokens, false, true, false).tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_STREQ("foo", tokens[0].c_str());
+    ASSERT_STREQ("bar", tokens[1].c_str());
+    ASSERT_STREQ("baz", tokens[2].c_str());
+
+    // multiple spaces
+    const std::string multispace_tokens = "foo     bar";
+    tokens.clear();
+    Tokenizer(multispace_tokens, true, false, false).tokenize(tokens);
+    ASSERT_EQ(6, tokens.size());
+    ASSERT_STREQ("foo", tokens[0].c_str());
+    ASSERT_STREQ("", tokens[1].c_str());
+    ASSERT_STREQ("", tokens[2].c_str());
+    ASSERT_STREQ("", tokens[3].c_str());
+    ASSERT_STREQ("", tokens[4].c_str());
+    ASSERT_STREQ("bar", tokens[5].c_str());
 
     // noop
 
