@@ -23,27 +23,37 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
     while(i < text.size()) {
         if((text[i] & ~0x7f) == 0 ) {
             // ASCII character: split on space/newline or lowercase otherwise
-            bool is_space = text[i] == 32;
-            bool is_new_line = text[i] == 10;
-            bool space_or_newline = (is_space || is_new_line);
+            if(std::isalnum(text[i])) {
+                if(normalize) {
+                    out << char(std::tolower(text[i]));
+                } else {
+                    out << text[i];
+                }
+            } else {
+                bool is_space = text[i] == 32;
+                bool is_new_line = text[i] == 10;
+                bool is_whitespace = is_space || is_new_line;
 
-            if(space_or_newline) {
-                i++;
-                token = out.str();
-                out.clear();
+                bool next_char_alphanum = (i != text.length() - 1) && std::isalnum(text[i + 1]);
 
-                if(!keep_empty && token.empty()) {
-                    continue;
+                if(!normalize && !is_whitespace && (i == text.length() - 1 || !next_char_alphanum)) {
+                    // checking for next char ensures that `foo-bar` does not get split to `foo-`
+                    out << text[i];
                 }
 
-                token_index = token_counter++;
-                return true;
-            }
+                if(is_whitespace || next_char_alphanum) {
+                    // we split on space or on a special character whose next char is alphanumeric
+                    token = out.str();
+                    out.clear();
+                    i++;
 
-            if(!normalize) {
-                out << text[i];
-            } else if(std::isalnum(text[i])) {
-                out << char(std::tolower(text[i]));
+                    if(!keep_empty && token.empty()) {
+                        continue;
+                    }
+
+                    token_index = token_counter++;
+                    return true;
+                }
             }
 
             i++;

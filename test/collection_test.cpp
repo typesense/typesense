@@ -164,7 +164,7 @@ TEST_F(CollectionTest, PhraseSearch) {
        13:  score: 12, (single word match)
     */
 
-    std::vector<std::string> ids = {"8", "1", "17", "16", "13"};
+    std::vector<std::string> ids = {"8", "1", "16", "17", "13"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -176,7 +176,7 @@ TEST_F(CollectionTest, PhraseSearch) {
     ASSERT_EQ(results["hits"][0]["highlights"].size(), (unsigned long) 1);
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "title");
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str(),
-                 "What is the power requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
+                 "What is the power, requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
 
     // Check ASC sort order
     std::vector<sort_by> sort_fields_asc = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "ASC") };
@@ -184,7 +184,7 @@ TEST_F(CollectionTest, PhraseSearch) {
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
-    ids = {"8", "17", "1", "16", "13"};
+    ids = {"8", "1", "17", "16", "13"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -200,7 +200,7 @@ TEST_F(CollectionTest, PhraseSearch) {
 
     ASSERT_EQ(3, results["request_params"]["per_page"].get<size_t>());
 
-    ids = {"8", "1", "17"};
+    ids = {"8", "1", "16"};
 
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
