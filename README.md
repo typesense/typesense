@@ -13,6 +13,7 @@
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg"><img src="https://img.shields.io/badge/slack%20community-join-orange"></a>
   <a href="https://typesense.org/api"><img src="https://img.shields.io/badge/documentation-read-blue"></a>
   <a href="https://calendly.com/jason-typesense/typesense-office-hours"><img src="https://img.shields.io/badge/office%20hours-join-orange"></a>
+  <a href="https://twitter.com/typesense"><img src="https://img.shields.io/badge/%40typesense-follow-blue"></a>
 </p>
 <br>
 <p align="center">
