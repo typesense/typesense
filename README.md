@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://typesense.org"><img src="https://typesense.org/assets/images/typesense_logo.svg" alt="Typesense" width="298" /></a> 
+  <a href="https://typesense.org"><img src="assets/typesense_logo.svg" alt="Typesense" width="298" /></a> 
 </p>
 <p align="center">
   Typesense is a fast, typo-tolerant search engine for building delightful search experiences.
