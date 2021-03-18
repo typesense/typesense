@@ -579,9 +579,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     // process weights for search fields
     std::vector<search_field_t> weighted_search_fields;
 
-    if(query_by_weights.empty() && !search_fields.empty()) {
-        for(int i=search_fields.size(); i > 0; i--) {
+    if(query_by_weights.empty()) {
+        for(size_t i=1; i <= search_fields.size(); i++) {
             query_by_weights.push_back(i);
+        }
+    } else {
+        auto max_weight = *std::max_element(query_by_weights.begin(), query_by_weights.end());
+        for(size_t i=0; i < query_by_weights.size(); i++) {
+            query_by_weights[i] = (max_weight - query_by_weights[i]) + 1;
         }
     }
 

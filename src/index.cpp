@@ -1636,6 +1636,7 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
         all_result_ids = filter_ids;
         filter_ids = nullptr;
     } else {
+        // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
 
         std::vector<token_t> q_include_pos_tokens;
@@ -1700,48 +1701,42 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
             }
         }
 
-        for(const auto& key_kvs: topster_ids) {
-            // first calculate existing aggregate scores across best matching fields
-            spp::sparse_hash_map<uint8_t, KV*> existing_field_kvs;
-
-            const auto& kvs = key_kvs.second;
-            const uint64_t seq_id = key_kvs.first;
+        for(const auto& seq_id_kvs: topster_ids) {
+            const uint64_t seq_id = seq_id_kvs.first;
+            const auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
 
             // LOG(INFO) << "DOC ID: " << seq_id << ", score: " << kvs[0]->scores[kvs[0]->match_score_index];
 
-            /*if(seq_id == 12 || seq_id == 15) {
-                LOG(INFO) << "here";
-            }*/
-
+            // to calculate existing aggregate scores across best matching fields
+            spp::sparse_hash_map<uint8_t, KV*> existing_field_kvs;
             for(const auto kv: kvs) {
                 existing_field_kvs.emplace(kv->field_id, kv);
             }
 
-            uint64_t aggregated_score = 0;
             uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
+            uint64_t total_typos = 0, total_distances = 0;
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
-            for(size_t i = 0; i < num_search_fields && num_search_fields > 1; i++) {
+            for(size_t i = 0; i < num_search_fields; i++) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
                 size_t weight = search_fields[i].weight;
 
-                //LOG(INFO) << "--- field index: " << i;
-
-                if(field_id == kvs[0]->field_id) {
-                    token_bits |= kvs[0]->token_bits;
-                    //LOG(INFO) << "kvs[0]->field_id pop count: " << __builtin_popcount(token_bits);
-                    aggregated_score += (kvs[0]->scores[kvs[0]->match_score_index] * weight);
-                    continue;
-                }
+                //LOG(INFO) << "--- field index: " << i << ", weight: " << weight;
 
                 if(existing_field_kvs.count(field_id) != 0) {
                     // for existing field, we will simply sum field-wise weighted scores
                     token_bits |= existing_field_kvs[field_id]->token_bits;
                     //LOG(INFO) << "existing_field_kvs.count pop count: " << __builtin_popcount(token_bits);
 
-                    aggregated_score += (existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index]
-                                         * weight);
+                    int64_t match_score = existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index];
+                    total_distances += ((100 - (match_score & 0xFF)) + 1) * weight;
+                    total_typos += ((255 - ((match_score >> 8) & 0xFF)) + 1) * weight;
+
+                    /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
+                                  << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * weight
+                                  << ", total dist: " << (((match_score & 0xFF)))
+                                  << ", weighted dist: " << std::max<uint64_t>((100 - (match_score & 0xFF)), 1) * weight;*/
                     continue;
                 }
 
@@ -1780,14 +1775,25 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
                 }
 
                 if(words_present != 0) {
-                    uint64_t match_score = Match::get_match_score(words_present, 0, 100);
-                    aggregated_score += (match_score * weight);
+                    uint64_t match_score = Match::get_match_score(words_present, 0, 0);
+                    total_distances += ((100 - (match_score & 0xFF)) + 1) * weight;
+                    total_typos += ((255 - ((match_score >> 8) & 0xFF)) + 1) * weight;
+                    //LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << ((match_score >> 8) & 0xFF);
                 }
             }
 
-            aggregated_score |= (uint64_t(__builtin_popcount(token_bits)) << 48);
+            int64_t tokens_present = int64_t(__builtin_popcount(token_bits)) - 1;
+            total_typos = std::min<uint64_t>(255, total_typos);
+            total_distances = std::min<uint64_t>(100, total_distances);
 
-            /*LOG(INFO) << "seq id: " << seq_id << ", pop count: " << __builtin_popcount(token_bits)
+            uint64_t aggregated_score = (
+                (tokens_present << 16) |
+                ((255 - total_typos) << 8) |
+                (100 - total_distances)
+            );
+
+            /*LOG(INFO) << "seq id: " << seq_id << ", tokens_present: " << tokens_present
+                      << ", total_distances: " << total_distances << ", total_typos: " << total_typos
                       << ", aggregated_score: " << aggregated_score << ", token_bits: " << token_bits;*/
 
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
@@ -2154,6 +2160,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             groups_processed.emplace(distinct_id);
         }
 
+        //LOG(INFO) << "Seq id: " << seq_id << ", match_score: " << match_score;
         KV kv(field_id, query_index, token_bits, seq_id, distinct_id, match_score_index, scores);
         topster->add(&kv);
     }
