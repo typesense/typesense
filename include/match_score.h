@@ -50,7 +50,7 @@ struct Match {
         uint64_t match_score = (
             (int64_t(words_present) << 16) |
             (int64_t(255 - total_cost) << 8) |
-            (int64_t(distance))
+            (int64_t(100 - distance))
         );
 
         return match_score;
@@ -61,7 +61,7 @@ struct Match {
         uint64_t match_score = (
             (int64_t(words_present) << 16) |
             (int64_t(255 - total_cost) << 8) |
-            (int64_t(distance))
+            (int64_t(100 - distance))
         );
 
         return match_score;
@@ -206,10 +206,8 @@ struct Match {
             best_displacement = 0;
         }
 
-        uint8_t best_distance = uint8_t(100 - best_displacement);
-
         words_present = best_num_match;
-        distance = best_distance;
+        distance = uint8_t(best_displacement);
         if(populate_window) {
             offsets = best_window;
         }
