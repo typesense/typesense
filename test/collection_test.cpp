@@ -3169,3 +3169,61 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, SearchingForRecordsWithSpecialChars) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("url", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Amazon Home", "https://amazon.com/"},
+        {"Google Home", "https://google.com/"},
+        {"Github Issue", "https://github.com/typesense/typesense/issues/241"},
+        {"Amazon Search", "https://www.amazon.com/s?k=phone&ref=nb_sb_noss_2"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["url"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("google",
+                                 {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("amazon.com",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("typesense",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("nb_sb_noss_2",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
