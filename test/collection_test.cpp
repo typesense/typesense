@@ -2908,8 +2908,8 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
@@ -2953,6 +2953,54 @@ TEST_F(CollectionTest, MultiFieldRelevance4) {
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldRelevance5) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("country", field_types::STRING, false),
+                                 field("field_a", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Stark Industries ™", "Canada", "Canadia", "5215"},
+        {"Canaida Corp", "United States", "Canadoo", "200"},
+        {"Acme Corp", "Mexico", "Canadoo", "300"}
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["company_name"] = records[i][0];
+        doc["country"] = records[i][1];
+        doc["field_a"] = records[i][2];
+        doc["num_employees"] = std::stoi(records[i][3]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Canada",
+                                 {"company_name","country","field_a"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                                 true, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1, 1}).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    //ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
