@@ -361,7 +361,11 @@ int run_server(const Config & config, const std::string & version, void (*master
         create_init_db_snapshot = true;
     }
 
-    ThreadPool thread_pool(32);
+    const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+    const size_t num_threads = std::max<size_t>(proc_count * 8, 16);
+
+    LOG(INFO) << "Thread pool size: " << num_threads;
+    ThreadPool thread_pool(num_threads);
     Store store(db_dir);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
