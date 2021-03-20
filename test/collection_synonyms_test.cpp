@@ -359,8 +359,8 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
-    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L</mark>. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L</mark>. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     // for now we don't support synonyms on ANY prefix
 
