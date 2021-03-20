@@ -2,62 +2,63 @@
 #include "tokenizer.h"
 
 bool Tokenizer::next(std::string &token, size_t& token_index) {
-    std::stringstream out;
-
-    if(i >= text.size()) {
-        if(i == text.size() && !text.empty() && text.back() == ' ') {
-            token = "";
-            i++;
-            return true;
+    if(no_op) {
+        if(i == text.size()) {
+            return false;
         }
 
-        return false;
-    }
-
-    if(no_op) {
         token = text;
         i = text.size();
         return true;
     }
 
     while(i < text.size()) {
-        if((text[i] & ~0x7f) == 0 ) {
-            // ASCII character: split on space/newline or lowercase otherwise
-            if(std::isalnum(text[i])) {
+        bool is_ascii = (text[i] & ~0x7f) == 0;
+        if(is_ascii) {
+            const size_t next_stream_mode = std::isalnum(text[i]) ? CHARS : SEPARATORS;
+
+            if(next_stream_mode != stream_mode) {
+                // We tokenize when `stream_mode` changes
+                token = out.str();
+
+                out.str(std::string());
                 if(normalize) {
                     out << char(std::tolower(text[i]));
                 } else {
                     out << text[i];
                 }
+                i++;
+
+                if(stream_mode == SEPARATORS && !keep_separators) {
+                    stream_mode = next_stream_mode;
+                    continue;
+                }
+
+                token_index = token_counter++;
+                stream_mode = next_stream_mode;
+                return true;
             } else {
-                bool is_space = text[i] == 32;
-                bool is_new_line = text[i] == 10;
-                bool is_whitespace = is_space || is_new_line;
-
-                bool next_char_alphanum = (i != text.length() - 1) && std::isalnum(text[i + 1]);
-
-                if(!normalize && !is_whitespace && (i == text.length() - 1 || !next_char_alphanum)) {
-                    // checking for next char ensures that `foo-bar` does not get split to `foo-`
+                if(normalize) {
+                    out << char(std::tolower(text[i]));
+                } else {
                     out << text[i];
                 }
 
-                if(is_whitespace || next_char_alphanum) {
-                    // we split on space or on a special character whose next char is alphanumeric
-                    token = out.str();
-                    out.clear();
-                    i++;
-
-                    if(!keep_empty && token.empty()) {
-                        continue;
-                    }
-
-                    token_index = token_counter++;
-                    return true;
-                }
+                i++;
+                continue;
             }
+        }
 
-            i++;
-            continue;
+        if(stream_mode == SEPARATORS) { // to detect first non-ascii character
+            // we will tokenize now and treat the following non-ascii chars as a different token
+            stream_mode = CHARS;
+            token = out.str();
+            out.str(std::string());
+
+            if(keep_separators) {
+                token_index = token_counter++;
+                return true;
+            }
         }
 
         char inbuf[5];
@@ -90,18 +91,17 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
             // symbol cannot be represented as ASCII, so write the original symbol
             out << inbuf;
         } else {
-            // NOTE: outsize indicates bytes available AFTER current position so have to do <=
             for(size_t out_index=0; out_index<5; out_index++) {
                 if(!normalize) {
                     out << outbuf[out_index];
                     continue;
                 }
 
-                bool is_ascii = ((outbuf[out_index] & ~0x7f) == 0);
-                bool keep_char = !is_ascii || std::isalnum(outbuf[out_index]);
+                bool unicode_is_ascii = ((outbuf[out_index] & ~0x7f) == 0);
+                bool keep_char = !unicode_is_ascii || std::isalnum(outbuf[out_index]);
 
                 if(keep_char) {
-                    if(is_ascii && std::isalnum(outbuf[out_index])) {
+                    if(unicode_is_ascii && std::isalnum(outbuf[out_index])) {
                         outbuf[out_index] = char(std::tolower(outbuf[out_index]));
                     }
                     out << outbuf[out_index];
@@ -111,9 +111,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
     }
 
     token = out.str();
-    out.clear();
+    out.str(std::string());
 
-    if(!keep_empty && token.empty()) {
+    if(token.empty()) {
+        return false;
+    }
+
+    if(!std::isalnum(token[0]) && !keep_separators) {
         return false;
     }
 

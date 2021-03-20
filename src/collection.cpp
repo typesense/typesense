@@ -1223,20 +1223,27 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        StringUtils::split(query, tokens, " ");
+        Tokenizer(query, true, true).tokenize(tokens);
+        bool exclude_operator_prior = false;
 
-        for(std::string& token: tokens) {
-            if(token[0] == '-') {
-                std::string&& just_token = token.substr(1);
-                Tokenizer(just_token, false, true).tokenize(just_token);
-                if(!just_token.empty()) {
-                    q_exclude_tokens.push_back(just_token);
-                }
+        for(const auto& token: tokens) {
+            if(token.empty()) {
+                continue;
+            }
+
+            if(token == "-" || token == " -") {
+                exclude_operator_prior = true;
+            }
+
+            if(!std::isalnum(token[0])) {
+                continue;
+            }
+
+            if(exclude_operator_prior) {
+                q_exclude_tokens.push_back(token);
+                exclude_operator_prior = false;
             } else {
-                Tokenizer(token, false, true).tokenize(token);
-                if(!token.empty()) {
-                    q_include_tokens.push_back(token);
-                }
+                q_include_tokens.push_back(token);
             }
         }
 
@@ -1383,7 +1390,9 @@ void Collection::highlight_result(const field &search_field,
         // is from the best matched field and need not be present in other fields of a document.
         Index* index = indices[field_order_kv->key % num_memory_shards];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+
         if(actual_leaf != nullptr) {
+            //LOG(INFO) << "field: " << search_field.name << ", key: " << actual_leaf->key;
             query_suggestion.push_back(actual_leaf);
             std::vector<uint16_t> positions;
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
@@ -1432,66 +1441,84 @@ void Collection::highlight_result(const field &search_field,
     std::partial_sort(match_indices.begin(), match_indices.begin()+max_array_matches, match_indices.end());
 
     for(size_t index = 0; index < max_array_matches; index++) {
-        const match_index_t & match_index = match_indices[index];
-        const Match & match = match_index.match;
+        std::sort(match_indices[index].match.offsets.begin(), match_indices[index].match.offsets.end());
+        const auto& match_index = match_indices[index];
+        const Match& match = match_index.match;
 
-        std::vector<std::string> tokens;
+        const std::string& text = (search_field.type == field_types::STRING) ? document[search_field.name] : document[search_field.name][match_index.index];
+        Tokenizer tokenizer(text, true, false);
 
-        if(search_field.type == field_types::STRING) {
-            Tokenizer(document[search_field.name], true, false).tokenize(tokens);
-        } else {
-            Tokenizer(document[search_field.name][match_index.index], true, false).tokenize(tokens);
-        }
+        std::string raw_token;
+        size_t raw_token_index = 0;
+        int indexed_token_index = -1;
+        size_t match_offset_index = 0;
 
-        std::vector<size_t> token_indices;
+        std::set<size_t> token_indices;
         spp::sparse_hash_set<std::string> token_hits;
+        std::vector<std::string> raw_tokens;
+        std::unordered_map<size_t, size_t> indexed_to_raw;
 
-        for(size_t i = 0; i < match.offsets.size(); i++) {
-            if(match.offsets[i].offset != MAX_DISPLACEMENT) {
-                size_t token_index = (size_t)(match.offsets[i].offset);
-                token_indices.push_back(token_index);
-                if(token_index >= tokens.size()) {
-                    LOG(ERROR) << "Highlight token index " << token_index << " is greater than length of store field.";
-                    continue;
-                }
-                std::string token = tokens[token_index];
-                Tokenizer(token, true, true).tokenize(token);
-
-                token_hits.insert(token);
+        while(tokenizer.next(raw_token, raw_token_index)) {
+            if(!raw_token.empty() && (std::isalnum(raw_token[0]) || (raw_token[0] & ~0x7f) != 0)) {
+                // check for actual token (first char is NOT alphanum or ascii)
+                indexed_token_index++;
+                indexed_to_raw[indexed_token_index] = raw_token_index;
+                /*LOG(INFO) << "raw_token: " << raw_token << ", indexed_token_index: " << indexed_token_index
+                          << ", raw_token_index: " << raw_token_index;*/
             }
+
+            if (match_offset_index < match.offsets.size() &&
+                match.offsets[match_offset_index].offset == indexed_token_index) {
+                std::string indexed_token;
+                Tokenizer(raw_token, true, true).tokenize(indexed_token);
+
+                if(token_indices.count(indexed_token_index) == 0) {
+                    // repetition could occur, for e.g. in the case of synonym constructed queries
+                    token_indices.insert(indexed_token_index);
+                    token_hits.insert(indexed_token);
+                }
+
+                match_offset_index++;
+            }
+
+            raw_tokens.push_back(raw_token);
         }
 
+        size_t num_indexed_tokens = indexed_token_index + 1;
         auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
 
         size_t prefix_length = highlight_affix_num_tokens;
-        size_t suffix_length = highlight_affix_num_tokens + 1;
+        size_t suffix_length = highlight_affix_num_tokens;
 
-        // For longer strings, pick surrounding tokens within `prefix_length` of min_index and max_index for snippet
-        const size_t start_index = (tokens.size() <= snippet_threshold) ? 0 :
-                                   std::max(0, (int)(*(minmax.first) - prefix_length));
+        if(num_indexed_tokens == 0) {
+            continue;
+        }
 
-        const size_t end_index = (tokens.size() <= snippet_threshold) ? tokens.size() :
-                                 std::min((int)tokens.size(), (int)(*(minmax.second) + suffix_length));
+        // For longer strings, pick surrounding raw_tokens within `prefix_length` of min_index and max_index for snippet
+        const size_t start_index = (num_indexed_tokens <= snippet_threshold) ? 0 :
+                                   indexed_to_raw[std::max(0, (int)(*(minmax.first) - prefix_length))];
+
+        const size_t end_index = (num_indexed_tokens <= snippet_threshold) ? raw_tokens.size() - 1 :
+                                 indexed_to_raw[std::min((int)num_indexed_tokens - 1, (int)(*(minmax.second) + suffix_length))];
 
         std::stringstream snippet_stream;
 
         highlight.matched_tokens.emplace_back();
         std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+        size_t snippet_index = start_index;
 
-        for(size_t snippet_index = start_index; snippet_index < end_index; snippet_index++) {
-            if(snippet_index != start_index) {
-                snippet_stream << " ";
-            }
+        while(snippet_index <= end_index) {
+            std::string normalized_token;
+            Tokenizer(raw_tokens[snippet_index], true, true).tokenize(normalized_token);
 
-            std::string token = tokens[snippet_index];
-            Tokenizer(token, true, true).tokenize(token);
-
-            if(token_hits.count(token) != 0) {
-                snippet_stream << highlight_start_tag << tokens[snippet_index] << highlight_end_tag;
-                matched_tokens.push_back(tokens[snippet_index]);
+            if(token_hits.count(normalized_token) != 0) {
+                snippet_stream << highlight_start_tag << raw_tokens[snippet_index] << highlight_end_tag;
+                matched_tokens.push_back(raw_tokens[snippet_index]);
             } else {
-                snippet_stream << tokens[snippet_index];
+                snippet_stream << raw_tokens[snippet_index];
             }
+
+            snippet_index++;
         }
 
         highlight.snippets.push_back(snippet_stream.str());
@@ -1501,18 +1528,14 @@ void Collection::highlight_result(const field &search_field,
 
         if(highlighted_fully) {
             std::stringstream value_stream;
-            for(size_t value_index = 0; value_index < tokens.size(); value_index++) {
-                if(value_index != 0) {
-                    value_stream << " ";
-                }
+            for(size_t value_index = 0; value_index < raw_tokens.size(); value_index++) {
+                std::string normalized_token;
+                Tokenizer(raw_tokens[value_index], true, true).tokenize(normalized_token);
 
-                std::string token = tokens[value_index];
-                Tokenizer(token, true, true).tokenize(token);
-
-                if(token_hits.count(token) != 0) {
-                    value_stream << highlight_start_tag << tokens[value_index] << highlight_end_tag;
+                if(token_hits.count(normalized_token) != 0) {
+                    value_stream << highlight_start_tag << raw_tokens[value_index] << highlight_end_tag;
                 } else {
-                    value_stream << tokens[value_index];
+                    value_stream << raw_tokens[value_index];
                 }
             }
 

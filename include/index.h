@@ -389,9 +389,9 @@ public:
 
     static void transform_for_180th_meridian(GeoCoord& point, double offset);
 
-    // the following methods are not synchronized because their parent calls are synchronized
-
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
+
+    // the following methods are not synchronized because their parent calls are synchronized
 
     uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const;
 

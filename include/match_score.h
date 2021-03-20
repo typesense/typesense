@@ -30,6 +30,10 @@ struct TokenOffset {
     bool operator>(const TokenOffset &a) const {
         return offset > a.offset;
     }
+
+    bool operator<(const TokenOffset &a) const {
+        return offset < a.offset;
+    }
 };
 
 struct Match {

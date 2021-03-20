@@ -575,7 +575,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
                                     uint32_t seq_id, bool is_facet, const field & a_field) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    Tokenizer tokenizer(text, true, true, !a_field.is_string());
+    Tokenizer tokenizer(text, false, true, !a_field.is_string());
     std::string token;
     size_t token_index = 0;
 
@@ -588,7 +588,6 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
 
         if(is_facet) {
             uint64_t hash = facet_token_hash(a_field, token);
-            //facet_index_v2[seq_id][facet_id].push_back(hash);
             facet_hashes.push_back(hash);
         }
 
@@ -623,7 +622,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, true, true, !a_field.is_string());
+        Tokenizer tokenizer(str, false, true, !a_field.is_string());
         std::string token;
         size_t token_index = 0;
 
@@ -2216,6 +2215,8 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
     for(size_t i = 0; i < query_suggestion.size(); i++) {
         const art_leaf* token_leaf = query_suggestion[i];
         uint32_t doc_index = leaf_to_indices[i][result_index];
+        /*LOG(INFO) << "doc_id: " << token_leaf->values->ids.at(doc_index) << ", token_leaf->values->ids.getLength(): "
+                  << token_leaf->values->ids.getLength();*/
 
         // it's possible for a query token to not appear in a resulting document
         if(doc_index == token_leaf->values->ids.getLength()) {
@@ -2229,7 +2230,14 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
         /*uint32_t* offsets = token_leaf->values->offsets.uncompress();
         for(size_t ii=0; ii < token_leaf->values->offsets.getLength(); ii++) {
             LOG(INFO) << "offset: " << offsets[ii];
-        }*/
+        }
+
+        uint32_t* offset_indices = token_leaf->values->offset_index.uncompress();
+        for(size_t ii=0; ii < token_leaf->values->offset_index.getLength(); ii++) {
+            LOG(INFO) << "offset index: " << offset_indices[ii];
+        }
+
+        LOG(INFO) << "token_leaf->values->offsets.getLength(): " << token_leaf->values->offsets.getLength();*/
 
         uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
         uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
@@ -2464,6 +2472,7 @@ void Index::tokenize_doc_field(const nlohmann::json& document, const field& sear
 }
 
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
+    std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
     return (art_leaf*) art_search(t, token, (int) token_len);
 }

@@ -164,7 +164,7 @@ TEST_F(CollectionTest, PhraseSearch) {
        13:  score: 12, (single word match)
     */
 
-    std::vector<std::string> ids = {"8", "1", "16", "17", "13"};
+    std::vector<std::string> ids = {"8", "1", "17", "16", "13"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -184,7 +184,7 @@ TEST_F(CollectionTest, PhraseSearch) {
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
-    ids = {"8", "1", "17", "16", "13"};
+    ids = {"8", "17", "1", "16", "13"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -200,7 +200,7 @@ TEST_F(CollectionTest, PhraseSearch) {
 
     ASSERT_EQ(3, results["request_params"]["per_page"].get<size_t>());
 
-    ids = {"8", "1", "16"};
+    ids = {"8", "1", "17"};
 
     for(size_t i = 0; i < 3; i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -1958,7 +1958,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("non arcu id lectus <mark>accumsan</mark> venenatis at at justo.",
+    ASSERT_STREQ("non arcu id lectus <mark>accumsan</mark> venenatis at at justo",
     results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_large_text");
@@ -2141,7 +2141,7 @@ TEST_F(CollectionTest, SearchHighlightWithNewLine) {
                              token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0).get();
 
-    ASSERT_STREQ("Blah, blah <mark>Stark</mark> Industries",
+    ASSERT_STREQ("Blah, blah\n<mark>Stark</mark> Industries",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     ASSERT_STREQ("Stark", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
@@ -3184,7 +3184,7 @@ TEST_F(CollectionTest, SearchingForRecordsWithSpecialChars) {
 
     std::vector<std::vector<std::string>> records = {
         {"Amazon Home", "https://amazon.com/"},
-        {"Google Home", "https://google.com/"},
+        {"Google Home", "https://google.com///"},
         {"Github Issue", "https://github.com/typesense/typesense/issues/241"},
         {"Amazon Search", "https://www.amazon.com/s?k=phone&ref=nb_sb_noss_2"},
     };
@@ -3206,12 +3206,17 @@ TEST_F(CollectionTest, SearchingForRecordsWithSpecialChars) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Google</mark> Home", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("https://<mark>google</mark>.com///", results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
     results = coll1->search("amazon.com",
                             {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("typesense",
                             {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
@@ -3224,6 +3229,10 @@ TEST_F(CollectionTest, SearchingForRecordsWithSpecialChars) {
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("https://www.amazon.com/s?k=phone&ref=<mark>nb</mark>_<mark>sb</mark>_<mark>noss</mark>_<mark>2</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
