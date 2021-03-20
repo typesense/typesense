@@ -537,7 +537,6 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
 
     auto http_server = handler->http_server;
     auto message_dispatcher = handler->http_server->get_message_dispatcher();
-    auto api_handler = rpath->handler;
 
     // LOG(INFO) << "Before enqueue res: " << response
     handler->http_server->get_thread_pool()->enqueue([http_server, rpath, message_dispatcher,

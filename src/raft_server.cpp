@@ -267,11 +267,12 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             //LOG(INFO) << ":::" << "body size inside apply: " << request->body.size();
         } else {
             // Parse request from the log
-            const std::string &data_str = iter.data().to_string();
             request_generated->deserialize(iter.data().to_string());
             //LOG(INFO) << "Parsed request from the log, body_size: " << request->body.size();
 
-            /* uint64_t hash = StringUtils::hash_wy(data_str.c_str(), data_str.size());
+            /*
+               const std::string &data_str = iter.data().to_string();
+               uint64_t hash = StringUtils::hash_wy(data_str.c_str(), data_str.size());
                if(hash == 12066143973577129900) {
                 LOG(INFO) << "get stuck here...";
             }*/
@@ -441,8 +442,8 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
              << ", applying_index: " << nodeStatus.applying_index
              << ", pending_index: " << nodeStatus.pending_index
              << ", disk_index: " << nodeStatus.disk_index
-             << ", pending_queue_size: " << nodeStatus.pending_queue_size;
-
+             << ", pending_queue_size: " << nodeStatus.pending_queue_size
+             << ", local_sequence: " << store->get_latest_seq_number();
 
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
