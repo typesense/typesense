@@ -66,16 +66,20 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
 }
 
 bool compare_art_node_score(const art_node* a, const art_node* b) {
-    int32_t a_value = 0, b_value = 0;
+    int64_t a_value = 0, b_value = 0;
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
         a_value = al->max_score;
+    } else {
+        a_value = a->max_score;
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
         b_value = bl->max_score;
+    } else {
+        b_value = b->max_score;
     }
 
     return a_value > b_value;
@@ -112,6 +116,7 @@ static art_node* alloc_node(uint8_t type) {
             abort();
     }
     n->type = type;
+    n->max_score = 0;
     return n;
 }
 
@@ -469,6 +474,7 @@ static uint32_t longest_common_prefix(art_leaf *l1, art_leaf *l2, int depth) {
 static void copy_header(art_node *dest, art_node *src) {
     dest->num_children = src->num_children;
     dest->partial_len = src->partial_len;
+    dest->max_score = src->max_score;
     memcpy(dest->partial, src->partial, min(MAX_PREFIX_LEN, src->partial_len));
 }
 
@@ -476,6 +482,7 @@ static void add_child256(art_node256 *n, art_node **ref, unsigned char c, void *
     (void)ref;
     n->n.num_children++;
     n->children[c] = (art_node *) child;
+    n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
 }
 
 static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *child) {
@@ -485,6 +492,7 @@ static void add_child48(art_node48 *n, art_node **ref, unsigned char c, void *ch
         n->children[pos] = (art_node *) child;
         n->keys[c] = pos + 1;
         n->n.num_children++;
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
     } else {
         art_node256 *new_n = (art_node256*)alloc_node(NODE256);
         for (int i=0;i<256;i++) {
@@ -525,6 +533,7 @@ static void add_child16(art_node16 *n, art_node **ref, unsigned char c, void *ch
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
 
     } else {
         art_node48 *new_n = (art_node48*)alloc_node(NODE48);
@@ -557,6 +566,7 @@ static void add_child4(art_node4 *n, art_node **ref, unsigned char c, void *chil
         n->keys[idx] = c;
         n->children[idx] = (art_node *) child;
         n->n.num_children++;
+        n->n.max_score = MAX(n->n.max_score, ((art_leaf *) LEAF_RAW(child))->max_score);
 
     } else {
         art_node16 *new_n = (art_node16*)alloc_node(NODE16);
@@ -652,6 +662,8 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         add_child4(new_n, ref, l2->key[depth+longest_prefix], SET_LEAF(l2));
         return NULL;
     }
+
+    n->max_score = MAX(n->max_score, document->score);
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -922,9 +934,18 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         art_node *n = (art_node *) q.top();
         q.pop();
 
+        /*if (IS_LEAF(n)) {
+            art_leaf *l = (art_leaf *) LEAF_RAW(n);
+            LOG(INFO) << "Top node (leaf) score: " << l->max_score;
+        } else {
+            LOG(INFO) << "Top node score: " << n->max_score;
+        }*/
+
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
+
+            //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
 
             if(filter_ids_length == 0) {
                 results.push_back(l);
@@ -942,7 +963,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         int idx;
         switch (n->type) {
             case NODE4:
-                //LOG(INFO)  << "\nNODE4, SCORE: " << n->max_token_count;
+                //LOG(INFO)  << "NODE4, SCORE: " << n->max_score;
                 for (int i=0; i < n->num_children; i++) {
                     art_node* child = ((art_node4*)n)->children[i];
                     q.push(child);
@@ -950,25 +971,24 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 break;
 
             case NODE16:
-                //LOG(INFO) << "\nNODE16, SCORE: " << n->max_token_count;
+                //LOG(INFO)  << "NODE16, SCORE: " << n->max_score;
                 for (int i=0; i < n->num_children; i++) {
                     q.push(((art_node16*)n)->children[i]);
                 }
                 break;
 
             case NODE48:
-                //LOG(INFO) << "\nNODE48, SCORE: " << n->max_token_count;
+                //LOG(INFO)  << "NODE48, SCORE: " << n->max_score;
                 for (int i=0; i < 256; i++) {
                     idx = ((art_node48*)n)->keys[i];
                     if (!idx) continue;
                     art_node *child = ((art_node48*)n)->children[idx - 1];
-                    //LOG(INFO) << "--PUSHING NODE48 CHILD WITH SCORE: " << get_score(child);
                     q.push(child);
                 }
                 break;
 
             case NODE256:
-                //LOG(INFO) << "\nNODE256, SCORE: " << n->max_token_count;
+                //LOG(INFO)  << "NODE256, SCORE: " << n->max_score;
                 for (int i=0; i < 256; i++) {
                     if (!((art_node256*)n)->children[i]) continue;
                     q.push(((art_node256*)n)->children[i]);
