@@ -34,6 +34,8 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
 
     ssl_refresh_timer.timer.expire_at = 0;  // used during destructor
     metrics_refresh_timer.timer.expire_at = 0;  // used during destructor
+
+    accept_ctx->ssl_ctx = nullptr;
 }
 
 void HttpServer::on_accept(h2o_socket_t *listener, const char *err) {
@@ -72,12 +74,8 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
     LOG(INFO) << "Refreshing SSL certs from disk.";
 
     HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
-    SSL_CTX *ssl_ctx = hs->accept_ctx->ssl_ctx;
-
-    if (SSL_CTX_use_certificate_chain_file(ssl_ctx, hs->ssl_cert_path.c_str()) != 1) {
-        LOG(ERROR) << "Error while refreshing SSL certificate file:" << hs->ssl_cert_path;
-    } else if (SSL_CTX_use_PrivateKey_file(ssl_ctx, hs->ssl_cert_key_path.c_str(), SSL_FILETYPE_PEM) != 1) {
-        LOG(ERROR) << "Error while refreshing SSL private key file: " << hs->ssl_cert_key_path;
+    if(!initialize_ssl_ctx(hs->ssl_cert_path.c_str(), hs->ssl_cert_key_path.c_str(), hs->accept_ctx)) {
+        LOG(ERROR) << "SSL cert refresh failed.";
     }
 
     // link the timer for the next cycle
@@ -94,44 +92,10 @@ int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);
     h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);  // every 8 hours
 
-    accept_ctx->ssl_ctx = SSL_CTX_new(SSLv23_server_method());
-
-    // As recommended by:
-    // https://github.com/ssllabs/research/wiki/SSL-and-TLS-Deployment-Best-Practices#23-use-secure-cipher-suites
-    SSL_CTX_set_cipher_list(accept_ctx->ssl_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:"
-            "ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:"
-            "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:"
-            "ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:"
-            "DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA256");
-
-    // Without this, DH and ECDH ciphers will be ignored by OpenSSL
-    int nid = NID_X9_62_prime256v1;
-    EC_KEY *key = EC_KEY_new_by_curve_name(nid);
-    if (key == NULL) {
-        LOG(ERROR) << "Failed to create DH/ECDH.";
+    if(!initialize_ssl_ctx(cert_file, key_file, accept_ctx)) {
         return -1;
     }
 
-    SSL_CTX_set_tmp_ecdh(accept_ctx->ssl_ctx, key);
-    EC_KEY_free(key);
-
-    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv2);
-    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_SSLv3);
-    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_TLSv1);
-    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_NO_TLSv1_1);
-
-    SSL_CTX_set_options(accept_ctx->ssl_ctx, SSL_OP_SINGLE_ECDH_USE);
-
-    if (SSL_CTX_use_certificate_chain_file(accept_ctx->ssl_ctx, cert_file) != 1) {
-        LOG(ERROR) << "An error occurred while trying to load server certificate file: " << cert_file;
-        return -1;
-    }
-    if (SSL_CTX_use_PrivateKey_file(accept_ctx->ssl_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
-        LOG(ERROR) << "An error occurred while trying to load private key file: " << key_file;
-        return -1;
-    }
-
-    h2o_ssl_register_alpn_protocols(accept_ctx->ssl_ctx, h2o_http2_alpn_protocols);
     return 0;
 }
 
@@ -872,3 +836,63 @@ bool HttpServer::trigger_vote() {
 ThreadPool* HttpServer::get_thread_pool() const {
     return thread_pool;
 }
+
+bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file, h2o_accept_ctx_t* accept_ctx) {
+    SSL_CTX* new_ctx = SSL_CTX_new(SSLv23_server_method());
+
+    // As recommended by:
+    // https://github.com/ssllabs/research/wiki/SSL-and-TLS-Deployment-Best-Practices#23-use-secure-cipher-suites
+    SSL_CTX_set_cipher_list(new_ctx, "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:"
+                                         "ECDHE-ECDSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-ECDSA-AES128-SHA256:ECDHE-ECDSA-AES256-SHA384:"
+                                         "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:"
+                                         "ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:"
+                                         "DHE-RSA-AES128-SHA:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA256:DHE-RSA-AES256-SHA256");
+
+    // Without this, DH and ECDH ciphers will be ignored by OpenSSL
+    int nid = NID_X9_62_prime256v1;
+    EC_KEY *key = EC_KEY_new_by_curve_name(nid);
+    if (key == nullptr) {
+        LOG(ERROR) << "Failed to create DH/ECDH.";
+        return -1;
+    }
+
+    SSL_CTX_set_tmp_ecdh(new_ctx, key);
+    EC_KEY_free(key);
+
+    SSL_CTX_set_options(new_ctx, SSL_OP_NO_SSLv2);
+    SSL_CTX_set_options(new_ctx, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(new_ctx, SSL_OP_NO_TLSv1);
+    SSL_CTX_set_options(new_ctx, SSL_OP_NO_TLSv1_1);
+
+    SSL_CTX_set_options(new_ctx, SSL_OP_SINGLE_ECDH_USE);
+
+    if (SSL_CTX_use_certificate_chain_file(new_ctx, cert_file) != 1) {
+        LOG(ERROR) << "An error occurred while trying to load server certificate file: " << cert_file;
+        SSL_CTX_free(new_ctx);
+        return false;
+    }
+
+    if (SSL_CTX_use_PrivateKey_file(new_ctx, key_file, SSL_FILETYPE_PEM) != 1) {
+        LOG(ERROR) << "An error occurred while trying to load private key file: " << key_file;
+        SSL_CTX_free(new_ctx);
+        return false;
+    }
+
+    if(SSL_CTX_check_private_key(new_ctx) != 1) {
+        LOG(ERROR) << "Private key validation failed for: " << key_file;
+        SSL_CTX_free(new_ctx);
+        return false;
+    }
+
+    h2o_ssl_register_alpn_protocols(new_ctx, h2o_http2_alpn_protocols);
+
+    SSL_CTX* old_ctx = accept_ctx->ssl_ctx;
+    accept_ctx->ssl_ctx = new_ctx;
+
+    if(old_ctx != nullptr) {
+        SSL_CTX_free(old_ctx);
+    }
+
+    return true;
+}
+

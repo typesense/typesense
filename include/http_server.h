@@ -93,6 +93,8 @@ private:
 
     int setup_ssl(const char *cert_file, const char *key_file);
 
+    static bool initialize_ssl_ctx(const char *cert_file, const char *key_file, h2o_accept_ctx_t* accept_ctx);
+
     static void on_ssl_refresh_timeout(h2o_timer_t *entry);
 
     static void on_metrics_refresh_timeout(h2o_timer_t *entry);
