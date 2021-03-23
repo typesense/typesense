@@ -365,11 +365,12 @@ int run_server(const Config & config, const std::string & version, void (*master
     const size_t num_threads = std::max<size_t>(proc_count * 8, 16);
 
     LOG(INFO) << "Thread pool size: " << num_threads;
-    ThreadPool thread_pool(num_threads);
+    ThreadPool app_thread_pool(num_threads);
+    ThreadPool server_thread_pool(num_threads);
     Store store(db_dir);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, &thread_pool, config.get_max_memory_ratio(), config.get_api_key());
+    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(), config.get_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
@@ -382,7 +383,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         config.get_ssl_cert(),
         config.get_ssl_cert_key(),
         config.get_enable_cors(),
-        &thread_pool
+        &server_thread_pool
     );
 
     server->set_auth_handler(handle_authentication);
@@ -396,7 +397,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
+    ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
                                        config.get_catch_up_threshold_percentage(),
                                        create_init_db_snapshot, quit_raft_service);
