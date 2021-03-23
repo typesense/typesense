@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
             field("org", field_types::STRING, true)
     };
 
-    Collection *collection = collectionManager.get_collection("github_top1k");
+    Collection *collection = collectionManager.get_collection("github_top1k").get();
     if(collection == nullptr) {
         collection = collectionManager.create_collection("github_top1k", 4, fields_to_index, "stars").get();
     }
