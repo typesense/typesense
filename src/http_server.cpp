@@ -240,8 +240,8 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
-    //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
+    //LOG(INFO) << "on_res_generator_dispose fires " << custom_generator->res().get();
     destroy_request_response(custom_generator->req(), custom_generator->res());
 
     /*LOG(INFO) << "Deleting custom_generator, res: " << custom_generator->res();
@@ -506,6 +506,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     handler->http_server->get_thread_pool()->enqueue([http_server, rpath, message_dispatcher,
                                                       request, response]() {
         // call the API handler
+        //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
         (rpath->handler)(request, response);
 
         if(!rpath->async_res) {
@@ -513,6 +514,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
             response->wait();
         }
+        //LOG(INFO) << "Response done " << response.get();
     });
 
     return 0;
@@ -521,6 +523,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
 void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
     h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
     deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(custom_timer->data);
+    //LOG(INFO) << "on_deferred_process_request " << deferred_req_res->res.get();
 
     route_path* found_rpath = nullptr;
     deferred_req_res->server->get_route(deferred_req_res->req->route_hash, &found_rpath);
@@ -531,6 +534,8 @@ void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
 
 void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
                                   size_t timeout_ms) {
+    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res: " << res.get();
+
     if(req->defer_timer.data == nullptr) {
         auto deferred_req_res = new deferred_req_res_t{req, res, this};
         req->defer_timer.data = deferred_req_res;
@@ -540,8 +545,6 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
     }
 
     h2o_timer_link(ctx.loop, timeout_ms, &req->defer_timer.timer);
-
-    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res->await: " << res->await;
 
     if(exit_loop) {
         // otherwise, replication thread could be stuck waiting on a future
@@ -634,7 +637,7 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 }
 
 void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "stream_response called";
+    //LOG(INFO) << "stream_response called " << response.get();
 
     if(request->_req == nullptr) {
         // raft log replay or when underlying request is aborted
@@ -658,8 +661,8 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
         h2o_start_response(req, &custom_generator->super);
     }
 
-    //LOG(INFO) << "stream_response, body_size: " << response.body.size() << ", response_final="
-    //          << custom_generator->response->final;
+    /*LOG(INFO) << "stream_response, body_size: " << response->body.size() << ", response_final="
+              << custom_generator->response->final;*/
 
     h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
     response->body = "";

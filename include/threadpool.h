@@ -11,7 +11,7 @@ public:
     explicit ThreadPool(size_t);
     template<class F, class... Args>
     decltype(auto) enqueue(F&& f, Args&&... args);
-    ~ThreadPool();
+    void shutdown();
 private:
     // need to keep track of threads so we can join them
     std::vector< std::thread > workers;
@@ -39,8 +39,12 @@ inline ThreadPool::ThreadPool(size_t threads)
                             std::unique_lock<std::mutex> lock(this->queue_mutex);
                             this->condition.wait(lock,
                                                  [this]{ return this->stop || !this->tasks.empty(); });
-                            if(this->stop && this->tasks.empty()) {
+                            if(this->stop) {
                                 return;
+                            }
+
+                            if(this->tasks.empty()) {
+                                continue;
                             }
                             task = std::move(this->tasks.front());
                             this->tasks.pop();
@@ -67,16 +71,15 @@ decltype(auto) ThreadPool::enqueue(F&& f, Args&&... args)
         std::unique_lock<std::mutex> lock(queue_mutex);
 
         // don't allow enqueueing after stopping the pool
-        if(stop)
-            throw std::runtime_error("enqueue on stopped ThreadPool");
-
-        tasks.emplace(std::move(task));
+        if(!stop) {
+            tasks.emplace(std::move(task));
+        }
     }
     condition.notify_one();
     return res;
 }
 
-inline ThreadPool::~ThreadPool() {
+inline void ThreadPool::shutdown() {
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
         stop = true;

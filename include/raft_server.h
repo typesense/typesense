@@ -114,8 +114,6 @@ private:
 
     bool create_init_db_snapshot;
 
-    std::atomic<bool>& shut_down;
-
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
@@ -126,6 +124,9 @@ private:
     std::condition_variable cv;
     bool ready;
 
+    std::atomic<bool> shutting_down;
+    std::atomic<size_t> pending_writes;
+
 public:
 
     static constexpr const char* log_dir_name = "log";
@@ -134,7 +135,7 @@ public:
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
-                     bool create_init_db_snapshot, std::atomic<bool>& quit_service);
+                     bool create_init_db_snapshot);
 
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
@@ -165,23 +166,7 @@ public:
     uint64_t node_state() const;
 
     // Shut this node down.
-    void shutdown() {
-        LOG(INFO) << "Replication state shutdown.";
-        shut_down = true;
-        if (node) {
-            node->shutdown(nullptr);
-        }
-    }
-
-    // Blocking this thread until the node is eventually down.
-    void join() {
-        std::unique_lock lock(mutex);
-        if (node) {
-            node->join();
-            delete node;
-            node = nullptr;
-        }
-    }
+    void shutdown();
 
     int init_db();
 

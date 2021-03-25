@@ -115,6 +115,10 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 }
 
 void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
+    if(shutting_down) {
+        return ;
+    }
+
     std::shared_lock lock(mutex);
 
     if(!node) {
@@ -142,6 +146,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
+    pending_writes++;
 
     // Now the task is applied to the group, waiting for the result.
     return node->apply(task);
@@ -293,9 +298,14 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         request_response_t* replication_arg = new request_response_t{request_generated, response_generated};
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        //LOG(INFO) << "Raft write waiting to proceed response->final=" << response_generated->final;
+        //LOG(INFO) << "Raft write pre wait " << response_generated.get();
         response_generated->wait();
-        //LOG(INFO) << "Raft write ready to proceed, response->final=" << response_generated->final;
+        //LOG(INFO) << "Raft write post wait " << response_generated.get();
+
+        if(iter.done()) {
+            pending_writes--;
+            //LOG(INFO) << "pending_writes: " << pending_writes;
+        }
     }
 }
 
@@ -527,12 +537,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
-                                   bool create_init_db_snapshot, std::atomic<bool>& quit_service):
+                                   bool create_init_db_snapshot):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher),
         catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
-        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service),
-        ready(false) {
+        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot),
+        ready(false), shutting_down(false), pending_writes(0) {
 
 }
 
@@ -619,6 +629,32 @@ http_message_dispatcher* ReplicationState::get_message_dispatcher() const {
 
 Store* ReplicationState::get_store() {
     return store;
+}
+
+void ReplicationState::shutdown() {
+    LOG(INFO) << "Set shutting_down = true";
+    shutting_down = true;
+
+    // wait for pending writes to drop to zero
+    LOG(INFO) << "Waiting for in-flight writes to finish...";
+    while(pending_writes.load() != 0) {
+        LOG(INFO) << "pending_writes: " << pending_writes;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+
+    LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
+    std::unique_lock lock(mutex);
+
+    if (node) {
+        LOG(INFO) << "node->shutdown";
+        node->shutdown(nullptr);
+
+        // Blocking this thread until the node is eventually down.
+        LOG(INFO) << "node->join";
+        node->join();
+        delete node;
+        node = nullptr;
+    }
 }
 
 void InitSnapshotClosure::Run() {
