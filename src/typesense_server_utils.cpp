@@ -285,15 +285,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     // Stop application before server
     replication_state.shutdown();
+
+    LOG(INFO) << "raft_server.stop()";
     raft_server.Stop(0);
 
-    // Wait until all the processing tasks are over.
-    replication_state.join();
+    LOG(INFO) << "raft_server.join()";
     raft_server.Join();
 
     LOG(INFO) << "Typesense peering service has quit.";
-
-    server->stop();
 
     return 0;
 }
@@ -400,15 +399,25 @@ int run_server(const Config & config, const std::string & version, void (*master
     ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
                                        config.get_catch_up_threshold_percentage(),
-                                       create_init_db_snapshot, quit_raft_service);
+                                       create_init_db_snapshot);
 
-    std::thread raft_thread([&replication_state, &config, &state_dir]() {
+    std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds());
+
+        LOG(INFO) << "Shutting down server_thread_pool";
+
+        server_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down app_thread_pool.";
+
+        app_thread_pool.shutdown();
+
+        server->stop();
     });
 
     LOG(INFO) << "Starting API service...";
@@ -422,10 +431,19 @@ int run_server(const Config & config, const std::string & version, void (*master
     quit_raft_service = true;  // we set this once again in case API thread crashes instead of a signal
     raft_thread.join();
 
+    LOG(INFO) << "CURL clean up";
+
     curl_global_cleanup();
 
+    LOG(INFO) << "Deleting server";
+
     delete server;
+
+    LOG(INFO) << "CollectionManager dispose, this might take some time...";
+
     CollectionManager::get_instance().dispose();
+
+    LOG(INFO) << "Bye.";
 
     return ret_code;
 }

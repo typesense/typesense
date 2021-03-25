@@ -1070,8 +1070,8 @@ bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_re
 }
 
 bool raft_write_send_response(void *data) {
-    //LOG(INFO) << "raft_write_send_response called";
     request_response_t* index_arg = static_cast<request_response_t*>(data);
+    //LOG(INFO) << "raft_write_send_response " << index_arg->res.get();
     std::unique_ptr<request_response_t> index_arg_guard(index_arg);
 
     bool async_res = false;
