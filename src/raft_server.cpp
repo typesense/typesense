@@ -73,8 +73,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
-    } else if(!create_init_db_snapshot) {
-        // `create_init_db_snapshot` can be handled separately only after leader starts
+    } else {
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
         int reload_store = store->reload(true, "");
@@ -116,6 +115,11 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
 
 void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     if(shutting_down) {
+        //LOG(INFO) << "write(), force shutdown";
+        response->set_503("Shutting down.");
+        response->final = true;
+        request->_req = nullptr;
+        request->notify();
         return ;
     }
 
@@ -152,7 +156,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     return node->apply(task);
 }
 
-void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) const {
+void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     // no lock on `node` needed as caller uses the lock
     if(!node || node->leader_id().is_empty()) {
         // Handle no leader scenario
@@ -174,7 +178,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
 
     if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
-        //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
+        LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
         request->notify();
         return ;
     }
@@ -191,6 +195,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
         const std::string url = get_leader_url_path(leader_addr, path, scheme);
 
+        pending_writes++;
+
         std::map<std::string, std::string> res_headers;
 
         if(request->http_method == "POST") {
@@ -202,12 +208,11 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
                 response->proxied_stream = true;
                 long status = HttpClient::post_response_async(url, request, response, server);
 
-                //LOG(INFO) << "Import call done.";
-
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
                     response->set_500("");
                 } else {
+                    pending_writes--;
                     return ;
                 }
             } else {
@@ -240,6 +245,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         auto replication_arg = new request_response_t{request, response};
         replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
         message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+
+        pending_writes--;
     });
 }
 
@@ -281,14 +288,6 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
                if(hash == 12066143973577129900) {
                 LOG(INFO) << "get stuck here...";
             }*/
-        }
-
-        if(request_generated->_req == nullptr && request_generated->body == "INIT_SNAPSHOT") {
-            // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
-            InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(this);
-            std::shared_lock lock(mutex);
-            node->snapshot(init_snapshot_closure);
-            continue ;
         }
 
         // Now that the log has been parsed, perform the actual operation
@@ -536,12 +535,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 }
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
-                                   bool create_init_db_snapshot):
+                                   bool api_uses_ssl, size_t catchup_min_sequence_diff,
+                                   size_t catch_up_threshold_percentage):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher),
         catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
-        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot),
+        api_uses_ssl(api_uses_ssl),
         ready(false), shutting_down(false), pending_writes(0) {
 
 }
