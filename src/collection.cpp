@@ -862,7 +862,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
 
-    // for grouping we have re-aggregate
+    // for grouping we have to re-aggregate
 
     const size_t topster_size = std::max((size_t)1, max_hits);
     Topster topster(topster_size, group_limit);
@@ -1391,8 +1391,9 @@ void Collection::highlight_result(const field &search_field,
         Index* index = indices[field_order_kv->key % num_memory_shards];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
 
+        //LOG(INFO) << "field: " << search_field.name << ", key: " << token_leaf->key;
+
         if(actual_leaf != nullptr) {
-            //LOG(INFO) << "field: " << search_field.name << ", key: " << actual_leaf->key;
             query_suggestion.push_back(actual_leaf);
             std::vector<uint16_t> positions;
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
