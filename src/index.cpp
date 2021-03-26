@@ -1700,9 +1700,11 @@ void Index::search(const std::vector<std::string>& q_include_tokens,
             }
         }
 
-        for(const auto& seq_id_kvs: topster_ids) {
+        for(auto& seq_id_kvs: topster_ids) {
             const uint64_t seq_id = seq_id_kvs.first;
-            const auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
+            auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
+
+            std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
 
             // LOG(INFO) << "DOC ID: " << seq_id << ", score: " << kvs[0]->scores[kvs[0]->match_score_index];
 
