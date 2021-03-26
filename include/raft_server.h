@@ -112,8 +112,6 @@ private:
 
     const bool api_uses_ssl;
 
-    bool create_init_db_snapshot;
-
     std::string raft_dir_path;
 
     std::string ext_snapshot_path;
@@ -134,8 +132,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
-                     bool create_init_db_snapshot);
+                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage);
 
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
@@ -221,16 +218,6 @@ private:
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
-
-        // have to do a dummy write, otherwise snapshot will not trigger
-        if(create_init_db_snapshot) {
-            std::map<std::string, std::string> params;
-            std::shared_ptr<http_req> request = std::make_shared<http_req>(nullptr, "POST", "/INIT_SNAPSHOT", 0, params,
-                                                                           "INIT_SNAPSHOT");
-            std::shared_ptr<http_res> response = std::make_shared<http_res>();
-            write(request, response);
-        }
-
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
@@ -260,7 +247,7 @@ private:
         LOG(INFO) << "Node stops following " << ctx;
     }
 
-    void write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) const;
+    void write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     void do_dummy_write();
 

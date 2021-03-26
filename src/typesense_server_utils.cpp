@@ -340,26 +340,6 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
 
-    bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
-
-    if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
-        if(!config.get_nodes().empty()) {
-            LOG(ERROR) << "Your data directory needs to be migrated to the new format.";
-            LOG(ERROR) << "To do that, please start Typesense server without the --nodes argument.";
-            return 1;
-        }
-
-        LOG(INFO) << "Migrating contents of data directory in a `db` sub-directory, as per the new data layout.";
-        bool moved = mv_dir(data_dir, db_dir);
-        if(!moved) {
-            LOG(ERROR) << "CRITICAL ERROR! Failed to migrate all files in the data directory into a `db` sub-directory.";
-            LOG(ERROR) << "NOTE: Please move remaining files manually. Failure to do so **WILL** lead to **DATA LOSS**.";
-            return 1;
-        }
-
-        create_init_db_snapshot = true;
-    }
-
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
     const size_t num_threads = std::max<size_t>(proc_count * 8, 16);
 
@@ -398,8 +378,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
-                                       config.get_catch_up_threshold_percentage(),
-                                       create_init_db_snapshot);
+                                       config.get_catch_up_threshold_percentage());
 
     std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
         std::string path_to_nodes = config.get_nodes();
