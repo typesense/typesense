@@ -123,7 +123,7 @@ public:
     // only for tests!
     void init(Store *store, const float max_memory_ratio, const std::string & auth_key);
 
-    Option<bool> load(const size_t init_batch_size=1000);
+    Option<bool> load(const size_t collection_batch_size, const size_t document_batch_size);
 
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detector properly
     void dispose();

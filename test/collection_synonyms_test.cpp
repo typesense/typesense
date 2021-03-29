@@ -19,7 +19,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {

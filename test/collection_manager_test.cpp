@@ -21,7 +21,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         search_fields = {
             field("title", field_types::STRING, false),
@@ -239,7 +239,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
     collectionManager2.init(store, 1.0, "auth_key");
-    auto load_op = collectionManager2.load();
+    auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
         LOG(ERROR) << load_op.error();
@@ -325,7 +325,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
     collectionManager2.init(store, 1.0, "auth_key");
-    auto load_op = collectionManager2.load();
+    auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
         LOG(ERROR) << load_op.error();
@@ -434,7 +434,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
     cmanager.init(new_store, 1.0, "auth_key");
-    cmanager.load();
+    cmanager.load(8, 1000);
 
     // try resolving on a blank slate
     Option<std::string> collection_option = cmanager.resolve_symlink("collection");
@@ -509,7 +509,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
     cmanager2.init(store, 1.0, "auth_key");
-    cmanager2.load();
+    cmanager2.load(8, 1000);
 
     collection_option = cmanager2.resolve_symlink("company");
     ASSERT_TRUE(collection_option.ok());
@@ -536,7 +536,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
     cmanager.init(new_store, 1.0, "auth_key");
-    cmanager.load();
+    cmanager.load(8, 1000);
 
     for(size_t i = 0; i < 100; i++) {
         auto schema = {
@@ -558,7 +558,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
 
     new_store = new Store(state_dir_path);
     cmanager.init(new_store, 1.0, "auth_key");
-    cmanager.load();
+    cmanager.load(8, 1000);
 
     ASSERT_EQ(100, cmanager.get_collections().size());
 

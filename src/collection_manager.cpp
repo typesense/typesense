@@ -94,7 +94,7 @@ void CollectionManager::init(Store *store, const float max_memory_ratio, const s
     init(store, thread_pool, max_memory_ratio, auth_key);
 }
 
-Option<bool> CollectionManager::load(const size_t init_batch_size) {
+Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
@@ -116,12 +116,14 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         next_collection_id = 0;
     }
 
+    LOG(INFO) << "Loading " << collection_batch_size << " collections in parallel, "
+              << document_batch_size << " documents at a time.";
+
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
     LOG(INFO) << "Found " << collection_meta_jsons.size() << " collection(s) on disk.";
 
-    const size_t PROC_COUNT = std::max<size_t>(1, std::thread::hardware_concurrency());
     std::vector<nlohmann::json> coll_meta_buffer;
 
     for(size_t coll_index = 0; coll_index < collection_meta_jsons.size(); coll_index++) {
@@ -134,7 +136,7 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
         coll_meta_buffer.push_back(collection_meta);
 
-        if(coll_meta_buffer.size() % PROC_COUNT == 0 || coll_index == collection_meta_jsons.size() - 1) {
+        if(coll_meta_buffer.size() % collection_batch_size == 0 || coll_index == collection_meta_jsons.size() - 1) {
             size_t num_processed = 0;
             std::mutex m_process;
             std::condition_variable cv_process;
@@ -143,9 +145,9 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
             LOG(INFO) << "coll_meta_buffer.size(): " << coll_meta_buffer.size();
 
             for(const auto& buff_coll_meta: coll_meta_buffer) {
-                thread_pool->enqueue([&buff_coll_meta, init_batch_size, &next_coll_id_status, &m_process, &cv_process,
+                thread_pool->enqueue([&buff_coll_meta, document_batch_size, &next_coll_id_status, &m_process, &cv_process,
                                       &num_processed, &results]() {
-                    Option<bool> res = load_collection(buff_coll_meta, init_batch_size, next_coll_id_status);
+                    Option<bool> res = load_collection(buff_coll_meta, document_batch_size, next_coll_id_status);
                     std::unique_lock<std::mutex> lock(m_process);
                     results.push_back(res);
                     num_processed++;
