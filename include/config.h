@@ -40,6 +40,11 @@ private:
 
     int log_slow_requests_time_ms;
 
+    size_t num_collections_parallel_load;
+    size_t num_documents_parallel_load;
+
+    size_t thread_pool_size;
+
 protected:
 
     Config() {
@@ -52,6 +57,11 @@ protected:
         this->catch_up_min_sequence_diff = 3000;
         this->catch_up_threshold_percentage = 95;
         this->log_slow_requests_time_ms = -1;
+        this->num_collections_parallel_load = 4;
+        this->num_documents_parallel_load = 1000;
+
+        // will be set dynamically if not overridden
+        this->thread_pool_size = 0;
     }
 
     Config(Config const&) {
@@ -193,6 +203,18 @@ public:
         return this->log_slow_requests_time_ms;
     }
 
+    size_t get_num_collections_parallel_load() const {
+        return this->num_collections_parallel_load;
+    }
+
+    size_t get_num_documents_parallel_load() const {
+        return this->num_documents_parallel_load;
+    }
+
+    size_t get_thread_pool_size() const {
+        return this->thread_pool_size;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -263,6 +285,18 @@ public:
 
         if(!get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS").empty()) {
             this->log_slow_requests_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS"));
+        }
+
+        if(!get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD").empty()) {
+            this->num_collections_parallel_load = std::stoi(get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD"));
+        }
+
+        if(!get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD").empty()) {
+            this->num_documents_parallel_load = std::stoi(get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD"));
+        }
+
+        if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
+            this->thread_pool_size = std::stoi(get_env("TYPESENSE_THREAD_POOL_SIZE"));
         }
     }
 
@@ -365,6 +399,18 @@ public:
         if(reader.Exists("server", "log-slow-requests-time-ms")) {
             this->log_slow_requests_time_ms = (int) reader.GetInteger("server", "log-slow-requests-time-ms", -1);
         }
+
+        if(reader.Exists("server", "num-collections-parallel-load")) {
+            this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 4);
+        }
+
+        if(reader.Exists("server", "num-documents-parallel-load")) {
+            this->num_documents_parallel_load = (int) reader.GetInteger("server", "num-documents-parallel-load", 1000);
+        }
+
+        if(reader.Exists("server", "thread-pool-size")) {
+            this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -447,6 +493,18 @@ public:
 
         if(options.exist("log-slow-requests-time-ms")) {
             this->log_slow_requests_time_ms = options.exist("log-slow-requests-time-ms");
+        }
+
+        if(options.exist("num-collections-parallel-load")) {
+            this->num_collections_parallel_load = options.exist("num-collections-parallel-load");
+        }
+
+        if(options.exist("num-documents-parallel-load")) {
+            this->num_documents_parallel_load = options.exist("num-documents-parallel-load");
+        }
+
+        if(options.exist("thread-pool-size")) {
+            this->thread_pool_size = options.exist("thread-pool-size");
         }
     }
 

@@ -59,19 +59,6 @@ public:
     }
 };
 
-// Closure that fires when initial snapshot operation finishes
-class InitSnapshotClosure : public braft::Closure {
-private:
-    ReplicationState* replication_state;
-public:
-
-    InitSnapshotClosure(ReplicationState* replication_state): replication_state(replication_state) {}
-
-    ~InitSnapshotClosure() {}
-
-    void Run();
-};
-
 // Closure that fires when requested
 class OnDemandSnapshotClosure : public braft::Closure {
 private:
@@ -108,6 +95,10 @@ private:
 
     const size_t catchup_min_sequence_diff;
     const size_t catch_up_threshold_percentage;
+
+    const size_t num_collections_parallel_load;
+    const size_t num_documents_parallel_load;
+
     std::atomic<bool> caught_up;
 
     const bool api_uses_ssl;
@@ -132,7 +123,8 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage);
+                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
+                     size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,

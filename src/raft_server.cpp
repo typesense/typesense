@@ -396,7 +396,9 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 int ReplicationState::init_db() {
     LOG(INFO) << "Loading collections from disk...";
 
-    Option<bool> init_op = CollectionManager::get_instance().load();
+    Option<bool> init_op = CollectionManager::get_instance().load(
+        num_collections_parallel_load, num_documents_parallel_load
+    );
 
     if(init_op.ok()) {
         LOG(INFO) << "Finished loading collections from disk.";
@@ -536,10 +538,13 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
 ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, size_t catchup_min_sequence_diff,
-                                   size_t catch_up_threshold_percentage):
+                                   size_t catch_up_threshold_percentage,
+                                   size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher),
         catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
+        num_collections_parallel_load(num_collections_parallel_load),
+        num_documents_parallel_load(num_documents_parallel_load),
         api_uses_ssl(api_uses_ssl),
         ready(false), shutting_down(false), pending_writes(0) {
 
@@ -653,19 +658,6 @@ void ReplicationState::shutdown() {
         node->join();
         delete node;
         node = nullptr;
-    }
-}
-
-void InitSnapshotClosure::Run() {
-    // Auto delete this after Run()
-    std::unique_ptr<InitSnapshotClosure> self_guard(this);
-
-    if(status().ok()) {
-        LOG(INFO) << "Init snapshot succeeded!";
-        replication_state->get_store()->reload(false, "");
-        replication_state->init_db();
-    } else {
-        LOG(ERROR) << "Init snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
     }
 }
 

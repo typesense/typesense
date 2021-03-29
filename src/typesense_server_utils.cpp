@@ -82,6 +82,11 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<int>("catch-up-threshold-percentage", '\0', "The threshold at which a follower is deemed to have caught up with leader.", false, 95);
     options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
 
+    options.add<uint32_t>("num-collections-parallel-load", '\0', "Number of collections that are loaded in parallel during start up.", false, 4);
+    options.add<uint32_t>("num-documents-parallel-load", '\0', "Number of documents per collection that are indexed in parallel during start up.", false, 1000);
+
+    options.add<uint32_t>("thread-pool-size", '\0', "Number of threads used for handling concurrent requests.", false, 4);
+
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
@@ -339,9 +344,10 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string data_dir = config.get_data_dir();
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
+    size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
-    const size_t num_threads = std::max<size_t>(proc_count * 8, 16);
+    const size_t num_threads = thread_pool_size == 0 ? std::max<size_t>(proc_count * 8, 16) : thread_pool_size;
 
     LOG(INFO) << "Thread pool size: " << num_threads;
     ThreadPool app_thread_pool(num_threads);
@@ -378,7 +384,9 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
-                                       config.get_catch_up_threshold_percentage());
+                                       config.get_catch_up_threshold_percentage(),
+                                       config.get_num_collections_parallel_load(),
+                                       config.get_num_documents_parallel_load());
 
     std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
         std::string path_to_nodes = config.get_nodes();
