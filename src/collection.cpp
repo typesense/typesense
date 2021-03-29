@@ -2319,6 +2319,26 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
                     new_field = dynamic_field;
                     new_field.name = fname;
+
+                    if (field_types::is_string_or_array(dynamic_field.type)) {
+                        parseable = field::get_type(kv.value(), field_type);
+                        if(!parseable) {
+                            if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
+                                return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
+                            } else {
+                                // DROP or COERCE_OR_DROP
+                                kv = document.erase(kv);
+                                continue;
+                            }
+                        }
+
+                        if (field_type == field_types::STRING_ARRAY) {
+                            new_field.type = field_types::STRING_ARRAY;
+                        } else {
+                            new_field.type = field_types::STRING;
+                        }
+                    }
+
                     goto UPDATE_SCHEMA;
                 }
             }

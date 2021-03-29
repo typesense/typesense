@@ -442,6 +442,39 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, SearchStringifiedField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("department", "string*", true, true),
+                                 field(".*_name", "string*", true, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        const Option<Collection*> &coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, "");
+        ASSERT_TRUE(coll_op.ok());
+        coll1 = coll_op.get();
+    }
+
+    nlohmann::json doc;
+    doc["title"] = "FIRST";
+    doc["department"] = "ENGINEERING";
+    doc["company_name"] = "Stark Inc.";
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_TRUE(add_op.ok());
+
+    auto results_op = coll1->search("stark", {"company_name"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_TRUE(results_op.ok());
+    ASSERT_EQ(1, results_op.get()["hits"].size());
+
+    results_op = coll1->search("engineering", {"department"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_TRUE(results_op.ok());
+    ASSERT_EQ(1, results_op.get()["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, StringSingularAllValues) {
     Collection *coll1;
 
