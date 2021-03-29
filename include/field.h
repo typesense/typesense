@@ -22,7 +22,7 @@ namespace field_types {
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
 
-    static bool is_string_or_array(const std::string type_def) {
+    static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
     }
 }
