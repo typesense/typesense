@@ -855,8 +855,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
 
-    auto begin = std::chrono::high_resolution_clock::now();
-
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
         num_found_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
@@ -903,17 +901,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                 iter_batch[i].clear();
                 num_indexed_docs += num_indexed;
             }
-        }
-
-        auto time_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::high_resolution_clock::now() - begin).count();
-
-        auto throttle_time_millis = uint64_t((cm.LOAD_THROTTLE_PERCENT/100) * time_millis);
-
-        if(throttle_time_millis != 0) {
-            // we throttle only when we have accumulated atleast 1 ms worth of throttling time
-            begin = std::chrono::high_resolution_clock::now();
-            std::this_thread::sleep_for(std::chrono::milliseconds(throttle_time_millis));
         }
     }
 
