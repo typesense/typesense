@@ -2457,7 +2457,8 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     if(dirty_values_op.has_value()) {
         dirty_values_action = dirty_values_op.value();
     } else {
-        dirty_values_action = fallback_field_type.empty() ? DIRTY_VALUES::REJECT : DIRTY_VALUES::COERCE_OR_REJECT;
+        dirty_values_action = (fallback_field_type.empty() && dynamic_fields.empty()) ?
+                              DIRTY_VALUES::REJECT : DIRTY_VALUES::COERCE_OR_REJECT;
     }
 
     return dirty_values_action;
