@@ -2511,7 +2511,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
         sort_schema.emplace(new_field.name, new_field);
 
         if(search_index.count(new_field.name) == 0) {
-            if(new_field.is_string()) {
+            if(new_field.is_string() || field_types::is_string_or_array(new_field.type)) {
                 art_tree *t = new art_tree;
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);

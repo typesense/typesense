@@ -114,7 +114,7 @@ struct field {
     }
 
     bool is_dynamic() const {
-        return name != ".*" && name.find(".*") != std::string::npos;
+         return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool has_numerical_index() const {
