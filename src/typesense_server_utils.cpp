@@ -347,7 +347,11 @@ int run_server(const Config & config, const std::string & version, void (*master
     size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
-    const size_t num_threads = thread_pool_size == 0 ? std::max<size_t>(proc_count * 8, 16) : thread_pool_size;
+    const size_t num_threads = thread_pool_size == 0 ? (proc_count * 8) : thread_pool_size;
+
+    size_t num_collections_parallel_load = config.get_num_collections_parallel_load();
+    num_collections_parallel_load = (num_collections_parallel_load == 0) ?
+                                    (proc_count * 4) : num_collections_parallel_load;
 
     LOG(INFO) << "Thread pool size: " << num_threads;
     ThreadPool app_thread_pool(num_threads);
@@ -385,7 +389,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
                                        config.get_catch_up_threshold_percentage(),
-                                       config.get_num_collections_parallel_load(),
+                                       num_collections_parallel_load,
                                        config.get_num_documents_parallel_load());
 
     std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
