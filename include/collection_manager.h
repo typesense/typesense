@@ -71,9 +71,6 @@ private:
 
     std::atomic<float> max_memory_ratio;
 
-    /// During load, sleep `LOAD_THROTTLE_PERCENT`% of time taken for indexing to prevent CPU saturation
-    float LOAD_THROTTLE_PERCENT = 10;
-
     CollectionManager();
 
     ~CollectionManager() = default;

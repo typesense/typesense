@@ -40,10 +40,10 @@ private:
 
     int log_slow_requests_time_ms;
 
-    size_t num_collections_parallel_load;
-    size_t num_documents_parallel_load;
+    uint32_t num_collections_parallel_load;
+    uint32_t num_documents_parallel_load;
 
-    size_t thread_pool_size;
+    uint32_t thread_pool_size;
 
 protected:
 
@@ -57,11 +57,9 @@ protected:
         this->catch_up_min_sequence_diff = 3000;
         this->catch_up_threshold_percentage = 95;
         this->log_slow_requests_time_ms = -1;
-        this->num_collections_parallel_load = 4;
+        this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
-
-        // will be set dynamically if not overridden
-        this->thread_pool_size = 0;
+        this->thread_pool_size = 0; // will be set dynamically if not overridden
     }
 
     Config(Config const&) {
@@ -401,7 +399,7 @@ public:
         }
 
         if(reader.Exists("server", "num-collections-parallel-load")) {
-            this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 4);
+            this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 0);
         }
 
         if(reader.Exists("server", "num-documents-parallel-load")) {
@@ -492,19 +490,19 @@ public:
         }
 
         if(options.exist("log-slow-requests-time-ms")) {
-            this->log_slow_requests_time_ms = options.exist("log-slow-requests-time-ms");
+            this->log_slow_requests_time_ms = options.get<int>("log-slow-requests-time-ms");
         }
 
         if(options.exist("num-collections-parallel-load")) {
-            this->num_collections_parallel_load = options.exist("num-collections-parallel-load");
+            this->num_collections_parallel_load = options.get<uint32_t>("num-collections-parallel-load");
         }
 
         if(options.exist("num-documents-parallel-load")) {
-            this->num_documents_parallel_load = options.exist("num-documents-parallel-load");
+            this->num_documents_parallel_load = options.get<uint32_t>("num-documents-parallel-load");
         }
 
         if(options.exist("thread-pool-size")) {
-            this->thread_pool_size = options.exist("thread-pool-size");
+            this->thread_pool_size = options.get<uint32_t>("thread-pool-size");
         }
     }
 
