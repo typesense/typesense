@@ -2,6 +2,39 @@
 #include "tokenizer.h"
 
 bool Tokenizer::next(std::string &token, size_t& token_index) {
+    if(!locale.empty() && locale != "en") {
+        while (position != icu::BreakIterator::DONE) {
+            //LOG(INFO) << "Position: " << position;
+            bool found_token = false;
+
+            if(prev_position != -1) {
+                std::string word;
+                size_t length = position - prev_position;
+                token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+
+                if(!token.empty()) {
+                    if (!keep_separators && !std::isalnum(token[0]) && (token[i] & ~0x7f) == 0) {
+                        found_token = false;
+                    } else if(locale == "ko" && token == "·") {
+                        found_token = false;
+                    } else {
+                        found_token = true;
+                        token_index = token_counter++;
+                    }
+                }
+            }
+
+            prev_position = position;
+            position = bi->next();
+
+            if(found_token) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     if(no_op) {
         if(i == text.size()) {
             return false;

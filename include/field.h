@@ -34,6 +34,7 @@ namespace fields {
     static const std::string optional = "optional";
     static const std::string index = "index";
     static const std::string geo_resolution = "geo_resolution";
+    static const std::string locale = "locale";
 }
 
 static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
@@ -48,9 +49,13 @@ struct field {
 
     uint8_t geo_resolution;
 
+    std::string locale;
+
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, const uint8_t geo_resolution = DEFAULT_GEO_RESOLUTION) :
-            name(name), type(type), facet(facet), optional(optional), index(index), geo_resolution(geo_resolution) {
+          bool index = true, const uint8_t geo_resolution = DEFAULT_GEO_RESOLUTION,
+          std::string locale = "") :
+            name(name), type(type), facet(facet), optional(optional), index(index),
+            geo_resolution(geo_resolution), locale(locale) {
 
     }
 
@@ -199,6 +204,8 @@ struct field {
                 field_val[fields::geo_resolution] = field.geo_resolution;
             }
 
+            field_val[fields::locale] = field.locale;
+
             fields_json.push_back(field_val);
 
             if(!field.has_valid_type()) {
@@ -284,6 +291,20 @@ struct field {
                 if(field_geo_res < 0 || field_geo_res > 15) {
                     return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
                            field_json[fields::name].get<std::string>() + std::string("` should be between 0 and 15."));
+                }
+            }
+
+            if(field_json.count(fields::locale) != 0){
+                if(!field_json.at(fields::locale).is_string()) {
+                    return Option<bool>(400, std::string("The `locale` property of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` should be a string."));
+                }
+
+                if(!field_json[fields::locale].empty() || field_json[fields::locale] != "en" ||
+                   field_json[fields::locale] != "ja" || field_json[fields::locale] != "ko" ||
+                   field_json[fields::locale] != "zh" || field_json[fields::locale] != "th") {
+                    return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` is not valid."));
                 }
             }
 

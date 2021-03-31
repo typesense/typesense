@@ -491,7 +491,8 @@ public:
     bool is_exceeding_memory_threshold() const;
 
     void parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
-                                            std::vector<std::string>& q_exclude_tokens) const;
+                            std::vector<std::string>& q_exclude_tokens,
+                            const std::string& locale) const;
 
     // PUBLIC OPERATIONS
 

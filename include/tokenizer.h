@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <iconv.h>
+#include <unicode/brkiter.h>
 
 class Tokenizer {
 private:
@@ -21,11 +22,19 @@ private:
 
     std::stringstream out;
 
+    std::string locale;
+    icu::BreakIterator* bi = nullptr;
+    icu::UnicodeString unicode_text;
+    int32_t position = 0;
+    int32_t prev_position = -1;
+
 public:
 
     explicit Tokenizer(const std::string& input,
-                       bool keep_separators=true, bool normalize=true, bool no_op=false):
-            text(input), i(0), keep_separators(keep_separators), normalize(normalize), no_op(no_op) {
+                       bool keep_separators=true, bool normalize=true, bool no_op=false,
+                       const std::string& locale = ""):
+            text(input), i(0), keep_separators(keep_separators), normalize(normalize),
+            no_op(no_op), locale(locale) {
         cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
         if(!input.empty() && (std::isalnum(text[0]) || (text[i] & ~0x7f) != 0)) {
@@ -34,10 +43,23 @@ public:
         } else {
             stream_mode = SEPARATORS;
         }
+
+        if(!locale.empty() && locale != "en") {
+            UErrorCode status = U_ZERO_ERROR;
+            const icu::Locale& icu_locale = icu::Locale(locale.c_str());
+            bi = icu::BreakIterator::createWordInstance(icu_locale, status);
+
+            unicode_text = icu::UnicodeString::fromUTF8(text);
+            bi->setText(unicode_text);
+
+            position = bi->first();
+            prev_position = -1;
+        }
     }
 
     ~Tokenizer() {
         iconv_close(cd);
+        delete bi;
     }
 
     bool next(std::string& token, size_t& token_index);

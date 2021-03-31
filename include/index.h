@@ -36,10 +36,14 @@ struct search_field_t {
     size_t weight;
 };
 
-struct search_args {
+struct query_tokens_t {
     std::vector<std::string> q_include_tokens;
     std::vector<std::string> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_synonyms;
+};
+
+struct search_args {
+    std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
     std::vector<filter> filters;
     std::vector<facet> facets;
@@ -70,9 +74,7 @@ struct search_args {
 
     }
 
-    search_args(std::vector<std::string> q_include_tokens,
-                std::vector<std::string> q_exclude_tokens,
-                std::vector<std::vector<std::string>> q_synonyms,
+    search_args(std::vector<query_tokens_t> field_query_tokens,
                 std::vector<search_field_t> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
@@ -80,7 +82,7 @@ struct search_args {
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const std::string& default_sorting_field):
-            q_include_tokens(q_include_tokens), q_exclude_tokens(q_exclude_tokens), q_synonyms(q_synonyms),
+            field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
             facet_query(facet_query), num_typos(num_typos), max_facet_values(max_facet_values), per_page(per_page),
@@ -344,9 +346,7 @@ public:
 
     void run_search(search_args* search_params);
 
-    void search(const std::vector<std::string> & q_include_tokens,
-                const std::vector<std::string> & q_exclude_tokens,
-                const std::vector<std::vector<std::string>>& q_synonyms,
+    void search(const std::vector<query_tokens_t>& field_query_tokens,
                 const std::vector<search_field_t> & search_fields,
                 const std::vector<filter> & filters, std::vector<facet> & facets,
                 facet_query_t & facet_query,

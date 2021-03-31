@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "tokenizer.h"
+#include "logger.h"
 
 TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     const std::string withnewline = "Michael Jordan:\nWelcome, everybody. Welcome! ";
@@ -176,4 +177,46 @@ TEST(TokenizerTest, ShouldTokenizeIteratively) {
 
     ASSERT_EQ(1, tokens.size());
     ASSERT_STREQ("Michael Jordan:\n\nWelcome, everybody. Welcome!", tokens[0].c_str());
+}
+
+TEST(TokenizerTest, ShouldTokenizeLocaleText) {
+    std::string str = "จิ้งจอกสีน้ำตาลด่วน";
+    std::vector<std::string> tokens;
+    Tokenizer(str, false, false, false, "th").tokenize(tokens);
+
+    ASSERT_EQ(4, tokens.size());
+    ASSERT_EQ("จิ้งจอก", tokens[0]);
+    ASSERT_EQ("สี", tokens[1]);
+    ASSERT_EQ("น้ำตาล", tokens[2]);
+    ASSERT_EQ("ด่วน", tokens[3]);
+
+    tokens.clear();
+    str = "น. วันที่ 31 มี.ค.";
+    Tokenizer(str, false, false, false, "th").tokenize(tokens);
+    ASSERT_EQ(5, tokens.size());
+    ASSERT_EQ("น", tokens[0]);
+    ASSERT_EQ("วัน", tokens[1]);
+    ASSERT_EQ("ที่", tokens[2]);
+    ASSERT_EQ("31", tokens[3]);
+    ASSERT_EQ("มี.ค", tokens[4]);
+
+    tokens.clear();
+    Tokenizer("Odd Thomas", false, false, false, "en").tokenize(tokens);
+    ASSERT_EQ(2, tokens.size());
+    ASSERT_EQ("Odd", tokens[0]);
+    ASSERT_EQ("Thomas", tokens[1]);
+
+    tokens.clear();
+    Tokenizer("경승지·산악·협곡", false, false, false, "ko").tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("경승지", tokens[0]);
+    ASSERT_EQ("산악", tokens[1]);
+    ASSERT_EQ("협곡", tokens[2]);
+
+    tokens.clear();
+    Tokenizer("안녕은하철도999극장판", false, false, false, "ko").tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("안녕은하철도", tokens[0]);
+    ASSERT_EQ("999", tokens[1]);
+    ASSERT_EQ("극장판", tokens[2]);
 }
