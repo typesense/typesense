@@ -819,15 +819,26 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
+    std::vector<query_tokens_t> field_query_tokens;
 
-    std::vector<std::string> q_include_tokens;
-    std::vector<std::string> q_exclude_tokens;
+    if(search_fields.size() == 0) {
+        // has to be a wildcard query
+        field_query_tokens.emplace_back(query_tokens_t{});
+        parse_search_query(query, field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_exclude_tokens,"");
+    } else {
+        for(size_t i = 0; i < search_fields.size(); i++) {
+            const auto& search_field = search_fields[i];
+            field_query_tokens.emplace_back(query_tokens_t{});
 
-    parse_search_query(query, q_include_tokens, q_exclude_tokens);
+            const std::string & field_locale = search_schema.at(search_field).locale;
+            parse_search_query(query, field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_exclude_tokens,
+                               field_locale);
 
-    // get synonyms
-    std::vector<std::vector<std::string>> q_synonyms;
-    synonym_reduction(q_include_tokens, q_synonyms);
+            // get synonyms
+            std::vector<std::vector<std::string>> q_synonyms;
+            synonym_reduction(field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_synonyms);
+        }
+    }
 
     // search all indices
     std::vector<search_args*> search_args_vec;
@@ -837,7 +848,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     size_t index_id = 0;
     for(Index* index: indices) {
-        search_args* search_params = new search_args(q_include_tokens, q_exclude_tokens, q_synonyms, weighted_search_fields,
+        search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
                                    filters, facets, index_to_included_ids[index_id],
                                    index_to_excluded_ids[index_id],
                                    sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
@@ -1217,13 +1228,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 }
 
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
-                                    std::vector<std::string>& q_exclude_tokens) const {
+                                    std::vector<std::string>& q_exclude_tokens,
+                                    const std::string& locale) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        Tokenizer(query, true, true).tokenize(tokens);
+        Tokenizer(query, true, true, false, locale).tokenize(tokens);
         bool exclude_operator_prior = false;
 
         for(const auto& token: tokens) {
@@ -1235,7 +1247,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 exclude_operator_prior = true;
             }
 
-            if(!std::isalnum(token[0])) {
+            bool is_ascii = (token[0] & ~0x7f) == 0;
+
+            if(is_ascii && !std::isalnum(token[0])) {
                 continue;
             }
 
@@ -1447,7 +1461,7 @@ void Collection::highlight_result(const field &search_field,
         const Match& match = match_index.match;
 
         const std::string& text = (search_field.type == field_types::STRING) ? document[search_field.name] : document[search_field.name][match_index.index];
-        Tokenizer tokenizer(text, true, false);
+        Tokenizer tokenizer(text, true, false, false, search_field.locale);
 
         std::string raw_token;
         size_t raw_token_index = 0;

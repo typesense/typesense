@@ -24,7 +24,7 @@ protected:
         collectionManager.load(8, 1000);
 
         search_fields = {
-            field("title", field_types::STRING, false),
+            field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "en"),
             field("starring", field_types::STRING, false),
             field("cast", field_types::STRING_ARRAY, true, true),
             field(".*_year", field_types::INT32, true, true),
@@ -88,12 +88,12 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"geo_resolution\":14,\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
+              "\"fields\":[{\"facet\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
+              "{\"facet\":false,\"geo_resolution\":14,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
@@ -232,6 +232,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> facets;
 
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    LOG(INFO) << results;
     ASSERT_EQ(4, results["hits"].size());
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
