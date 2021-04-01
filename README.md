@@ -20,12 +20,14 @@
   <img src="assets/typesense_books_demo.gif?raw=true" alt="Typesense Demo" width="459" />
 </p>
 
-Here are a couple of **live demos** that show Typesense in action on large datasets:
+✨ Here are a couple of **live demos** that show Typesense in action on large datasets:
 
 - Search a 32M songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
 - Search a 28M books dataset from OpenLibrary: [books-search.typesense.org](https://books-search.typesense.org/)
 - Search a 2M recipe dataset from RecipeNLG: [recipe-search.typesense.org](https://recipe-search.typesense.org/)
 - Spellchecker with type-ahead, with 333K English words: [spellcheck.typesense.org](https://spellcheck.typesense.org/)
+
+🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
 
 ## Quick Links
 
@@ -192,7 +194,15 @@ Here's how: [https://typesense.org/docs/0.19.0/guide/#search-ui](https://typesen
 
 ## Benchmarks
 
-We tested a dataset with ~3 million records (Amazon product data) that was ~13GB on disk and we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB RAM, 8-vCPU 3-node Typesense cluster. 
+- A dataset containing 28M records (book titles, authors and categories):
+  - Took up about 14GB of RAM when indexed in Typesense
+  - Took 78mins to index all 28M records
+  - On a server with 4vCPUs, we were able to get a concurrency of **46 concurrent search queries per second**, with an average search processing time of 28ms.
+- A dataset containing 2.2M records (recipe names and ingredients):
+  - Took up about 900MB of RAM when indexed in Typesense
+  - Took 3.6mins to index all 2.2M records
+  - On a server with 4vCPUs, we were able to get a concurrency of **104 concurrent search queries per second**, with an average search processing time of 11ms.
+- A dataset containing ~3 million records (Amazon product data) and ~13GB on disk, we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB RAM, 8-vCPU 3-node Typesense cluster.
 
 We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
 
