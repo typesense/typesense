@@ -557,7 +557,7 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("Field `*` cannot contain a geo resolution.", parse_op.error());
+    ASSERT_EQ("Field `.*` cannot contain a geo resolution.", parse_op.error());
     fields_json[0].erase(fields::geo_resolution);
 
     // reject when you try to set optional to false or facet to true
@@ -565,14 +565,14 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("Field `*` must be an optional field.", parse_op.error());
+    ASSERT_EQ("Field `.*` must be an optional field.", parse_op.error());
 
     fields_json[0][fields::optional] = true;
     fields_json[0][fields::facet] = true;
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
 
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("Field `*` cannot be a facet field.", parse_op.error());
+    ASSERT_EQ("Field `.*` cannot be a facet field.", parse_op.error());
 
     fields_json[0][fields::facet] = false;
 
@@ -593,6 +593,30 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("auto", fields[0].type);
+
+    // try with locale on a regular field
+    fields_json.clear();
+    fields.clear();
+    all_field[fields::type] = "string";
+    all_field[fields::name] = "title";
+    all_field[fields::locale] = "ja";
+    fields_json.emplace_back(all_field);
+
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ("ja", fields[0].locale);
+
+    // try with locale on fallback field
+    fields_json.clear();
+    fields.clear();
+    all_field[fields::type] = "string";
+    all_field[fields::name] = ".*";
+    all_field[fields::locale] = "ko";
+    fields_json.emplace_back(all_field);
+
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ("ko", fields[0].locale);
 
     fields_json.clear();
     all_field[fields::name] = "loc";

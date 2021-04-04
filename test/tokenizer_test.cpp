@@ -206,6 +206,8 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("Odd", tokens[0]);
     ASSERT_EQ("Thomas", tokens[1]);
 
+    // korean
+
     tokens.clear();
     Tokenizer("경승지·산악·협곡", false, false, false, "ko").tokenize(tokens);
     ASSERT_EQ(3, tokens.size());
@@ -219,4 +221,28 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("안녕은하철도", tokens[0]);
     ASSERT_EQ("999", tokens[1]);
     ASSERT_EQ("극장판", tokens[2]);
+
+    // japanese
+    tokens.clear();
+    Tokenizer("退屈", false, false, false, "ja").tokenize(tokens);
+    ASSERT_EQ(2, tokens.size());
+    ASSERT_EQ("た", tokens[0]);
+    ASSERT_EQ("いくつ", tokens[1]);
+
+    tokens.clear();
+    Tokenizer("ア退屈であ", false, false, false, "ja").tokenize(tokens);
+    ASSERT_EQ(5, tokens.size());
+    ASSERT_EQ("あ", tokens[0]);
+    ASSERT_EQ("た", tokens[1]);
+    ASSERT_EQ("いくつ", tokens[2]);
+    ASSERT_EQ("で", tokens[3]);
+    ASSERT_EQ("あ", tokens[4]);
+
+    tokens.clear();
+    Tokenizer("怠惰な犬", false, false, false, "ja").tokenize(tokens);
+    ASSERT_EQ(4, tokens.size());
+    ASSERT_EQ("たい", tokens[0]);
+    ASSERT_EQ("だ", tokens[1]);
+    ASSERT_EQ("な", tokens[2]);
+    ASSERT_EQ("いぬ", tokens[3]);
 }
