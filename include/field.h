@@ -300,9 +300,9 @@ struct field {
                                              field_json[fields::name].get<std::string>() + std::string("` should be a string."));
                 }
 
-                if(!field_json[fields::locale].empty() || field_json[fields::locale] != "en" ||
-                   field_json[fields::locale] != "ja" || field_json[fields::locale] != "ko" ||
-                   field_json[fields::locale] != "zh" || field_json[fields::locale] != "th") {
+                if(!field_json[fields::locale].get<std::string>().empty() && field_json[fields::locale] != "en" &&
+                   field_json[fields::locale] != "ja" && field_json[fields::locale] != "ko" &&
+                   field_json[fields::locale] != "zh" && field_json[fields::locale] != "th") {
                     return Option<bool>(400, std::string("The `locale` value of the field `") +
                                              field_json[fields::name].get<std::string>() + std::string("` is not valid."));
                 }
@@ -321,25 +321,29 @@ struct field {
                     field_json[fields::index] = true;
                 }
 
+                if(field_json.count(fields::locale) == 0) {
+                    field_json[fields::locale] = "";
+                }
+
                 if(field_json.count(fields::geo_resolution) != 0) {
-                    return Option<bool>(400, "Field `*` cannot contain a geo resolution.");
+                    return Option<bool>(400, "Field `.*` cannot contain a geo resolution.");
                 }
 
                 if(field_json[fields::optional] == false) {
-                    return Option<bool>(400, "Field `*` must be an optional field.");
+                    return Option<bool>(400, "Field `.*` must be an optional field.");
                 }
 
                 if(field_json[fields::facet] == true) {
-                    return Option<bool>(400, "Field `*` cannot be a facet field.");
+                    return Option<bool>(400, "Field `.*` cannot be a facet field.");
                 }
 
                 if(field_json[fields::index] == false) {
-                    return Option<bool>(400, "Field `*` must be an index field.");
+                    return Option<bool>(400, "Field `.*` must be an index field.");
                 }
 
-
                 field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
-                                     field_json["optional"]);
+                                     field_json["optional"], field_json[fields::index],
+                                     DEFAULT_GEO_RESOLUTION, field_json[fields::locale]);
 
                 if(fallback_field.has_valid_type()) {
                     fallback_field_type = fallback_field.type;
@@ -360,6 +364,10 @@ struct field {
                 field_json[fields::index] = true;
             }
 
+            if(field_json.count(fields::locale) == 0) {
+                field_json[fields::locale] = "";
+            }
+
             bool is_dynamic = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
 
             if(field_json.count(fields::optional) == 0) {
@@ -373,7 +381,8 @@ struct field {
 
             fields.emplace_back(
                 field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
-                      field_json[fields::optional], field_json[fields::index], field_json[fields::geo_resolution])
+                      field_json[fields::optional], field_json[fields::index],
+                      field_json[fields::geo_resolution], field_json[fields::locale])
             );
         }
 

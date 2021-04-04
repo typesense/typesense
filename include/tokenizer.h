@@ -4,10 +4,12 @@
 #include <vector>
 #include <iconv.h>
 #include <unicode/brkiter.h>
+#include "japanese_localizer.h"
+#include "logger.h"
 
 class Tokenizer {
 private:
-    const std::string& text;
+    std::string_view text;
     size_t i;
     const bool keep_separators;
     const bool normalize;
@@ -27,14 +29,23 @@ private:
     icu::UnicodeString unicode_text;
     int32_t position = 0;
     int32_t prev_position = -1;
+    char* normalized_text = nullptr;
 
 public:
 
     explicit Tokenizer(const std::string& input,
                        bool keep_separators=true, bool normalize=true, bool no_op=false,
                        const std::string& locale = ""):
-            text(input), i(0), keep_separators(keep_separators), normalize(normalize),
+            i(0), keep_separators(keep_separators), normalize(normalize),
             no_op(no_op), locale(locale) {
+
+        if(locale == "ja") {
+            normalized_text = JapaneseLocalizer::get_instance().normalize(input);
+            text = normalized_text;
+        } else {
+            text = input;
+        }
+
         cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
         if(!input.empty() && (std::isalnum(text[0]) || (text[i] & ~0x7f) != 0)) {
@@ -59,6 +70,7 @@ public:
 
     ~Tokenizer() {
         iconv_close(cd);
+        free(normalized_text);
         delete bi;
     }
 
