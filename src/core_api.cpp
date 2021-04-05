@@ -945,11 +945,12 @@ bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return false;
     }
 
-    const std::string &rand_key = req->metadata;
-
     if(req_json.count("expires_at") == 0) {
         req_json["expires_at"] = api_key_t::FAR_FUTURE_TIMESTAMP;
     }
+
+    const std::string &rand_key = (req_json.count("value") != 0) ?
+            req_json["value"].get<std::string>() : req->metadata;
 
     api_key_t api_key(
         rand_key,

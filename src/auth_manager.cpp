@@ -324,6 +324,10 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
         }
     }
 
+    if(key_obj.count("value") != 0 && !key_obj["value"].is_string()) {
+        return Option<uint32_t>(400, std::string("Key value must be a string."));
+    }
+
     if(!key_obj["actions"].is_array() || key_obj["actions"].empty()) {
         return Option<uint32_t>(400,"Wrong format for `actions`. It should be an array of string.");
     }
