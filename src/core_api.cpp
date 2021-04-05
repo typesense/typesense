@@ -74,8 +74,6 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
 }
 
 bool post_create_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const char* NUM_MEMORY_SHARDS = "num_memory_shards";
-
     nlohmann::json req_json;
 
     try {
@@ -87,62 +85,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-
-    // validate presence of mandatory fields
-
-    if(req_json.count("name") == 0) {
-        res->set_400("Parameter `name` is required.");
-        return false;
-    }
-
-    if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
-        req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
-    }
-
-    if(req_json.count("fields") == 0) {
-        res->set_400("Parameter `fields` is required.");
-        return false;
-    }
-
-    const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
-
-    if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
-        req_json[DEFAULT_SORTING_FIELD] = "";
-    }
-
-    if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
-        res->set_400(std::string("`") + DEFAULT_SORTING_FIELD +
-                    "` should be a string. It should be the name of an int32/float field.");
-        return false;
-    }
-
-    if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
-        res->set_400(std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
-        return false;
-    }
-
-    size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
-    if(num_memory_shards == 0) {
-        res->set_400(std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
-        return false;
-    }
-
-    if(collectionManager.get_collection(req_json["name"]) != nullptr) {
-        res->set_409("Collection with name `" + req_json["name"].get<std::string>() + "` already exists.");
-        return false;
-    }
-
-    // field specific validation
-
-    if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
-        res->set_400("The `fields` value should be an array of objects containing "
-                    "`name`, `type` and optionally, `facet` properties.");
-        return false;
-    }
-
-    const std::string & default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
-    const Option<Collection*> & collection_op =
-            collectionManager.create_collection(req_json, num_memory_shards, default_sorting_field);
+    const Option<Collection*> & collection_op = collectionManager.create_collection(req_json);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();
