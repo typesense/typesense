@@ -757,9 +757,55 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
     return json_summaries;
 }
 
-Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json,
-                                                         const size_t num_memory_shards,
-                                                         const std::string& default_sorting_field) {
+Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {
+    const char* NUM_MEMORY_SHARDS = "num_memory_shards";
+    const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
+
+    // validate presence of mandatory fields
+
+    if(req_json.count("name") == 0) {
+        return Option<Collection*>(400, "Parameter `name` is required.");
+    }
+
+    if(!req_json["name"].is_string() || req_json["name"].get<std::string>().empty()) {
+        return Option<Collection*>(400, "Parameter `name` must be a non-empty string.");
+    }
+
+    if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
+        req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
+    }
+
+    if(req_json.count("fields") == 0) {
+        return Option<Collection*>(400, "Parameter `fields` is required.");
+    }
+
+    if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
+        req_json[DEFAULT_SORTING_FIELD] = "";
+    }
+
+    if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
+        return Option<Collection*>(400, std::string("`") + DEFAULT_SORTING_FIELD +
+                                        "` should be a string. It should be the name of an int32/float field.");
+    }
+
+    if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
+        return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
+    if(num_memory_shards == 0) {
+        return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    // field specific validation
+
+    if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
+        return Option<Collection *>(400, "The `fields` value should be an array of objects containing "
+                     "`name`, `type` and optionally, `facet` properties.");
+    }
+
+    const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
+
     std::string fallback_field_type;
     std::vector<field> fields;
     auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
