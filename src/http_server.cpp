@@ -510,8 +510,9 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
         (rpath->handler)(request, response);
 
         if(!rpath->async_res) {
-            deferred_req_res_t req_res{request, response, http_server};
-            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
+            // lifecycle of non async res will be owned by stream responder
+            auto req_res = new deferred_req_res_t(request, response, http_server, true);
+            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
             response->wait();
         }
         //LOG(INFO) << "Response done " << response.get();
@@ -537,7 +538,7 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
     //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res: " << res.get();
 
     if(req->defer_timer.data == nullptr) {
-        auto deferred_req_res = new deferred_req_res_t{req, res, this};
+        auto deferred_req_res = new deferred_req_res_t(req, res, this);
         req->defer_timer.data = deferred_req_res;
         h2o_timer_init(&req->defer_timer.timer, on_deferred_process_request);
     } else {
@@ -682,7 +683,7 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
 
 void HttpServer::destroy_request_response(const std::shared_ptr<http_req>& request,
                                           const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "destroy_request_response";
+    //LOG(INFO) << "destroy_request_response " << response.get();
 
     if(request->defer_timer.data != nullptr) {
         deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(request->defer_timer.data);
@@ -804,8 +805,13 @@ uint64_t HttpServer::node_state() const {
 
 bool HttpServer::on_stream_response_message(void *data) {
     //LOG(INFO) << "on_stream_response_message";
-    deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
+    auto req_res = static_cast<deferred_req_res_t *>(data);
     stream_response(req_res->req, req_res->res);
+
+    if(req_res->destroy_after_stream_response) {
+        delete req_res;
+    }
+
     return true;
 }
 
