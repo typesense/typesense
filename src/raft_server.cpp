@@ -688,8 +688,8 @@ void OnDemandSnapshotClosure::Run() {
     res->status_code = status_code;
     res->body = response.dump();
 
-    deferred_req_res_t req_res{req, res, nullptr};
-    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, &req_res);
+    auto req_res = new deferred_req_res_t(req, res, nullptr, true);
+    replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait for response to be sent
     res->wait();

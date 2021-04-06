@@ -20,7 +20,7 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                      const std::shared_ptr<http_res> response, HttpServer* server) {
-    deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server);
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
     struct curl_slist* chunk = nullptr;
 

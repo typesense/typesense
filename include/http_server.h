@@ -44,6 +44,14 @@ struct deferred_req_res_t {
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     HttpServer* server;
+
+    // used to manage lifecycle of non-async responses
+    bool destroy_after_stream_response;
+
+    deferred_req_res_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res,
+                       HttpServer *server, bool destroy_after_stream_response = false) :
+            req(req), res(res), server(server), destroy_after_stream_response(destroy_after_stream_response) {}
+
 };
 
 class HttpServer {
