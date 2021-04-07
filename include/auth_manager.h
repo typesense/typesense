@@ -125,6 +125,7 @@ public:
     bool authenticate(const std::string& req_api_key, const std::string& action,
                       const std::vector<std::string>& collections, std::map<std::string, std::string>& params) const;
 
-    static bool populate_req_params(std::map<std::string, std::string> &req_params,
-                                    nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item);
+    static bool add_item_to_params(std::map<std::string, std::string> &req_params,
+                                   nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
+                                   bool overwrite);
 };

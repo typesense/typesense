@@ -231,17 +231,19 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     nlohmann::json response;
     response["results"] = nlohmann::json::array();
 
-    // we have to ensure that `req_json` is a flat <string, string> map
-    for(auto& search: req_json["searches"]) {
-        if(!search.is_object()) {
+    nlohmann::json& searches = req_json["searches"];
+
+    for(auto& search_params: searches) {
+        if(!search_params.is_object()) {
             res->set_400("The value of `searches` must be an array of objects.");
             return false;
         }
 
         req->params = orig_req_params;
 
-        for(auto& item: search.items()) {
-            bool populated = AuthManager::populate_req_params(req->params, item);
+        for(auto& search_item: search_params.items()) {
+            // overwrite = false since req params will contain embedded params and so has higher priority
+            bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
             if(!populated) {
                 res->set_400("One or more search parameters are malformed.");
                 return false;
