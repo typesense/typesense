@@ -160,13 +160,8 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
                 continue;
             }
 
-            if(params.count(item.key()) == 0) {
-                AuthManager::populate_req_params(params, item);
-            } else if(item.key() == "filter_by") {
-                params[item.key()] = params[item.key()] + "&&" + item.value().get<std::string>();
-            } else {
-                AuthManager::populate_req_params(params, item);
-            }
+            // overwrite = true as embedded params have higher priority
+            AuthManager::add_item_to_params(params, item, true);
         }
 
         return true;
@@ -358,18 +353,30 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
 }
 
 
-bool AuthManager::populate_req_params(std::map<std::string, std::string>& req_params,
-                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item) {
+bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_params,
+                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
+                                     bool overwrite) {
+
+    std::string str_value;
+
     if(item.value().is_string()) {
-        req_params[item.key()] = item.value();
+        str_value = item.value().get<std::string>();
     } else if(item.value().is_number_integer()) {
-        req_params[item.key()] = std::to_string(item.value().get<int64_t>());
+        str_value = std::to_string(item.value().get<int64_t>());
     } else if(item.value().is_number_float()) {
-        req_params[item.key()] = std::to_string(item.value().get<float>());
+        str_value = std::to_string(item.value().get<float>());
     } else if(item.value().is_boolean()) {
-        req_params[item.key()] = item.value().get<bool>() ? "true" : "false";
+        str_value = item.value().get<bool>() ? "true" : "false";
     } else {
         return false;
+    }
+
+    if(req_params.count(item.key()) == 0) {
+        req_params[item.key()] = str_value;
+    } else if(item.key() == "filter_by") {
+        req_params[item.key()] = req_params[item.key()] + "&&" + str_value;
+    } else if(overwrite) {
+        req_params[item.key()] = str_value;
     }
 
     return true;
