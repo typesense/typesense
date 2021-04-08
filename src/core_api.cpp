@@ -27,6 +27,16 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
     return collectionManager.auth_key_matches(auth_key, rpath.action, collections, req_params);
 }
 
+void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    auto req_res = new deferred_req_res_t(req, res, server, true);
+    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+}
+
+void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res, size_t timeout_ms) {
+    defer_processing_t* defer = new defer_processing_t(req, res, timeout_ms, server);
+    server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
+}
+
 void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
                               const route_path &rpath, std::vector<std::string> &collections) {
     if(req_params.count("collection") != 0) {
@@ -291,7 +301,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_404();
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -326,7 +336,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     res->content_type_header = "application/octet-stream";
     res->status_code = 200;
 
-    HttpServer::stream_response(req, res);
+    stream_response(req, res);
     return true;
 }
 
@@ -352,14 +362,14 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
     if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert") {
         res->final = true;
         res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -368,7 +378,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     if(IMPORT_BATCH_SIZE == 0) {
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -385,7 +395,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     if(collection == nullptr) {
         res->final = true;
         res->set_404();
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -466,10 +476,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     if(stream_proceed) {
         res->final = req->last_chunk_aggregate;
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
     } else {
         // push handler back onto the event loop: we must process the next batch without blocking the event loop
-        server->defer_processing(req, res, 1);
+        defer_processing(req, res, 0);
     }
 
     return true;
@@ -606,7 +616,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_404();
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -621,7 +631,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_400("Parameter `" + std::string(FILTER_BY) + "` must be provided.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -629,7 +639,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -639,7 +649,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 
@@ -659,7 +669,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             res->set(filter_ids_op.code(), filter_ids_op.error());
             req->last_chunk_aggregate = true;
             res->final = true;
-            HttpServer::stream_response(req, res);
+            stream_response(req, res);
             return false;
         }
 
@@ -696,7 +706,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    HttpServer::stream_response(req, res);
+    stream_response(req, res);
     return true;
 }
 
@@ -1015,40 +1025,6 @@ bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_re
     return true;
 }
 
-bool raft_write_send_response(void *data) {
-    request_response_t* index_arg = static_cast<request_response_t*>(data);
-    //LOG(INFO) << "raft_write_send_response " << index_arg->res.get();
-    std::unique_ptr<request_response_t> index_arg_guard(index_arg);
-
-    bool async_res = false;
-
-    if(index_arg->req->route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
-        // route not found
-        index_arg->res->set_400("Not found.");
-    } else if(index_arg->req->route_hash != static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED)) {
-        route_path* found_rpath = nullptr;
-        bool route_found = server->get_route(index_arg->req->route_hash, &found_rpath);
-        if(route_found) {
-            async_res = found_rpath->async_res;
-            found_rpath->handler(index_arg->req, index_arg->res);
-        } else {
-            index_arg->res->set_404();
-        }
-    }
-
-    //LOG(INFO) << "raft_write_send_response, async_res=" << async_res;
-
-    // only handle synchronous responses as async ones are handled by their handlers
-    if(!async_res) {
-        // send response and return control back to raft replication thread
-        //LOG(INFO) << "raft_write_send_response: sending response";
-        server->send_response(index_arg->req, index_arg->res);
-        index_arg->res->notify();
-    }
-
-    return true;
-}
-
 bool post_snapshot(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string SNAPSHOT_PATH = "snapshot_path";
 
@@ -1059,7 +1035,7 @@ bool post_snapshot(const std::shared_ptr<http_req>& req, const std::shared_ptr<h
         req->last_chunk_aggregate = true;
         res->final = true;
         res->set_400(std::string("Parameter `") + SNAPSHOT_PATH + "` is required.");
-        HttpServer::stream_response(req, res);
+        stream_response(req, res);
         return false;
     }
 

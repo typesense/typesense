@@ -137,14 +137,6 @@ int init_logger(Config & config, const std::string & server_version) {
     return 0;
 }
 
-bool on_send_response(void *data) {
-    request_response_t* req_res = static_cast<request_response_t*>(data);
-    server->send_response(req_res->req, req_res->res);
-    delete req_res;
-
-    return true;
-}
-
 Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
     std::string nodes_config;
 
@@ -377,16 +369,15 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     server->set_auth_handler(handle_authentication);
 
-    server->on(SEND_RESPONSE_MSG, on_send_response);
-    server->on(ReplicationState::REPLICATION_MSG, raft_write_send_response);
     server->on(HttpServer::STREAM_RESPONSE_MESSAGE, HttpServer::on_stream_response_message);
     server->on(HttpServer::REQUEST_PROCEED_MESSAGE, HttpServer::on_request_proceed_message);
+    server->on(HttpServer::DEFER_PROCESSING_MESSAGE, HttpServer::on_deferred_processing_message);
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
     // first we start the peering service
 
-    ReplicationState replication_state(&store, &app_thread_pool, server->get_message_dispatcher(),
+    ReplicationState replication_state(server, &store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled, config.get_catch_up_min_sequence_diff(),
                                        config.get_catch_up_threshold_percentage(),
                                        num_collections_parallel_load,
