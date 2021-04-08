@@ -453,12 +453,3 @@ struct http_message_dispatcher {
         message_handlers.emplace(message, handler);
     }
 };
-
-struct request_response_t {
-    std::shared_ptr<http_req> req;
-    std::shared_ptr<http_res> res;
-
-    request_response_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res): req(req), res(res) {
-
-    }
-};

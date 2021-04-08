@@ -171,9 +171,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         }
 
         response->set_500("Could not find a leader.");
-        auto replication_arg = new request_response_t{request, response};
-        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-        return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        auto req_res = new deferred_req_res_t(request, response, server, true);
+        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
     if (request->_req->proceed_req && response->proxied_stream) {
@@ -242,10 +241,8 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_500(err);
         }
 
-        auto replication_arg = new request_response_t{request, response};
-        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
-
+        auto req_res = new deferred_req_res_t(request, response, server, true);
+        message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         pending_writes--;
     });
 }
@@ -294,8 +291,22 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // Call http server thread for write and response back to client (if `response` is NOT null)
         // We use a future to block current thread until the async flow finishes
 
-        request_response_t* replication_arg = new request_response_t{request_generated, response_generated};
-        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        bool async_res = false;
+
+        route_path* found_rpath = nullptr;
+        bool route_found = server->get_route(request_generated->route_hash, &found_rpath);
+
+        if(route_found) {
+            async_res = found_rpath->async_res;
+            found_rpath->handler(request_generated, response_generated);
+        } else {
+            response_generated->set_404();
+        }
+
+        if(!async_res) {
+            deferred_req_res_t* req_res = new deferred_req_res_t(request_generated, response_generated, server, true);
+            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        }
 
         //LOG(INFO) << "Raft write pre wait " << response_generated.get();
         response_generated->wait();
@@ -536,11 +547,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
     }
 }
 
-ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
+ReplicationState::ReplicationState(HttpServer* server, Store *store, ThreadPool* thread_pool,
+                                   http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl, size_t catchup_min_sequence_diff,
                                    size_t catch_up_threshold_percentage,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
-        node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
+        node(nullptr), leader_term(-1), server(server), store(store), thread_pool(thread_pool),
         message_dispatcher(message_dispatcher),
         catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
         num_collections_parallel_load(num_collections_parallel_load),

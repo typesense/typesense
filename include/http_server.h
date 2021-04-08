@@ -54,6 +54,18 @@ struct deferred_req_res_t {
 
 };
 
+struct defer_processing_t {
+    const std::shared_ptr<http_req> req;
+    const std::shared_ptr<http_res> res;
+    size_t timeout_ms;
+    HttpServer* server;
+
+    defer_processing_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res,
+                       size_t timeout_ms, HttpServer* server)
+            : req(req), res(res), timeout_ms(timeout_ms), server(server) {}
+
+};
+
 class HttpServer {
 private:
     h2o_globalconf_t config;
@@ -184,6 +196,8 @@ public:
 
     static bool on_request_proceed_message(void *data);
 
+    static bool on_deferred_processing_message(void *data);
+
     std::string get_version();
 
     ThreadPool* get_thread_pool() const;
@@ -191,6 +205,7 @@ public:
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";
     static constexpr const char* REQUEST_PROCEED_MESSAGE = "REQUEST_PROCEED";
+    static constexpr const char* DEFER_PROCESSING_MESSAGE = "DEFER_PROCESSING";
 
     static int process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response, route_path *rpath,
                                const h2o_custom_req_handler_t *req_handler);

@@ -102,6 +102,3 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
                               const route_path &rpath, std::vector<std::string> &collections);
 
-bool raft_write_send_response(void *data);
-
-static constexpr const char* SEND_RESPONSE_MSG = "send_response";

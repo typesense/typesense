@@ -11,6 +11,7 @@
 
 #include "http_data.h"
 #include "threadpool.h"
+#include "http_server.h"
 
 class Store;
 class ReplicationState;
@@ -89,6 +90,7 @@ private:
     butil::atomic<int64_t> leader_term;
     std::set<braft::PeerId> peers;
 
+    HttpServer* server;
     Store *store;
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
@@ -122,7 +124,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+    ReplicationState(HttpServer* server, Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
@@ -183,8 +185,6 @@ public:
         ready = true;
         cv.notify_all();
     }
-
-    static constexpr const char* REPLICATION_MSG = "raft_replication";
 
 private:
 

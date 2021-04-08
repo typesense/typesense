@@ -529,7 +529,10 @@ void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
     route_path* found_rpath = nullptr;
     deferred_req_res->server->get_route(deferred_req_res->req->route_hash, &found_rpath);
     if(found_rpath) {
-        found_rpath->handler(deferred_req_res->req, deferred_req_res->res);
+        // must be called on a separate thread so as not to block http thread
+        deferred_req_res->server->thread_pool->enqueue([found_rpath, deferred_req_res]() {
+            found_rpath->handler(deferred_req_res->req, deferred_req_res->res);
+        });
     }
 }
 
@@ -827,6 +830,14 @@ bool HttpServer::on_request_proceed_message(void *data) {
         req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
     }
 
+    return true;
+}
+
+bool HttpServer::on_deferred_processing_message(void *data) {
+    //LOG(INFO) << "on_deferred_processing_message";
+    defer_processing_t* defer = static_cast<defer_processing_t *>(data);
+    defer->server->defer_processing(defer->req, defer->res, defer->timeout_ms);
+    delete defer;
     return true;
 }
 
