@@ -27,13 +27,15 @@ public:
 
     }
 
-    ~ReplicationClosure() {}
+    ~ReplicationClosure() {
+        //LOG(INFO) << "~ReplicationClosure req use count " << request.use_count();
+    }
 
-    const std::shared_ptr<http_req> get_request() const {
+    const std::shared_ptr<http_req>& get_request() const {
         return request;
     }
 
-    const std::shared_ptr<http_res> get_response() const {
+    const std::shared_ptr<http_res>& get_response() const {
         return response;
     }
 

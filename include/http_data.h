@@ -231,6 +231,8 @@ struct http_req {
 
     ~http_req() {
 
+        //LOG(INFO) << "~http_req " << this;
+
         if(!deserialized_request) {
             uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();

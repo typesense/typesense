@@ -241,7 +241,7 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 
 void HttpServer::on_res_generator_dispose(void *self) {
     h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
-    //LOG(INFO) << "on_res_generator_dispose fires " << custom_generator->res().get();
+    //LOG(INFO) << "on_res_generator_dispose fires, req use count " << custom_generator->req().use_count();
     destroy_request_response(custom_generator->req(), custom_generator->res());
 
     /*LOG(INFO) << "Deleting custom_generator, res: " << custom_generator->res();
@@ -524,27 +524,44 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
 void HttpServer::on_deferred_process_request(h2o_timer_t *entry) {
     h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
     deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(custom_timer->data);
-    //LOG(INFO) << "on_deferred_process_request " << deferred_req_res->res.get();
+    //LOG(INFO) << "on_deferred_process_request " << deferred_req_res->req.get();
 
     route_path* found_rpath = nullptr;
     deferred_req_res->server->get_route(deferred_req_res->req->route_hash, &found_rpath);
+
+    const std::shared_ptr<http_req> request = deferred_req_res->req;
+    const std::shared_ptr<http_res> response = deferred_req_res->res;
+    HttpServer* server = deferred_req_res->server;
+
+    // done with timer, so we can clear timer and data
+    h2o_timer_unlink(&deferred_req_res->req->defer_timer.timer);
+    delete deferred_req_res;
+    request->defer_timer.data = nullptr;
+
     if(found_rpath) {
         // must be called on a separate thread so as not to block http thread
-        deferred_req_res->server->thread_pool->enqueue([found_rpath, deferred_req_res]() {
-            found_rpath->handler(deferred_req_res->req, deferred_req_res->res);
+        server->thread_pool->enqueue([found_rpath, request, response]() {
+            //LOG(INFO) << "Sleeping for 5s req count " << deferred_req_res->req.use_count();
+            //std::this_thread::sleep_for(std::chrono::seconds(5));
+            //LOG(INFO) << "on_deferred_process_request, calling handler, req use count " << request.use_count();
+            found_rpath->handler(request, response);
         });
     }
 }
 
 void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
                                   size_t timeout_ms) {
-    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", res: " << res.get();
+    //LOG(INFO) << "defer_processing, exit_loop: " << exit_loop << ", req: " << req.get() << ", use count: " << req.use_count();
 
     if(req->defer_timer.data == nullptr) {
+        //LOG(INFO) << "req->defer_timer.data is null";
         auto deferred_req_res = new deferred_req_res_t(req, res, this);
+        //LOG(INFO) << "req use count " << req.use_count();
         req->defer_timer.data = deferred_req_res;
         h2o_timer_init(&req->defer_timer.timer, on_deferred_process_request);
     } else {
+        // This should not happen as data is cleared when defer handler is run
+        LOG(ERROR) << "HttpServer::defer_processing, timer data is NOT null";
         h2o_timer_unlink(&req->defer_timer.timer);
     }
 
@@ -686,18 +703,14 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
 
 void HttpServer::destroy_request_response(const std::shared_ptr<http_req>& request,
                                           const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "destroy_request_response " << response.get();
-
-    if(request->defer_timer.data != nullptr) {
-        deferred_req_res_t* deferred_req_res = static_cast<deferred_req_res_t*>(request->defer_timer.data);
-        h2o_timer_unlink(&request->defer_timer.timer);
-        delete deferred_req_res;
-    }
+    //LOG(INFO) << "destroy_request_response, req use count: " << request.use_count() << " req " << request.get();
 
     /*LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
               << ", request->_req=" << request->_req << ", response->await=" << &response->await;*/
 
     //LOG(INFO) << "destroy_request_response, response: " << response << ", response->auto_dispose: " << response->auto_dispose;
+
+    //LOG(INFO) << "after destroy_request_response, req use count: " << request.use_count() << " req " << request.get();
 
     request->_req = nullptr;
     response->final = true;
@@ -772,7 +785,9 @@ HttpServer::~HttpServer() {
         ctx.globalconf->server_name.base = nullptr;
     }
 
-    h2o_evloop_destroy(ctx.loop);
+    // Flaky, sometimes assertion on timeouts occur, preventing a clean shutdown
+    //h2o_evloop_destroy(ctx.loop);
+
     h2o_config_dispose(&config);
 
     SSL_CTX_free(accept_ctx->ssl_ctx);
@@ -812,6 +827,7 @@ bool HttpServer::on_stream_response_message(void *data) {
     stream_response(req_res->req, req_res->res);
 
     if(req_res->destroy_after_stream_response) {
+        //LOG(INFO) << "delete req_res";
         delete req_res;
     }
 
@@ -836,7 +852,9 @@ bool HttpServer::on_request_proceed_message(void *data) {
 bool HttpServer::on_deferred_processing_message(void *data) {
     //LOG(INFO) << "on_deferred_processing_message";
     defer_processing_t* defer = static_cast<defer_processing_t *>(data);
+    //LOG(INFO) << "defer req count: " << defer->req.use_count();
     defer->server->defer_processing(defer->req, defer->res, defer->timeout_ms);
+    //LOG(INFO) << "req use count: " << defer->req.use_count() << ", req " << defer->req.get();
     delete defer;
     return true;
 }

@@ -139,12 +139,16 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     butil::IOBufBuilder bufBuilder;
     bufBuilder << request->serialize();
 
+    //LOG(INFO) << "write() pre request ref count " << request.use_count();
+
     // Apply this log as a braft::Task
 
     braft::Task task;
     task.data = &bufBuilder.buf();
     // This callback would be invoked when the task actually executes or fails
     task.done = new ReplicationClosure(request, response);
+
+    //LOG(INFO) << "write() post request ref count " << request.use_count();
 
     // To avoid ABA problem
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
@@ -258,33 +262,26 @@ std::string ReplicationState::get_leader_url_path(const std::string& leader_addr
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
     //LOG(INFO) << "ReplicationState::on_apply";
-
     // NOTE: this is executed on a different thread and runs concurrent to http thread
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
         // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
         braft::AsyncClosureGuard closure_guard(iter.done());
-        std::shared_ptr<http_req> request_generated = std::make_shared<http_req>();
-        std::shared_ptr<http_res> response_generated = std::make_shared<http_res>();
 
-        if (iter.done()) {
-            // This task is applied by this node, get value from the closure to avoid additional parsing.
-            ReplicationClosure* c = dynamic_cast<ReplicationClosure*>(iter.done());
-            request_generated = c->get_request();
-            response_generated = c->get_response();
-            //LOG(INFO) << ":::" << "body size inside apply: " << request->body.size();
-        } else {
-            // Parse request from the log
+        //LOG(INFO) << "Init use count: " << dynamic_cast<ReplicationClosure*>(iter.done())->get_request().use_count();
+
+        const std::shared_ptr<http_req>& request_generated = iter.done() ?
+                         dynamic_cast<ReplicationClosure*>(iter.done())->get_request() : std::make_shared<http_req>();
+
+        //LOG(INFO) << "Post assignment " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        const std::shared_ptr<http_res>& response_generated = iter.done() ?
+                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>();
+
+        if(!iter.done()) {
+            // indicates log serialized request
             request_generated->deserialize(iter.data().to_string());
-            //LOG(INFO) << "Parsed request from the log, body_size: " << request->body.size();
-
-            /*
-               const std::string &data_str = iter.data().to_string();
-               uint64_t hash = StringUtils::hash_wy(data_str.c_str(), data_str.size());
-               if(hash == 12066143973577129900) {
-                LOG(INFO) << "get stuck here...";
-            }*/
         }
 
         // Now that the log has been parsed, perform the actual operation
@@ -296,6 +293,8 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         route_path* found_rpath = nullptr;
         bool route_found = server->get_route(request_generated->route_hash, &found_rpath);
 
+        //LOG(INFO) << "Pre handler " << request_generated.get() << ", use count: " << request_generated.use_count();
+
         if(route_found) {
             async_res = found_rpath->async_res;
             found_rpath->handler(request_generated, response_generated);
@@ -303,14 +302,18 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             response_generated->set_404();
         }
 
+        //LOG(INFO) << "Pre dispatch " << request_generated.get() << ", use count: " << request_generated.use_count();
+
         if(!async_res) {
             deferred_req_res_t* req_res = new deferred_req_res_t(request_generated, response_generated, server, true);
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         }
 
-        //LOG(INFO) << "Raft write pre wait " << response_generated.get();
+        //LOG(INFO) << "Raft write pre wait " << request_generated.get() << ", use count: " << request_generated.use_count();
+
         response_generated->wait();
-        //LOG(INFO) << "Raft write post wait " << response_generated.get();
+
+        //LOG(INFO) << "Raft write post wait " << request_generated.get() << ", use count: " << request_generated.use_count();
 
         if(iter.done()) {
             pending_writes--;
