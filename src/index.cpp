@@ -1247,6 +1247,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 // e.g. country: South Africa
 
                 Tokenizer tokenizer(filter_value, false, true, false, f.locale);
+
                 std::string str_token;
                 size_t token_index = 0;
                 std::vector<std::string> str_tokens;
@@ -1261,7 +1262,13 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     }
 
                     query_suggestion.push_back(leaf);
+                }
 
+                if(query_suggestion.size() != str_tokens.size()) {
+                    continue;
+                }
+
+                for(const auto& leaf: query_suggestion) {
                     if(strt_ids == nullptr) {
                         strt_ids = leaf->values->ids.uncompress();
                         strt_ids_size = leaf->values->ids.getLength();
@@ -1294,8 +1301,8 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                             uint64_t filter_hash = 1;
 
                             for(size_t sindex=0; sindex < str_tokens.size(); sindex++) {
-                                auto& str_token = str_tokens[sindex];
-                                uint64_t thash = facet_token_hash(f, str_token);
+                                auto& this_str_token = str_tokens[sindex];
+                                uint64_t thash = facet_token_hash(f, this_str_token);
                                 filter_hash *= (1779033703 + 2*thash*(sindex+1));
                             }
 

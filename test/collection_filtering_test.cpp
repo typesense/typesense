@@ -78,6 +78,18 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags : fine PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
+    // using just ":", filtering should return documents that contain ALL tokens in the filter expression
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // no documents contain both "white" and "platinum", so
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // with exact match operator (:=) partial matches are not allowed
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
@@ -116,6 +128,151 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll_array_fields");
+}
+
+TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
+    Collection *coll_str;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, true),
+            field("cast", field_types::STRING_ARRAY, false),
+            field("points", field_types::INT32, false)
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    coll_str = collectionManager.get_collection("coll_str").get();
+    if(coll_str == nullptr) {
+        coll_str = collectionManager.create_collection("coll_str", 1, fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        coll_str->add(document.dump());
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+
+    // exact filter on string field must fail when single token is used
+    facets.clear();
+    facets.emplace_back("starring");
+    auto results = coll_str->search("*", query_fields, "starring:= samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // multiple tokens but with a typo on one of them
+    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // same should succeed when verbatim filter is made
+    results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // contains filter with a single token should work as well
+    results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // contains when only 1 token so should not match
+    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll_str");
+}
+
+TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("name_facet", field_types::STRING, true),
+                                 field("age", field_types::INT32, true),
+                                 field("years", field_types::INT32_ARRAY, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("timestamps", field_types::INT64_ARRAY, true),
+                                 field("tags", field_types::STRING_ARRAY, true)};
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 1, fields, "age").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        document["name_facet"] = document["name"];
+        const std::string & patched_json_line = document.dump();
+        coll_array_fields->add(patched_json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"name"};
+    std::vector<std::string> facets = {"tags"};
+
+    // facet with filter on string array field must fail when exact token is used
+    facets.clear();
+    facets.push_back("tags");
+    auto results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // partial token filter should be made without "=" operator
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // to make tokens match facet value exactly, use "=" operator
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // don't allow exact filter on non-faceted field
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
+
+    // multi match exact query (OR condition)
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze, fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    // single array multi match
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
 
     collectionManager.drop_collection("coll_array_fields");
 }
