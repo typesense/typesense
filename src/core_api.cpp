@@ -34,6 +34,7 @@ void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
 void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res, size_t timeout_ms) {
     defer_processing_t* defer = new defer_processing_t(req, res, timeout_ms, server);
+    //LOG(INFO) << "core_api req " << req.get() << ", use count: " << req.use_count();
     server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
 }
 
