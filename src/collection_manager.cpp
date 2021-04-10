@@ -127,55 +127,51 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
-    LOG(INFO) << "Found " << collection_meta_jsons.size() << " collection(s) on disk.";
+    const size_t num_collections = collection_meta_jsons.size();
+    LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
 
-    std::vector<nlohmann::json> coll_meta_buffer;
+    ThreadPool loading_pool(collection_batch_size);
 
-    for(size_t coll_index = 0; coll_index < collection_meta_jsons.size(); coll_index++) {
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+
         if(collection_meta == nlohmann::json::value_t::discarded) {
-            LOG(ERROR) << "Error while parsing collection meta.";
+            LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        coll_meta_buffer.push_back(collection_meta);
-
-        if(coll_meta_buffer.size() % collection_batch_size == 0 || coll_index == collection_meta_jsons.size() - 1) {
-            size_t num_processed = 0;
-            std::mutex m_process;
-            std::condition_variable cv_process;
-            std::vector<Option<bool>> results;
-
-            LOG(INFO) << "coll_meta_buffer.size(): " << coll_meta_buffer.size();
-
-            for(const auto& buff_coll_meta: coll_meta_buffer) {
-                thread_pool->enqueue([&buff_coll_meta, document_batch_size, &next_coll_id_status, &m_process, &cv_process,
-                                      &num_processed, &results]() {
-                    Option<bool> res = load_collection(buff_coll_meta, document_batch_size, next_coll_id_status);
-                    std::unique_lock<std::mutex> lock(m_process);
-                    results.push_back(res);
-                    num_processed++;
-                    cv_process.notify_one();
-                });
+        auto captured_store = store;
+        loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status]() {
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status);
+            if(!res.ok()) {
+                LOG(ERROR) << "Error while loading collection. " << res.error();
+                LOG(ERROR) << "Typesense is quitting.";
+                captured_store->close();
+                exit(1);
             }
 
-            const size_t num_load_collections = coll_meta_buffer.size();
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
 
-            std::unique_lock<std::mutex> lock_process(m_process);
-            cv_process.wait(lock_process, [&](){
-                return num_processed == num_load_collections;
-            });
-
-            for(size_t i = 0; i < num_load_collections; i++) {
-                if(!results[i].ok()) {
-                    return results[i];
-                }
+            size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
+            if(num_processed % progress_modulo == 0) {
+                LOG(INFO) << "Loaded " << num_processed << " collection(s)";
             }
-
-            coll_meta_buffer.clear();
-        }
+        });
     }
+
+    // wait for all collections to be loaded
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){
+        return num_processed == num_collections;
+    });
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
     rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
@@ -188,7 +184,9 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     delete iter;
 
-    LOG(INFO) << "Done loading all collections.";
+    LOG(INFO) << "Done loading all " << num_collections << " collection(s).";
+
+    loading_pool.shutdown();
 
     return Option<bool>(true);
 }
@@ -827,6 +825,15 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     auto& cm = CollectionManager::get_instance();
 
+    if(!collection_meta.contains(Collection::COLLECTION_NAME_KEY)) {
+        return Option<bool>(500, "No collection name in collection meta: " + collection_meta.dump());
+    }
+
+    if(!collection_meta[Collection::COLLECTION_NAME_KEY].is_string()) {
+        LOG(ERROR) << collection_meta[Collection::COLLECTION_NAME_KEY];
+        LOG(ERROR) << Collection::COLLECTION_NAME_KEY;
+        LOG(ERROR) << "";
+    }
     const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::string collection_next_seq_id_str;
@@ -834,8 +841,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
                                                 collection_next_seq_id_str);
 
     if(next_seq_id_status == StoreStatus::ERROR) {
-        LOG(ERROR) << "Error while fetching collection's next sequence ID";
-        return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for collection "
+        LOG(ERROR) << "Error while fetching next sequence ID for " << this_collection_name;
+        return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for "
                                  "`" + this_collection_name + "`");
     }
 
