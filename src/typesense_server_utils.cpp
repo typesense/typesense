@@ -263,7 +263,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     size_t raft_counter = 0;
     while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
         // post-increment to ensure that we refresh right away on a fresh boot
-        if(raft_counter++ % 10 == 0) {
+        if(raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
@@ -275,6 +275,13 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             replication_state.refresh_nodes(nodes_config);
         }
 
+        if(raft_counter % 3 == 0) {
+            // update node catch up status periodically, take care of logging too verbosely
+            bool log_msg = (raft_counter % 9 == 0);
+            replication_state.refresh_catchup_status(log_msg);
+        }
+
+        raft_counter++;
         sleep(1);
     }
 

@@ -181,7 +181,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
 
     if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
-        LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
+        //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
         request->notify();
         return ;
     }
@@ -473,7 +473,6 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(new_conf, refresh_nodes_done);
-        this->caught_up = true;
     } else {
         if(node->leader_id().is_empty()) {
             // When node is not a leader, does not have a leader and is also a single-node cluster,
@@ -492,6 +491,25 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
                 LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
             }
 
+            return ;
+        }
+    }
+}
+
+void ReplicationState::refresh_catchup_status(bool log_msg) {
+    std::shared_lock lock(mutex);
+
+    if (!node) {
+        LOG_IF(WARNING, log_msg) << "Node state is not initialized: unable to refresh nodes.";
+        return;
+    }
+
+    if(node->is_leader()) {
+        this->caught_up = true;
+    } else {
+
+        // follower does not have a leader!
+        if(node->leader_id().is_empty()) {
             this->caught_up = false;
             return ;
         }
@@ -499,7 +517,7 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
         lock.unlock();
 
         // update catch up status
-        thread_pool->enqueue([this]() {
+        thread_pool->enqueue([this, log_msg]() {
             auto seq_num = this->store->get_latest_seq_number();
             std::shared_lock lock(this->mutex);
             const std::string & leader_addr = node->leader_id().to_string();
@@ -517,7 +535,7 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
             if(status != 500) {
                 if(!StringUtils::is_uint64_t(api_res)) {
-                    LOG(ERROR) << "Invalid API response when fetching sequence number: " << api_res;
+                    LOG_IF(ERROR, log_msg) << "Invalid API response when fetching sequence number: " << api_res;
                     this->caught_up = false;
                     return ;
                 }
@@ -535,14 +553,14 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
                 // However, if the difference is large, then something could be wrong
                 if(leader_seq < seq_num) {
-                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num
-                               << ", catchup_min_sequence_diff: " << catchup_min_sequence_diff;
+                    LOG_IF(ERROR, log_msg) << "Leader sequence " << leader_seq << " is less than local sequence "
+                                           << seq_num << ", catchup_min_sequence_diff: " << catchup_min_sequence_diff;
                     this->caught_up = false;
                     return ;
                 }
 
                 float seq_progress = (float(seq_num) / leader_seq) * 100;
-                LOG(INFO) << "Follower progress percentage: " << seq_progress;
+                LOG_IF(INFO, log_msg) << "Follower progress percentage: " << seq_progress;
 
                 this->caught_up = (seq_progress >= catch_up_threshold_percentage);
             }

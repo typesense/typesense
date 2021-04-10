@@ -144,6 +144,8 @@ public:
     // updates cluster membership
     void refresh_nodes(const std::string & nodes);
 
+    void refresh_catchup_status(bool log_msg);
+
     bool trigger_vote();
 
     bool has_leader_term() const {
