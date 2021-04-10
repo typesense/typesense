@@ -181,15 +181,15 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
         else if(field_pair.second.type == field_types::INT32) {
             auto num_tree = numerical_index.at(field_name);
-            uint32_t value = document[field_name];
+            int32_t value = document[field_name].get<int32_t>();
             num_tree->insert(value, seq_id);
         } else if(field_pair.second.type == field_types::INT64) {
             auto num_tree = numerical_index.at(field_name);
-            uint64_t value = document[field_name];
+            int64_t value = document[field_name].get<int64_t>();
             num_tree->insert(value, seq_id);
         } else if(field_pair.second.type == field_types::FLOAT) {
             auto num_tree = numerical_index.at(field_name);
-            float fvalue = document[field_name];
+            float fvalue = document[field_name].get<float>();
             int64_t value = float_to_in64_t(fvalue);
             num_tree->insert(value, seq_id);
         } else if(field_pair.second.type == field_types::BOOL) {

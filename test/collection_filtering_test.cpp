@@ -814,6 +814,62 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("int32_field", field_types::INT32, false),
+                                 field("int64_field", field_types::INT64, false),
+                                 field("float_field", field_types::FLOAT, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "int32_field").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Title 1", "-100", "5000000", "-10.45124"},
+        {"Title 2", "100", "-1000000", "0.45124"},
+        {"Title 3", "-200", "3000000", "-0.45124"},
+        {"Title 4", "150", "10000000", "1.45124"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["int32_field"] = std::stoi(records[i][1]);
+        doc["int64_field"] = std::stoll(records[i][2]);
+        doc["float_field"] = std::stof(records[i][3]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {}, "int32_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "int64_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "float_field:<0", {}, {sort_by("float_field", "desc")}, 0, 10, 1, FREQUENCY,
+                            true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     Collection *coll_array_fields;
 
