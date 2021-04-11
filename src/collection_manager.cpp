@@ -328,7 +328,9 @@ std::vector<Collection*> CollectionManager::get_collections() const {
 }
 
 Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    auto collection = get_collection(collection_name);  // locked_resource_view_t
+    std::unique_lock lock(mutex);
+
+    auto collection = get_collection_unsafe(collection_name);
 
     if(collection == nullptr) {
         return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
@@ -357,7 +359,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
 
-    delete collection.get();
+    delete collection;
 
     return Option<nlohmann::json>(collection_json);
 }

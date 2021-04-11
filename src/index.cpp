@@ -48,6 +48,8 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
 }
 
 Index::~Index() {
+    std::unique_lock lock(mutex);
+
     for(auto & name_tree: search_index) {
         art_tree_destroy(name_tree.second);
         delete name_tree.second;
@@ -388,6 +390,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
 void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
     std::vector<std::string> del_keys;
+    std::shared_lock lock(mutex);
 
     for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
         const std::string& field_name = it.key();

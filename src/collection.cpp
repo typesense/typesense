@@ -54,6 +54,8 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 }
 
 Collection::~Collection() {
+    std::unique_lock lock(mutex);
+
     for(size_t i = 0; i < indices.size(); i++) {
         delete indices[i];
     }
