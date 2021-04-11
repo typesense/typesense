@@ -13,7 +13,7 @@ TEST(NumTreeTest, Searches) {
     tree.insert(-1200, 5);
     tree.insert(100, 6);
 
-    uint32_t* ids;
+    uint32_t* ids = nullptr;
     size_t ids_len;
 
     tree.search(NUM_COMPARATOR::EQUALS, -1750, &ids, ids_len);
