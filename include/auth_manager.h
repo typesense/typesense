@@ -107,7 +107,7 @@ private:
 
 public:
 
-    static const size_t KEY_LEN = 32;
+    static const size_t GENERATED_KEY_LEN = 32;
     static const size_t HMAC_BASE64_LEN = 44;
 
     AuthManager() = default;

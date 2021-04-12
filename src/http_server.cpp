@@ -379,7 +379,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     // do any additional pre-request middleware operations here
     if(rpath->action == "keys:create") {
         // we enrich incoming request with a random API key here so that leader and replicas will use the same key
-        request->metadata = StringUtils::randstring(AuthManager::KEY_LEN);
+        request->metadata = StringUtils::randstring(AuthManager::GENERATED_KEY_LEN);
     }
 
     if(req->proceed_req == nullptr) {
