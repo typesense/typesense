@@ -145,36 +145,31 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
     std::shared_lock lock(mutex);
     //LOG(INFO) << "AuthManager::authenticate()";
 
-    if(req_api_key.size() > KEY_LEN) {
-        // scoped API key: validate and if valid, extract params
-        nlohmann::json embedded_params;
-        Option<bool> params_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
-        if(!params_op.ok()) {
-            // authentication failed
-            return false;
-        }
-
-        // enrich params with values from embedded_params
-        for(auto& item: embedded_params.items()) {
-            if(item.key() == "expires_at") {
-                continue;
-            }
-
-            // overwrite = true as embedded params have higher priority
-            AuthManager::add_item_to_params(params, item, true);
-        }
-
-        return true;
+    const auto& key_it = api_keys.find(req_api_key);
+    if(key_it != api_keys.end()) {
+        const api_key_t& api_key = key_it->second;
+        return auth_against_key(collections, action, api_key, false);
     }
 
-    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
-
-    if(api_keys.count(req_api_key) == 0) {
+    // could be a scoped API key
+    nlohmann::json embedded_params;
+    Option<bool> auth_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
+    if(!auth_op.ok()) {
         return false;
     }
 
-    const api_key_t& api_key = api_keys.at(req_api_key);
-    return auth_against_key(collections, action, api_key, false);
+    // enrich params with values from embedded_params
+    for(auto& item: embedded_params.items()) {
+        if(item.key() == "expires_at") {
+            continue;
+        }
+
+        // overwrite = true as embedded params have higher priority
+        AuthManager::add_item_to_params(params, item, true);
+    }
+
+    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
+    return true;
 }
 
 bool AuthManager::auth_against_key(const std::vector<std::string>& collections, const std::string& action,

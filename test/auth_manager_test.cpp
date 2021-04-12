@@ -128,6 +128,13 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     ASSERT_FALSE(auth_manager.authenticate("jdlaslasdasd", "documents:create", {"collection1"}, sparams));
     ASSERT_TRUE(auth_manager.authenticate(wildcard_all_key.value, "metrics:get", {""}, sparams));
 
+    // long API key
+    std::string long_api_key_str = StringUtils::randstring(50);
+    api_key_t long_api_key = api_key_t(long_api_key_str, "long api key", {"*"}, {"*"}, FUTURE_TS);
+    auth_manager.create_key(long_api_key);
+
+    ASSERT_TRUE(auth_manager.authenticate(long_api_key_str, "metrics:get", {""}, sparams));
+
     // wildcard on a collection
     api_key_t wildcard_coll_key = api_key_t("abcd2", "wildcard coll key", {"*"}, {"collection1"}, FUTURE_TS);
     auth_manager.create_key(wildcard_coll_key);
