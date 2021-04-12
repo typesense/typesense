@@ -670,6 +670,8 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
     h2o_req_t* req = request->_req;
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
 
+    response->status_code = (response->status_code == 0) ? 503 : response->status_code; // just to be sure
+
     if(custom_generator->rpath->async_req && custom_generator->res()->final &&
        !custom_generator->req()->last_chunk_aggregate) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed
@@ -679,12 +681,14 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
         req->res.reason = http_res::get_status_reason(response->status_code);
         h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
 
-        if(request->is_http_v1()) {
+        if (req->_generator == nullptr) {
             h2o_start_response(req, &custom_generator->super);
+        }
+
+        if(request->is_http_v1()) {
             h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
             h2o_dispose_request(req);
         } else {
-            h2o_start_response(req, &custom_generator->super);
             h2o_send(req, &body, 1, H2O_SEND_STATE_ERROR);
         }
 
@@ -694,7 +698,6 @@ void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const
     if (req->res.status == 0) {
         //LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
         //          << ",response.status_code=" << response.status_code;
-        response->status_code = (response->status_code == 0) ? 503 : response->status_code; // just to be sure
         req->res.status = response->status_code;
         req->res.reason = http_res::get_status_reason(response->status_code);
         h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,

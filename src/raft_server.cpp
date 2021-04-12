@@ -192,12 +192,12 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
     HttpServer* server = custom_generator->h2o_handler->http_server;
 
-    thread_pool->enqueue([leader_addr, request, response, server, this]() {
-        auto raw_req = request->_req;
-        const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
-        const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
-        const std::string url = get_leader_url_path(leader_addr, path, scheme);
+    auto raw_req = request->_req;
+    const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
+    const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
+    const std::string url = get_leader_url_path(leader_addr, path, scheme);
 
+    thread_pool->enqueue([request, response, server, path, url, this]() {
         pending_writes++;
 
         std::map<std::string, std::string> res_headers;
