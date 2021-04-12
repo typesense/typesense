@@ -1063,6 +1063,12 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     auto results = coll_mul_fields->search("*", query_fields, "starring:= [Will Ferrell]", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
+    // update existing record verbatim
+    std::vector<std::string> existing_records = {R"({"id": "0", "title": "Wake Up, Ron Burgundy: The Lost Movie"})"};
+    import_response = coll_mul_fields->add_many(existing_records, document, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
     // update + upsert records
     std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry", "starring": "Will Ferrell"})",
                                             R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",

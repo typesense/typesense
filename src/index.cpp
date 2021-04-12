@@ -390,16 +390,21 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
 void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
     std::vector<std::string> del_keys;
-    std::shared_lock lock(mutex);
 
     for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
         const std::string& field_name = it.key();
+
+        std::shared_lock lock(mutex);
+
         const auto& search_field_it = search_schema.find(field_name);
         if(search_field_it == search_schema.end()) {
             continue;
         }
 
-        const auto& search_field = search_field_it->second;
+        const auto search_field = search_field_it->second;  // copy, don't use reference!
+
+        lock.unlock();
+
         bool arrays_match = false;
 
         // compare values between old and update docs:
