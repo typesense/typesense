@@ -2,6 +2,7 @@
 #include "collection.h"
 #include <vector>
 #include <collection_manager.h>
+#include <core_api.h>
 #include "core_api_utils.h"
 
 class CoreAPIUtilsTest : public ::testing::Test {
@@ -116,4 +117,24 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     ASSERT_STREQ("Could not parse the filter query.", op.error().c_str());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
+    std::shared_ptr<http_req> req = std::make_shared<http_req>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>();
+
+    req->params["filter_by"] = "user_id: 100";
+    nlohmann::json body;
+    body["searches"] = nlohmann::json::array();
+    nlohmann::json search;
+    search["collection"] = "users";
+    search["filter_by"] = "age: > 100";
+    body["searches"].push_back(search);
+
+    req->body = body.dump();
+
+    post_multi_search(req, res);
+
+    // ensure that req params are appended to (embedded params are also rolled into req params)
+    ASSERT_EQ("user_id: 100&&age: > 100", req->params["filter_by"]);
 }
