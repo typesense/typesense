@@ -4,26 +4,19 @@
 #include <algorithm>
 #include <sstream>
 #include <ctype.h>
-#include <unicode/translit.h>
-#include <iconv.h>
 #include <vector>
 #include <random>
 #include <map>
 #include "wyhash_v5.h"
 
 struct StringUtils {
-    UErrorCode status;
-    //icu::Transliterator* transliterator;
-    iconv_t cd;
 
-    StringUtils(): status(U_ZERO_ERROR) {
-        // transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status))
-        cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
+    StringUtils() {
+
     }
 
     ~StringUtils() {
-        //delete transliterator;
-        iconv_close(cd);
+
     }
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
@@ -216,8 +209,6 @@ struct StringUtils {
     static void tolowercase(std::string& str) {
         std::transform(str.begin(), str.end(), str.begin(), ::tolower);
     }
-
-    void unicode_normalize(std::string& str) const;
 
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {

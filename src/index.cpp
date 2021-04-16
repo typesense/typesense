@@ -405,60 +405,10 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
 
         lock.unlock();
 
-        bool arrays_match = false;
-
         // compare values between old and update docs:
         // if they match, we will remove them from both del and update docs
 
-        if(search_field.is_string()) {
-            // Go through all the field names and find the keys+values so that they can be removed from in-memory index
-            std::vector<std::string> reindex_vals;
-            std::vector<std::string> old_vals;
-
-            tokenize_doc_field(update_doc, search_field, reindex_vals);
-            tokenize_doc_field(old_doc, search_field, old_vals);
-
-            arrays_match = _arrays_match<std::string>(reindex_vals, old_vals);
-
-        } else if(search_field.is_int32()) {
-            std::vector<int32_t> reindex_vals = search_field.is_single_integer() ?
-                                                std::vector<int32_t>{update_doc[field_name].get<int32_t>()} :
-                                                update_doc[field_name].get<std::vector<int32_t>>();
-            std::vector<int32_t> old_vals = search_field.is_single_integer() ?
-                                            std::vector<int32_t>{old_doc[field_name].get<int32_t>()} :
-                                            old_doc[field_name].get<std::vector<int32_t>>();
-
-            arrays_match = _arrays_match<int32_t>(reindex_vals, old_vals);
-        } else if(search_field.is_int64()) {
-            std::vector<int64_t> reindex_vals = search_field.is_single_integer() ?
-                                                std::vector<int64_t>{update_doc[field_name].get<int64_t>()} :
-                                                update_doc[field_name].get<std::vector<int64_t>>();
-            std::vector<int64_t> old_vals = search_field.is_single_integer() ?
-                                            std::vector<int64_t>{old_doc[field_name].get<int64_t>()} :
-                                            old_doc[field_name].get<std::vector<int64_t>>();
-
-            arrays_match = _arrays_match<int64_t>(reindex_vals, old_vals);
-        } else if(search_field.is_float()) {
-            std::vector<float> reindex_vals = search_field.is_single_float() ?
-                                                std::vector<float>{update_doc[field_name].get<float>()} :
-                                                update_doc[field_name].get<std::vector<float>>();
-            std::vector<float> old_vals = search_field.is_single_float() ?
-                                            std::vector<float>{old_doc[field_name].get<float>()} :
-                                            old_doc[field_name].get<std::vector<float>>();
-
-            arrays_match = _arrays_match<float>(reindex_vals, old_vals);
-        } else if(search_field.is_bool()) {
-            std::vector<bool> reindex_vals = search_field.is_single_bool() ?
-                                              std::vector<bool>{update_doc[field_name].get<bool>()} :
-                                              update_doc[field_name].get<std::vector<bool>>();
-            std::vector<bool> old_vals = search_field.is_single_bool() ?
-                                          std::vector<bool>{old_doc[field_name].get<bool>()} :
-                                          old_doc[field_name].get<std::vector<bool>>();
-
-            arrays_match = _arrays_match<bool>(reindex_vals, old_vals);
-        }
-
-        if(arrays_match) {
+        if(update_doc[search_field.name] == old_doc[search_field.name]) {
             del_keys.push_back(field_name);
         }
     }
@@ -2393,7 +2343,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         // Go through all the field names and find the keys+values so that they can be removed from in-memory index
         if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
             std::vector<std::string> tokens;
-            tokenize_doc_field(document, search_field, tokens);
+            tokenize_string_field(document, search_field, tokens, search_field.locale);
 
             for(auto & token: tokens) {
                 const unsigned char *key = (const unsigned char *) token.c_str();
@@ -2491,17 +2441,17 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
     return Option<uint32_t>(seq_id);
 }
 
-void Index::tokenize_doc_field(const nlohmann::json& document, const field& search_field,
-                               std::vector<std::string>& tokens) {
+void Index::tokenize_string_field(const nlohmann::json& document, const field& search_field,
+                                  std::vector<std::string>& tokens, const std::string& locale) {
 
     const std::string& field_name = search_field.name;
 
     if(search_field.type == field_types::STRING) {
-        Tokenizer(document[field_name], true, true, !search_field.is_string()).tokenize(tokens);
+        Tokenizer(document[field_name], false, true, false, locale).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            Tokenizer(value, true, true, !search_field.is_string()).tokenize(tokens);
+            Tokenizer(value, false, true, false, locale).tokenize(tokens);
         }
     }
 }

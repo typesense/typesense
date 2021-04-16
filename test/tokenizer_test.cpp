@@ -40,17 +40,13 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     const std::string split_tokens = "foo-bar-baz";
     tokens.clear();
     Tokenizer(split_tokens, false, false, false).tokenize(tokens);
-    ASSERT_EQ(3, tokens.size());
-    ASSERT_STREQ("foo", tokens[0].c_str());
-    ASSERT_STREQ("bar", tokens[1].c_str());
-    ASSERT_STREQ("baz", tokens[2].c_str());
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_STREQ("foobarbaz", tokens[0].c_str());
 
     tokens.clear();
     Tokenizer(split_tokens, false, true, false).tokenize(tokens);
-    ASSERT_EQ(3, tokens.size());
-    ASSERT_STREQ("foo", tokens[0].c_str());
-    ASSERT_STREQ("bar", tokens[1].c_str());
-    ASSERT_STREQ("baz", tokens[2].c_str());
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_STREQ("foobarbaz", tokens[0].c_str());
 
     // multiple spaces
     const std::string multispace_tokens = "foo     bar";
@@ -62,7 +58,7 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeDifferentStrings) {
     ASSERT_STREQ("bar", tokens[2].c_str());
 
     // special chars
-    const std::string specialchar_tokens = "https://www.amazon.com/s?k=phone&ref=nb_sb_noss_2";;
+    const std::string specialchar_tokens = "https://www.amazon.com/s?k=phone&ref=nb_sb_noss_2";
     tokens.clear();
     Tokenizer(specialchar_tokens, true, false, false).tokenize(tokens);
     ASSERT_EQ(23, tokens.size());
@@ -102,13 +98,14 @@ TEST(TokenizerTest, ShouldTokenizeNormalizeUnicodeStrings) {
     const std::string withoutnormalize = "Mise  à,  jour.";
     tokens.clear();
     Tokenizer(withoutnormalize, true, false, false).tokenize(tokens);
-    ASSERT_EQ(6, tokens.size());
+    ASSERT_EQ(7, tokens.size());
     ASSERT_STREQ("Mise", tokens[0].c_str());
     ASSERT_STREQ("  ", tokens[1].c_str());
     ASSERT_STREQ("à", tokens[2].c_str());
-    ASSERT_STREQ(",  ", tokens[3].c_str());
-    ASSERT_STREQ("jour", tokens[4].c_str());
-    ASSERT_STREQ(".", tokens[5].c_str());
+    ASSERT_STREQ(",", tokens[3].c_str());
+    ASSERT_STREQ("  ", tokens[4].c_str());
+    ASSERT_STREQ("jour", tokens[5].c_str());
+    ASSERT_STREQ(".", tokens[6].c_str());
 
     // when normalization and keep empty are disabled
     const std::string withoutnormalizeandkeepempty = "Mise  à  jour.";
@@ -144,17 +141,20 @@ TEST(TokenizerTest, ShouldTokenizeIteratively) {
         tokens.push_back(token);
     }
 
-    ASSERT_EQ(10, tokens.size());
+    ASSERT_EQ(13, tokens.size());
     ASSERT_STREQ("michael", tokens[0].c_str());
     ASSERT_STREQ(" ", tokens[1].c_str());
     ASSERT_STREQ("jordan", tokens[2].c_str());
-    ASSERT_STREQ(":\n\n", tokens[3].c_str());
-    ASSERT_STREQ("welcome", tokens[4].c_str());
-    ASSERT_STREQ(", ", tokens[5].c_str());
-    ASSERT_STREQ("everybody", tokens[6].c_str());
-    ASSERT_STREQ(". ", tokens[7].c_str());
-    ASSERT_STREQ("welcome", tokens[8].c_str());
-    ASSERT_STREQ("!", tokens[9].c_str());
+    ASSERT_STREQ(":", tokens[3].c_str());
+    ASSERT_STREQ("\n\n", tokens[4].c_str());
+    ASSERT_STREQ("welcome", tokens[5].c_str());
+    ASSERT_STREQ(",", tokens[6].c_str());
+    ASSERT_STREQ(" ", tokens[7].c_str());
+    ASSERT_STREQ("everybody", tokens[8].c_str());
+    ASSERT_STREQ(".", tokens[9].c_str());
+    ASSERT_STREQ(" ", tokens[10].c_str());
+    ASSERT_STREQ("welcome", tokens[11].c_str());
+    ASSERT_STREQ("!", tokens[12].c_str());
 
     // check for index when separators are not kept
     Tokenizer tokenizer2(withnewline, false, true, false);

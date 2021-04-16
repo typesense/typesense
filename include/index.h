@@ -323,24 +323,9 @@ public:
 
     void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
 
-    static void tokenize_doc_field(const nlohmann::json& document, const field& search_field, std::vector<std::string>& tokens);
-
-    template<typename T>
-    static bool _arrays_match(std::vector<T> reindex_vals, std::vector<T> old_vals) {
-        if(old_vals.size() != reindex_vals.size()) {
-            return false;
-        }
-
-        for(size_t i=0; i < reindex_vals.size(); i++) {
-            const T& reindex_val = reindex_vals[i];
-            const T& old_val = old_vals[i];
-            if(reindex_val != old_val) {
-                return false;
-            }
-        }
-
-        return true;
-    }
+    static void tokenize_string_field(const nlohmann::json& document,
+                                      const field& search_field, std::vector<std::string>& tokens,
+                                      const std::string& locale);
 
     // Public operations
 
