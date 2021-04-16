@@ -1835,6 +1835,70 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection_for_del");
 }
 
+TEST_F(CollectionTest, DeletionOfDocumentSingularFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("str", field_types::STRING, false),
+                                 field("int32", field_types::INT32, false),
+                                 field("int64", field_types::INT64, false),
+                                 field("float", field_types::FLOAT, false),
+                                 field("bool", field_types::BOOL, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("int32", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "int32").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["str"] = "[NEW] Cell Phone Cases, Holders & Clips!";
+    doc["int32"] = 100032;
+    doc["int64"] = 1582369739000;
+    doc["float"] = -293.24;
+    doc["bool"] = true;
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json res = coll1->search("phone", {"str"}, "", {}, sort_fields, 0, 10, 1,
+                                       token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(1, res["found"]);
+
+    Option<std::string> rem_op = coll1->remove("100");
+
+    ASSERT_TRUE(rem_op.ok());
+
+    res = coll1->search("phone", {"str"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(0, res["found"].get<int32_t>());
+
+    // also assert against the actual index
+    Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
+    auto search_index = index->_get_search_index();
+    auto numerical_index = index->_get_numerical_index();
+
+    auto str_tree = search_index["str"];
+    auto int32_tree = numerical_index["int32"];
+    auto int64_tree = numerical_index["int64"];
+    auto float_tree = numerical_index["float"];
+    auto bool_tree = numerical_index["bool"];
+
+    ASSERT_EQ(0, art_size(str_tree));
+
+    ASSERT_EQ(0, int32_tree->size());
+    ASSERT_EQ(0, int64_tree->size());
+    ASSERT_EQ(0, float_tree->size());
+    ASSERT_EQ(0, bool_tree->size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
     Collection *coll1;
 
@@ -3304,7 +3368,7 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionTest, SearchingForRecordsWithSpecialChars) {
+TEST_F(CollectionTest, DISABLED_SearchingForRecordsWithSpecialChars) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),

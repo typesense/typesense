@@ -18,9 +18,11 @@ private:
     size_t token_counter = 0;
     iconv_t cd;
 
-    static const size_t CHARS = 0;
-    static const size_t SEPARATORS = 1;
-    size_t stream_mode;
+    static const size_t INDEX = 0;
+    static const size_t SEPARATE = 1;
+    static const size_t SKIP = 2;
+
+    size_t prev_stream_mode;
 
     std::stringstream out;
 
@@ -30,6 +32,12 @@ private:
     int32_t position = 0;
     int32_t prev_position = -1;
     char* normalized_text = nullptr;
+
+    inline size_t get_stream_mode(char c) {
+        return std::isalnum(c) ? INDEX : (
+            (c == ' ' || c == '\n') ? SEPARATE : SKIP
+        );
+    }
 
 public:
 
@@ -48,11 +56,11 @@ public:
 
         cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
-        if(!input.empty() && (std::isalnum(text[0]) || (text[i] & ~0x7f) != 0)) {
+        if(!text.empty() && (std::isalnum(text[0]) || (text[i] & ~0x7f) != 0)) {
             // alphanum or non-ascii
-            stream_mode = CHARS;
+            prev_stream_mode = INDEX;
         } else {
-            stream_mode = SEPARATORS;
+            prev_stream_mode = SEPARATE;
         }
 
         if(!locale.empty() && locale != "en") {

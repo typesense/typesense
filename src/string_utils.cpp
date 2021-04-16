@@ -22,52 +22,6 @@ std::string lower_and_no_special_chars(const std::string & str) {
     return ss.str();
 }
 
-void StringUtils::unicode_normalize(std::string & str) const {
-    if(str.empty()) {
-        return ;
-    }
-
-    std::stringstream out;
-
-    for (char *s = &str[0]; *s;) {
-        char inbuf[5];
-        char *p = inbuf;
-
-        if((*s & ~0x7f) == 0 ) {
-            // ascii character
-            out << *s++;
-            continue;
-        }
-
-        // group bytes to form a unicode representation
-        *p++ = *s++;
-        if ((*s & 0xC0) == 0x80) *p++ = *s++;
-        if ((*s & 0xC0) == 0x80) *p++ = *s++;
-        if ((*s & 0xC0) == 0x80) *p++ = *s++;
-        *p = 0;
-        size_t insize = (p - &inbuf[0]);
-
-        char outbuf[5] = {};
-        size_t outsize = sizeof(outbuf);
-        char *outptr = outbuf;
-        char *inptr = inbuf;
-
-        //printf("[%s]\n", inbuf);
-
-        errno = 0;
-        iconv(cd, &inptr, &insize, &outptr, &outsize);
-
-        if(errno == EILSEQ) {
-            // symbol cannot be represented as ASCII, so write the original symbol
-            out << inbuf;
-        } else {
-            out << outbuf;
-        }
-    }
-
-    str = lower_and_no_special_chars(out.str());
-}
-
 std::string StringUtils::randstring(size_t length) {
     static auto& chrs = "0123456789"
                         "abcdefghijklmnopqrstuvwxyz"

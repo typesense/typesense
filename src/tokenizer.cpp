@@ -2,6 +2,16 @@
 #include "tokenizer.h"
 
 bool Tokenizer::next(std::string &token, size_t& token_index) {
+    if(no_op) {
+        if(i == text.size()) {
+            return false;
+        }
+
+        token = text;
+        i = text.size();
+        return true;
+    }
+
     if(!locale.empty() && locale != "en") {
         while (position != icu::BreakIterator::DONE) {
             //LOG(INFO) << "Position: " << position;
@@ -35,23 +45,18 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
         return false;
     }
 
-    if(no_op) {
-        if(i == text.size()) {
-            return false;
-        }
-
-        token = text;
-        i = text.size();
-        return true;
-    }
-
     while(i < text.size()) {
         bool is_ascii = (text[i] & ~0x7f) == 0;
         if(is_ascii) {
-            const size_t next_stream_mode = std::isalnum(text[i]) ? CHARS : SEPARATORS;
+            size_t this_stream_mode = get_stream_mode(text[i]);
 
-            if(next_stream_mode != stream_mode) {
-                // We tokenize when `stream_mode` changes
+            if(this_stream_mode == SKIP && !keep_separators) {
+                i++;
+                continue;
+            }
+
+            if(this_stream_mode != prev_stream_mode) {
+                // We tokenize when `prev_stream_mode` changes
                 token = out.str();
 
                 out.str(std::string());
@@ -62,13 +67,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
                 }
                 i++;
 
-                if(stream_mode == SEPARATORS && !keep_separators) {
-                    stream_mode = next_stream_mode;
+                if(prev_stream_mode == SEPARATE && !keep_separators) {
+                    prev_stream_mode = this_stream_mode;
                     continue;
                 }
 
                 token_index = token_counter++;
-                stream_mode = next_stream_mode;
+                prev_stream_mode = this_stream_mode;
                 return true;
             } else {
                 if(normalize) {
@@ -82,9 +87,9 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
             }
         }
 
-        if(stream_mode == SEPARATORS) { // to detect first non-ascii character
+        if(prev_stream_mode == SEPARATE) { // to detect first non-ascii character
             // we will tokenize now and treat the following non-ascii chars as a different token
-            stream_mode = CHARS;
+            prev_stream_mode = INDEX;
             token = out.str();
             out.str(std::string());
 
