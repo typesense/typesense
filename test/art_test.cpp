@@ -51,7 +51,7 @@ TEST(ArtTest, test_art_insert) {
         ASSERT_TRUE(art_size(&t) == line);
         line++;
 
-        delete document.offsets;
+        delete [] document.offsets;
     }
 
     res = art_tree_destroy(&t);

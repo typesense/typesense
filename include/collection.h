@@ -235,13 +235,13 @@ struct synonym_t {
             }
 
             std::vector<std::string> tokens;
-            Tokenizer(synonym, false).tokenize(tokens);
+            Tokenizer(synonym, true).tokenize(tokens);
             syn.synonyms.push_back(tokens);
         }
 
         if(synonym_json.count("root") != 0) {
             std::vector<std::string> tokens;
-            Tokenizer(synonym_json["root"], false).tokenize(tokens);
+            Tokenizer(synonym_json["root"], true).tokenize(tokens);
             syn.root = tokens;
         }
 
