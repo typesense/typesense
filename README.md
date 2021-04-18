@@ -32,6 +32,7 @@
 ## Quick Links
 
 - [Features](#features)
+- [Benchmarks](#benchmarks)
 - [Who's using this](#whos-using-this)
 - [Install](#install)
 - [Quick Start](#quick-start)
@@ -39,7 +40,6 @@
 - [API Documentation](#api-documentation)
 - [API Clients](#api-clients)
 - [Search UI Components](#search-ui-components)
-- [Benchmarks](#benchmarks)
 - [FAQ](#faq)
 - [Support](#support)
 - [Contributing](#contributing)
@@ -63,6 +63,20 @@
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 
 **Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+
+## Benchmarks
+
+- A dataset containing **2.2 Million recipes** (recipe names and ingredients):
+  - Took up about 900MB of RAM when indexed in Typesense
+  - Took 3.6mins to index all 2.2M records
+  - On a server with 4vCPUs, Typesense was able to handle a concurrency of **104 concurrent search queries per second**, with an average search processing time of **11ms**.
+- A dataset containing **28 Million books** (book titles, authors and categories):
+  - Took up about 14GB of RAM when indexed in Typesense
+  - Took 78mins to index all 28M records
+  - On a server with 4vCPUs, Typesense was able to handle a concurrency of **46 concurrent search queries per second**, with an average search processing time of **28ms**.
+- With a dataset containing **3 Million products** (Amazon product data), Typesense was able to handle a throughput of **250 concurrent search queries per second** on an 8-vCPU 3-node Highly Available Typesense cluster.
+
+We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
 
 ## Who's using this?
 
@@ -191,22 +205,6 @@ You can use our [InstantSearch.js adapter](https://github.com/typesense/typesens
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
 Here's how: [https://typesense.org/docs/0.19.0/guide/#search-ui](https://typesense.org/docs/0.19.0/guide/#search-ui) 
-
-## Benchmarks
-
-- A dataset containing 28M records (book titles, authors and categories):
-  - Took up about 14GB of RAM when indexed in Typesense
-  - Took 78mins to index all 28M records
-  - On a server with 4vCPUs, we were able to get a concurrency of **46 concurrent search queries per second**, with an average search processing time of 28ms.
-- A dataset containing 2.2M records (recipe names and ingredients):
-  - Took up about 900MB of RAM when indexed in Typesense
-  - Took 3.6mins to index all 2.2M records
-  - On a server with 4vCPUs, we were able to get a concurrency of **104 concurrent search queries per second**, with an average search processing time of 11ms.
-- A dataset containing ~3 million records (Amazon product data) and ~13GB on disk, we were able to achieve a throughput of **250 concurrent search queries per second** on a 16GB RAM, 8-vCPU 3-node Typesense cluster.
-
-We'd love to benchmark with larger datasets, if we can find large ones in the public domain. If you have any suggestions for structured datasets that are open, please let us know by opening an issue. 
-
-We'd also be delighted if you're able to share benchmarks from your own large datasets. Please send us a PR! 
 
 ## FAQ
 
