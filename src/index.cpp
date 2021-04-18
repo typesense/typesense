@@ -533,7 +533,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
                                     uint32_t seq_id, bool is_facet, const field & a_field) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    Tokenizer tokenizer(text, false, true, !a_field.is_string(), a_field.locale);
+    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale);
     std::string token;
     size_t token_index = 0;
 
@@ -580,7 +580,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, false, true, !a_field.is_string(), a_field.locale);
+        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale);
         std::string token;
         size_t token_index = 0;
 
@@ -707,7 +707,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
             art_tree *t = search_index.at(facet_field.faceted_name());
 
             std::vector<std::string> query_tokens;
-            Tokenizer(facet_query.query, false, true, !facet_field.is_string()).tokenize(query_tokens);
+            Tokenizer(facet_query.query, true, !facet_field.is_string()).tokenize(query_tokens);
 
             for (size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
                 auto &q = query_tokens[qtoken_index];
@@ -1204,7 +1204,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 // there could be multiple tokens in a filter value, which we have to treat as ANDs
                 // e.g. country: South Africa
 
-                Tokenizer tokenizer(filter_value, false, true, false, f.locale);
+                Tokenizer tokenizer(filter_value, true, false, f.locale);
 
                 std::string str_token;
                 size_t token_index = 0;
@@ -2447,11 +2447,11 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     const std::string& field_name = search_field.name;
 
     if(search_field.type == field_types::STRING) {
-        Tokenizer(document[field_name], false, true, false, locale).tokenize(tokens);
+        Tokenizer(document[field_name], true, false, locale).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            Tokenizer(value, false, true, false, locale).tokenize(tokens);
+            Tokenizer(value, true, false, locale).tokenize(tokens);
         }
     }
 }

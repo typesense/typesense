@@ -14,6 +14,7 @@
 #include <collection_manager.h>
 #include <h3api.h>
 #include <regex>
+#include <list>
 #include "topster.h"
 #include "logger.h"
 
@@ -1237,22 +1238,14 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        Tokenizer(query, true, true, false, locale).tokenize(tokens);
+        Tokenizer(query, true, false, locale, {'-'}).tokenize(tokens);
+
         bool exclude_operator_prior = false;
 
-        for(const auto& token: tokens) {
-            if(token.empty()) {
-                continue;
-            }
-
-            if(token == "-" || token == " -") {
+        for(auto& token: tokens) {
+            if(token[0] == '-') {
                 exclude_operator_prior = true;
-            }
-
-            bool is_ascii = (token[0] & ~0x7f) == 0;
-
-            if(is_ascii && !std::isalnum(token[0])) {
-                continue;
+                token = token.substr(1);
             }
 
             if(exclude_operator_prior) {
@@ -1463,97 +1456,119 @@ void Collection::highlight_result(const field &search_field,
         const Match& match = match_index.match;
 
         const std::string& text = (search_field.type == field_types::STRING) ? document[search_field.name] : document[search_field.name][match_index.index];
-        Tokenizer tokenizer(text, true, false, false, search_field.locale);
+        Tokenizer tokenizer(text, true, false, search_field.locale);
 
-        std::string raw_token;
-        size_t raw_token_index = 0;
-        int indexed_token_index = -1;
+        // need an ordered map here to ensure that it is ordered by the key (start offset)
+        std::map<size_t, size_t> token_offsets;
+
         size_t match_offset_index = 0;
+        std::string raw_token;
+        spp::sparse_hash_set<std::string> token_hits;  // used to identify repeating tokens
+        size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
-        std::set<size_t> token_indices;
-        spp::sparse_hash_set<std::string> token_hits;
-        std::vector<std::string> raw_tokens;
-        std::unordered_map<size_t, size_t> indexed_to_raw;
+        // based on `highlight_affix_num_tokens`
+        size_t snippet_start_offset = 0, snippet_end_offset = (text.empty() ? 0 : text.size() - 1);
 
-        while(tokenizer.next(raw_token, raw_token_index)) {
-            if(!raw_token.empty() && (std::isalnum(raw_token[0]) || (raw_token[0] & ~0x7f) != 0)) {
-                // check for actual token (first char is NOT alphanum or ascii)
-                indexed_token_index++;
-                indexed_to_raw[indexed_token_index] = raw_token_index;
-                /*LOG(INFO) << "raw_token: " << raw_token << ", indexed_token_index: " << indexed_token_index
-                          << ", raw_token_index: " << raw_token_index;*/
-            }
-
-            if (match_offset_index < match.offsets.size() &&
-                match.offsets[match_offset_index].offset == indexed_token_index) {
-                std::string indexed_token;
-                Tokenizer(raw_token, true, true).tokenize(indexed_token);
-
-                if(token_indices.count(indexed_token_index) == 0) {
-                    // repetition could occur, for e.g. in the case of synonym constructed queries
-                    token_indices.insert(indexed_token_index);
-                    token_hits.insert(indexed_token);
-                }
-
-                match_offset_index++;
-            }
-
-            raw_tokens.push_back(raw_token);
-        }
-
-        size_t num_indexed_tokens = indexed_token_index + 1;
-        auto minmax = std::minmax_element(token_indices.begin(), token_indices.end());
-
-        size_t prefix_length = highlight_affix_num_tokens;
-        size_t suffix_length = highlight_affix_num_tokens;
-
-        if(num_indexed_tokens == 0) {
-            continue;
-        }
-
-        // For longer strings, pick surrounding raw_tokens within `prefix_length` of min_index and max_index for snippet
-        const size_t start_index = (num_indexed_tokens <= snippet_threshold) ? 0 :
-                                   indexed_to_raw[std::max(0, (int)(*(minmax.first) - prefix_length))];
-
-        const size_t end_index = (num_indexed_tokens <= snippet_threshold) ? raw_tokens.size() - 1 :
-                                 indexed_to_raw[std::min((int)num_indexed_tokens - 1, (int)(*(minmax.second) + suffix_length))];
-
-        std::stringstream snippet_stream;
+        // window used to locate the starting offset for snippet on the text
+        std::list<size_t> snippet_start_window;
 
         highlight.matched_tokens.emplace_back();
         std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
-        size_t snippet_index = start_index;
 
-        while(snippet_index <= end_index) {
-            std::string normalized_token;
-            Tokenizer(raw_tokens[snippet_index], true, true).tokenize(normalized_token);
+        while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+            if(token_offsets.empty()) {
+                if(snippet_start_window.size() == highlight_affix_num_tokens + 1) {
+                    snippet_start_window.pop_front();
+                }
 
-            if(token_hits.count(normalized_token) != 0) {
-                snippet_stream << highlight_start_tag << raw_tokens[snippet_index] << highlight_end_tag;
-                matched_tokens.push_back(raw_tokens[snippet_index]);
-            } else {
-                snippet_stream << raw_tokens[snippet_index];
+                snippet_start_window.push_back(tok_start);
             }
 
-            snippet_index++;
+            if (token_hits.count(raw_token) != 0 ||
+                (match_offset_index < match.offsets.size() &&
+                 match.offsets[match_offset_index].offset == raw_token_index)) {
+
+                token_offsets.emplace(tok_start, tok_end);
+                token_hits.insert(raw_token);
+
+                // to skip over duplicate tokens in the query
+                do {
+                    match_offset_index++;
+                } while(match_offset_index < match.offsets.size() &&
+                        match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
+
+                if(token_offsets.size() == 1) {
+                    snippet_start_offset = snippet_start_window.front();
+                }
+            }
+
+            if(raw_token_index == match.offsets.back().offset + highlight_affix_num_tokens) {
+                // register end of highlight snippet
+                snippet_end_offset = tok_end;
+            }
+
+            if(raw_token_index > match.offsets.back().offset + highlight_affix_num_tokens &&
+               raw_token_index == snippet_threshold - 1) {
+                // since we have already crossed snippeting threshold, we can break now
+                break;
+            }
         }
 
-        highlight.snippets.push_back(snippet_stream.str());
+        if(token_offsets.empty()) {
+            continue;
+        }
+
+        if(raw_token_index + 1 < snippet_threshold) {
+            // fully highlight field whose token size is less than given snippeth threshold
+            snippet_start_offset = 0;
+            snippet_end_offset = text.size() - 1;
+        }
+
+        // with `token_index_offsets` we have a list of ranges to target for highlighting
+
+        auto offset_it = token_offsets.begin();
+        std::stringstream highlighted_text;
+
+        for(size_t i = snippet_start_offset; i <= snippet_end_offset; i++) {
+            if(offset_it != token_offsets.end()) {
+                if (i == offset_it->first) {
+                    highlighted_text << highlight_start_tag;
+                    matched_tokens.push_back(text.substr(i, (offset_it->second - i) + 1));
+                }
+
+                if (i == offset_it->second) {
+                    highlighted_text << text[i];
+                    highlighted_text << highlight_end_tag;
+                    offset_it++;
+                    continue;
+                }
+            }
+
+            highlighted_text << text[i];
+        }
+
+        highlight.snippets.push_back(highlighted_text.str());
         if(search_field.type == field_types::STRING_ARRAY) {
             highlight.indices.push_back(match_index.index);
         }
 
         if(highlighted_fully) {
             std::stringstream value_stream;
-            for(size_t value_index = 0; value_index < raw_tokens.size(); value_index++) {
-                std::string normalized_token;
-                Tokenizer(raw_tokens[value_index], true, true).tokenize(normalized_token);
+            offset_it = token_offsets.begin();
 
-                if(token_hits.count(normalized_token) != 0) {
-                    value_stream << highlight_start_tag << raw_tokens[value_index] << highlight_end_tag;
-                } else {
-                    value_stream << raw_tokens[value_index];
+            for(size_t i = 0; i < text.size(); i++) {
+                if(offset_it != token_offsets.end()) {
+                    if (i == offset_it->first) {
+                        value_stream << highlight_start_tag;
+                    } else if (i == offset_it->second) {
+                        value_stream << text[i];
+                        value_stream << highlight_end_tag;
+                        offset_it++;
+                        continue;
+                    }
                 }
+
+                value_stream << text[i];
             }
 
             highlight.values.push_back(value_stream.str());

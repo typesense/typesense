@@ -2028,7 +2028,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("non arcu id lectus <mark>accumsan</mark> venenatis at at justo",
+    ASSERT_STREQ("non arcu id lectus <mark>accumsan</mark> venenatis at at justo.",
     results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll_large_text");
@@ -3149,7 +3149,7 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
-    ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger</mark>.",
+    ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
@@ -3338,9 +3338,10 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     }
 
     std::vector<std::vector<std::string>> records = {
-        {"Mise à  jour  Timy depuis PC"},
-        {"Down There by the Train"},
+        {"Mise T.J. à  jour  Timy depuis PC"},
+        {"Down There by the T.r.a.i.n"},
         {"State Trooper"},
+        {"The Google Nexus Q Is Baffling"},
     };
 
     for (size_t i = 0; i < records.size(); i++) {
@@ -3358,12 +3359,35 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("Mise <mark>à</mark>  <mark>jour</mark>  Timy depuis PC",
+    ASSERT_STREQ("Mise T.J. <mark>à</mark>  <mark>jour</mark>  Timy depuis PC",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
     ASSERT_STREQ("à", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
     ASSERT_STREQ("jour", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
+
+    results = coll1->search("by train", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("Down There <mark>by</mark> the <mark>T.r.a.i.n</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll1->search("state trooper", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("<mark>State</mark> <mark>Trooper</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    // test single character highlight
+
+    results = coll1->search("q", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("The Google Nexus <mark>Q</mark> Is Baffling",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
