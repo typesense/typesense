@@ -880,9 +880,9 @@ void Index::search_candidates(const uint8_t & field_id,
                                               query_suggestion, token_bits);
 
         /*LOG(INFO) << "n: " << n;
-        for(size_t i=0; i < query_suggestion.size(); i++) {
-            LOG(INFO) << "i: " << i << " - " << query_suggestion[i]->key << ", ids: "
-                      << query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
+        for(size_t i=0; i < actual_query_suggestion.size(); i++) {
+            LOG(INFO) << "i: " << i << " - " << actual_query_suggestion[i]->key << ", ids: "
+                      << actual_query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
         }*/
 
         // initialize results with the starting element (for further intersection)
@@ -1880,7 +1880,7 @@ void Index::search_field(const uint8_t & field_id,
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //LOG(INFO) << "\nSearching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
+            //LOG(INFO) << "Searching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];

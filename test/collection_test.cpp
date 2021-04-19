@@ -3116,6 +3116,10 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
         {"Best Wireless Vehicle Charger",
          "Easily replenish your cell phone with this wireless charger.",
          "Cell Phones > Cell Phone Accessories > Car Chargers"},
+
+        {"Annie's Song",
+        "John Denver",
+        "Album > Compilation"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -3150,6 +3154,26 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
 
     ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
     ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    results = coll1->search("Annies song John Denver",
+                            {"name","description"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                            true, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Annie's</mark> <mark>Song</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("<mark>John</mark> <mark>Denver</mark>",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
