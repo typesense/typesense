@@ -334,6 +334,7 @@ private:
     std::string get_seq_id_key(uint32_t seq_id) const;
 
     void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
+                          const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,

@@ -1037,7 +1037,10 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 fields_highlighted_fully.emplace(highlight_full_field);
             }
 
-            for(const std::string & field_name: search_fields) {
+            for(size_t i = 0; i < search_fields.size(); i++) {
+                const std::string& field_name = search_fields[i];
+                const std::vector<std::string>& q_tokens = field_query_tokens[i].q_include_tokens;
+
                 // should not pick excluded field for highlighting
                 if(exclude_fields.count(field_name) > 0) {
                     continue;
@@ -1049,7 +1052,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
                     bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
                     highlight_t highlight;
-                    highlight_result(search_field, searched_queries, field_order_kv, document,
+                    highlight_result(search_field, searched_queries, q_tokens, field_order_kv, document,
                                      string_utils, snippet_threshold, highlight_affix_num_tokens,
                                      highlighted_fully, highlight_start_tag, highlight_end_tag, highlight);
 
@@ -1378,6 +1381,7 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
 
 void Collection::highlight_result(const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
+                                  const std::vector<std::string>& q_tokens,
                                   const KV* field_order_kv, const nlohmann::json & document,
                                   StringUtils & string_utils,
                                   const size_t snippet_threshold,
@@ -1409,6 +1413,24 @@ void Collection::highlight_result(const field &search_field,
             auto doc_indices = new uint32_t[1];
             doc_indices[0] = doc_index;
             leaf_to_indices.push_back(doc_indices);
+        }
+    }
+
+    if(query_suggestion.empty()) {
+        // can happen for compound query matched across 2 fields: try to use original query tokens
+        for(const std::string& q_token: q_tokens) {
+            Index* index = indices[field_order_kv->key % num_memory_shards];
+            art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
+                                                          reinterpret_cast<const unsigned char *>(q_token.c_str()),
+                                                          q_token.size() + 1);
+            if(actual_leaf != nullptr) {
+                query_suggestion.push_back(actual_leaf);
+                std::vector<uint16_t> positions;
+                uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
+                auto doc_indices = new uint32_t[1];
+                doc_indices[0] = doc_index;
+                leaf_to_indices.push_back(doc_indices);
+            }
         }
     }
 
