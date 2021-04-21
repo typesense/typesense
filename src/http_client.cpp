@@ -270,7 +270,7 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     chunk = curl_slist_append(chunk, content_length_header.c_str());
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-    //curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // callback called every time request body is needed
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, HttpClient::curl_req_send_callback);
@@ -318,6 +318,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
