@@ -109,6 +109,7 @@ struct http_res {
             case 405: return "Not Allowed";
             case 409: return "Conflict";
             case 422: return "Unprocessable Entity";
+            case 429: return "Too Many Requests";
             case 500: return "Internal Server Error";
             default: return "";
         }

@@ -342,8 +342,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
 }
 
 bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    //LOG(INFO) << "post_import_documents";
+    //LOG(INFO) << "Import, req->body_index=" << req->body_index << ", body size: " << req->body.size();
     //LOG(INFO) << "req->first_chunk=" << req->first_chunk_aggregate << ", last_chunk=" << req->last_chunk_aggregate;
+
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
     const char *DIRTY_VALUES = "dirty_values";

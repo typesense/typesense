@@ -86,7 +86,7 @@ class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
 
-    mutable std::shared_mutex mutex;
+    mutable std::shared_mutex node_mutex;
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
@@ -97,13 +97,14 @@ private:
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
-    const size_t catchup_min_sequence_diff;
-    const size_t catch_up_threshold_percentage;
+    const size_t read_max_lag;
+    const size_t write_max_lag;
 
     const size_t num_collections_parallel_load;
     const size_t num_documents_parallel_load;
 
-    std::atomic<bool> caught_up;
+    std::atomic<bool> read_caught_up;
+    std::atomic<bool> write_caught_up;
 
     const bool api_uses_ssl;
 
@@ -127,7 +128,7 @@ public:
     static constexpr const char* snapshot_dir_name = "snapshot";
 
     ReplicationState(HttpServer* server, Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t catchup_min_sequence_diff, size_t catch_up_threshold_percentage,
+                     bool api_uses_ssl, size_t read_max_lag, size_t write_max_lag,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
@@ -152,8 +153,12 @@ public:
         return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
-    bool is_ready() const {
-        return caught_up;
+    bool is_read_caught_up() const {
+        return read_caught_up;
+    }
+
+    bool is_write_caught_up() const {
+        return write_caught_up;
     }
 
     bool is_alive() const;
