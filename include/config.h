@@ -32,8 +32,8 @@ private:
     float max_memory_ratio;
     int snapshot_interval_seconds;
 
-    size_t catch_up_min_sequence_diff;
-    size_t catch_up_threshold_percentage;
+    size_t read_max_lag;
+    size_t write_max_lag;
 
     std::string config_file;
     int config_file_validity;
@@ -54,8 +54,8 @@ protected:
         this->enable_cors = false;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
-        this->catch_up_min_sequence_diff = 3000;
-        this->catch_up_threshold_percentage = 95;
+        this->read_max_lag = 1000;
+        this->write_max_lag = 100;
         this->log_slow_requests_time_ms = -1;
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
@@ -189,12 +189,12 @@ public:
         return this->snapshot_interval_seconds;
     }
 
-    int get_catch_up_min_sequence_diff() const {
-        return this->catch_up_min_sequence_diff;
+    int get_read_max_lag() const {
+        return this->read_max_lag;
     }
 
-    int get_catch_up_threshold_percentage() const {
-        return this->catch_up_threshold_percentage;
+    int get_write_max_lag() const {
+        return this->write_max_lag;
     }
 
     int get_log_slow_requests_time_ms() const {
@@ -273,12 +273,12 @@ public:
             this->snapshot_interval_seconds = std::stoi(get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS"));
         }
 
-        if(!get_env("TYPESENSE_CATCH_UP_MIN_SEQUENCE_DIFF").empty()) {
-            this->catch_up_min_sequence_diff = std::stoi(get_env("TYPESENSE_CATCH_UP_MIN_SEQUENCE_DIFF"));
+        if(!get_env("TYPESENSE_READ_MAX_LAG").empty()) {
+            this->read_max_lag = std::stoi(get_env("TYPESENSE_READ_MAX_LAG"));
         }
 
-        if(!get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE").empty()) {
-            this->catch_up_threshold_percentage = std::stoi(get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE"));
+        if(!get_env("TYPESENSE_WRITE_MAX_LAG").empty()) {
+            this->write_max_lag = std::stoi(get_env("TYPESENSE_WRITE_MAX_LAG"));
         }
 
         if(!get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS").empty()) {
@@ -386,12 +386,12 @@ public:
             this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
         }
 
-        if(reader.Exists("server", "catch-up-min-sequence-diff")) {
-            this->catch_up_min_sequence_diff = (int) reader.GetInteger("server", "catch-up-min-sequence-diff", 3000);
+        if(reader.Exists("server", "read-max-lag")) {
+            this->read_max_lag = (int) reader.GetInteger("server", "read-max-lag", 1000);
         }
 
-        if(reader.Exists("server", "catch-up-threshold-percentage")) {
-            this->catch_up_threshold_percentage = (int) reader.GetInteger("server", "catch-up-threshold-percentage", 95);
+        if(reader.Exists("server", "write-max-lag")) {
+            this->write_max_lag = (int) reader.GetInteger("server", "write-max-lag", 100);
         }
 
         if(reader.Exists("server", "log-slow-requests-time-ms")) {
@@ -481,12 +481,12 @@ public:
             this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
         }
 
-        if(options.exist("catch-up-min-sequence-diff")) {
-            this->catch_up_min_sequence_diff = options.get<int>("catch-up-min-sequence-diff");
+        if(options.exist("read-max-lag")) {
+            this->read_max_lag = options.get<int>("read-max-lag");
         }
 
-        if(options.exist("catch-up-threshold-percentage")) {
-            this->catch_up_threshold_percentage = options.get<int>("catch-up-threshold-percentage");
+        if(options.exist("write-max-lag")) {
+            this->write_max_lag = options.get<int>("write-max-lag");
         }
 
         if(options.exist("log-slow-requests-time-ms")) {

@@ -41,7 +41,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         return -1;
     }
 
-    this->caught_up = false;
+    this->read_caught_up = false;
+    this->write_caught_up = false;
 
     // do snapshot only when the gap between applied index and last snapshot index is >= this number
     braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
@@ -54,6 +55,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
+    node_options.catchup_margin = read_max_lag;
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
@@ -123,7 +125,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return ;
     }
 
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if(!node) {
         return ;
@@ -154,10 +156,11 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
-    pending_writes++;
 
-    // Now the task is applied to the group, waiting for the result.
-    return node->apply(task);
+    // Now the task is applied to the group
+    node->apply(task);
+
+    pending_writes++;
 }
 
 void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
@@ -285,8 +288,6 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         }
 
         // Now that the log has been parsed, perform the actual operation
-        // Call http server thread for write and response back to client (if `response` is NOT null)
-        // We use a future to block current thread until the async flow finishes
 
         bool async_res = false;
 
@@ -425,14 +426,15 @@ int ReplicationState::init_db() {
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
     CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
     lock.unlock();
 
     LOG(INFO) << "on_snapshot_load";
 
-    // ensures that reads are rejected, as `store->reload()` unique locks the DB handle
-    caught_up = false;
+    // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
+    read_caught_up = false;
+    write_caught_up = false;
 
     // Load snapshot from leader, replacing the running StateMachine
     std::string snapshot_path = reader->get_path();
@@ -443,11 +445,14 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return reload_store;
     }
 
-    return init_db();
+    bool init_db_status = init_db();
+
+    read_caught_up = write_caught_up = (init_db_status == 0);
+    return init_db_status;
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes) {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if(!node) {
         LOG(WARNING) << "Node state is not initialized: unable to refresh nodes.";
@@ -497,85 +502,49 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 }
 
 void ReplicationState::refresh_catchup_status(bool log_msg) {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if (!node) {
         LOG_IF(WARNING, log_msg) << "Node state is not initialized: unable to refresh nodes.";
         return;
     }
 
-    if(node->is_leader()) {
-        this->caught_up = true;
-    } else {
-
+    if(!node->is_leader() && node->leader_id().is_empty()) {
         // follower does not have a leader!
-        if(node->leader_id().is_empty()) {
-            this->caught_up = false;
-            return ;
-        }
+        this->read_caught_up = false;
+        this->write_caught_up = false;
+        return ;
+    }
 
-        lock.unlock();
+    braft::NodeStatus n_status;
+    node->get_status(&n_status);
+    lock.unlock();
 
-        // update catch up status
-        thread_pool->enqueue([this, log_msg]() {
-            auto seq_num = this->store->get_latest_seq_number();
-            std::shared_lock lock(this->mutex);
-            const std::string & leader_addr = node->leader_id().to_string();
-            lock.unlock();
+    if (n_status.applying_index == 0) {
+        this->read_caught_up = true;
+        this->write_caught_up = true;
+        return ;
+    }
 
-            std::vector<std::string> addr_parts;
-            StringUtils::split(leader_addr, addr_parts, ":");
-            std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-            std::string protocol = this->api_uses_ssl ? "https" : "http";
-            std::string seq_url = protocol + "://" + leader_host_port + "/sequence";
+    size_t apply_lag = size_t(n_status.last_index - n_status.known_applied_index);
 
-            std::string api_res;
-            std::map<std::string, std::string> res_headers;
-            long status = HttpClient::get_response(seq_url, api_res, res_headers);
+    if (apply_lag > read_max_lag) {
+        LOG(ERROR) << apply_lag << " lagging entries > read max lag of " + std::to_string(read_max_lag);
+        this->read_caught_up = false;
+    }
 
-            if(status != 500) {
-                if(!StringUtils::is_uint64_t(api_res)) {
-                    LOG_IF(ERROR, log_msg) << "Invalid API response when fetching sequence number: " << api_res;
-                    this->caught_up = false;
-                    return ;
-                }
-
-                uint64_t leader_seq = std::atoll(api_res.c_str());
-
-                // Since leader waits for writes on followers to finish, follower's storage offset could be
-                // momentarily ahead of the leader's. So we will use std::abs() for checking the difference.
-                const uint64_t seq_diff = std::abs(int64_t(leader_seq) - int64_t(seq_num));
-
-                if(seq_diff < catchup_min_sequence_diff) {
-                    this->caught_up = true;
-                    return ;
-                }
-
-                // However, if the difference is large, then something could be wrong
-                if(leader_seq < seq_num) {
-                    LOG_IF(ERROR, log_msg) << "Leader sequence " << leader_seq << " is less than local sequence "
-                                           << seq_num << ", catchup_min_sequence_diff: " << catchup_min_sequence_diff;
-                    this->caught_up = false;
-                    return ;
-                }
-
-                float seq_progress = (float(seq_num) / leader_seq) * 100;
-                LOG_IF(INFO, log_msg) << "Follower progress percentage: " << seq_progress;
-
-                this->caught_up = (seq_progress >= catch_up_threshold_percentage);
-            }
-        });
+    if (apply_lag > write_max_lag) {
+        LOG(ERROR) << apply_lag << " lagging entries > write max lag of " + std::to_string(write_max_lag);
+        this->write_caught_up = false;
     }
 }
 
 ReplicationState::ReplicationState(HttpServer* server, Store *store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl, size_t catchup_min_sequence_diff,
-                                   size_t catch_up_threshold_percentage,
+                                   bool api_uses_ssl, size_t read_max_lag, size_t write_max_lag,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), server(server), store(store), thread_pool(thread_pool),
-        message_dispatcher(message_dispatcher),
-        catchup_min_sequence_diff(catchup_min_sequence_diff), catch_up_threshold_percentage(catch_up_threshold_percentage),
+        message_dispatcher(message_dispatcher), read_max_lag(read_max_lag), write_max_lag(write_max_lag),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         api_uses_ssl(api_uses_ssl),
@@ -584,18 +553,23 @@ ReplicationState::ReplicationState(HttpServer* server, Store *store, ThreadPool*
 }
 
 bool ReplicationState::is_alive() const {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
-    if(node == nullptr || !is_ready()) {
+    if(node == nullptr ) {
         return false;
     }
 
-    // node should either be a leader or have a leader
-    return (node->is_leader() || !node->leader_id().is_empty());
+    bool leader_or_follower = (node->is_leader() || !node->leader_id().is_empty());
+    if(!leader_or_follower) {
+        return false;
+    }
+
+    // for general health check we will only care about the `read_caught_up` threshold
+    return read_caught_up;
 }
 
 uint64_t ReplicationState::node_state() const {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if(node == nullptr) {
         return 0;
@@ -614,7 +588,7 @@ void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::
     thread_pool->enqueue([&snapshot_path, req, res, this]() {
         OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
         ext_snapshot_path = snapshot_path;
-        std::shared_lock lock(this->mutex);
+        std::shared_lock lock(this->node_mutex);
         node->snapshot(snapshot_closure);
     });
 }
@@ -628,7 +602,7 @@ const std::string &ReplicationState::get_ext_snapshot_path() const {
 }
 
 void ReplicationState::do_dummy_write() {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if(node->leader_id().is_empty()) {
         LOG(ERROR) << "Could not do a dummy write, as node does not have a leader";
@@ -649,7 +623,7 @@ void ReplicationState::do_dummy_write() {
 }
 
 bool ReplicationState::trigger_vote() {
-    std::shared_lock lock(mutex);
+    std::shared_lock lock(node_mutex);
 
     if(node) {
         auto status = node->vote(election_timeout_interval_ms);
@@ -680,7 +654,7 @@ void ReplicationState::shutdown() {
     }
 
     LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
-    std::unique_lock lock(mutex);
+    std::unique_lock lock(node_mutex);
 
     if (node) {
         LOG(INFO) << "node->shutdown";
