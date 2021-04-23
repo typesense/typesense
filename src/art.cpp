@@ -1318,10 +1318,10 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
            Also, for prefix searches we don't compare with full leaf key.
          */
-        const int end_index = prefix ? min(l->key_len, term_len) : l->key_len;
+        const int iter_len = prefix ? min(l->key_len - 1, term_len) : l->key_len;
 
         // If at any point, `temp_cost > 2*max_cost` we can terminate immediately as we can never recover from that
-        while(depth < end_index && temp_cost <= 2*max_cost) {
+        while(depth < iter_len && temp_cost <= 2 * max_cost) {
             c = l->key[depth];
             temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
             printf("leaf char: %c\n", l->key[depth]);
@@ -1338,12 +1338,12 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 
         int final_cost = rows[j][columns-1];
 
-        if(prefix && term_len < (int) l->key_len && temp_cost >= min_cost && temp_cost <= max_cost) {
+        if(prefix && term_len < (int) l->key_len - 1 && temp_cost >= min_cost && temp_cost <= max_cost) {
             results.push_back(n);
             return;
         }
 
-        if(prefix && term_len >= (int) l->key_len && final_cost >= min_cost && final_cost <= max_cost) {
+        if(prefix && term_len >= (int) l->key_len - 1 && final_cost >= min_cost && final_cost <= max_cost) {
             results.push_back(n);
             return;
         }

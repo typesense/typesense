@@ -718,8 +718,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
                 std::vector<art_leaf *> leaves;
 
+                const size_t q_len = prefix_search ? q.length() : q.length() + 1;
                 art_fuzzy_search(t, (const unsigned char *) q.c_str(),
-                                 q.size(), 0, bounded_cost, 10000,
+                                 q_len, 0, bounded_cost, 10000,
                                  token_ordering::MAX_SCORE, prefix_search, nullptr, 0, leaves);
 
                 for (size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
@@ -1416,7 +1417,7 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
     std::vector<art_leaf *> override_query;
 
     for(const std::string& token: q_included_tokens) {
-        const size_t token_len = token.length();
+        const size_t token_len = token.size() + 1;
 
         std::vector<art_leaf*> leaves;
         art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
