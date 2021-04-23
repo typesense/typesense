@@ -175,7 +175,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, "tags: fine pltinum").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fxne aluminium").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
