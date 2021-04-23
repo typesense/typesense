@@ -217,4 +217,6 @@ public:
     void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     bool trigger_vote();
+
+    void persist_applying_index();
 };

@@ -4,7 +4,7 @@ find_path(NGHTTP2_INCLUDE_DIR "nghttp2/nghttp2.h")
 
 find_library(NGHTTP2_LIBRARY NAMES nghttp2)
 
-find_package_handle_standard_args(NGHTTP2
+find_package_handle_standard_args(ngHTTP2
         FOUND_VAR
         NGHTTP2_FOUND
         REQUIRED_VARS

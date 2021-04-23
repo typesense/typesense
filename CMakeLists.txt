@@ -35,6 +35,8 @@ if (APPLE)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
     set(CMAKE_PREFIX_PATH /usr/local/opt/curl-openssl /usr/local/opt/icu4c)
+
+    add_compile_definitions(USE_BACKWARD=1)
 else()
     add_compile_definitions(BACKWARD_HAS_DW=1)
 endif()
