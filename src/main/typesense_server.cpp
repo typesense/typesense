@@ -72,6 +72,19 @@ void master_server_routes() {
     server->post("/config", post_config, false, false);
 }
 
+void (*backward::SignalHandling::_callback)(backward::StackTrace&) = nullptr;
+
+void crash_callback(backward::StackTrace& st) {
+    backward::TraceResolver tr; tr.load_stacktrace(st);
+    for (size_t i = 0; i < st.size(); ++i) {
+        backward::ResolvedTrace trace = tr.resolve(st[i]);
+        if(trace.object_function.find("ReplicationState::on_apply") != std::string::npos) {
+            server->persist_applying_index();
+            break;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     #ifdef __APPLE__
     // On OS X, je_zone_register registers jemalloc with the system allocator.
@@ -109,12 +122,18 @@ int main(int argc, char **argv) {
     }
 
 #ifdef __APPLE__
-    signal(SIGABRT, StackPrinter::bt_sighandler);
-    signal(SIGFPE, StackPrinter::bt_sighandler);
-    signal(SIGILL, StackPrinter::bt_sighandler);
-    signal(SIGSEGV, StackPrinter::bt_sighandler);
+    #ifdef USE_BACKWARD
+        backward::SignalHandling sh;
+        sh._callback = crash_callback;
+    #else
+        signal(SIGABRT, StackPrinter::bt_sighandler);
+        signal(SIGFPE, StackPrinter::bt_sighandler);
+        signal(SIGILL, StackPrinter::bt_sighandler);
+        signal(SIGSEGV, StackPrinter::bt_sighandler);
+    #endif
 #elif __linux__
     backward::SignalHandling sh;
+    sh._callback = crash_callback;
 #endif
 
     // we can install new signal handlers only after overriding above

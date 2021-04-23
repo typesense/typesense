@@ -85,6 +85,7 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
+    static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
 
     mutable std::shared_mutex node_mutex;
 
@@ -93,9 +94,19 @@ private:
     std::set<braft::PeerId> peers;
 
     HttpServer* server;
-    Store *store;
+
+    Store* store;
+    Store* meta_store;
+
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
+
+    // Used to skip over a bad raft log entry which previously triggered a crash
+    const static int64_t UNSET_SKIP_INDEX = -9999;
+    std::atomic<int64_t> skip_index = UNSET_SKIP_INDEX;
+    rocksdb::Iterator* skip_index_iter = nullptr;
+
+    const bool api_uses_ssl;
 
     const size_t read_max_lag;
     const size_t write_max_lag;
@@ -105,8 +116,6 @@ private:
 
     std::atomic<bool> read_caught_up;
     std::atomic<bool> write_caught_up;
-
-    const bool api_uses_ssl;
 
     std::string raft_dir_path;
 
@@ -127,7 +136,8 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(HttpServer* server, Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+    ReplicationState(HttpServer* server, Store* store, Store* meta_store,
+                     ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, size_t read_max_lag, size_t write_max_lag,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
@@ -180,6 +190,8 @@ public:
     void set_ext_snapshot_path(const std::string &snapshot_path);
 
     const std::string& get_ext_snapshot_path() const;
+
+    void persist_applying_index();
 
     http_message_dispatcher* get_message_dispatcher() const;
 
@@ -254,4 +266,6 @@ private:
 
     std::string get_leader_url_path(const std::string& leader_addr, const std::string& path,
                                     const std::string& protocol) const;
+
+    void populate_skip_index();
 };

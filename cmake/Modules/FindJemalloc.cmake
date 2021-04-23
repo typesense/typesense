@@ -28,7 +28,7 @@ find_library(JEMALLOC_LIBRARIES
         NO_DEFAULT_PATH)
 
 include(FindPackageHandleStandardArgs)
-find_package_handle_standard_args(jemalloc DEFAULT_MSG
+find_package_handle_standard_args(Jemalloc DEFAULT_MSG
         JEMALLOC_LIBRARIES
         JEMALLOC_INCLUDE_DIR)
 

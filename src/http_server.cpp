@@ -967,3 +967,7 @@ bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file,
     return true;
 }
 
+void HttpServer::persist_applying_index() {
+    return replication_state->persist_applying_index();
+}
+

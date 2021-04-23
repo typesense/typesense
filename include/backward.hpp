@@ -4103,7 +4103,8 @@ private:
                                     sizeof posix_signals / sizeof posix_signals[0]);
         }
 
-        SignalHandling(const std::vector<int> &posix_signals = make_default_signals())
+        SignalHandling(const std::vector<int> &posix_signals = make_default_signals(),
+                       void (*callback)(StackTrace&) = nullptr)
                 : _loaded(false) {
             bool success = true;
 
@@ -4147,6 +4148,8 @@ private:
 
         bool loaded() const { return _loaded; }
 
+        static void (*_callback)(StackTrace&);
+
         static void handleSignal(int, siginfo_t *info, void *_ctx) {
             ucontext_t *uctx = static_cast<ucontext_t *>(_ctx);
 
@@ -4184,6 +4187,10 @@ private:
                              info->si_addr);
             } else {
                 st.load_here(32, reinterpret_cast<void *>(uctx), info->si_addr);
+            }
+
+            if(_callback) {
+                _callback(st);
             }
 
             Printer printer;

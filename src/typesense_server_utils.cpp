@@ -343,6 +343,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string data_dir = config.get_data_dir();
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
+    std::string meta_dir = config.get_data_dir() + "/meta";
+
     size_t thread_pool_size = config.get_thread_pool_size();
 
     const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
@@ -355,7 +357,12 @@ int run_server(const Config & config, const std::string & version, void (*master
     LOG(INFO) << "Thread pool size: " << num_threads;
     ThreadPool app_thread_pool(num_threads);
     ThreadPool server_thread_pool(num_threads);
+
+    // primary DB used for storing the documents: we will not use WAL since Raft provides that
     Store store(db_dir);
+
+    // meta DB for storing house keeping things
+    Store meta_store(meta_dir, 24*60*60, 1024, false);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(), config.get_api_key());
@@ -384,7 +391,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ReplicationState replication_state(server, &store, &app_thread_pool, server->get_message_dispatcher(),
+    ReplicationState replication_state(server, &store, &meta_store, &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        config.get_read_max_lag(),
                                        config.get_write_max_lag(),
