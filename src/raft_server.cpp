@@ -371,10 +371,17 @@ void* ReplicationState::save_snapshot(void* arg) {
         }
     }
 
+    const std::string& temp_snapshot_dir = sa->writer->get_path();
+
     sa->done->Run();
 
     // if an external snapshot is requested, copy latest snapshot directory into that
     if(!sa->ext_snapshot_path.empty()) {
+        // temp directory will be moved to final snapshot directory, so let's wait for that to happen
+        while(butil::DirectoryExists(butil::FilePath(temp_snapshot_dir))) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
         LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
 
         const butil::FilePath& dest_state_dir = butil::FilePath(sa->ext_snapshot_path + "/state");
