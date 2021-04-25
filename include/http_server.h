@@ -78,7 +78,7 @@ private:
     static const size_t ACTIVE_STREAM_WINDOW_SIZE = 196605;
     static const size_t REQ_TIMEOUT_MS = 60000;
 
-    static const uint64_t SSL_REFRESH_INTERVAL_MS = 8 * 60 * 60 * 1000;
+    const uint64_t SSL_REFRESH_INTERVAL_MS;
 
     h2o_custom_timer_t ssl_refresh_timer;
     h2o_custom_timer_t metrics_refresh_timer;
@@ -117,6 +117,8 @@ private:
 
     static void on_ssl_refresh_timeout(h2o_timer_t *entry);
 
+    static void on_ssl_ctx_delete_timeout(h2o_timer_t *entry);
+
     static void on_metrics_refresh_timeout(h2o_timer_t *entry);
 
     int create_listener();
@@ -141,6 +143,7 @@ public:
                const std::string & listen_address, uint32_t listen_port,
                const std::string & ssl_cert_path,
                const std::string & ssl_cert_key_path,
+               const uint64_t ssl_refresh_interval_ms,
                bool cors_enabled, ThreadPool* thread_pool);
 
     ~HttpServer();

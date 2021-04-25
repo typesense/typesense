@@ -73,6 +73,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
+    options.add<uint32_t>("ssl-refresh-interval-seconds", '\0', "Frequency of automatic reloading of SSL certs from disk.", false, 8 * 60 * 60);
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
 
@@ -377,6 +378,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         config.get_api_port(),
         config.get_ssl_cert(),
         config.get_ssl_cert_key(),
+        config.get_ssl_refresh_interval_seconds() * 1000,
         config.get_enable_cors(),
         &server_thread_pool
     );
