@@ -12,8 +12,9 @@
 #include "logger.h"
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
-                       uint32_t listen_port, const std::string & ssl_cert_path,
-                       const std::string & ssl_cert_key_path, bool cors_enabled, ThreadPool* thread_pool):
+                       uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
+                       const uint64_t ssl_refresh_interval_ms, bool cors_enabled, ThreadPool* thread_pool):
+                       SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
                        exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
                        ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
                        cors_enabled(cors_enabled), thread_pool(thread_pool) {
@@ -74,23 +75,40 @@ void HttpServer::on_ssl_refresh_timeout(h2o_timer_t *entry) {
     LOG(INFO) << "Refreshing SSL certs from disk.";
 
     HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
-    if(!initialize_ssl_ctx(hs->ssl_cert_path.c_str(), hs->ssl_cert_key_path.c_str(), hs->accept_ctx)) {
+    SSL_CTX* old_ssl_ctx = hs->accept_ctx->ssl_ctx;
+
+    bool refresh_success = initialize_ssl_ctx(hs->ssl_cert_path.c_str(), hs->ssl_cert_key_path.c_str(), hs->accept_ctx);
+
+    if (refresh_success) {
+        // delete the old SSL context but after some time, to allow existing connections to drain
+        h2o_custom_timer_t* ssl_ctx_delete_timer = new h2o_custom_timer_t(old_ssl_ctx);
+        h2o_timer_init(&ssl_ctx_delete_timer->timer, on_ssl_ctx_delete_timeout);
+        uint64_t delete_lag = std::max<uint64_t>(60 * 1000, hs->SSL_REFRESH_INTERVAL_MS / 2);
+        h2o_timer_link(hs->ctx.loop, delete_lag, &ssl_ctx_delete_timer->timer);
+    } else {
         LOG(ERROR) << "SSL cert refresh failed.";
     }
 
     // link the timer for the next cycle
-    h2o_timer_link(
-        hs->ctx.loop,
-        SSL_REFRESH_INTERVAL_MS,
-        &hs->ssl_refresh_timer.timer
-    );
+    h2o_timer_link(hs->ctx.loop, hs->SSL_REFRESH_INTERVAL_MS, &hs->ssl_refresh_timer.timer);
+}
+
+void HttpServer::on_ssl_ctx_delete_timeout(h2o_timer_t *entry) {
+    LOG(INFO) << "Deleting old SSL context.";
+
+    h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
+    SSL_CTX* old_ssl_ctx = static_cast<SSL_CTX*>(custom_timer->data);
+    SSL_CTX_free(old_ssl_ctx);
+    delete custom_timer;
 }
 
 int HttpServer::setup_ssl(const char *cert_file, const char *key_file) {
     // Set up a timer to refresh SSL config from disk. Also, initializing upfront so that destructor works
     ssl_refresh_timer = h2o_custom_timer_t(this);
     h2o_timer_init(&ssl_refresh_timer.timer, on_ssl_refresh_timeout);
-    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);  // every 8 hours
+    h2o_timer_link(ctx.loop, SSL_REFRESH_INTERVAL_MS, &ssl_refresh_timer.timer);
+
+    LOG(INFO) << "SSL cert refresh interval: " << (SSL_REFRESH_INTERVAL_MS / 1000) << "s";
 
     if(!initialize_ssl_ctx(cert_file, key_file, accept_ctx)) {
         return -1;
@@ -956,13 +974,7 @@ bool HttpServer::initialize_ssl_ctx(const char *cert_file, const char *key_file,
     }
 
     h2o_ssl_register_alpn_protocols(new_ctx, h2o_http2_alpn_protocols);
-
-    SSL_CTX* old_ctx = accept_ctx->ssl_ctx;
     accept_ctx->ssl_ctx = new_ctx;
-
-    if(old_ctx != nullptr) {
-        SSL_CTX_free(old_ctx);
-    }
 
     return true;
 }

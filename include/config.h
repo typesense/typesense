@@ -26,6 +26,7 @@ private:
 
     std::string ssl_certificate;
     std::string ssl_certificate_key;
+    uint32_t ssl_refresh_interval_seconds;
 
     bool enable_cors;
 
@@ -60,6 +61,7 @@ protected:
         this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
         this->num_documents_parallel_load = 1000;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
+        this->ssl_refresh_interval_seconds = 8 * 60 * 60;
     }
 
     Config(Config const&) {
@@ -213,6 +215,10 @@ public:
         return this->thread_pool_size;
     }
 
+    size_t get_ssl_refresh_interval_seconds() const {
+        return this->ssl_refresh_interval_seconds;
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -295,6 +301,10 @@ public:
 
         if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
             this->thread_pool_size = std::stoi(get_env("TYPESENSE_THREAD_POOL_SIZE"));
+        }
+
+        if(!get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS").empty()) {
+            this->ssl_refresh_interval_seconds = std::stoi(get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS"));
         }
     }
 
@@ -409,6 +419,10 @@ public:
         if(reader.Exists("server", "thread-pool-size")) {
             this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
         }
+
+        if(reader.Exists("server", "ssl-refresh-interval-seconds")) {
+            this->ssl_refresh_interval_seconds = (int) reader.GetInteger("server", "ssl-refresh-interval-seconds", 8 * 60 * 60);
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -503,6 +517,10 @@ public:
 
         if(options.exist("thread-pool-size")) {
             this->thread_pool_size = options.get<uint32_t>("thread-pool-size");
+        }
+
+        if(options.exist("ssl-refresh-interval-seconds")) {
+            this->ssl_refresh_interval_seconds = options.get<uint32_t>("ssl-refresh-interval-seconds");
         }
     }
 
