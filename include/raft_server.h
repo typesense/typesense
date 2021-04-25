@@ -108,8 +108,8 @@ private:
 
     const bool api_uses_ssl;
 
-    const size_t read_max_lag;
-    const size_t write_max_lag;
+    const size_t healthy_read_lag;
+    const size_t healthy_write_lag;
 
     const size_t num_collections_parallel_load;
     const size_t num_documents_parallel_load;
@@ -138,7 +138,7 @@ public:
 
     ReplicationState(HttpServer* server, Store* store, Store* meta_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t read_max_lag, size_t write_max_lag,
+                     bool api_uses_ssl, size_t healthy_read_lag, size_t healthy_write_lag,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
@@ -231,6 +231,7 @@ private:
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
+        refresh_catchup_status(true);
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
@@ -253,6 +254,7 @@ private:
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
+        refresh_catchup_status(true);
         LOG(INFO) << "Node starts following " << ctx;
     }
 
