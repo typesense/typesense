@@ -55,7 +55,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
-    node_options.catchup_margin = read_max_lag;
+    node_options.catchup_margin = healthy_read_lag;
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
@@ -484,7 +484,6 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
 
     bool init_db_status = init_db();
 
-    read_caught_up = write_caught_up = (init_db_status == 0);
     return init_db_status;
 }
 
@@ -540,16 +539,14 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
 
 void ReplicationState::refresh_catchup_status(bool log_msg) {
     std::shared_lock lock(node_mutex);
-
-    if (!node) {
-        LOG_IF(WARNING, log_msg) << "Node state is not initialized: unable to refresh nodes.";
-        return;
+    if(node == nullptr ) {
+        read_caught_up = write_caught_up = false;
+        return ;
     }
 
-    if(!node->is_leader() && node->leader_id().is_empty()) {
-        // follower does not have a leader!
-        this->read_caught_up = false;
-        this->write_caught_up = false;
+    bool leader_or_follower = (node->is_leader() || !node->leader_id().is_empty());
+    if(!leader_or_follower) {
+        read_caught_up = write_caught_up = false;
         return ;
     }
 
@@ -557,33 +554,34 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     node->get_status(&n_status);
     lock.unlock();
 
-    if (n_status.applying_index == 0) {
-        this->read_caught_up = true;
-        this->write_caught_up = true;
-        return ;
-    }
-
     size_t apply_lag = size_t(n_status.last_index - n_status.known_applied_index);
 
-    if (apply_lag > read_max_lag) {
-        LOG(ERROR) << apply_lag << " lagging entries > read max lag of " + std::to_string(read_max_lag);
+    //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
+    //LOG(INFO) << "apply_lag: " << apply_lag;
+
+    if (apply_lag > healthy_read_lag) {
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > read max lag of " + std::to_string(healthy_read_lag);
         this->read_caught_up = false;
+    } else {
+        this->read_caught_up = true;
     }
 
-    if (apply_lag > write_max_lag) {
-        LOG(ERROR) << apply_lag << " lagging entries > write max lag of " + std::to_string(write_max_lag);
+    if (apply_lag > healthy_write_lag) {
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > write max lag of " + std::to_string(healthy_write_lag);
         this->write_caught_up = false;
+    } else {
+        this->write_caught_up = true;
     }
 }
 
 ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl,
-                                   size_t read_max_lag, size_t write_max_lag,
+                                   size_t healthy_read_lag, size_t healthy_write_lag,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), server(server), store(store), meta_store(meta_store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
-        read_max_lag(read_max_lag), write_max_lag(write_max_lag),
+        healthy_read_lag(healthy_read_lag), healthy_write_lag(healthy_write_lag),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         ready(false), shutting_down(false), pending_writes(0) {
@@ -591,17 +589,6 @@ ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta
 }
 
 bool ReplicationState::is_alive() const {
-    std::shared_lock lock(node_mutex);
-
-    if(node == nullptr ) {
-        return false;
-    }
-
-    bool leader_or_follower = (node->is_leader() || !node->leader_id().is_empty());
-    if(!leader_or_follower) {
-        return false;
-    }
-
     // for general health check we will only care about the `read_caught_up` threshold
     return read_caught_up;
 }
