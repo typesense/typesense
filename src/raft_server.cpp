@@ -297,7 +297,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             continue;
         }
 
-        //LOG(INFO) << "Init use count: " << dynamic_cast<ReplicationClosure*>(iter.done())->get_request().use_count();
+        //LOG(INFO) << "Apply entry";
 
         const std::shared_ptr<http_req>& request_generated = iter.done() ?
                          dynamic_cast<ReplicationClosure*>(iter.done())->get_request() : std::make_shared<http_req>();
@@ -562,21 +562,21 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     lock.unlock();
 
     // work around for: https://github.com/baidu/braft/issues/277#issuecomment-823080171
-    size_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
-    size_t apply_lag = size_t(n_status.last_index - current_index);
+    int64_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
+    int64_t apply_lag = n_status.last_index - current_index;
 
     //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
     //LOG(INFO) << "apply_lag: " << apply_lag;
 
     if (apply_lag > healthy_read_lag) {
-        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > read max lag of " + std::to_string(healthy_read_lag);
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy read lag of " << healthy_read_lag;
         this->read_caught_up = false;
     } else {
         this->read_caught_up = true;
     }
 
     if (apply_lag > healthy_write_lag) {
-        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > write max lag of " + std::to_string(healthy_write_lag);
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy write lag of " << healthy_write_lag;
         this->write_caught_up = false;
     } else {
         this->write_caught_up = true;
@@ -586,7 +586,7 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl,
-                                   size_t healthy_read_lag, size_t healthy_write_lag,
+                                   int64_t healthy_read_lag, int64_t healthy_write_lag,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), server(server), store(store), meta_store(meta_store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),

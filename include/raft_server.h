@@ -91,7 +91,6 @@ private:
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
-    std::set<braft::PeerId> peers;
 
     HttpServer* server;
 
@@ -108,8 +107,8 @@ private:
 
     const bool api_uses_ssl;
 
-    const size_t healthy_read_lag;
-    const size_t healthy_write_lag;
+    const int64_t healthy_read_lag;
+    const int64_t healthy_write_lag;
 
     const size_t num_collections_parallel_load;
     const size_t num_documents_parallel_load;
@@ -138,7 +137,7 @@ public:
 
     ReplicationState(HttpServer* server, Store* store, Store* meta_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t healthy_read_lag, size_t healthy_write_lag,
+                     bool api_uses_ssl, int64_t healthy_read_lag, int64_t healthy_write_lag,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
@@ -250,7 +249,6 @@ private:
 
     void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
-        conf.list_peers(&peers);
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
