@@ -561,7 +561,9 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     node->get_status(&n_status);
     lock.unlock();
 
-    size_t apply_lag = size_t(n_status.last_index - n_status.known_applied_index);
+    // work around for: https://github.com/baidu/braft/issues/277#issuecomment-823080171
+    size_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
+    size_t apply_lag = size_t(n_status.last_index - current_index);
 
     //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
     //LOG(INFO) << "apply_lag: " << apply_lag;
