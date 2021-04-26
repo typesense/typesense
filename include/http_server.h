@@ -138,6 +138,8 @@ private:
 
     static int async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream);
 
+    static bool is_write_request(const std::string& root_resource, const std::string& http_method);
+
 public:
     HttpServer(const std::string & version,
                const std::string & listen_address, uint32_t listen_port,
