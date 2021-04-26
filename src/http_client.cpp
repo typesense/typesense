@@ -162,9 +162,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
     req_res->req->body_index += bytes_to_read;
 
-    //LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
-    //LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index;
-    //LOG(INFO) << "req_res->req->body.size(): " << req_res->req->body.size();
+    /*LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
+    LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index
+              << ", req_res->req->body.size(): " << req_res->req->body.size();*/
 
     if(req_res->req->body_index == req_res->req->body.size()) {
         //LOG(INFO) << "Current body buffer has been consumed fully.";
@@ -270,7 +270,9 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     chunk = curl_slist_append(chunk, content_length_header.c_str());
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
-    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
+
+    // Enabling this causes issues in mixed mode: client using http/1 but follower -> leader using http/2
+    //curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // callback called every time request body is needed
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, HttpClient::curl_req_send_callback);
