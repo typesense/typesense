@@ -319,32 +319,6 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
     }
 
-    // Except for health check, wait for replicating state to be ready before allowing requests
-    // Follower or leader must have started AND data must also have been loaded
-    bool needs_readiness_check = !(
-        path_without_query == "/health" || path_without_query == "/debug" ||
-        path_without_query == "/stats.json" || path_without_query == "/metrics.json" ||
-        path_without_query == "/sequence"
-    );
-
-    if(needs_readiness_check) {
-        bool is_read_op = !(
-            http_method == "POST" || http_method == "PUT" || http_method == "DELETE" || http_method == "PATCH"
-        );
-
-        bool write_op = !is_read_op;
-
-        std::string message = "{ \"message\": \"Not Ready or Lagging\"}";
-
-        if(is_read_op && !h2o_handler->http_server->get_replication_state()->is_read_caught_up()) {
-            return send_response(req, 503, message);
-        }
-
-        else if(write_op && !h2o_handler->http_server->get_replication_state()->is_write_caught_up()) {
-            return send_response(req, 503, message);
-        }
-    }
-
     std::vector<std::string> path_parts;
     StringUtils::split(path_without_query, path_parts, "/");
 
@@ -372,6 +346,31 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     if(route_hash == static_cast<uint64_t>(ROUTE_CODES::NOT_FOUND)) {
         std::string message = "{ \"message\": \"Not Found\"}";
         return send_response(req, 404, message);
+    }
+
+    const std::string& root_resource = (path_parts.empty()) ? "" : path_parts[0];
+    //LOG(INFO) << "root_resource is: " << root_resource;
+
+    bool needs_readiness_check = (root_resource == "collections") ||
+         !(
+             root_resource == "health" || root_resource == "debug" ||
+             root_resource == "stats.json" || root_resource == "metrics.json" ||
+             root_resource == "sequence" || root_resource == "operations"
+         );
+
+    if(needs_readiness_check) {
+        bool write_op = is_write_request(root_resource, http_method);
+        bool read_op = !write_op;
+
+        std::string message = "{ \"message\": \"Not Ready or Lagging\"}";
+
+        if(read_op && !h2o_handler->http_server->get_replication_state()->is_read_caught_up()) {
+            return send_response(req, 503, message);
+        }
+
+        else if(write_op && !h2o_handler->http_server->get_replication_state()->is_write_caught_up()) {
+            return send_response(req, 503, message);
+        }
     }
 
     // iterate and extract path params
@@ -437,6 +436,21 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     return 0;
 }
 
+
+bool HttpServer::is_write_request(const std::string& root_resource, const std::string& http_method) {
+    if(http_method == "GET") {
+        return false;
+    }
+
+    bool write_free_request = (root_resource == "multi_search" || root_resource == "operations");
+    if(!write_free_request &&
+       (http_method == "POST" || http_method == "PUT" ||
+        http_method == "DELETE" || http_method == "PATCH")) {
+        return true;
+    }
+
+    return false;
+}
 
 int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     // NOTE: this callback is triggered multiple times by HTTP 2 but only once by HTTP 1
@@ -521,16 +535,10 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
 
     //LOG(INFO) << "process_request called";
 
-    // some end-points use POST but don't really need raft log persistence
-    bool write_free_request = (!rpath->path_parts.empty()) &&
-             (rpath->path_parts[0] == "operations" || rpath->path_parts[0] == "multi_search");
+    const std::string& root_resource = (rpath->path_parts.empty()) ? "" : rpath->path_parts[0];
+    bool is_write = is_write_request(root_resource, rpath->http_method);
 
-    //LOG(INFO) << "write_free_request: " << write_free_request;
-
-    // for writes, we delegate to replication_state to handle response
-    if(!write_free_request &&
-       (rpath->http_method == "POST" || rpath->http_method == "PUT" ||
-        rpath->http_method == "DELETE" || rpath->http_method == "PATCH")) {
+    if(is_write) {
         handler->http_server->get_replication_state()->write(request, response);
         return 0;
     }
