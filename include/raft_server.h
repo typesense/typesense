@@ -230,7 +230,6 @@ private:
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
-        refresh_catchup_status(true);
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
