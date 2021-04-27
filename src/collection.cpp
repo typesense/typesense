@@ -1397,6 +1397,7 @@ void Collection::highlight_result(const field &search_field,
 
     std::vector<uint32_t*> leaf_to_indices;
     std::vector<art_leaf*> query_suggestion;
+    std::set<std::string> query_suggestion_tokens;
 
     for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
@@ -1408,6 +1409,8 @@ void Collection::highlight_result(const field &search_field,
 
         if(actual_leaf != nullptr) {
             query_suggestion.push_back(actual_leaf);
+            std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len-1);
+            query_suggestion_tokens.insert(token);
             std::vector<uint16_t> positions;
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
             auto doc_indices = new uint32_t[1];
@@ -1416,20 +1419,26 @@ void Collection::highlight_result(const field &search_field,
         }
     }
 
-    if(query_suggestion.empty()) {
-        // can happen for compound query matched across 2 fields: try to use original query tokens
+    if(query_suggestion.size() != q_tokens.size()) {
+        // can happen for compound query matched across 2 fields when some tokens are dropped
         for(const std::string& q_token: q_tokens) {
+            if(query_suggestion_tokens.count(q_token) != 0) {
+                continue;
+            }
+
             Index* index = indices[field_order_kv->key % num_memory_shards];
             art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
                                                           reinterpret_cast<const unsigned char *>(q_token.c_str()),
                                                           q_token.size() + 1);
             if(actual_leaf != nullptr) {
-                query_suggestion.push_back(actual_leaf);
                 std::vector<uint16_t> positions;
                 uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
-                auto doc_indices = new uint32_t[1];
-                doc_indices[0] = doc_index;
-                leaf_to_indices.push_back(doc_indices);
+                if(doc_index != actual_leaf->values->ids.getLength()) {
+                    auto doc_indices = new uint32_t[1];
+                    doc_indices[0] = doc_index;
+                    leaf_to_indices.push_back(doc_indices);
+                    query_suggestion.push_back(actual_leaf);
+                }
             }
         }
     }
@@ -1476,6 +1485,15 @@ void Collection::highlight_result(const field &search_field,
         std::sort(match_indices[index].match.offsets.begin(), match_indices[index].match.offsets.end());
         const auto& match_index = match_indices[index];
         const Match& match = match_index.match;
+
+        size_t last_valid_offset = 0;
+        for (auto token_offset : match.offsets) {
+            if(token_offset.offset != MAX_DISPLACEMENT) {
+                last_valid_offset = token_offset.offset;
+            } else {
+                break;
+            }
+        }
 
         const std::string& text = (search_field.type == field_types::STRING) ? document[search_field.name] : document[search_field.name][match_index.index];
         Tokenizer tokenizer(text, true, false, search_field.locale);
@@ -1524,14 +1542,14 @@ void Collection::highlight_result(const field &search_field,
                 }
             }
 
-            if(raw_token_index == match.offsets.back().offset + highlight_affix_num_tokens) {
+            if(raw_token_index == last_valid_offset + highlight_affix_num_tokens) {
                 // register end of highlight snippet
                 snippet_end_offset = tok_end;
             }
 
-            if(raw_token_index > match.offsets.back().offset + highlight_affix_num_tokens &&
-               raw_token_index == snippet_threshold - 1) {
-                // since we have already crossed snippeting threshold, we can break now
+            if(raw_token_index == snippet_threshold - 1 &&
+               raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
+                // since we have already crossed snippet threshold, we can break now
                 break;
             }
         }
@@ -1541,7 +1559,7 @@ void Collection::highlight_result(const field &search_field,
         }
 
         if(raw_token_index + 1 < snippet_threshold) {
-            // fully highlight field whose token size is less than given snippeth threshold
+            // fully highlight field whose token size is less than given snippet threshold
             snippet_start_offset = 0;
             snippet_end_offset = text.size() - 1;
         }
