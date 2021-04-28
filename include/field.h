@@ -119,7 +119,11 @@ struct field {
     }
 
     bool is_dynamic() const {
-         return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
+         return is_dynamic(name, type);
+    }
+
+    static bool is_dynamic(const std::string& name, const std::string& type) {
+        return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool has_numerical_index() const {
@@ -231,6 +235,10 @@ struct field {
             }
 
             if(field.is_dynamic() && !field.optional) {
+                if(field_types::is_string_or_array(field.type)) {
+                    return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
+                }
+
                 return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
             }
 
@@ -368,10 +376,9 @@ struct field {
                 field_json[fields::locale] = "";
             }
 
-            bool is_dynamic = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
-
             if(field_json.count(fields::optional) == 0) {
                 // dynamic fields are always optional
+                bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
                 field_json[fields::optional] = is_dynamic;
             }
 
