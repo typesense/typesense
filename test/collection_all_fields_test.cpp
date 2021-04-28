@@ -552,6 +552,21 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     ASSERT_EQ(".*", fields[0].name);
     ASSERT_EQ("string*", fields[0].type);
 
+    // non-wildcard string* field should be treated as optional by default
+    fields_json = nlohmann::json::array();
+    nlohmann::json string_star_field;
+    string_star_field[fields::name] = "title";
+    string_star_field[fields::type] = "string*";
+    fields_json.emplace_back(string_star_field);
+    fields.clear();
+
+    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
+    ASSERT_TRUE(parse_op.ok());
+    ASSERT_EQ(true, fields[0].optional);
+
+    fields_json = nlohmann::json::array();
+    fields_json.emplace_back(all_field);
+
     // reject when you try to set geo property on * field
     fields_json[0][fields::geo_resolution] = 10;
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
@@ -781,6 +796,14 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
     auto op = collectionManager.create_collection("coll1", 1, bad_fields, "", 0);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Field `.*_name` with wildcard name must be an optional field.", op.error());
+
+    // string* fields should only be optional
+    std::vector<field> bad_fields2 = {field("title", field_types::STRING, true),
+                                      field("name", "string*", true, false),};
+
+    op = collectionManager.create_collection("coll1", 1, bad_fields2, "", 0);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `name` must be an optional field.", op.error());
 
     std::vector<field> fields = {field("title", field_types::STRING, true),
                                  field(".*_name", field_types::STRING, true, true),};
