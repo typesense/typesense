@@ -24,7 +24,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/documents.jsonl");
         std::vector<field> search_fields = {
@@ -35,7 +35,7 @@ protected:
         query_fields = {"title"};
         sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
 
-        collection = collectionManager.get_collection("collection");
+        collection = collectionManager.get_collection("collection").get();
         if(collection == nullptr) {
             collection = collectionManager.create_collection("collection", 4, search_fields, "points").get();
         }
@@ -85,6 +85,10 @@ protected:
 TEST_F(CollectionTest, VerifyCountOfDocuments) {
     // we have 1 dummy record to match the line numbers on the fixtures file with sequence numbers
     ASSERT_EQ(24+1, collection->get_num_documents());
+
+    // check default no specific dirty values option is sent for a collection that has explicit schema
+    std::string empty_dirty_values;
+    ASSERT_EQ(DIRTY_VALUES::REJECT, collection->parse_dirty_values_option(empty_dirty_values));
 }
 
 TEST_F(CollectionTest, RetrieveADocumentById) {
@@ -172,7 +176,7 @@ TEST_F(CollectionTest, PhraseSearch) {
     ASSERT_EQ(results["hits"][0]["highlights"].size(), (unsigned long) 1);
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "title");
     ASSERT_STREQ(results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str(),
-                 "What is the power requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
+                 "What is the power, requirement of a <mark>rocket</mark> <mark>launch</mark> these days?");
 
     // Check ASC sort order
     std::vector<sort_by> sort_fields_asc = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "ASC") };
@@ -479,6 +483,7 @@ TEST_F(CollectionTest, Pagination) {
 TEST_F(CollectionTest, WildcardQuery) {
     nlohmann::json results = collection->search("*", query_fields, "points:>0", {}, sort_fields, 0, 3, 1, FREQUENCY,
                                                 false).get();
+
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(25, results["found"].get<uint32_t>());
 
@@ -627,7 +632,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
             field("points", field_types::INT32, false)
     };
 
-    coll_multi_string = collectionManager.get_collection("coll_multi_string");
+    coll_multi_string = collectionManager.get_collection("coll_multi_string").get();
     if (coll_multi_string == nullptr) {
         coll_multi_string = collectionManager.create_collection("coll_multi_string", 4, fields, "points").get();
     }
@@ -636,7 +641,7 @@ TEST_F(CollectionTest, MultiOccurrenceString) {
     document["title"] = "The brown fox was the tallest of the lot and the quickest of the trot.";
     document["points"] = 100;
 
-    coll_multi_string->add(document.dump());
+    coll_multi_string->add(document.dump()).get();
 
     query_fields = {"title"};
     nlohmann::json results = coll_multi_string->search("the", query_fields, "", {}, sort_fields, 0, 10, 1,
@@ -655,7 +660,7 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
             field("points", field_types::INT32, false)
     };
 
-    coll_array_text = collectionManager.get_collection("coll_array_text");
+    coll_array_text = collectionManager.get_collection("coll_array_text").get();
     if (coll_array_text == nullptr) {
         coll_array_text = collectionManager.create_collection("coll_array_text", 4, fields, "points").get();
     }
@@ -838,7 +843,7 @@ TEST_F(CollectionTest, MultipleFields) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -853,8 +858,6 @@ TEST_F(CollectionTest, MultipleFields) {
 
     query_fields = {"title", "starring"};
     std::vector<std::string> facets;
-
-    auto x = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
 
     nlohmann::json results = coll_mul_fields->search("Will", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
@@ -957,7 +960,7 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -1045,7 +1048,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
         field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 1, fields, "points").get();
     }
@@ -1059,6 +1062,12 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     // try searching with filter
     auto results = coll_mul_fields->search("*", query_fields, "starring:= [Will Ferrell]", {"starring"}, sort_fields, 0, 30, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
+
+    // update existing record verbatim
+    std::vector<std::string> existing_records = {R"({"id": "0", "title": "Wake Up, Ron Burgundy: The Lost Movie"})"};
+    import_response = coll_mul_fields->add_many(existing_records, document, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
     // update + upsert records
     std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry", "starring": "Will Ferrell"})",
@@ -1196,7 +1205,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
             field("points", field_types::INT32, false)
     };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -1290,7 +1299,7 @@ TEST_F(CollectionTest, ImportDocuments) {
         field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -1336,7 +1345,7 @@ TEST_F(CollectionTest, ImportDocuments) {
                                "{\"title\": \"Test4\", \"points\": 55, "
                                    "\"cast\": [\"Tom Skerritt\"] }"};
 
-    import_response = coll_mul_fields->add_many(more_records, document);
+    import_response = coll_mul_fields->add_many(more_records, document, CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
@@ -1423,7 +1432,7 @@ TEST_F(CollectionTest, QueryBoolFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("popular", "DESC"), sort_by("rating", "DESC") };
 
-    coll_bool = collectionManager.get_collection("coll_bool");
+    coll_bool = collectionManager.get_collection("coll_bool").get();
     if(coll_bool == nullptr) {
         coll_bool = collectionManager.create_collection("coll_bool", 4, fields, "rating").get();
     }
@@ -1532,7 +1541,7 @@ TEST_F(CollectionTest, SearchingWithMissingFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -1587,7 +1596,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    sample_collection = collectionManager.get_collection("sample_collection");
+    sample_collection = collectionManager.get_collection("sample_collection").get();
     if(sample_collection == nullptr) {
         sample_collection = collectionManager.create_collection("sample_collection", 4, fields, "age").get();
     }
@@ -1618,16 +1627,28 @@ TEST_F(CollectionTest, IndexingWithBadData) {
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": 22, \"average\": 78}";
     const Option<nlohmann::json> & bad_facet_field_op = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_facet_field_op.ok());
-    ASSERT_STREQ("Field `tags` must be a string array.", bad_facet_field_op.error().c_str());
+    ASSERT_STREQ("Field `tags` must be an array.", bad_facet_field_op.error().c_str());
+
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
+    const Option<nlohmann::json> & bad_array_field_op = sample_collection->add(doc_str, CREATE, "",
+                                                                               DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(bad_array_field_op.ok());
+    ASSERT_STREQ("Field `tags` must be an array of string.", bad_array_field_op.error().c_str());
+
+    // with coercion should work
+    doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [\"red\", 22], \"average\": 78}";
+    const Option<nlohmann::json> &bad_array_field_coercion_op = sample_collection->add(doc_str, CREATE, "",
+                                                                                       DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(bad_array_field_coercion_op.ok());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": 34}";
     const Option<nlohmann::json> & empty_facet_field_op = sample_collection->add(doc_str);
     ASSERT_TRUE(empty_facet_field_op.ok());
 
-    doc_str = "{\"name\": \"foo\", \"age\": \"34\", \"tags\": [], \"average\": 34 }";
+    doc_str = "{\"name\": \"foo\", \"age\": [\"34\"], \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op1 = sample_collection->add(doc_str);
     ASSERT_FALSE(bad_default_sorting_field_op1.ok());
-    ASSERT_STREQ("Default sorting field `age` must be a single valued numerical field.", bad_default_sorting_field_op1.error().c_str());
+    ASSERT_STREQ("Field `age` must be an int32.", bad_default_sorting_field_op1.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"tags\": [], \"average\": 34 }";
     const Option<nlohmann::json> & bad_default_sorting_field_op3 = sample_collection->add(doc_str);
@@ -1636,7 +1657,7 @@ TEST_F(CollectionTest, IndexingWithBadData) {
                  bad_default_sorting_field_op3.error().c_str());
 
     doc_str = "{\"name\": \"foo\", \"age\": 34, \"tags\": [], \"average\": \"34\"}";
-    const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str);
+    const Option<nlohmann::json> & bad_rank_field_op = sample_collection->add(doc_str, CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(bad_rank_field_op.ok());
     ASSERT_STREQ("Field `average` must be an int32.", bad_rank_field_op.error().c_str());
 
@@ -1669,7 +1690,7 @@ TEST_F(CollectionTest, EmptyIndexShouldNotCrash) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    empty_coll = collectionManager.get_collection("empty_coll");
+    empty_coll = collectionManager.get_collection("empty_coll").get();
     if(empty_coll == nullptr) {
         empty_coll = collectionManager.create_collection("empty_coll", 4, fields, "age").get();
     }
@@ -1689,7 +1710,7 @@ TEST_F(CollectionTest, IdFieldShouldBeAString) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC"), sort_by("average", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "age").get();
     }
@@ -1717,7 +1738,7 @@ TEST_F(CollectionTest, AnIntegerCanBePassedToAFloatField) {
 
     std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "average").get();
     }
@@ -1745,7 +1766,7 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
     Collection *collection_for_del;
-    collection_for_del = collectionManager.get_collection("collection_for_del");
+    collection_for_del = collectionManager.get_collection("collection_for_del").get();
     if(collection_for_del == nullptr) {
         collection_for_del = collectionManager.create_collection("collection_for_del", 4, search_fields, "points").get();
     }
@@ -1814,6 +1835,70 @@ TEST_F(CollectionTest, DeletionOfADocument) {
     collectionManager.drop_collection("collection_for_del");
 }
 
+TEST_F(CollectionTest, DeletionOfDocumentSingularFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("str", field_types::STRING, false),
+                                 field("int32", field_types::INT32, false),
+                                 field("int64", field_types::INT64, false),
+                                 field("float", field_types::FLOAT, false),
+                                 field("bool", field_types::BOOL, false)};
+
+    std::vector<sort_by> sort_fields = { sort_by("int32", "DESC") };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "int32").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["str"] = "[NEW] Cell Phone Cases, Holders & Clips!";
+    doc["int32"] = 100032;
+    doc["int64"] = 1582369739000;
+    doc["float"] = -293.24;
+    doc["bool"] = true;
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    nlohmann::json res = coll1->search("phone", {"str"}, "", {}, sort_fields, 0, 10, 1,
+                                       token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                                       spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(1, res["found"]);
+
+    Option<std::string> rem_op = coll1->remove("100");
+
+    ASSERT_TRUE(rem_op.ok());
+
+    res = coll1->search("phone", {"str"}, "", {}, sort_fields, 0, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10).get();
+
+    ASSERT_EQ(0, res["found"].get<int32_t>());
+
+    // also assert against the actual index
+    Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
+    auto search_index = index->_get_search_index();
+    auto numerical_index = index->_get_numerical_index();
+
+    auto str_tree = search_index["str"];
+    auto int32_tree = numerical_index["int32"];
+    auto int64_tree = numerical_index["int64"];
+    auto float_tree = numerical_index["float"];
+    auto bool_tree = numerical_index["bool"];
+
+    ASSERT_EQ(0, art_size(str_tree));
+
+    ASSERT_EQ(0, int32_tree->size());
+    ASSERT_EQ(0, int64_tree->size());
+    ASSERT_EQ(0, float_tree->size());
+    ASSERT_EQ(0, bool_tree->size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
     Collection *coll1;
 
@@ -1826,7 +1911,7 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -1899,7 +1984,7 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("age", "DESC") };
 
-    coll_large_text = collectionManager.get_collection("coll_large_text");
+    coll_large_text = collectionManager.get_collection("coll_large_text").get();
     if(coll_large_text == nullptr) {
         coll_large_text = collectionManager.create_collection("coll_large_text", 4, fields, "age").get();
     }
@@ -1992,7 +2077,7 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2004,7 +2089,7 @@ TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {
 
     auto add_op = coll1->add(doc.dump());
     ASSERT_FALSE(add_op.ok());
-    ASSERT_STREQ("Field `categories` must be a string array.", add_op.error().c_str());
+    ASSERT_STREQ("Field `categories` must be an array.", add_op.error().c_str());
 
     collectionManager.drop_collection("coll1");
 }
@@ -2017,7 +2102,7 @@ TEST_F(CollectionTest, SearchHighlightShouldFollowThreshold) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2075,7 +2160,7 @@ TEST_F(CollectionTest, SearchHighlightShouldUseHighlightTags) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2109,7 +2194,7 @@ TEST_F(CollectionTest, SearchHighlightWithNewLine) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2126,7 +2211,7 @@ TEST_F(CollectionTest, SearchHighlightWithNewLine) {
                              token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0).get();
 
-    ASSERT_STREQ("Blah, blah <mark>Stark</mark> Industries",
+    ASSERT_STREQ("Blah, blah\n<mark>Stark</mark> Industries",
                  res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     ASSERT_STREQ("Stark", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
@@ -2143,7 +2228,7 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2308,7 +2393,7 @@ TEST_F(CollectionTest, UpdateDocumentSorting) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2366,7 +2451,7 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2444,7 +2529,7 @@ TEST_F(CollectionTest, OptionalFields) {
         field("is_valid", field_types::BOOL, false, true),
     };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "max").get();
     }
@@ -2482,12 +2567,15 @@ TEST_F(CollectionTest, OptionalFields) {
     ASSERT_EQ(5, res["facet_counts"][0]["counts"][0]["count"].get<size_t>());
     ASSERT_STREQ("description", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
 
-    // sort_by optional `average` field should be rejected
+    // sort_by optional `average` field should be allowed (default used for missing values)
     std::vector<sort_by> sort_fields = { sort_by("average", "DESC") };
     auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Cannot sort by `average` as it is defined as an optional field.", res_op.error().c_str());
-    
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+
+    ASSERT_EQ(6, res["found"].get<size_t>());
+    ASSERT_EQ(0, res["hits"][5]["document"].count("average"));  // record with missing average is last
+
     // try deleting a record having optional field
     Option<std::string> remove_op = coll1->remove("1");
     ASSERT_TRUE(remove_op.ok());
@@ -2589,7 +2677,7 @@ TEST_F(CollectionTest, RemoveIfFound) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2651,7 +2739,7 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -2751,7 +2839,7 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2803,7 +2891,7 @@ TEST_F(CollectionTest, FieldWeightsNotProper) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2848,7 +2936,7 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2881,6 +2969,228 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    results = coll1->search("swift",
+                            {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                            true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldRelevance4) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Madras Dreams", "Chennai King"},
+        {"Madurai Express", "Madura Maddy"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("madras",
+                                 {"title", "artist"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                                 true, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldRelevance5) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("country", field_types::STRING, false),
+                                 field("field_a", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Stark Industries ™", "Canada", "Canadia", "5215"},
+        {"Canaida Corp", "United States", "Canadoo", "200"},
+        {"Acme Corp", "Mexico", "Canadoo", "300"}
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["company_name"] = records[i][0];
+        doc["country"] = records[i][1];
+        doc["field_a"] = records[i][2];
+        doc["num_employees"] = std::stoi(records[i][3]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Canada",
+                                 {"company_name","country","field_a"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                                 true, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1, 1}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("Canada",
+                             {"company_name","field_a","country"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                             true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {1, 1, 1}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("country", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canada</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ(1, results["hits"][1]["highlights"].size());
+    ASSERT_EQ("field_a", results["hits"][1]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canadoo</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ(1, results["hits"][2]["highlights"].size());
+    ASSERT_EQ("company_name", results["hits"][2]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][2]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, MultiFieldHighlighting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("categories", field_types::STRING_ARRAY, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Best Wireless Vehicle Charger",
+         "Easily replenish your cell phone with this wireless charger.",
+         "Cell Phones > Cell Phone Accessories > Car Chargers"},
+
+        {"Annie's Song",
+        "John Denver",
+        "Album > Compilation"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        std::vector<std::string> categories;
+        StringUtils::split(records[i][2], categories, ">");
+
+        doc["id"] = std::to_string(i);
+        doc["name"] = records[i][0];
+        doc["description"] = records[i][1];
+        doc["categories"] = categories;
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("charger",
+                                 {"name","description","categories"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                                 true, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1, 1}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("Best Wireless Vehicle <mark>Charger</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    results = coll1->search("John With Denver",
+                            {"description"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                            true, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>John</mark> <mark>Denver</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("Annies song John Denver",
+                            {"name","description"}, "", {}, {}, 0, 10, 1, FREQUENCY,
+                            true, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Annie's</mark> <mark>Song</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("<mark>John</mark> <mark>Denver</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -2891,7 +3201,7 @@ TEST_F(CollectionTest, MultiFieldMatchRanking) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2941,7 +3251,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnArray) {
                                  field("skills", field_types::STRING_ARRAY, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -2982,7 +3292,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnFieldOrder) {
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -3021,7 +3331,7 @@ TEST_F(CollectionTest, PrefixRankedAfterExactMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -3061,15 +3371,16 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
 
     std::vector<std::vector<std::string>> records = {
-        {"Mise à  jour  Timy depuis PC"},
-        {"Down There by the Train"},
+        {"Mise T.J. à  jour  Timy depuis PC"},
+        {"Down There by the T.r.a.i.n"},
         {"State Trooper"},
+        {"The Google Nexus Q Is Baffling"},
     };
 
     for (size_t i = 0; i < records.size(); i++) {
@@ -3087,12 +3398,102 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("Mise <mark>à</mark>  <mark>jour</mark>  Timy depuis PC",
+    ASSERT_STREQ("Mise T.J. <mark>à</mark>  <mark>jour</mark>  Timy depuis PC",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
     ASSERT_STREQ("à", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
     ASSERT_STREQ("jour", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
+
+    results = coll1->search("by train", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("Down There <mark>by</mark> the <mark>T.r.a.i.n</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    results = coll1->search("state trooper", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("<mark>State</mark> <mark>Trooper</mark>",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    // test single character highlight
+
+    results = coll1->search("q", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("The Google Nexus <mark>Q</mark> Is Baffling",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, DISABLED_SearchingForRecordsWithSpecialChars) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("url", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Amazon Home", "https://amazon.com/"},
+        {"Google Home", "https://google.com///"},
+        {"Github Issue", "https://github.com/typesense/typesense/issues/241"},
+        {"Amazon Search", "https://www.amazon.com/s?k=phone&ref=nb_sb_noss_2"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["url"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("google",
+                                 {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Google</mark> Home", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("https://<mark>google</mark>.com///", results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    results = coll1->search("amazon.com",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("typesense",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("nb_sb_noss_2",
+                            {"title", "url"}, "", {}, {}, 2, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("https://www.amazon.com/s?k=phone&ref=<mark>nb</mark>_<mark>sb</mark>_<mark>noss</mark>_<mark>2</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

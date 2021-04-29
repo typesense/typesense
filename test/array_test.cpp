@@ -96,6 +96,12 @@ TEST(ArrayTest, RemoveBetweenIndices) {
     const size_t SIZE = 10*1000;
     std::vector<uint32_t> unsorted;
 
+    // try removing from empty array
+    arr.append(100);
+    arr.remove_index(0, 1);
+    arr.contains(100);
+    arr.remove_index(0, 1);
+
     for(size_t i=0; i<SIZE; i++) {
         uint32_t r = (uint32_t) rand();
         unsorted.push_back(r);

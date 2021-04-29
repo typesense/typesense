@@ -26,18 +26,25 @@ private:
 
     std::string ssl_certificate;
     std::string ssl_certificate_key;
+    uint32_t ssl_refresh_interval_seconds;
 
     bool enable_cors;
 
     float max_memory_ratio;
     int snapshot_interval_seconds;
 
-    size_t catch_up_threshold_percentage;
+    size_t healthy_read_lag;
+    size_t healthy_write_lag;
 
     std::string config_file;
     int config_file_validity;
 
     int log_slow_requests_time_ms;
+
+    uint32_t num_collections_parallel_load;
+    uint32_t num_documents_parallel_load;
+
+    uint32_t thread_pool_size;
 
 protected:
 
@@ -48,8 +55,13 @@ protected:
         this->enable_cors = false;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
-        this->catch_up_threshold_percentage = 95;
+        this->healthy_read_lag = 1000;
+        this->healthy_write_lag = 500;
         this->log_slow_requests_time_ms = -1;
+        this->num_collections_parallel_load = 0;  // will be set dynamically if not overridden
+        this->num_documents_parallel_load = 1000;
+        this->thread_pool_size = 0; // will be set dynamically if not overridden
+        this->ssl_refresh_interval_seconds = 8 * 60 * 60;
     }
 
     Config(Config const&) {
@@ -179,12 +191,32 @@ public:
         return this->snapshot_interval_seconds;
     }
 
-    int get_catch_up_threshold_percentage() const {
-        return this->catch_up_threshold_percentage;
+    int get_healthy_read_lag() const {
+        return this->healthy_read_lag;
+    }
+
+    int get_healthy_write_lag() const {
+        return this->healthy_write_lag;
     }
 
     int get_log_slow_requests_time_ms() const {
         return this->log_slow_requests_time_ms;
+    }
+
+    size_t get_num_collections_parallel_load() const {
+        return this->num_collections_parallel_load;
+    }
+
+    size_t get_num_documents_parallel_load() const {
+        return this->num_documents_parallel_load;
+    }
+
+    size_t get_thread_pool_size() const {
+        return this->thread_pool_size;
+    }
+
+    size_t get_ssl_refresh_interval_seconds() const {
+        return this->ssl_refresh_interval_seconds;
     }
 
     // loaders
@@ -247,12 +279,32 @@ public:
             this->snapshot_interval_seconds = std::stoi(get_env("TYPESENSE_SNAPSHOT_INTERVAL_SECONDS"));
         }
 
-        if(!get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE").empty()) {
-            this->catch_up_threshold_percentage = std::stoi(get_env("TYPESENSE_CATCH_UP_THRESHOLD_PERCENTAGE"));
+        if(!get_env("TYPESENSE_HEALTHY_READ_LAG").empty()) {
+            this->healthy_read_lag = std::stoi(get_env("TYPESENSE_HEALTHY_READ_LAG"));
+        }
+
+        if(!get_env("TYPESENSE_HEALTHY_WRITE_LAG").empty()) {
+            this->healthy_write_lag = std::stoi(get_env("TYPESENSE_HEALTHY_WRITE_LAG"));
         }
 
         if(!get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS").empty()) {
             this->log_slow_requests_time_ms = std::stoi(get_env("TYPESENSE_LOG_SLOW_REQUESTS_TIME_MS"));
+        }
+
+        if(!get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD").empty()) {
+            this->num_collections_parallel_load = std::stoi(get_env("TYPESENSE_NUM_COLLECTIONS_PARALLEL_LOAD"));
+        }
+
+        if(!get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD").empty()) {
+            this->num_documents_parallel_load = std::stoi(get_env("TYPESENSE_NUM_DOCUMENTS_PARALLEL_LOAD"));
+        }
+
+        if(!get_env("TYPESENSE_THREAD_POOL_SIZE").empty()) {
+            this->thread_pool_size = std::stoi(get_env("TYPESENSE_THREAD_POOL_SIZE"));
+        }
+
+        if(!get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS").empty()) {
+            this->ssl_refresh_interval_seconds = std::stoi(get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS"));
         }
     }
 
@@ -344,12 +396,32 @@ public:
             this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
         }
 
-        if(reader.Exists("server", "catch-up-threshold-percentage")) {
-            this->catch_up_threshold_percentage = (int) reader.GetInteger("server", "catch-up-threshold-percentage", 95);
+        if(reader.Exists("server", "healthy-read-lag")) {
+            this->healthy_read_lag = (int) reader.GetInteger("server", "healthy-read-lag", 1000);
+        }
+
+        if(reader.Exists("server", "healthy-write-lag")) {
+            this->healthy_write_lag = (int) reader.GetInteger("server", "healthy-write-lag", 100);
         }
 
         if(reader.Exists("server", "log-slow-requests-time-ms")) {
             this->log_slow_requests_time_ms = (int) reader.GetInteger("server", "log-slow-requests-time-ms", -1);
+        }
+
+        if(reader.Exists("server", "num-collections-parallel-load")) {
+            this->num_collections_parallel_load = (int) reader.GetInteger("server", "num-collections-parallel-load", 0);
+        }
+
+        if(reader.Exists("server", "num-documents-parallel-load")) {
+            this->num_documents_parallel_load = (int) reader.GetInteger("server", "num-documents-parallel-load", 1000);
+        }
+
+        if(reader.Exists("server", "thread-pool-size")) {
+            this->thread_pool_size = (int) reader.GetInteger("server", "thread-pool-size", 0);
+        }
+
+        if(reader.Exists("server", "ssl-refresh-interval-seconds")) {
+            this->ssl_refresh_interval_seconds = (int) reader.GetInteger("server", "ssl-refresh-interval-seconds", 8 * 60 * 60);
         }
     }
 
@@ -423,12 +495,32 @@ public:
             this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
         }
 
-        if(options.exist("catch-up-threshold-percentage")) {
-            this->catch_up_threshold_percentage = options.get<int>("catch-up-threshold-percentage");
+        if(options.exist("healthy-read-lag")) {
+            this->healthy_read_lag = options.get<int>("healthy-read-lag");
+        }
+
+        if(options.exist("healthy-write-lag")) {
+            this->healthy_write_lag = options.get<int>("healthy-write-lag");
         }
 
         if(options.exist("log-slow-requests-time-ms")) {
-            this->log_slow_requests_time_ms = options.exist("log-slow-requests-time-ms");
+            this->log_slow_requests_time_ms = options.get<int>("log-slow-requests-time-ms");
+        }
+
+        if(options.exist("num-collections-parallel-load")) {
+            this->num_collections_parallel_load = options.get<uint32_t>("num-collections-parallel-load");
+        }
+
+        if(options.exist("num-documents-parallel-load")) {
+            this->num_documents_parallel_load = options.get<uint32_t>("num-documents-parallel-load");
+        }
+
+        if(options.exist("thread-pool-size")) {
+            this->thread_pool_size = options.get<uint32_t>("thread-pool-size");
+        }
+
+        if(options.exist("ssl-refresh-interval-seconds")) {
+            this->ssl_refresh_interval_seconds = options.get<uint32_t>("ssl-refresh-interval-seconds");
         }
     }
 

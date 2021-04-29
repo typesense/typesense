@@ -2,10 +2,10 @@
 # 
 # $ docker push typesense/typesense-development:latest
 
-FROM typesense/ubuntu-10-04-gcc:6.4.0
+FROM typesense/ubuntu-12-04-gcc:v10.1.0
 
-ENV PATH /usr/local/gcc-6.4.0/bin/:$PATH
-ENV LD_LIBRARY_PATH /usr/local/gcc-6.4.0/lib64
+ENV PATH /usr/local/gcc-10.1.0/bin/:$PATH
+ENV LD_LIBRARY_PATH /usr/local/gcc-10.1.0/lib64
 
 RUN apt-get install -y python-software-properties \
 	&& add-apt-repository ppa:git-core/ppa \
@@ -16,9 +16,9 @@ RUN apt-get install -y python-software-properties \
 	libidn11 \
 	git
 
-ADD https://gcc.gnu.org/pub/binutils/snapshots/binutils-2.30.0.tar.xz /opt/binutils-2.30.0.tar.xz
-RUN tar -C /opt -xf /opt/binutils-2.30.0.tar.xz
-RUN cd /opt/binutils-2.30.0 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
+ADD https://ftp.gnu.org/gnu/binutils/binutils-2.36.tar.xz /opt/binutils-2.36.tar.xz
+RUN tar -C /opt -xf /opt/binutils-2.36.tar.xz
+RUN cd /opt/binutils-2.36 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
     make -j8 tooldir=/usr install && cp include/libiberty.h /usr/include
 
 ADD https://github.com/Kitware/CMake/releases/download/v3.15.2/cmake-3.15.2-Linux-x86_64.tar.gz /opt/cmake-3.15.2-Linux-x86_64.tar.gz
@@ -29,8 +29,8 @@ ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.g
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
 RUN mkdir -p /opt/snappy-1.1.3/build && cd /opt/snappy-1.1.3/build && ../configure && make -j8 && make install
 
-ADD https://github.com/unicode-org/icu/releases/download/release-61-1/icu4c-61_1-src.tgz /opt/icu4c-61_1-src.tgz
-RUN tar -C /opt -xf /opt/icu4c-61_1-src.tgz
+ADD https://github.com/unicode-org/icu/releases/download/release-68-2/icu4c-68_2-src.tgz /opt/icu4c-68_2-src.tgz
+RUN tar -C /opt -xf /opt/icu4c-68_2-src.tgz
 RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/uconfig.h && \
     echo "#define U_STATIC_IMPLEMENTATION 1" >> common/unicode/uconfig.h && \
     echo "#define U_USING_ICU_NAMESPACE 0" >> common/unicode/uconfig.h
@@ -96,5 +96,5 @@ RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
 RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod && \
     make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
-ENV CC /usr/local/gcc-6.4.0/bin/gcc
-ENV CXX /usr/local/gcc-6.4.0/bin/g++
+ENV CC /usr/local/gcc-10.1.0/bin/gcc
+ENV CXX /usr/local/gcc-10.1.0/bin/g++

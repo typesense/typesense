@@ -21,7 +21,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
     }
 
     virtual void SetUp() {
@@ -33,152 +33,6 @@ protected:
         delete store;
     }
 };
-
-TEST_F(CollectionFacetingTest, FacetFieldStringFiltering) {
-    Collection *coll_str;
-
-    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
-    std::vector<field> fields = {
-        field("title", field_types::STRING, false),
-        field("starring", field_types::STRING, true),
-        field("cast", field_types::STRING_ARRAY, false),
-        field("points", field_types::INT32, false)
-    };
-
-    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
-
-    coll_str = collectionManager.get_collection("coll_str");
-    if(coll_str == nullptr) {
-        coll_str = collectionManager.create_collection("coll_str", 1, fields, "points").get();
-    }
-
-    std::string json_line;
-
-    while (std::getline(infile, json_line)) {
-        nlohmann::json document = nlohmann::json::parse(json_line);
-        coll_str->add(document.dump());
-    }
-
-    infile.close();
-
-    query_fields = {"title"};
-    std::vector<std::string> facets;
-
-    // exact filter on string field must fail when single token is used
-    facets.clear();
-    facets.emplace_back("starring");
-    auto results = coll_str->search("*", query_fields, "starring:= samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
-    ASSERT_EQ(0, results["found"].get<size_t>());
-
-    // multiple tokens but with a typo on one of them
-    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
-    ASSERT_EQ(0, results["found"].get<size_t>());
-
-    // same should succeed when verbatim filter is made
-    results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ(2, results["found"].get<size_t>());
-
-    // contains filter with a single token should work as well
-    results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ(2, results["found"].get<size_t>());
-
-    results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ(2, results["found"].get<size_t>());
-
-    // contains when only 1 token matches
-    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ(2, results["found"].get<size_t>());
-
-    collectionManager.drop_collection("coll_str");
-}
-
-TEST_F(CollectionFacetingTest, FacetFieldStringArrayFiltering) {
-    Collection *coll_array_fields;
-
-    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
-    std::vector<field> fields = {field("name", field_types::STRING, false),
-                                 field("name_facet", field_types::STRING, true),
-                                 field("age", field_types::INT32, true),
-                                 field("years", field_types::INT32_ARRAY, true),
-                                 field("rating", field_types::FLOAT, true),
-                                 field("timestamps", field_types::INT64_ARRAY, true),
-                                 field("tags", field_types::STRING_ARRAY, true)};
-
-    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
-
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
-    if(coll_array_fields == nullptr) {
-        coll_array_fields = collectionManager.create_collection("coll_array_fields", 1, fields, "age").get();
-    }
-
-    std::string json_line;
-
-    while (std::getline(infile, json_line)) {
-        nlohmann::json document = nlohmann::json::parse(json_line);
-        document["name_facet"] = document["name"];
-        const std::string & patched_json_line = document.dump();
-        coll_array_fields->add(patched_json_line);
-    }
-
-    infile.close();
-
-    query_fields = {"name"};
-    std::vector<std::string> facets = {"tags"};
-
-    // facet with filter on string array field must fail when exact token is used
-    facets.clear();
-    facets.push_back("tags");
-    auto results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
-    ASSERT_EQ(0, results["found"].get<size_t>());
-
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
-
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(0, results["hits"].size());
-
-    // partial token filter should be made without "=" operator
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["found"].get<size_t>());
-
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["found"].get<size_t>());
-
-    // to make tokens match facet value exactly, use "=" operator
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["found"].get<size_t>());
-
-    // don't allow exact filter on non-faceted field
-    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
-
-    // multi match exact query (OR condition)
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(3, results["found"].get<size_t>());
-
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze, fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(4, results["hits"].size());
-    ASSERT_EQ(4, results["found"].get<size_t>());
-
-    // single array multi match
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["found"].get<size_t>());
-
-    collectionManager.drop_collection("coll_array_fields");
-}
 
 TEST_F(CollectionFacetingTest, FacetCounts) {
     Collection *coll_array_fields;
@@ -194,7 +48,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -321,7 +175,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
                                         false, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, "tags: fine pltinum").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fxne aluminium").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -504,7 +358,7 @@ TEST_F(CollectionFacetingTest, FacetCountsBool) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -558,7 +412,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -694,7 +548,7 @@ TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
 
     std::vector<sort_by> sort_fields_desc = { sort_by("average", "DESC") };
 
-    coll_float_fields = collectionManager.get_collection("coll_float_fields");
+    coll_float_fields = collectionManager.get_collection("coll_float_fields").get();
     if(coll_float_fields == nullptr) {
         coll_float_fields = collectionManager.create_collection("coll_float_fields", 4, fields, "average").get();
     }
@@ -756,7 +610,7 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -779,10 +633,6 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
     nlohmann::json results = coll1->search("*", {"categories"}, "points:[25, 50]", facets, sort_fields, 0, 10, 1,
                                            token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10).get();
-
-    LOG(INFO) << results;
-
-    return;
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());

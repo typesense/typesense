@@ -1,13 +1,17 @@
 # Typesense: TODO
 
-a) ~~Fix memory ratio (decreasing with indexing)~~
-b) ~~Speed up wildcard searches further~~
-c) ~~Allow int64 in default sorting field~~
-d) ~~Use connection timeout for CURL rather than request timeout~~
-e) Async import
+- Writes on dedicated threads
+- Single field aggregation short circuit
+- Test for group + multiple fields
 
 **Search index**
 
+- ~~Fix memory ratio (decreasing with indexing)~~
+- ~~Speed up wildcard searches further~~
+- ~~Allow int64 in default sorting field~~
+- ~~Use connection timeout for CURL rather than request timeout~~
+- ~~Async import~~
+- ~~Highlight all matching fields~~
 - ~~Proper JSON as input~~
 - ~~Storing raw JSON input to RocksDB~~
 - ~~ART for every indexed field~~

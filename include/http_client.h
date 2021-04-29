@@ -26,7 +26,7 @@ private:
 
     static CURL* init_curl(const std::string& url, std::string& response);
 
-    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist *chunk);
+    static CURL* init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk);
 
     static size_t curl_req_send_callback(char* buffer, size_t size, size_t nitems, void *userdata);
 
@@ -52,7 +52,8 @@ public:
     static long post_response(const std::string & url, const std::string & body, std::string & response,
                               std::map<std::string, std::string>& res_headers, long timeout_ms=4000);
 
-    static long post_response_async(const std::string &url, http_req* request, http_res* response,
+    static long post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
+                                    const std::shared_ptr<http_res> response,
                                     HttpServer* server);
 
     static long put_response(const std::string & url, const std::string & body, std::string & response,

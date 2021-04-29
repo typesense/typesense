@@ -7,101 +7,98 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
 
 // Collections
 
-bool get_collections(http_req& req, http_res& res);
+bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_create_collection(http_req& req, http_res& res);
+bool post_create_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_drop_collection(http_req& req, http_res& res);
+bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_collection_summary(http_req& req, http_res& res);
+bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Documents
 
-bool get_search(http_req& req, http_res& res);
+bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_multi_search(http_req& req, http_res& res);
+bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_export_documents(http_req& req, http_res& res);
+bool get_export_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_add_document(http_req& req, http_res& res);
+bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool patch_update_document(http_req& req, http_res& res);
+bool patch_update_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_import_documents(http_req& req, http_res& res);
+bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_fetch_document(http_req& req, http_res& res);
+bool get_fetch_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_remove_document(http_req& req, http_res& res);
+bool del_remove_document(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_remove_documents(http_req& req, http_res& res);
+bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Alias
 
-bool get_alias(http_req& req, http_res& res);
+bool get_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_aliases(http_req& req, http_res& res);
+bool get_aliases(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_upsert_alias(http_req& req, http_res& res);
+bool put_upsert_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_alias(http_req& req, http_res& res);
+bool del_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Overrides
 
-bool get_overrides(http_req& req, http_res& res);
+bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_override(http_req& req, http_res& res);
+bool get_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_override(http_req& req, http_res& res);
+bool put_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_override(http_req& req, http_res& res);
+bool del_override(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Synonyms
 
-bool get_synonyms(http_req& req, http_res& res);
+bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_synonym(http_req& req, http_res& res);
+bool get_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool put_synonym(http_req& req, http_res& res);
+bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_synonym(http_req& req, http_res& res);
+bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Keys
 
-bool get_keys(http_req& req, http_res& res);
+bool get_keys(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_create_key(http_req& req, http_res& res);
+bool post_create_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_key(http_req& req, http_res& res);
+bool get_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool del_key(http_req& req, http_res& res);
+bool del_key(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Health + Metrics
 
-bool get_debug(http_req& req, http_res& res);
+bool get_debug(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_health(http_req& req, http_res& res);
+bool get_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_health(http_req& req, http_res& res);
+bool post_health(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_metrics_json(http_req& req, http_res& res);
+bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_stats_json(http_req& req, http_res& res);
+bool get_stats_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_log_sequence(http_req& req, http_res& res);
+bool get_log_sequence(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // operations
 
-bool post_snapshot(http_req& req, http_res& res);
+bool post_snapshot(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_vote(http_req& req, http_res& res);
+bool post_vote(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool post_config(http_req& req, http_res& res);
+bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
                               const route_path &rpath, std::vector<std::string> &collections);
 
-bool raft_write_send_response(void *data);
-
-static constexpr const char* SEND_RESPONSE_MSG = "send_response";

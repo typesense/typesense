@@ -3,8 +3,8 @@ project(typesense)
 
 cmake_policy(SET CMP0074 NEW)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wno-unused-parameter -O2 -g -DNDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -std=c++17 -O0 -g")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -O2 -g -DNDEBUG")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -Werror=return-type -std=c++17 -O0 -g")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
@@ -35,6 +35,8 @@ if (APPLE)
     set(SNAPPY_ROOT_DIR /usr/local/opt/snappy)
     set(ZLIB_ROOT /usr/local/opt/zlib)
     set(CMAKE_PREFIX_PATH /usr/local/opt/curl-openssl /usr/local/opt/icu4c)
+
+    add_compile_definitions(USE_BACKWARD=1)
 else()
     add_compile_definitions(BACKWARD_HAS_DW=1)
 endif()
@@ -55,6 +57,8 @@ include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/Iconv.cmake)
 include(cmake/Jemalloc.cmake)
+include(cmake/h3.cmake)
+include(cmake/kakasi.cmake)
 
 FIND_PACKAGE(OpenSSL 1.1.1 REQUIRED)
 FIND_PACKAGE(Snappy REQUIRED)
@@ -68,7 +72,7 @@ FIND_PACKAGE(glog REQUIRED)
 
 message("OpenSSL library: ${OPENSSL_LIBRARIES}")
 
-FILE(GLOB SRC_FILES src/*.cpp)
+FILE(GLOB SRC_FILES src/*.cpp ${DEP_ROOT_DIR}/${KAKASI_NAME}/data/*.cpp)
 FILE(GLOB TEST_FILES test/*.cpp)
 
 include_directories(include)
@@ -84,6 +88,9 @@ include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${BRPC_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${BRAFT_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${JEMALLOC_NAME}/include/jemalloc)
+include_directories(${DEP_ROOT_DIR}/${H3_NAME}/build/src/h3lib/include)
+include_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/build/include)
+include_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/data)
 
 link_directories(/usr/local/lib)
 link_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/build)
@@ -92,6 +99,8 @@ link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
 link_directories(${DEP_ROOT_DIR}/${JEMALLOC_NAME}/lib)
+link_directories(${DEP_ROOT_DIR}/${H3_NAME}/build/lib)
+link_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/build/lib)
 
 set(JEMALLOC_ROOT_DIR "${DEP_ROOT_DIR}/${JEMALLOC_NAME}")
 FIND_PACKAGE(Jemalloc REQUIRED)
@@ -135,12 +144,12 @@ if (APPLE)
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
-    list(APPEND ROCKSDB_LIBS rt)
     list(APPEND STACKTRACE_LIBS dw elf)
+    list(APPEND SYSTEM_LIBS rt)
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for
+set(CORE_LIBS kakasi h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for h3
               ${LevelDB_LIBRARIES} ${ROCKSDB_LIBS}
               glog ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${STACKTRACE_LIBS}
               ${OPENSSL_LIBRARIES} ${ZLIB_LIBRARIES} ${JEMALLOC_LIBRARIES}

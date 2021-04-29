@@ -19,7 +19,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         std::vector<field> fields = {
             field("title", field_types::STRING, false),
@@ -29,7 +29,7 @@ protected:
             field("rating", field_types::FLOAT, true, false)
         };
 
-        coll_group = collectionManager.get_collection("coll_group");
+        coll_group = collectionManager.get_collection("coll_group").get();
         if(coll_group == nullptr) {
             coll_group = collectionManager.create_collection("coll_group", 4, fields, "rating").get();
         }
@@ -256,7 +256,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
                                  field("genre", field_types::STRING, true),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }

@@ -4,18 +4,27 @@
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
+#include "json.hpp"
 
 namespace field_types {
+    // first field value indexed will determine the type
+    static const std::string AUTO = "auto";
+
     static const std::string STRING = "string";
     static const std::string INT32 = "int32";
     static const std::string INT64 = "int64";
     static const std::string FLOAT = "float";
     static const std::string BOOL = "bool";
+    static const std::string GEOPOINT = "geopoint";
     static const std::string STRING_ARRAY = "string[]";
     static const std::string INT32_ARRAY = "int32[]";
     static const std::string INT64_ARRAY = "int64[]";
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
+
+    static bool is_string_or_array(const std::string& type_def) {
+        return type_def == "string*";
+    }
 }
 
 namespace fields {
@@ -23,22 +32,35 @@ namespace fields {
     static const std::string type = "type";
     static const std::string facet = "facet";
     static const std::string optional = "optional";
+    static const std::string index = "index";
+    static const std::string geo_resolution = "geo_resolution";
+    static const std::string locale = "locale";
 }
+
+static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
+static const uint8_t FINEST_GEO_RESOLUTION = 15;
 
 struct field {
     std::string name;
     std::string type;
     bool facet;
     bool optional;
+    bool index;
 
-    field(const std::string & name, const std::string & type, const bool facet):
-        name(name), type(type), facet(facet), optional(false) {
+    uint8_t geo_resolution;
+
+    std::string locale;
+
+    field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
+          bool index = true, const uint8_t geo_resolution = DEFAULT_GEO_RESOLUTION,
+          std::string locale = "") :
+            name(name), type(type), facet(facet), optional(optional), index(index),
+            geo_resolution(geo_resolution), locale(locale) {
 
     }
 
-    field(const std::string & name, const std::string & type, const bool facet, const bool optional):
-            name(name), type(type), facet(facet), optional(optional) {
-
+    bool is_auto() const {
+        return (type == field_types::AUTO);
     }
 
     bool is_single_integer() const {
@@ -74,6 +96,10 @@ struct field {
         return (type == field_types::BOOL || type == field_types::BOOL_ARRAY);
     }
 
+    bool is_geopoint() const {
+        return (type == field_types::GEOPOINT);
+    }
+
     bool is_string() const {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
@@ -88,12 +114,290 @@ struct field {
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
     }
 
+    bool is_singular() const {
+        return !is_array();
+    }
+
+    bool is_dynamic() const {
+         return is_dynamic(name, type);
+    }
+
+    static bool is_dynamic(const std::string& name, const std::string& type) {
+        return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
+    }
+
+    bool has_numerical_index() const {
+        return (type == field_types::INT32 || type == field_types::INT64 ||
+                type == field_types::FLOAT || type == field_types::BOOL);
+    }
+
+    bool is_sortable() const {
+        return is_single_integer() || is_single_float() || is_single_bool() || is_geopoint();
+    }
+
     bool has_valid_type() const {
-        return is_string() || is_integer() || is_float() || is_bool();
+        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
+        if(!is_basic_type) {
+            return field_types::is_string_or_array(type);
+        }
+        return true;
     }
 
     std::string faceted_name() const {
         return (facet && !is_string()) ? "_fstr_" + name : name;
+    }
+
+    static bool get_type(const nlohmann::json& obj, std::string& field_type) {
+        if(obj.is_array()) {
+            if(obj.empty()) {
+                return false;
+            }
+
+            bool parseable = get_single_type(obj[0], field_type);
+            if(!parseable) {
+                return false;
+            }
+
+            field_type = field_type + "[]";
+            return true;
+        }
+
+        if(obj.is_object()) {
+            return false;
+        }
+
+        return get_single_type(obj, field_type);
+    }
+
+    static bool get_single_type(const nlohmann::json& obj, std::string& field_type) {
+        if(obj.is_string()) {
+            field_type = field_types::STRING;
+            return true;
+        }
+
+        if(obj.is_number_float()) {
+            field_type = field_types::FLOAT;
+            return true;
+        }
+
+        if(obj.is_number_integer()) {
+            field_type = field_types::INT64;
+            return true;
+        }
+
+        if(obj.is_boolean()) {
+            field_type = field_types::BOOL;
+            return true;
+        }
+
+        return false;
+    }
+
+    static Option<bool> fields_to_json_fields(const std::vector<field> & fields,
+                                              const std::string & default_sorting_field,
+                                              nlohmann::json& fields_json) {
+        bool found_default_sorting_field = false;
+
+        for(const field & field: fields) {
+            nlohmann::json field_val;
+            field_val[fields::name] = field.name;
+            field_val[fields::type] = field.type;
+            field_val[fields::facet] = field.facet;
+            field_val[fields::optional] = field.optional;
+            if(field.is_geopoint()) {
+                field_val[fields::geo_resolution] = field.geo_resolution;
+            }
+
+            field_val[fields::locale] = field.locale;
+
+            fields_json.push_back(field_val);
+
+            if(!field.has_valid_type()) {
+                return Option<bool>(400, "Field `" + field.name +
+                                                "` has an invalid data type `" + field.type +
+                                                "`, see docs for supported data types.");
+            }
+
+            if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
+                                                        field.type == field_types::INT64 ||
+                                                        field.type == field_types::FLOAT)) {
+                return Option<bool>(400, "Default sorting field `" + default_sorting_field +
+                                                "` must be a single valued numerical field.");
+            }
+
+            if(field.name == default_sorting_field) {
+                if(field.optional) {
+                    return Option<bool>(400, "Default sorting field `" + default_sorting_field +
+                                                    "` cannot be an optional field.");
+                }
+
+                found_default_sorting_field = true;
+            }
+
+            if(field.is_dynamic() && !field.optional) {
+                if(field_types::is_string_or_array(field.type)) {
+                    return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
+                }
+
+                return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
+            }
+
+            if(!field.index && !field.optional) {
+                return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
+            }
+
+            if(!field.index && field.is_auto()) {
+                return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
+            }
+        }
+
+        if(!default_sorting_field.empty() && !found_default_sorting_field) {
+            return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
+                                            "` but is not found in the schema.");
+        }
+
+        return Option<bool>(true);
+    }
+
+    static Option<bool> json_fields_to_fields(nlohmann::json& fields_json,
+                                              std::string& fallback_field_type,
+                                              std::vector<field>& fields) {
+
+        size_t num_auto_detect_fields = 0;
+
+        for(nlohmann::json & field_json: fields_json) {
+            if(!field_json.is_object() ||
+               field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
+               !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
+
+                return Option<bool>(400, "Wrong format for `fields`. It should be an array of objects containing "
+                            "`name`, `type`, `optional` and `facet` properties.");
+            }
+
+            if(field_json.count(fields::facet) != 0 && !field_json.at(fields::facet).is_boolean()) {
+                return Option<bool>(400, std::string("The `facet` property of the field `") +
+                            field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json.count(fields::optional) != 0 && !field_json.at(fields::optional).is_boolean()) {
+                return Option<bool>(400, std::string("The `optional` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
+                return Option<bool>(400, std::string("The `index` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
+            if(field_json.count(fields::geo_resolution) != 0) {
+                if(!field_json.at(fields::geo_resolution).is_number_integer()) {
+                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` should be an integer."));
+                }
+
+                int field_geo_res = field_json.at(fields::geo_resolution).get<int>();
+                if(field_geo_res < 0 || field_geo_res > 15) {
+                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
+                           field_json[fields::name].get<std::string>() + std::string("` should be between 0 and 15."));
+                }
+            }
+
+            if(field_json.count(fields::locale) != 0){
+                if(!field_json.at(fields::locale).is_string()) {
+                    return Option<bool>(400, std::string("The `locale` property of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` should be a string."));
+                }
+
+                if(!field_json[fields::locale].get<std::string>().empty() && field_json[fields::locale] != "en" &&
+                   field_json[fields::locale] != "ja" && field_json[fields::locale] != "ko" &&
+                   field_json[fields::locale] != "zh" && field_json[fields::locale] != "th") {
+                    return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                             field_json[fields::name].get<std::string>() + std::string("` is not valid."));
+                }
+            }
+
+            if(field_json["name"] == ".*") {
+                if(field_json.count(fields::facet) == 0) {
+                    field_json[fields::facet] = false;
+                }
+
+                if(field_json.count(fields::optional) == 0) {
+                    field_json[fields::optional] = true;
+                }
+
+                if(field_json.count(fields::index) == 0) {
+                    field_json[fields::index] = true;
+                }
+
+                if(field_json.count(fields::locale) == 0) {
+                    field_json[fields::locale] = "";
+                }
+
+                if(field_json.count(fields::geo_resolution) != 0) {
+                    return Option<bool>(400, "Field `.*` cannot contain a geo resolution.");
+                }
+
+                if(field_json[fields::optional] == false) {
+                    return Option<bool>(400, "Field `.*` must be an optional field.");
+                }
+
+                if(field_json[fields::facet] == true) {
+                    return Option<bool>(400, "Field `.*` cannot be a facet field.");
+                }
+
+                if(field_json[fields::index] == false) {
+                    return Option<bool>(400, "Field `.*` must be an index field.");
+                }
+
+                field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
+                                     field_json["optional"], field_json[fields::index],
+                                     DEFAULT_GEO_RESOLUTION, field_json[fields::locale]);
+
+                if(fallback_field.has_valid_type()) {
+                    fallback_field_type = fallback_field.type;
+                    num_auto_detect_fields++;
+                } else {
+                    return Option<bool>(400, "The `type` of field `*` is invalid.");
+                }
+
+                fields.emplace_back(fallback_field);
+                continue;
+            }
+
+            if(field_json.count(fields::facet) == 0) {
+                field_json[fields::facet] = false;
+            }
+
+            if(field_json.count(fields::index) == 0) {
+                field_json[fields::index] = true;
+            }
+
+            if(field_json.count(fields::locale) == 0) {
+                field_json[fields::locale] = "";
+            }
+
+            if(field_json.count(fields::optional) == 0) {
+                // dynamic fields are always optional
+                bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
+                field_json[fields::optional] = is_dynamic;
+            }
+
+            if(field_json.count(fields::geo_resolution) == 0) {
+                field_json[fields::geo_resolution] = DEFAULT_GEO_RESOLUTION;
+            }
+
+            fields.emplace_back(
+                field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
+                      field_json[fields::optional], field_json[fields::index],
+                      field_json[fields::geo_resolution], field_json[fields::locale])
+            );
+        }
+
+        if(num_auto_detect_fields > 1) {
+            return Option<bool>(400,"There can be only one field named `.*`.");
+        }
+
+        return Option<bool>(true);
     }
 };
 
@@ -172,19 +476,27 @@ namespace sort_field_const {
     static const std::string asc = "ASC";
     static const std::string desc = "DESC";
     static const std::string text_match = "_text_match";
+    static const std::string seq_id = "_seq_id";
 }
 
 struct sort_by {
     std::string name;
     std::string order;
+    int64_t geopoint;
 
-    sort_by(const std::string & name, const std::string & order): name(name), order(order) {
+    sort_by(const std::string & name, const std::string & order): name(name), order(order), geopoint(0) {
+
+    }
+
+    sort_by(const std::string &name, const std::string &order, int64_t geopoint) :
+            name(name), order(order), geopoint(geopoint) {
 
     }
 
     sort_by& operator=(sort_by other) {
         name = other.name;
         order = other.order;
+        geopoint = other.geopoint;
         return *this;
     }
 };
@@ -231,4 +543,49 @@ struct facet_value_t {
     std::string value;
     std::string highlighted;
     uint32_t count;
+};
+
+struct facet_hash_values_t {
+    uint32_t length = 0;
+    uint64_t* hashes = nullptr;
+
+    facet_hash_values_t() {
+        length = 0;
+        hashes = nullptr;
+    }
+
+    facet_hash_values_t(facet_hash_values_t&& hash_values) noexcept {
+        length = hash_values.length;
+        hashes = hash_values.hashes;
+
+        hash_values.length = 0;
+        hash_values.hashes = nullptr;
+    }
+
+    facet_hash_values_t& operator=(facet_hash_values_t&& other) noexcept {
+        if (this != &other) {
+            delete[] hashes;
+
+            hashes = other.hashes;
+            length = other.length;
+
+            other.hashes = nullptr;
+            other.length = 0;
+        }
+
+        return *this;
+    }
+
+    ~facet_hash_values_t() {
+        delete [] hashes;
+        hashes = nullptr;
+    }
+
+    uint64_t size() const {
+        return length;
+    }
+
+    uint64_t back() const {
+        return hashes[length - 1];
+    }
 };

@@ -44,6 +44,7 @@ typedef struct {
     uint8_t num_children;
     uint8_t partial_len;
     unsigned char partial[MAX_PREFIX_LEN];
+    int64_t max_score;
 } art_node;
 
 /**
@@ -122,6 +123,8 @@ typedef struct {
 } art_document;
 
 enum token_ordering {
+    NOT_SET,
+
     FREQUENCY,
     MAX_SCORE
 };

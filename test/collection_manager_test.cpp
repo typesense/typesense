@@ -21,13 +21,15 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         search_fields = {
-                field("title", field_types::STRING, false),
-                field("starring", field_types::STRING, false),
-                field("cast", field_types::STRING_ARRAY, true, true),
-                field("points", field_types::INT32, false)
+            field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "en"),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true, true),
+            field(".*_year", field_types::INT32, true, true),
+            field("location", field_types::GEOPOINT, false, true, true, 14),
+            field("points", field_types::INT32, false)
         };
 
         sort_fields = { sort_by("points", "DESC") };
@@ -39,15 +41,17 @@ protected:
     }
 
     virtual void TearDown() {
-        collectionManager.drop_collection("collection1");
-        collectionManager.dispose();
-        delete store;
+        if(store != nullptr) {
+            collectionManager.drop_collection("collection1");
+            collectionManager.dispose();
+            delete store;
+        }
     }
 };
 
 TEST_F(CollectionManagerTest, CollectionCreation) {
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collection1 = collectionManager2.get_collection("collection1");
+    collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
@@ -56,8 +60,9 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(1, collection1->get_sort_fields().size());
-    ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
+    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -82,11 +87,14 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ(3, num_keys);
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
-    ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\","
-              "\"fields\":[{\"facet\":false,\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
-              "{\"facet\":false,\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,\"name\":\"collection1\",\"num_memory_shards\":4}",
+    ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
+              "\"fields\":[{\"facet\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
+              "{\"facet\":false,\"geo_resolution\":14,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
+              "\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -96,7 +104,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"default_sorting_field\": \"foo\"}");
 
-    Collection *collection = collectionManager.init_collection(collection_meta1, 100);
+    Collection *collection = collectionManager.init_collection(collection_meta1, 100, store, 1.0f);
     ASSERT_EQ("foobar", collection->get_name());
     ASSERT_EQ(100, collection->get_collection_id());
     ASSERT_EQ(1, collection->get_fields().size());
@@ -112,7 +120,7 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
                                   "\"string\", \"facet\": false}], \"created_at\": 12345,"
                                   "\"default_sorting_field\": \"foo\"}");
 
-    collection = collectionManager.init_collection(collection_meta2, 100);
+    collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
     ASSERT_EQ(12345, collection->get_created_at());
 
     delete collection;
@@ -168,13 +176,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     override_t::parse(override_json_include, "", override_include);
 
     nlohmann::json override_json = {
-            {"id", "exclude-rule"},
-            {
-             "rule", {
-                           {"query", "of"},
-                           {"match", override_t::MATCH_EXACT}
-                   }
-            }
+        {"id", "exclude-rule"},
+        {
+         "rule", {
+                       {"query", "of"},
+                       {"match", override_t::MATCH_EXACT}
+               }
+        }
     };
     override_json["excludes"] = nlohmann::json::array();
     override_json["excludes"][0] = nlohmann::json::object();
@@ -224,6 +232,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> facets;
 
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    LOG(INFO) << results;
     ASSERT_EQ(4, results["hits"].size());
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
@@ -231,7 +240,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
     collectionManager2.init(store, 1.0, "auth_key");
-    auto load_op = collectionManager2.load();
+    auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
         LOG(ERROR) << load_op.error();
@@ -239,7 +248,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(load_op.ok());
 
-    collection1 = collectionManager2.get_collection("collection1");
+    collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
     std::vector<std::string> facet_fields_expected = {"cast"};
@@ -247,8 +256,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
-    ASSERT_EQ(1, collection1->get_sort_fields().size());
-    ASSERT_EQ(sort_fields[0].name, collection1->get_sort_fields()[0].name);
+    ASSERT_EQ(2, collection1->get_sort_fields().size());
+    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -262,19 +272,128 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
     ASSERT_STREQ("include-rule", collection1->get_overrides()["include-rule"].id.c_str());
 
-    auto& synonyms = collection1->get_synonyms();
+    const auto& synonyms = collection1->get_synonyms();
     ASSERT_EQ(2, synonyms.size());
 
-    ASSERT_STREQ("id1", synonyms["id1"].id.c_str());
-    ASSERT_EQ(2, synonyms["id1"].root.size());
-    ASSERT_EQ(1, synonyms["id1"].synonyms.size());
+    ASSERT_STREQ("id1", synonyms.at("id1").id.c_str());
+    ASSERT_EQ(2, synonyms.at("id1").root.size());
+    ASSERT_EQ(1, synonyms.at("id1").synonyms.size());
 
-    ASSERT_STREQ("id3", synonyms["id3"].id.c_str());
-    ASSERT_EQ(0, synonyms["id3"].root.size());
-    ASSERT_EQ(2, synonyms["id3"].synonyms.size());
+    ASSERT_STREQ("id3", synonyms.at("id3").id.c_str());
+    ASSERT_EQ(0, synonyms.at("id3").root.size());
+    ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
+}
+
+TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
+    Collection *coll1;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/optional_fields.jsonl");
+    std::vector<field> fields = {
+        field("max", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "max", 0, field_types::AUTO).get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        Option<nlohmann::json> add_op = coll1->add(document.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    infile.close();
+
+    ASSERT_EQ(1, coll1->get_collection_id());
+    ASSERT_EQ(3, coll1->get_sort_fields().size());
+
+    // index a document with a 2 bad field values with COERCE_OR_DROP setting
+    // `title` is an integer and `average` is a string
+    auto doc_json = R"({"title": 12345, "max": 25, "scores": [22, "how", 44],
+                        "average": "bad data", "is_valid": true})";
+
+    Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    std::unordered_map<std::string, field> schema = collection1->get_schema();
+
+    // create a new collection manager to ensure that it restores the records from the disk backed store
+    CollectionManager & collectionManager2 = CollectionManager::get_instance();
+    collectionManager2.init(store, 1.0, "auth_key");
+    auto load_op = collectionManager2.load(8, 1000);
+
+    if(!load_op.ok()) {
+        LOG(ERROR) << load_op.error();
+    }
+
+    ASSERT_TRUE(load_op.ok());
+
+    auto restored_coll = collectionManager2.get_collection("coll1").get();
+    ASSERT_NE(nullptr, restored_coll);
+
+    std::vector<std::string> facet_fields_expected = {};
+    auto restored_schema = restored_coll->get_schema();
+
+    ASSERT_EQ(1, restored_coll->get_collection_id());
+    ASSERT_EQ(7, restored_coll->get_next_seq_id());
+    ASSERT_EQ(7, restored_coll->get_num_documents());
+    ASSERT_EQ(facet_fields_expected, restored_coll->get_facet_fields());
+    ASSERT_EQ(3, restored_coll->get_sort_fields().size());
+    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[0].name);
+    ASSERT_EQ("average", restored_coll->get_sort_fields()[1].name);
+    ASSERT_EQ("max", restored_coll->get_sort_fields()[2].name);
+
+    // ensures that the "id" field is not added to the schema
+    ASSERT_EQ(6, restored_schema.size());
+
+    ASSERT_EQ("max", restored_coll->get_default_sorting_field());
+
+    ASSERT_EQ(1, restored_schema.count("title"));
+    ASSERT_EQ(1, restored_schema.count("max"));
+    ASSERT_EQ(1, restored_schema.count("description"));
+    ASSERT_EQ(1, restored_schema.count("scores"));
+    ASSERT_EQ(1, restored_schema.count("average"));
+    ASSERT_EQ(1, restored_schema.count("is_valid"));
+
+    // all detected schema are optional fields, while defined schema is not
+
+    for(const auto& kv: restored_schema) {
+        if(kv.first == "max") {
+            ASSERT_FALSE(kv.second.optional);
+        } else {
+            ASSERT_TRUE(kv.second.optional);
+        }
+    }
+
+    // try searching for record with bad data
+    auto results = restored_coll->search("12345", {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // int to string conversion should be done for `title` while `average` field must be dropped
+    ASSERT_STREQ("12345", results["hits"][0]["document"]["title"].get<std::string>().c_str());
+    ASSERT_EQ(0, results["hits"][0]["document"].count("average"));
+
+    ASSERT_EQ(2, results["hits"][0]["document"]["scores"].size());
+    ASSERT_EQ(22, results["hits"][0]["document"]["scores"][0]);
+    ASSERT_EQ(44, results["hits"][0]["document"]["scores"][1]);
+
+    // try sorting on `average`, a field that not all records have
+    ASSERT_EQ(7, restored_coll->get_num_documents());
+
+    sort_fields = { sort_by("average", "DESC") };
+    results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(7, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager2.drop_collection("coll1");
 }
 
 TEST_F(CollectionManagerTest, DropCollectionCleanly) {
@@ -287,8 +406,8 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
 
     infile.close();
 
-    ASSERT_FALSE(nullptr == collectionManager.get_collection_with_id(0));
-    ASSERT_FALSE(nullptr == collectionManager.get_collection("collection1"));
+    ASSERT_FALSE(nullptr == collectionManager.get_collection_with_id(0).get());
+    ASSERT_FALSE(nullptr == collectionManager.get_collection("collection1").get());
 
     collectionManager.drop_collection("collection1");
 
@@ -303,8 +422,8 @@ TEST_F(CollectionManagerTest, DropCollectionCleanly) {
     ASSERT_EQ(1, num_keys);
     ASSERT_TRUE(it->status().ok());
 
-    ASSERT_EQ(nullptr, collectionManager.get_collection("collection1"));
-    ASSERT_EQ(nullptr, collectionManager.get_collection_with_id(0));
+    ASSERT_EQ(nullptr, collectionManager.get_collection("collection1").get());
+    ASSERT_EQ(nullptr, collectionManager.get_collection_with_id(0).get());
     ASSERT_EQ(1, collectionManager.get_next_collection_id());
 
     delete it;
@@ -314,9 +433,9 @@ TEST_F(CollectionManagerTest, Symlinking) {
     CollectionManager & cmanager = CollectionManager::get_instance();
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
-    Store *store = new Store(state_dir_path);
-    cmanager.init(store, 1.0, "auth_key");
-    cmanager.load();
+    Store *new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.load(8, 1000);
 
     // try resolving on a blank slate
     Option<std::string> collection_option = cmanager.resolve_symlink("collection");
@@ -361,6 +480,15 @@ TEST_F(CollectionManagerTest, Symlinking) {
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("collection1", collection_option.get());
 
+    // try to drop a collection using the alias `collection1_link`
+    auto drop_op = cmanager.drop_collection("collection1_link");
+    ASSERT_TRUE(drop_op.ok());
+
+    // try to list collections now
+    nlohmann::json summaries = cmanager.get_collection_summaries();
+    ASSERT_EQ(0, summaries.size());
+
+    // remap alias to another non-existing collection
     inserted = cmanager.upsert_symlink("collection1_link", "collection2");
     ASSERT_TRUE(inserted.ok());
     collection_option = cmanager.resolve_symlink("collection1_link");
@@ -382,7 +510,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
     cmanager2.init(store, 1.0, "auth_key");
-    cmanager2.load();
+    cmanager2.load(8, 1000);
 
     collection_option = cmanager2.resolve_symlink("company");
     ASSERT_TRUE(collection_option.ok());
@@ -395,4 +523,98 @@ TEST_F(CollectionManagerTest, Symlinking) {
     collection_option = cmanager2.resolve_symlink("company_3");
     ASSERT_TRUE(collection_option.ok());
     ASSERT_EQ("company_2020", collection_option.get());
+
+    delete new_store;
+}
+
+TEST_F(CollectionManagerTest, LoadMultipleCollections) {
+    // to prevent fixture tear down from running as we are fudging with CollectionManager singleton
+    delete store;
+    store = nullptr;
+
+    CollectionManager & cmanager = CollectionManager::get_instance();
+    std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
+    system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
+    Store *new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.load(8, 1000);
+
+    for(size_t i = 0; i < 100; i++) {
+        auto schema = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, false),
+            field("cast", field_types::STRING_ARRAY, true, true),
+            field(".*_year", field_types::INT32, true, true),
+            field("location", field_types::GEOPOINT, false, true, true, 14),
+            field("points", field_types::INT32, false)
+        };
+
+        cmanager.create_collection("collection" + std::to_string(i), 4, schema, "points").get();
+    }
+
+    ASSERT_EQ(100, cmanager.get_collections().size());
+
+    cmanager.dispose();
+    delete new_store;
+
+    new_store = new Store(state_dir_path);
+    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.load(8, 1000);
+
+    ASSERT_EQ(100, cmanager.get_collections().size());
+
+    for(size_t i = 0; i < 100; i++) {
+        collectionManager.drop_collection("collection" + std::to_string(i));
+    }
+
+    collectionManager.dispose();
+    delete new_store;
+}
+
+TEST_F(CollectionManagerTest, ParseSortByClause) {
+    std::vector<sort_by> sort_fields;
+    bool sort_by_parsed = CollectionManager::parse_sort_by_str("points:desc,loc(24.56,10.45):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("points", sort_fields[0].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[1].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" points:desc , loc(24.56,10.45):ASC", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("points", sort_fields[0].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[1].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" loc(24.56,10.45):ASC, points:desc ", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+
+    ASSERT_STREQ("loc(24.56,10.45)", sort_fields[0].name.c_str());
+    ASSERT_STREQ("ASC", sort_fields[0].order.c_str());
+
+    ASSERT_STREQ("points", sort_fields[1].name.c_str());
+    ASSERT_STREQ("DESC", sort_fields[1].order.c_str());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ(0, sort_fields.size());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(",", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
+
 }
