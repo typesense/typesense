@@ -19,7 +19,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -29,7 +29,7 @@ protected:
                 field("points", field_types::INT32, false)
         };
 
-        coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+        coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
         if(coll_mul_fields == nullptr) {
             coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
         }
@@ -376,7 +376,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
                                  field("description", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -431,7 +431,7 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
                                  field("description", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }

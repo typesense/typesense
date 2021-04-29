@@ -11,6 +11,7 @@
 
 #include "http_data.h"
 #include "threadpool.h"
+#include "http_server.h"
 
 class Store;
 class ReplicationState;
@@ -18,21 +19,23 @@ class ReplicationState;
 // Implements the callback for the state machine
 class ReplicationClosure : public braft::Closure {
 private:
-    http_req* request;
-    http_res* response;
+    const std::shared_ptr<http_req> request;
+    const std::shared_ptr<http_res> response;
 
 public:
-    ReplicationClosure(http_req* request, http_res* response): request(request), response(response) {
+    ReplicationClosure(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response): request(request), response(response) {
 
     }
 
-    ~ReplicationClosure() {}
+    ~ReplicationClosure() {
+        //LOG(INFO) << "~ReplicationClosure req use count " << request.use_count();
+    }
 
-    http_req* get_request() const {
+    const std::shared_ptr<http_req>& get_request() const {
         return request;
     }
 
-    http_res* get_response() const {
+    const std::shared_ptr<http_res>& get_response() const {
         return response;
     }
 
@@ -59,30 +62,18 @@ public:
     }
 };
 
-// Closure that fires when initial snapshot operation finishes
-class InitSnapshotClosure : public braft::Closure {
-private:
-    ReplicationState* replication_state;
-public:
-
-    InitSnapshotClosure(ReplicationState* replication_state): replication_state(replication_state) {}
-
-    ~InitSnapshotClosure() {}
-
-    void Run();
-};
-
 // Closure that fires when requested
 class OnDemandSnapshotClosure : public braft::Closure {
 private:
     ReplicationState* replication_state;
-    http_req* req;
-    http_res* res;
+    const std::shared_ptr<http_req> req;
+    const std::shared_ptr<http_res> res;
 
 public:
 
-    OnDemandSnapshotClosure(ReplicationState* replication_state, http_req* req, http_res* res):
-    replication_state(replication_state), req(req), res(res) {}
+    OnDemandSnapshotClosure(ReplicationState *replication_state, const std::shared_ptr<http_req>& req,
+                            const std::shared_ptr<http_res>& res) :
+        replication_state(replication_state), req(req), res(res) {}
 
     ~OnDemandSnapshotClosure() {}
 
@@ -94,24 +85,36 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
-    static const size_t CATCHUP_MIN_SEQUENCE_DIFF = 3000;
+    static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
+
+    mutable std::shared_mutex node_mutex;
 
     braft::Node* volatile node;
     butil::atomic<int64_t> leader_term;
-    std::set<braft::PeerId> peers;
 
-    Store *store;
+    HttpServer* server;
+
+    Store* store;
+    Store* meta_store;
+
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
-    const size_t catch_up_threshold_percentage;
-    std::atomic<bool> caught_up;
+    // Used to skip over a bad raft log entry which previously triggered a crash
+    const static int64_t UNSET_SKIP_INDEX = -9999;
+    std::atomic<int64_t> skip_index = UNSET_SKIP_INDEX;
+    rocksdb::Iterator* skip_index_iter = nullptr;
 
     const bool api_uses_ssl;
 
-    bool create_init_db_snapshot;
+    const int64_t healthy_read_lag;
+    const int64_t healthy_write_lag;
 
-    std::atomic<bool>& shut_down;
+    const size_t num_collections_parallel_load;
+    const size_t num_documents_parallel_load;
+
+    std::atomic<bool> read_caught_up;
+    std::atomic<bool> write_caught_up;
 
     std::string raft_dir_path;
 
@@ -119,15 +122,23 @@ private:
 
     int election_timeout_interval_ms;
 
+    std::mutex mcv;
+    std::condition_variable cv;
+    bool ready;
+
+    std::atomic<bool> shutting_down;
+    std::atomic<size_t> pending_writes;
+
 public:
 
     static constexpr const char* log_dir_name = "log";
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(Store* store, ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, size_t catch_up_threshold_percentage,
-                     bool create_init_db_snapshot, std::atomic<bool>& quit_service);
+    ReplicationState(HttpServer* server, Store* store, Store* meta_store,
+                     ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
+                     bool api_uses_ssl, int64_t healthy_read_lag, int64_t healthy_write_lag,
+                     size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
@@ -135,13 +146,15 @@ public:
               const std::string & raft_dir, const std::string & nodes);
 
     // Generic write method for synchronizing all writes
-    void write(http_req* request, http_res* response);
+    void write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     // Generic read method for consistent reads, not used for now
-    void read(http_res* response);
+    void read(const std::shared_ptr<http_res>& response);
 
     // updates cluster membership
     void refresh_nodes(const std::string & nodes);
+
+    void refresh_catchup_status(bool log_msg);
 
     bool trigger_vote();
 
@@ -149,8 +162,12 @@ public:
         return leader_term.load(butil::memory_order_acquire) > 0;
     }
 
-    bool is_ready() const {
-        return caught_up;
+    bool is_read_caught_up() const {
+        return read_caught_up;
+    }
+
+    bool is_write_caught_up() const {
+        return write_caught_up;
     }
 
     bool is_alive() const;
@@ -158,28 +175,13 @@ public:
     uint64_t node_state() const;
 
     // Shut this node down.
-    void shutdown() {
-        LOG(INFO) << "Replication state shutdown.";
-        shut_down = true;
-        if (node) {
-            node->shutdown(nullptr);
-        }
-    }
-
-    // Blocking this thread until the node is eventually down.
-    void join() {
-        if (node) {
-            node->join();
-            delete node;
-            node = nullptr;
-        }
-    }
+    void shutdown();
 
     int init_db();
 
     Store* get_store();
 
-    void do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res);
+    void do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
     static std::string to_nodes_config(const butil::EndPoint &peering_endpoint, const int api_port,
                                        const std::string &nodes_config);
@@ -188,9 +190,21 @@ public:
 
     const std::string& get_ext_snapshot_path() const;
 
+    void persist_applying_index();
+
     http_message_dispatcher* get_message_dispatcher() const;
 
-    static constexpr const char* REPLICATION_MSG = "raft_replication";
+    void wait() {
+        auto lk = std::unique_lock<std::mutex>(mcv);
+        cv.wait(lk, [&] { return ready; });
+        ready = false;
+    }
+
+    void notify() {
+        std::lock_guard<std::mutex> lk(mcv);
+        ready = true;
+        cv.notify_all();
+    }
 
 private:
 
@@ -203,7 +217,6 @@ private:
         ReplicationState* replication_state;
         braft::SnapshotWriter* writer;
         std::string state_dir_path;
-        std::string db_dir_path;
         std::string db_snapshot_path;
         std::string ext_snapshot_path;
         braft::Closure* done;
@@ -217,14 +230,6 @@ private:
 
     void on_leader_start(int64_t term) {
         leader_term.store(term, butil::memory_order_release);
-
-        // have to do a dummy write, otherwise snapshot will not trigger
-        if(create_init_db_snapshot) {
-            http_req* request = new http_req(nullptr, "POST", "/INIT_SNAPSHOT", 0, {}, "INIT_SNAPSHOT");
-            http_res* response = new http_res();
-            write(request, response);
-        }
-
         LOG(INFO) << "Node becomes leader, term: " << term;
     }
 
@@ -243,10 +248,10 @@ private:
 
     void on_configuration_committed(const ::braft::Configuration& conf) {
         LOG(INFO) << "Configuration of this group is " << conf;
-        conf.list_peers(&peers);
     }
 
     void on_start_following(const ::braft::LeaderChangeContext& ctx) {
+        refresh_catchup_status(true);
         LOG(INFO) << "Node starts following " << ctx;
     }
 
@@ -254,10 +259,12 @@ private:
         LOG(INFO) << "Node stops following " << ctx;
     }
 
-    void write_to_leader(http_req *request, http_res *response) const;
+    void write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
 
     void do_dummy_write();
 
     std::string get_leader_url_path(const std::string& leader_addr, const std::string& path,
                                     const std::string& protocol) const;
+
+    void populate_skip_index();
 };

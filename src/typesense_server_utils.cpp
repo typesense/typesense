@@ -73,13 +73,20 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
+    options.add<uint32_t>("ssl-refresh-interval-seconds", '\0', "Frequency of automatic reloading of SSL certs from disk.", false, 8 * 60 * 60);
 
     options.add("enable-cors", '\0', "Enable CORS requests.");
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
-    options.add<int>("catch-up-threshold-percentage", '\0', "The threshold at which a follower is deemed to have caught up with leader.", false, 95);
+    options.add<int>("healthy-read-lag", '\0', "Reads are rejected if the updates lag behind this threshold.", false, 1000);
+    options.add<int>("healthy-write-lag", '\0', "Writes are rejected if the updates lag behind this threshold.", false, 500);
     options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
+
+    options.add<uint32_t>("num-collections-parallel-load", '\0', "Number of collections that are loaded in parallel during start up.", false, 4);
+    options.add<uint32_t>("num-documents-parallel-load", '\0', "Number of documents per collection that are indexed in parallel during start up.", false, 1000);
+
+    options.add<uint32_t>("thread-pool-size", '\0', "Number of threads used for handling concurrent requests.", false, 4);
 
     options.add<std::string>("log-dir", '\0', "Path to the log directory.", false, "");
 
@@ -129,14 +136,6 @@ int init_logger(Config & config, const std::string & server_version) {
     }
 
     return 0;
-}
-
-bool on_send_response(void *data) {
-    request_response* req_res = static_cast<request_response*>(data);
-    server->send_response(req_res->req, req_res->res);
-    delete req_res;
-
-    return true;
 }
 
 Option<std::string> fetch_nodes_config(const std::string& path_to_nodes) {
@@ -263,9 +262,9 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
-    while (!quit_raft_service.load()) {
+    while (!brpc::IsAskedToQuit() && !quit_raft_service.load()) {
         // post-increment to ensure that we refresh right away on a fresh boot
-        if(raft_counter++ % 10 == 0) {
+        if(raft_counter % 10 == 0) {
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
@@ -277,6 +276,13 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             replication_state.refresh_nodes(nodes_config);
         }
 
+        if(raft_counter % 3 == 0) {
+            // update node catch up status periodically, take care of logging too verbosely
+            bool log_msg = (raft_counter % 9 == 0);
+            replication_state.refresh_catchup_status(log_msg);
+        }
+
+        raft_counter++;
         sleep(1);
     }
 
@@ -284,15 +290,14 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     // Stop application before server
     replication_state.shutdown();
+
+    LOG(INFO) << "raft_server.stop()";
     raft_server.Stop(0);
 
-    // Wait until all the processing tasks are over.
-    replication_state.join();
+    LOG(INFO) << "raft_server.join()";
     raft_server.Join();
 
     LOG(INFO) << "Typesense peering service has quit.";
-
-    server->stop();
 
     return 0;
 }
@@ -339,30 +344,29 @@ int run_server(const Config & config, const std::string & version, void (*master
     std::string data_dir = config.get_data_dir();
     std::string db_dir = config.get_data_dir() + "/db";
     std::string state_dir = config.get_data_dir() + "/state";
+    std::string meta_dir = config.get_data_dir() + "/meta";
 
-    bool create_init_db_snapshot = false;  // for importing raw DB from earlier versions
+    size_t thread_pool_size = config.get_thread_pool_size();
 
-    if(!directory_exists(db_dir) && file_exists(data_dir+"/CURRENT") && file_exists(data_dir+"/IDENTITY")) {
-        if(!config.get_nodes().empty()) {
-            LOG(ERROR) << "Your data directory needs to be migrated to the new format.";
-            LOG(ERROR) << "To do that, please start Typesense server without the --nodes argument.";
-            return 1;
-        }
+    const size_t proc_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+    const size_t num_threads = thread_pool_size == 0 ? (proc_count * 8) : thread_pool_size;
 
-        LOG(INFO) << "Migrating contents of data directory in a `db` sub-directory, as per the new data layout.";
-        bool moved = mv_dir(data_dir, db_dir);
-        if(!moved) {
-            LOG(ERROR) << "CRITICAL ERROR! Failed to migrate all files in the data directory into a `db` sub-directory.";
-            LOG(ERROR) << "NOTE: Please move remaining files manually. Failure to do so **WILL** lead to **DATA LOSS**.";
-            return 1;
-        }
+    size_t num_collections_parallel_load = config.get_num_collections_parallel_load();
+    num_collections_parallel_load = (num_collections_parallel_load == 0) ?
+                                    (proc_count * 4) : num_collections_parallel_load;
 
-        create_init_db_snapshot = true;
-    }
+    LOG(INFO) << "Thread pool size: " << num_threads;
+    ThreadPool app_thread_pool(num_threads);
+    ThreadPool server_thread_pool(num_threads);
 
+    // primary DB used for storing the documents: we will not use WAL since Raft provides that
     Store store(db_dir);
+
+    // meta DB for storing house keeping things
+    Store meta_store(meta_dir, 24*60*60, 1024, false);
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, config.get_max_memory_ratio(), config.get_api_key());
+    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(), config.get_api_key());
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
@@ -374,32 +378,45 @@ int run_server(const Config & config, const std::string & version, void (*master
         config.get_api_port(),
         config.get_ssl_cert(),
         config.get_ssl_cert_key(),
-        config.get_enable_cors()
+        config.get_ssl_refresh_interval_seconds() * 1000,
+        config.get_enable_cors(),
+        &server_thread_pool
     );
 
     server->set_auth_handler(handle_authentication);
 
-    server->on(SEND_RESPONSE_MSG, on_send_response);
-    server->on(ReplicationState::REPLICATION_MSG, raft_write_send_response);
     server->on(HttpServer::STREAM_RESPONSE_MESSAGE, HttpServer::on_stream_response_message);
     server->on(HttpServer::REQUEST_PROCEED_MESSAGE, HttpServer::on_request_proceed_message);
+    server->on(HttpServer::DEFER_PROCESSING_MESSAGE, HttpServer::on_deferred_processing_message);
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
     // first we start the peering service
 
-    ThreadPool thread_pool(32);
-    ReplicationState replication_state(&store, &thread_pool, server->get_message_dispatcher(),
-                                       ssl_enabled, config.get_catch_up_threshold_percentage(),
-                                       create_init_db_snapshot, quit_raft_service);
+    ReplicationState replication_state(server, &store, &meta_store, &app_thread_pool, server->get_message_dispatcher(),
+                                       ssl_enabled,
+                                       config.get_healthy_read_lag(),
+                                       config.get_healthy_write_lag(),
+                                       num_collections_parallel_load,
+                                       config.get_num_documents_parallel_load());
 
-    std::thread raft_thread([&replication_state, &config, &state_dir]() {
+    std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds());
+
+        LOG(INFO) << "Shutting down server_thread_pool";
+
+        server_thread_pool.shutdown();
+
+        LOG(INFO) << "Shutting down app_thread_pool.";
+
+        app_thread_pool.shutdown();
+
+        server->stop();
     });
 
     LOG(INFO) << "Starting API service...";
@@ -413,10 +430,19 @@ int run_server(const Config & config, const std::string & version, void (*master
     quit_raft_service = true;  // we set this once again in case API thread crashes instead of a signal
     raft_thread.join();
 
+    LOG(INFO) << "CURL clean up";
+
     curl_global_cleanup();
 
+    LOG(INFO) << "Deleting server";
+
     delete server;
+
+    LOG(INFO) << "CollectionManager dispose, this might take some time...";
+
     CollectionManager::get_instance().dispose();
+
+    LOG(INFO) << "Bye.";
 
     return ret_code;
 }

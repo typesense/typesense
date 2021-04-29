@@ -4,7 +4,6 @@
 #include "collection_manager.h"
 #include "logger.h"
 
-constexpr const char* CollectionManager::COLLECTION_NUM_MEMORY_SHARDS;
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
 CollectionManager::CollectionManager() {
@@ -12,11 +11,13 @@ CollectionManager::CollectionManager() {
 }
 
 Collection* CollectionManager::init_collection(const nlohmann::json & collection_meta,
-                                               const uint32_t collection_next_seq_id) {
-    std::string this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
+                                               const uint32_t collection_next_seq_id,
+                                               Store* store,
+                                               float max_memory_ratio) {
+    std::string this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
 
     std::vector<field> fields;
-    nlohmann::json fields_map = collection_meta[COLLECTION_SEARCH_FIELDS_KEY];
+    nlohmann::json fields_map = collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY];
 
     for (nlohmann::json::iterator it = fields_map.begin(); it != fields_map.end(); ++it) {
         nlohmann::json & field_obj = it.value();
@@ -26,47 +27,79 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::optional] = false;
         }
 
-        fields.push_back({field_obj[fields::name], field_obj[fields::type],
-                          field_obj[fields::facet], field_obj[fields::optional]});
+        if(field_obj.count(fields::index) == 0) {
+            field_obj[fields::index] = true;
+        }
+
+        // handle older records indexed before geo_resolution field introduction
+        if(field_obj.count(fields::geo_resolution) == 0) {
+            field_obj[fields::geo_resolution] = size_t(DEFAULT_GEO_RESOLUTION);
+        }
+
+        if(field_obj.count(fields::locale) == 0) {
+            field_obj[fields::locale] = "";
+        }
+
+        fields.push_back({field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
+                          field_obj[fields::optional], field_obj[fields::index],
+                          field_obj[fields::geo_resolution], field_obj[fields::locale]});
     }
 
-    std::string default_sorting_field = collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
-    uint64_t created_at = collection_meta.find((const char*)COLLECTION_CREATED) != collection_meta.end() ?
-                       collection_meta[COLLECTION_CREATED].get<uint64_t>() : 0;
+    std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
 
-    size_t num_memory_shards = collection_meta.count(COLLECTION_NUM_MEMORY_SHARDS) != 0 ?
-                               collection_meta[COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
+    uint64_t created_at = collection_meta.find((const char*)Collection::COLLECTION_CREATED) != collection_meta.end() ?
+                       collection_meta[Collection::COLLECTION_CREATED].get<uint64_t>() : 0;
+
+    size_t num_memory_shards = collection_meta.count(Collection::COLLECTION_NUM_MEMORY_SHARDS) != 0 ?
+                               collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS].get<size_t>() :
                                DEFAULT_NUM_MEMORY_SHARDS;
+
+    std::string fallback_field_type = collection_meta.count(Collection::COLLECTION_FALLBACK_FIELD_TYPE) != 0 ?
+                              collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
+                              "";
 
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
-                                            collection_meta[COLLECTION_ID_KEY].get<uint32_t>(),
+                                            collection_meta[Collection::COLLECTION_ID_KEY].get<uint32_t>(),
                                             created_at,
                                             collection_next_seq_id,
                                             store,
                                             fields,
                                             default_sorting_field,
                                             num_memory_shards,
-                                            max_memory_ratio);
+                                            max_memory_ratio,
+                                            fallback_field_type);
 
     return collection;
 }
 
 void CollectionManager::add_to_collections(Collection* collection) {
-    collections.emplace(collection->get_name(), collection);
-    collection_id_names.emplace(collection->get_collection_id(), collection->get_name());
+    const std::string& collection_name = collection->get_name();
+    const uint32_t collection_id = collection->get_collection_id();
+    std::unique_lock lock(mutex);
+    collections.emplace(collection_name, collection);
+    collection_id_names.emplace(collection_id, collection_name);
 }
 
-void CollectionManager::init(Store *store,
+void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key) {
+    std::unique_lock lock(mutex);
+
     this->store = store;
+    this->thread_pool = thread_pool;
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
 }
 
-Option<bool> CollectionManager::load(const size_t init_batch_size) {
+// used only in tests!
+void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key) {
+    ThreadPool* thread_pool = new ThreadPool(8);
+    init(store, thread_pool, max_memory_ratio, auth_key);
+}
+
+Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
@@ -88,153 +121,57 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
         next_collection_id = 0;
     }
 
+    LOG(INFO) << "Loading " << collection_batch_size << " collections in parallel, "
+              << document_batch_size << " documents at a time.";
+
     std::vector<std::string> collection_meta_jsons;
     store->scan_fill(Collection::COLLECTION_META_PREFIX, collection_meta_jsons);
 
-    LOG(INFO) << "Found " << collection_meta_jsons.size() << " collection(s) on disk.";
+    const size_t num_collections = collection_meta_jsons.size();
+    LOG(INFO) << "Found " << num_collections << " collection(s) on disk.";
 
-    for(auto & collection_meta_json: collection_meta_jsons) {
-        nlohmann::json collection_meta;
+    ThreadPool loading_pool(collection_batch_size);
 
-        try {
-            collection_meta = nlohmann::json::parse(collection_meta_json);
-        } catch(...) {
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    for(size_t coll_index = 0; coll_index < num_collections; coll_index++) {
+        const auto& collection_meta_json = collection_meta_jsons[coll_index];
+        nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
+
+        if(collection_meta == nlohmann::json::value_t::discarded) {
+            LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");
         }
 
-        const std::string & this_collection_name = collection_meta[COLLECTION_NAME_KEY].get<std::string>();
-        std::string collection_next_seq_id_str;
-        StoreStatus next_seq_id_status = store->get(Collection::get_next_seq_id_key(this_collection_name),
-                                                    collection_next_seq_id_str);
-
-        if(next_seq_id_status == StoreStatus::ERROR) {
-            return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for collection "
-                                     "`" + this_collection_name + "`");
-        }
-
-        if(next_seq_id_status == StoreStatus::NOT_FOUND && next_coll_id_status == StoreStatus::FOUND) {
-            return Option<bool>(500, "Next collection id was found, but collection's next sequence ID is missing for "
-                                     "`" + this_collection_name + "`");
-        }
-
-        uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
-                                          StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
-
-        if(get_collection(this_collection_name)) {
-            // To maintain idempotency, if the collection already exists in-memory, drop it from memory
-            LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
-            drop_collection(this_collection_name, false);
-        }
-
-        Collection* collection = init_collection(collection_meta, collection_next_seq_id);
-
-        LOG(INFO) << "Loading collection " << collection->get_name();
-
-        // initialize overrides
-        std::vector<std::string> collection_override_jsons;
-        store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
-
-        for(const auto & collection_override_json: collection_override_jsons) {
-            nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
-            override_t override;
-            auto parse_op = override_t::parse(collection_override, "", override);
-            if(parse_op.ok()) {
-                collection->add_override(override);
-            } else {
-                LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
-            }
-        }
-
-        // initialize synonyms
-        std::vector<std::string> collection_synonym_jsons;
-        store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
-
-        for(const auto & collection_synonym_json: collection_synonym_jsons) {
-            nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-            synonym_t synonym(collection_synonym);
-            collection->add_synonym(synonym);
-        }
-
-        // Fetch records from the store and re-create memory index
-        std::vector<std::string> documents;
-        const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
-
-        rocksdb::Iterator* iter = store->scan(seq_id_prefix);
-        std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
-
-        std::vector<std::vector<index_record>> iter_batch;
-
-        for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-            iter_batch.push_back(std::vector<index_record>());
-        }
-
-        size_t num_found_docs = 0;
-        size_t num_valid_docs = 0;
-        size_t num_indexed_docs = 0;
-
-        auto begin = std::chrono::high_resolution_clock::now();
-
-        while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
-            num_found_docs++;
-            const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
-
-            nlohmann::json document;
-
-            try {
-                document = nlohmann::json::parse(iter->value().ToString());
-            } catch(const std::exception& e) {
-                LOG(ERROR) << "JSON error: " << e.what();
-                return Option<bool>(false, "Bad JSON.");
+        auto captured_store = store;
+        loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status]() {
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status);
+            if(!res.ok()) {
+                LOG(ERROR) << "Error while loading collection. " << res.error();
+                LOG(ERROR) << "Typesense is quitting.";
+                captured_store->close();
+                exit(1);
             }
 
-            num_valid_docs++;
-            iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE));
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
 
-            // Peek and check for last record right here so that we handle batched indexing correctly
-            // Without doing this, the "last batch" would have to be indexed outside the loop.
-            iter->Next();
-            bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
-
-            // batch must match atleast the number of shards
-            const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
-
-            if((num_valid_docs % batch_size == 0) || last_record) {
-                std::vector<size_t> indexed_counts;
-                indexed_counts.reserve(iter_batch.size());
-
-                collection->par_index_in_memory(iter_batch, indexed_counts);
-
-                for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-                    size_t num_records = iter_batch[i].size();
-                    size_t num_indexed = indexed_counts[i];
-
-                    if(num_indexed != num_records) {
-                        const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                        if(!index_error_op.ok()) {
-                            return Option<bool>(false, index_error_op.get());
-                        }
-                    }
-                    iter_batch[i].clear();
-                    num_indexed_docs += num_indexed;
-                }
+            size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
+            if(num_processed % progress_modulo == 0) {
+                LOG(INFO) << "Loaded " << num_processed << " collection(s)";
             }
-
-            auto time_millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    std::chrono::high_resolution_clock::now() - begin).count();
-
-            auto throttle_time_millis = uint64_t((LOAD_THROTTLE_PERCENT/100) * time_millis);
-
-            if(throttle_time_millis != 0) {
-                // we throttle only when we have accumulated atleast 1 ms worth of throttling time
-                begin = std::chrono::high_resolution_clock::now();
-                std::this_thread::sleep_for(std::chrono::milliseconds(throttle_time_millis));
-            }
-        }
-
-        add_to_collections(collection);
-        LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
-                  << " documents into collection " << collection->get_name();
+        });
     }
+
+    // wait for all collections to be loaded
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){
+        return num_processed == num_collections;
+    });
 
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
     rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
@@ -247,11 +184,17 @@ Option<bool> CollectionManager::load(const size_t init_batch_size) {
 
     delete iter;
 
+    LOG(INFO) << "Done loading all " << num_collections << " collection(s).";
+
+    loading_pool.shutdown();
+
     return Option<bool>(true);
 }
 
 
 void CollectionManager::dispose() {
+    std::unique_lock lock(mutex);
+
     for(auto & name_collection: collections) {
         delete name_collection.second;
         name_collection.second = nullptr;
@@ -265,6 +208,8 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
                                          const std::string& action,
                                          const std::vector<std::string>& collections,
                                          std::map<std::string, std::string>& params) const {
+    std::shared_lock lock(mutex);
+
     if(auth_key_sent.empty()) {
         return false;
     }
@@ -281,62 +226,42 @@ bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
 Option<Collection*> CollectionManager::create_collection(const std::string& name,
                                                          const size_t num_memory_shards,
                                                          const std::vector<field> & fields,
-                                                         const std::string & default_sorting_field,
-                                                         const uint64_t created_at) {
+                                                         const std::string& default_sorting_field,
+                                                         const uint64_t created_at,
+                                                         const std::string& fallback_field_type) {
+
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
     }
 
-    bool found_default_sorting_field = false;
-    nlohmann::json fields_json = nlohmann::json::array();;
-
-    for(const field & field: fields) {
-        nlohmann::json field_val;
-        field_val[fields::name] = field.name;
-        field_val[fields::type] = field.type;
-        field_val[fields::facet] = field.facet;
-        field_val[fields::optional] = field.optional;
-        fields_json.push_back(field_val);
-
-        if(!field.has_valid_type()) {
-            return Option<Collection*>(400, "Field `" + field.name +
-                                            "` has an invalid data type `" + field.type +
-                                            "`, see docs for supported data types.");
-        }
-
-        if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
-                                                    field.type == field_types::INT64 ||
-                                                    field.type == field_types::FLOAT)) {
-            return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
-                                            "` must be a single valued numerical field.");
-        }
-
-        if(field.name == default_sorting_field) {
-            if(field.optional) {
-                return Option<Collection*>(400, "Default sorting field `" + default_sorting_field +
-                                                "` cannot be an optional field.");
-            }
-
-            found_default_sorting_field = true;
+    // validated `fallback_field_type`
+    if(!fallback_field_type.empty()) {
+        field fallback_field_type_def("temp", fallback_field_type, false);
+        if(!fallback_field_type_def.has_valid_type()) {
+            return Option<Collection*>(400, std::string("Field `*` has an invalid type."));
         }
     }
 
-    if(!found_default_sorting_field) {
-        return Option<Collection*>(400, "Default sorting field is defined as `" + default_sorting_field +
-                                        "` but is not found in the schema.");
+    nlohmann::json fields_json = nlohmann::json::array();;
+
+    Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json);
+
+    if(!fields_json_op.ok()) {
+        return Option<Collection*>(fields_json_op.code(), fields_json_op.error());
     }
 
     nlohmann::json collection_meta;
-    collection_meta[COLLECTION_NAME_KEY] = name;
-    collection_meta[COLLECTION_ID_KEY] = next_collection_id;
-    collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
-    collection_meta[COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
-    collection_meta[COLLECTION_CREATED] = created_at;
-    collection_meta[COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
+    collection_meta[Collection::COLLECTION_NAME_KEY] = name;
+    collection_meta[Collection::COLLECTION_ID_KEY] = next_collection_id.load();
+    collection_meta[Collection::COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
+    collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
+    collection_meta[Collection::COLLECTION_CREATED] = created_at;
+    collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
+    collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio);
+                                                this->max_memory_ratio, fallback_field_type);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -354,7 +279,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     return Option<Collection*>(new_collection);
 }
 
-Collection* CollectionManager::get_collection(const std::string & collection_name) {
+Collection* CollectionManager::get_collection_unsafe(const std::string & collection_name) const {
     if(collections.count(collection_name) != 0) {
         return collections.at(collection_name);
     }
@@ -370,17 +295,27 @@ Collection* CollectionManager::get_collection(const std::string & collection_nam
     return nullptr;
 }
 
-Collection* CollectionManager::get_collection_with_id(uint32_t collection_id) {
+locked_resource_view_t<Collection> CollectionManager::get_collection(const std::string & collection_name) const {
+    std::shared_lock lock(mutex);
+    Collection* coll = get_collection_unsafe(collection_name);
+    return locked_resource_view_t<Collection>(mutex, coll);
+}
+
+locked_resource_view_t<Collection> CollectionManager::get_collection_with_id(uint32_t collection_id) const {
+    std::shared_lock lock(mutex);
+
     if(collection_id_names.count(collection_id) != 0) {
         return get_collection(collection_id_names.at(collection_id));
     }
 
-    return nullptr;
+    return locked_resource_view_t<Collection>(mutex, nullptr);
 }
 
-std::vector<Collection*> CollectionManager::get_collections() {
+std::vector<Collection*> CollectionManager::get_collections() const {
+    std::shared_lock lock(mutex);
+
     std::vector<Collection*> collection_vec;
-    for(auto kv: collections) {
+    for(const auto& kv: collections) {
         collection_vec.push_back(kv.second);
     }
 
@@ -392,11 +327,19 @@ std::vector<Collection*> CollectionManager::get_collections() {
     return collection_vec;
 }
 
-Option<bool> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
-    Collection* collection = get_collection(collection_name);
+Option<nlohmann::json> CollectionManager::drop_collection(const std::string& collection_name, const bool remove_from_store) {
+    std::unique_lock lock(mutex);
+
+    auto collection = get_collection_unsafe(collection_name);
+
     if(collection == nullptr) {
-        return Option<bool>(404, "No collection with name `" + collection_name + "` found.");
+        return Option<nlohmann::json>(404, "No collection with name `" + collection_name + "` found.");
     }
+
+    // to handle alias resolution
+    const std::string actual_coll_name = collection->get_name();
+
+    nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
         const std::string &collection_id_str = std::to_string(collection->get_collection_id());
@@ -409,19 +352,19 @@ Option<bool> CollectionManager::drop_collection(const std::string& collection_na
         }
         delete iter;
 
-        store->remove(Collection::get_next_seq_id_key(collection_name));
-        store->remove(Collection::get_meta_key(collection_name));
+        store->remove(Collection::get_next_seq_id_key(actual_coll_name));
+        store->remove(Collection::get_meta_key(actual_coll_name));
     }
 
-    collections.erase(collection_name);
+    collections.erase(actual_coll_name);
     collection_id_names.erase(collection->get_collection_id());
 
     delete collection;
 
-    return Option<bool>(true);
+    return Option<nlohmann::json>(collection_json);
 }
 
-uint32_t CollectionManager::get_next_collection_id() {
+uint32_t CollectionManager::get_next_collection_id() const {
     return next_collection_id;
 }
 
@@ -429,15 +372,14 @@ std::string CollectionManager::get_symlink_key(const std::string & symlink_name)
     return std::string(SYMLINK_PREFIX) + "_" + symlink_name;
 }
 
-void CollectionManager::set_next_collection_id(uint32_t next_id) {
-    next_collection_id = next_id;
-}
-
-spp::sparse_hash_map<std::string, std::string> & CollectionManager::get_symlinks() {
+spp::sparse_hash_map<std::string, std::string> CollectionManager::get_symlinks() const {
+    std::shared_lock lock(mutex);
     return collection_symlinks;
 }
 
-Option<std::string> CollectionManager::resolve_symlink(const std::string & symlink_name) {
+Option<std::string> CollectionManager::resolve_symlink(const std::string & symlink_name) const {
+    std::shared_lock lock(mutex);
+
     if(collection_symlinks.count(symlink_name) != 0) {
         return Option<std::string>(collection_symlinks.at(symlink_name));
     }
@@ -446,6 +388,8 @@ Option<std::string> CollectionManager::resolve_symlink(const std::string & symli
 }
 
 Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name, const std::string & collection_name) {
+    std::unique_lock lock(mutex);
+
     if(collections.count(symlink_name) != 0) {
         return Option<bool>(500, "Name `" + symlink_name + "` conflicts with an existing collection name.");
     }
@@ -460,6 +404,8 @@ Option<bool> CollectionManager::upsert_symlink(const std::string & symlink_name,
 }
 
 Option<bool> CollectionManager::delete_symlink(const std::string & symlink_name) {
+    std::unique_lock lock(mutex);
+
     bool removed = store->remove(get_symlink_key(symlink_name));
     if(!removed) {
         return Option<bool>(500, "Unable to delete from store.");
@@ -475,6 +421,38 @@ Store* CollectionManager::get_store() {
 
 AuthManager& CollectionManager::getAuthManager() {
     return auth_manager;
+}
+
+bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields) {
+    std::string sort_field_expr;
+    char prev_non_space_char = 'a';
+
+    for(size_t i=0; i < sort_by_str.size(); i++) {
+        if(i == sort_by_str.size()-1 || (sort_by_str[i] == ',' && !isdigit(prev_non_space_char))) {
+            if(i == sort_by_str.size()-1) {
+                sort_field_expr += sort_by_str[i];
+            }
+
+            std::vector<std::string> expression_parts;
+            StringUtils::split(sort_field_expr, expression_parts, ":");
+
+            if(expression_parts.size() != 2) {
+                return false;
+            }
+
+            StringUtils::toupper(expression_parts[1]);
+            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
+            sort_field_expr = "";
+        } else {
+            sort_field_expr += sort_by_str[i];
+        }
+
+        if(sort_by_str[i] != ' ') {
+            prev_non_space_char = sort_by_str[i];
+        }
+    }
+
+    return true;
 }
 
 
@@ -681,25 +659,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     StringUtils::split(req_params[GROUP_BY], group_by_fields, ",");
 
     std::vector<sort_by> sort_fields;
-    if(req_params.count(SORT_BY) != 0) {
-        std::vector<std::string> sort_field_strs;
-        StringUtils::split(req_params[SORT_BY], sort_field_strs, ",");
+    bool parsed_sort_by = parse_sort_by_str(req_params[SORT_BY], sort_fields);
 
-        if(sort_field_strs.size() > 3) {
-            return Option<bool>(400,"Only upto 3 sort fields are allowed.");
-        }
+    if(!parsed_sort_by) {
+        return Option<bool>(400,std::string("Parameter `") + SORT_BY + "` is malformed.");
+    }
 
-        for(const std::string & sort_field_str: sort_field_strs) {
-            std::vector<std::string> expression_parts;
-            StringUtils::split(sort_field_str, expression_parts, ":");
-
-            if(expression_parts.size() != 2) {
-                return Option<bool>(400,std::string("Parameter `") + SORT_BY + "` is malformed.");
-            }
-
-            StringUtils::toupper(expression_parts[1]);
-            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
-        }
+    if(sort_fields.size() > 3) {
+        return Option<bool>(400, "Only upto 3 sort fields are allowed.");
     }
 
     if(req_params.count(PINNED_HITS) == 0) {
@@ -711,7 +678,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Collection* collection = collectionManager.get_collection(req_params["collection"]);
+    auto collection = collectionManager.get_collection(req_params["collection"]);
 
     if(collection == nullptr) {
         return Option<bool>(404, "Not found.");
@@ -721,12 +688,16 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const size_t drop_tokens_threshold = (size_t) std::stoi(req_params[DROP_TOKENS_THRESHOLD]);
     const size_t typo_tokens_threshold = (size_t) std::stoi(req_params[TYPO_TOKENS_THRESHOLD]);
 
-    if(req_params.count(RANK_TOKENS_BY) == 0) {
-        req_params[RANK_TOKENS_BY] = "DEFAULT_SORTING_FIELD";
-    }
+    token_ordering token_order = NOT_SET;
 
-    StringUtils::toupper(req_params[RANK_TOKENS_BY]);
-    token_ordering token_order = (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") ? MAX_SCORE : FREQUENCY;
+    if(req_params.count(RANK_TOKENS_BY) != 0) {
+        StringUtils::toupper(req_params[RANK_TOKENS_BY]);
+        if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
+            token_order = MAX_SCORE;
+        } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
+            token_order = FREQUENCY;
+        }
+    }
 
     Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
                                                           sort_fields, std::stoi(req_params[NUM_TYPOS]),
@@ -764,6 +735,239 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";
+
+    return Option<bool>(true);
+}
+
+ThreadPool* CollectionManager::get_thread_pool() const {
+    return thread_pool;
+}
+
+nlohmann::json CollectionManager::get_collection_summaries() const {
+    std::shared_lock lock(mutex);
+
+    std::vector<Collection*> colls = get_collections();
+    nlohmann::json json_summaries = nlohmann::json::array();
+
+    for(Collection* collection: colls) {
+        nlohmann::json collection_json = collection->get_summary_json();
+        json_summaries.push_back(collection_json);
+    }
+
+    return json_summaries;
+}
+
+Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {
+    const char* NUM_MEMORY_SHARDS = "num_memory_shards";
+    const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
+
+    // validate presence of mandatory fields
+
+    if(req_json.count("name") == 0) {
+        return Option<Collection*>(400, "Parameter `name` is required.");
+    }
+
+    if(!req_json["name"].is_string() || req_json["name"].get<std::string>().empty()) {
+        return Option<Collection*>(400, "Parameter `name` must be a non-empty string.");
+    }
+
+    if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
+        req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
+    }
+
+    if(req_json.count("fields") == 0) {
+        return Option<Collection*>(400, "Parameter `fields` is required.");
+    }
+
+    if(req_json.count(DEFAULT_SORTING_FIELD) == 0) {
+        req_json[DEFAULT_SORTING_FIELD] = "";
+    }
+
+    if(!req_json[DEFAULT_SORTING_FIELD].is_string()) {
+        return Option<Collection*>(400, std::string("`") + DEFAULT_SORTING_FIELD +
+                                        "` should be a string. It should be the name of an int32/float field.");
+    }
+
+    if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
+        return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
+    if(num_memory_shards == 0) {
+        return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    // field specific validation
+
+    if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
+        return Option<Collection *>(400, "The `fields` value should be an array of objects containing "
+                     "`name`, `type` and optionally, `facet` properties.");
+    }
+
+    const std::string& default_sorting_field = req_json[DEFAULT_SORTING_FIELD].get<std::string>();
+
+    std::string fallback_field_type;
+    std::vector<field> fields;
+    auto parse_op = field::json_fields_to_fields(req_json["fields"], fallback_field_type, fields);
+
+    if(!parse_op.ok()) {
+        return Option<Collection*>(parse_op.code(), parse_op.error());
+    }
+
+    const auto created_at = static_cast<uint64_t>(std::time(nullptr));
+
+    return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
+                                                                fields, default_sorting_field, created_at,
+                                                                fallback_field_type);
+}
+
+Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
+                                                const size_t init_batch_size,
+                                                const StoreStatus& next_coll_id_status) {
+
+    auto& cm = CollectionManager::get_instance();
+
+    if(!collection_meta.contains(Collection::COLLECTION_NAME_KEY)) {
+        return Option<bool>(500, "No collection name in collection meta: " + collection_meta.dump());
+    }
+
+    if(!collection_meta[Collection::COLLECTION_NAME_KEY].is_string()) {
+        LOG(ERROR) << collection_meta[Collection::COLLECTION_NAME_KEY];
+        LOG(ERROR) << Collection::COLLECTION_NAME_KEY;
+        LOG(ERROR) << "";
+    }
+    const std::string & this_collection_name = collection_meta[Collection::COLLECTION_NAME_KEY].get<std::string>();
+
+    std::string collection_next_seq_id_str;
+    StoreStatus next_seq_id_status = cm.store->get(Collection::get_next_seq_id_key(this_collection_name),
+                                                collection_next_seq_id_str);
+
+    if(next_seq_id_status == StoreStatus::ERROR) {
+        LOG(ERROR) << "Error while fetching next sequence ID for " << this_collection_name;
+        return Option<bool>(500, "Error while fetching collection's next sequence ID from the disk for "
+                                 "`" + this_collection_name + "`");
+    }
+
+    if(next_seq_id_status == StoreStatus::NOT_FOUND && next_coll_id_status == StoreStatus::FOUND) {
+        LOG(ERROR) << "collection's next sequence ID is missing";
+        return Option<bool>(500, "Next collection id was found, but collection's next sequence ID is missing for "
+                                 "`" + this_collection_name + "`");
+    }
+
+    uint32_t collection_next_seq_id = next_seq_id_status == StoreStatus::NOT_FOUND ? 0 :
+                                      StringUtils::deserialize_uint32_t(collection_next_seq_id_str);
+
+    {
+        std::shared_lock lock(cm.mutex);
+        Collection *existing_collection = cm.get_collection_unsafe(this_collection_name);
+
+        if(existing_collection != nullptr) {
+            // To maintain idempotency, if the collection already exists in-memory, drop it from memory
+            LOG(WARNING) << "Dropping duplicate collection " << this_collection_name << " before loading it again.";
+            lock.unlock();
+            cm.drop_collection(this_collection_name, false);
+        }
+    }
+
+    Collection* collection = init_collection(collection_meta, collection_next_seq_id, cm.store, 1.0f);
+
+    LOG(INFO) << "Loading collection " << collection->get_name();
+
+    // initialize overrides
+    std::vector<std::string> collection_override_jsons;
+    cm.store->scan_fill(Collection::get_override_key(this_collection_name, ""), collection_override_jsons);
+
+    for(const auto & collection_override_json: collection_override_jsons) {
+        nlohmann::json collection_override = nlohmann::json::parse(collection_override_json);
+        override_t override;
+        auto parse_op = override_t::parse(collection_override, "", override);
+        if(parse_op.ok()) {
+            collection->add_override(override);
+        } else {
+            LOG(ERROR) << "Skipping loading of override: " << parse_op.error();
+        }
+    }
+
+    // initialize synonyms
+    std::vector<std::string> collection_synonym_jsons;
+    cm.store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+
+    for(const auto & collection_synonym_json: collection_synonym_jsons) {
+        nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
+        synonym_t synonym(collection_synonym);
+        collection->add_synonym(synonym);
+    }
+
+    // Fetch records from the store and re-create memory index
+    std::vector<std::string> documents;
+    const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
+
+    rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
+    std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+    std::vector<std::vector<index_record>> iter_batch;
+
+    for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
+        iter_batch.emplace_back(std::vector<index_record>());
+    }
+
+    size_t num_found_docs = 0;
+    size_t num_valid_docs = 0;
+    size_t num_indexed_docs = 0;
+
+    while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+        num_found_docs++;
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+
+        nlohmann::json document;
+
+        try {
+            document = nlohmann::json::parse(iter->value().ToString());
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            return Option<bool>(false, "Bad JSON.");
+        }
+
+        auto dirty_values = DIRTY_VALUES::DROP;
+
+        num_valid_docs++;
+
+        iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+
+        // Peek and check for last record right here so that we handle batched indexing correctly
+        // Without doing this, the "last batch" would have to be indexed outside the loop.
+        iter->Next();
+        bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+        // batch must match atleast the number of shards
+        const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
+
+        if((num_valid_docs % batch_size == 0) || last_record) {
+            std::vector<size_t> indexed_counts;
+            indexed_counts.reserve(iter_batch.size());
+
+            collection->par_index_in_memory(iter_batch, indexed_counts);
+
+            for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
+                size_t num_records = iter_batch[i].size();
+                size_t num_indexed = indexed_counts[i];
+
+                if(num_indexed != num_records) {
+                    const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
+                    if(!index_error_op.ok()) {
+                        return Option<bool>(false, index_error_op.get());
+                    }
+                }
+                iter_batch[i].clear();
+                num_indexed_docs += num_indexed;
+            }
+        }
+    }
+
+    cm.add_to_collections(collection);
+
+    LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
+              << " documents into collection " << collection->get_name();
 
     return Option<bool>(true);
 }

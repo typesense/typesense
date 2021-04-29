@@ -4,25 +4,19 @@
 #include <algorithm>
 #include <sstream>
 #include <ctype.h>
-#include <unicode/translit.h>
-#include <iconv.h>
 #include <vector>
 #include <random>
+#include <map>
 #include "wyhash_v5.h"
 
 struct StringUtils {
-    UErrorCode status;
-    //icu::Transliterator* transliterator;
-    iconv_t cd;
 
-    StringUtils(): status(U_ZERO_ERROR) {
-        // transliterator(icu::Transliterator::createInstance("Latin-ASCII", UTRANS_FORWARD, status))
-        cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
+    StringUtils() {
+
     }
 
     ~StringUtils() {
-        //delete transliterator;
-        iconv_close(cd);
+
     }
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
@@ -97,7 +91,7 @@ struct StringUtils {
     // Convert string of chars to its representative string of hex numbers
     static std::string str2hex(const std::string& str, bool capital = false);
 
-    static std::string url_decode(std::string text) {
+    static std::string url_decode(const std::string& text) {
         char h;
         std::ostringstream escaped;
         escaped.fill('0');
@@ -216,8 +210,6 @@ struct StringUtils {
         std::transform(str.begin(), str.end(), str.begin(), ::tolower);
     }
 
-    void unicode_normalize(std::string& str) const;
-
     /* https://stackoverflow.com/a/34571089/131050 */
     static std::string base64_encode(const std::string &in) {
         std::string out;
@@ -291,5 +283,13 @@ struct StringUtils {
 
     static std::string hmac(const std::string& key, const std::string& msg);
 
+    static std::string hash_sha256(const std::string& str);
+
     //static size_t unicode_length(const std::string& bytes);
+
+    static bool begins_with(const std::string& str, const std::string& prefix) {
+        return str.rfind(prefix, 0) == 0;
+    }
+
+    static std::map<std::string, std::string> parse_query_string(const std::string& query);
 };

@@ -13,6 +13,8 @@ private:
 
 public:
 
+    explicit Option() = delete;
+
     explicit Option(const T & value): value(value), is_ok(true) {
 
     }

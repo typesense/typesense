@@ -19,7 +19,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
 
         std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
         std::vector<field> fields = {
@@ -29,7 +29,7 @@ protected:
                 field("points", field_types::INT32, false)
         };
 
-        coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+        coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
         if(coll_mul_fields == nullptr) {
             coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
         }
@@ -569,6 +569,55 @@ TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
     ASSERT_STREQ("11", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 }
 
+TEST_F(CollectionOverrideTest, HiddenHitsHidingSingleResult) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Down There by the Train"}
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::string hidden_hits="0";
+    auto results = coll1->search("the train", {"title"}, "", {}, {}, 0, 50, 1, FREQUENCY,
+                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                      "", 10,
+                                      "", hidden_hits).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("the train", {"title"}, "points:0", {}, {}, 0, 50, 1, FREQUENCY,
+                           false, Index::DROP_TOKENS_THRESHOLD,
+                           spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                           "", 10,
+                           "", hidden_hits).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     auto pinned_hits = "6:1,8:1,1:2,13:3,4:3";
 
@@ -628,7 +677,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 3, fields, "points").get();
     }
@@ -675,7 +724,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }

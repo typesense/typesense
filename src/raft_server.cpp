@@ -41,7 +41,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         return -1;
     }
 
-    this->caught_up = false;
+    this->read_caught_up = false;
+    this->write_caught_up = false;
 
     // do snapshot only when the gap between applied index and last snapshot index is >= this number
     braft::FLAGS_raft_do_snapshot_min_index_gap = 1;
@@ -54,6 +55,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
+    node_options.catchup_margin = healthy_read_lag;
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
@@ -73,8 +75,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     if(snapshot_exists) {
         // we will be assured of on_snapshot_load() firing and we will wait for that to init_db()
-    } else if(!create_init_db_snapshot) {
-        // `create_init_db_snapshot` can be handled separately only after leader starts
+    } else {
         LOG(INFO) << "Snapshot does not exist. We will remove db dir and init db fresh.";
 
         int reload_store = store->reload(true, "");
@@ -95,11 +96,29 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         return -1;
     }
 
-    std::vector<std::string> peer_vec;
-    StringUtils::split(actual_nodes_config, peer_vec, ",");
+    braft::NodeStatus node_status;
+    node->get_status(&node_status);
+
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+    populate_skip_index();
+
+    LOG(INFO) << "Node last_index: " << node_status.last_index << ", skip_index: " << skip_index;
 
     this->node = node;
     return 0;
+}
+
+void ReplicationState::populate_skip_index() {
+    if(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
+        const std::string& index_value = skip_index_iter->value().ToString();
+        if(StringUtils::is_int64_t(index_value)) {
+            skip_index = std::stoll(index_value);
+        }
+
+        skip_index_iter->Next();
+    } else {
+        skip_index = UNSET_SKIP_INDEX;
+    }
 }
 
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
@@ -114,7 +133,18 @@ std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_end
     return actual_nodes_config;
 }
 
-void ReplicationState::write(http_req* request, http_res* response) {
+void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
+    if(shutting_down) {
+        //LOG(INFO) << "write(), force shutdown";
+        response->set_503("Shutting down.");
+        response->final = true;
+        request->_req = nullptr;
+        request->notify();
+        return ;
+    }
+
+    std::shared_lock lock(node_mutex);
+
     if(!node) {
         return ;
     }
@@ -129,6 +159,8 @@ void ReplicationState::write(http_req* request, http_res* response) {
     butil::IOBufBuilder bufBuilder;
     bufBuilder << request->serialize();
 
+    //LOG(INFO) << "write() pre request ref count " << request.use_count();
+
     // Apply this log as a braft::Task
 
     braft::Task task;
@@ -136,16 +168,21 @@ void ReplicationState::write(http_req* request, http_res* response) {
     // This callback would be invoked when the task actually executes or fails
     task.done = new ReplicationClosure(request, response);
 
+    //LOG(INFO) << "write() post request ref count " << request.use_count();
+
     // To avoid ABA problem
     task.expected_term = leader_term.load(butil::memory_order_relaxed);
 
     //LOG(INFO) << ":::" << "body size before apply: " << request->body.size();
 
-    // Now the task is applied to the group, waiting for the result.
-    return node->apply(task);
+    // Now the task is applied to the group
+    node->apply(task);
+
+    pending_writes++;
 }
 
-void ReplicationState::write_to_leader(http_req *request, http_res *response) const {
+void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
+    // no lock on `node` needed as caller uses the lock
     if(!node || node->leader_id().is_empty()) {
         // Handle no leader scenario
         LOG(ERROR) << "Rejecting write: could not find a leader.";
@@ -153,20 +190,20 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
         if(request->_req->proceed_req && response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
-            request->await.notify();
+            request->_req = nullptr;
+            request->notify();
             return ;
         }
 
         response->set_500("Could not find a leader.");
-        auto replication_arg = new AsyncIndexArg{request, response};
-        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-        return message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        auto req_res = new deferred_req_res_t(request, response, server, true);
+        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
     if (request->_req->proceed_req && response->proxied_stream) {
         // indicates async request body of in-flight request
         //LOG(INFO) << "Inflight proxied request, returning control to caller, body_size=" << request->body.size();
-        request->await.notify();
+        request->notify();
         return ;
     }
 
@@ -176,11 +213,13 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
     HttpServer* server = custom_generator->h2o_handler->http_server;
 
-    thread_pool->enqueue([leader_addr, request, response, server, this]() {
-        auto raw_req = request->_req;
-        const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
-        const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
-        const std::string url = get_leader_url_path(leader_addr, path, scheme);
+    auto raw_req = request->_req;
+    const std::string& path = std::string(raw_req->path.base, raw_req->path.len);
+    const std::string& scheme = std::string(raw_req->scheme->name.base, raw_req->scheme->name.len);
+    const std::string url = get_leader_url_path(leader_addr, path, scheme);
+
+    thread_pool->enqueue([request, response, server, path, url, this]() {
+        pending_writes++;
 
         std::map<std::string, std::string> res_headers;
 
@@ -191,19 +230,13 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
             if(path_parts.back().rfind("import", 0) == 0) {
                 // imports are handled asynchronously
                 response->proxied_stream = true;
-                response->auto_dispose = false;
                 long status = HttpClient::post_response_async(url, request, response, server);
-
-                // must manage life cycle for forwarded requests
-                delete request;
-                delete response;
-
-                //LOG(INFO) << "Import call done.";
 
                 if(status == 500) {
                     response->content_type_header = res_headers["content-type"];
                     response->set_500("");
                 } else {
+                    pending_writes--;
                     return ;
                 }
             } else {
@@ -233,9 +266,9 @@ void ReplicationState::write_to_leader(http_req *request, http_res *response) co
             response->set_500(err);
         }
 
-        auto replication_arg = new AsyncIndexArg{request, response};
-        replication_arg->req->route_hash = static_cast<uint64_t>(ROUTE_CODES::ALREADY_HANDLED);
-        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
+        auto req_res = new deferred_req_res_t(request, response, server, true);
+        message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        pending_writes--;
     });
 }
 
@@ -250,62 +283,72 @@ std::string ReplicationState::get_leader_url_path(const std::string& leader_addr
 
 void ReplicationState::on_apply(braft::Iterator& iter) {
     //LOG(INFO) << "ReplicationState::on_apply";
-
     // NOTE: this is executed on a different thread and runs concurrent to http thread
     // A batch of tasks are committed, which must be processed through
     // |iter|
     for (; iter.valid(); iter.next()) {
-        http_res* response;
-        http_req* request;
-
         // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
         braft::AsyncClosureGuard closure_guard(iter.done());
 
-        if (iter.done()) {
-            // This task is applied by this node, get value from the closure to avoid additional parsing.
-            ReplicationClosure* c = dynamic_cast<ReplicationClosure*>(iter.done());
-            response = c->get_response();
-            request = c->get_request();
-
-            //LOG(INFO) << ":::" << "body size inside apply: " << request->body.size();
-        } else {
-            // Parse request from the log
-            response = new http_res;
-
-            request = new http_req;
-            request->deserialize(iter.data().to_string());
-
-            //LOG(INFO) << "Parsed request from the log, body_size: " << request->body.size();
+        if(iter.index() == skip_index) {
+            LOG(ERROR) << "Skipping write log index " << iter.index()
+                       << " which seems to have triggered a crash previously.";
+            populate_skip_index();
+            continue;
         }
 
-        if(request->_req == nullptr && request->body == "INIT_SNAPSHOT") {
-            // We attempt to trigger a cold snapshot against an existing stand-alone DB for backward compatibility
-            InitSnapshotClosure* init_snapshot_closure = new InitSnapshotClosure(this);
-            node->snapshot(init_snapshot_closure);
-            delete request;
-            delete response;
-            continue ;
+        //LOG(INFO) << "Apply entry";
+
+        const std::shared_ptr<http_req>& request_generated = iter.done() ?
+                         dynamic_cast<ReplicationClosure*>(iter.done())->get_request() : std::make_shared<http_req>();
+
+        //LOG(INFO) << "Post assignment " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        const std::shared_ptr<http_res>& response_generated = iter.done() ?
+                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>();
+
+        if(!iter.done()) {
+            // indicates log serialized request
+            request_generated->deserialize(iter.data().to_string());
         }
 
         // Now that the log has been parsed, perform the actual operation
-        // Call http server thread for write and response back to client (if `response` is NOT null)
-        // We use a future to block current thread until the async flow finishes
-        response->auto_dispose = false;
-        auto replication_arg = new AsyncIndexArg{request, response};
-        message_dispatcher->send_message(REPLICATION_MSG, replication_arg);
 
-        //LOG(INFO) << "Raft write waiting to proceed";
-        response->await.wait();
-        //LOG(INFO) << "Raft write ready to proceed, response->final=" << response->final;
+        bool async_res = false;
 
-        if(response->final) {
-            delete request;
-            delete response;
+        route_path* found_rpath = nullptr;
+        bool route_found = server->get_route(request_generated->route_hash, &found_rpath);
+
+        //LOG(INFO) << "Pre handler " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        if(route_found) {
+            async_res = found_rpath->async_res;
+            found_rpath->handler(request_generated, response_generated);
+        } else {
+            response_generated->set_404();
+        }
+
+        //LOG(INFO) << "Pre dispatch " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        if(!async_res) {
+            deferred_req_res_t* req_res = new deferred_req_res_t(request_generated, response_generated, server, true);
+            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+        }
+
+        //LOG(INFO) << "Raft write pre wait " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        response_generated->wait();
+
+        //LOG(INFO) << "Raft write post wait " << request_generated.get() << ", use count: " << request_generated.use_count();
+
+        if(iter.done()) {
+            pending_writes--;
+            //LOG(INFO) << "pending_writes: " << pending_writes;
         }
     }
 }
 
-void ReplicationState::read(http_res* response) {
+void ReplicationState::read(const std::shared_ptr<http_res>& response) {
     // NOT USED:
     // For consistency, reads to followers could be rejected.
     // Currently, we don't do implement reads via raft.
@@ -316,7 +359,6 @@ void* ReplicationState::save_snapshot(void* arg) {
 
     SnapshotArg* sa = static_cast<SnapshotArg*>(arg);
     std::unique_ptr<SnapshotArg> arg_guard(sa);
-    brpc::ClosureGuard done_guard(sa->done);
 
     // add the db snapshot files to writer state
     butil::FileEnumerator dir_enum(butil::FilePath(sa->db_snapshot_path), false, butil::FileEnumerator::FILES);
@@ -329,14 +371,33 @@ void* ReplicationState::save_snapshot(void* arg) {
         }
     }
 
-    // if an external snapshot is requested, copy both state and data directory into that
+    const std::string& temp_snapshot_dir = sa->writer->get_path();
+
+    sa->done->Run();
+
+    // if an external snapshot is requested, copy latest snapshot directory into that
     if(!sa->ext_snapshot_path.empty()) {
-        LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
-        if(!butil::DirectoryExists(butil::FilePath(sa->ext_snapshot_path))) {
-            butil::CreateDirectory(butil::FilePath(sa->ext_snapshot_path), true);
+        // temp directory will be moved to final snapshot directory, so let's wait for that to happen
+        while(butil::DirectoryExists(butil::FilePath(temp_snapshot_dir))) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        butil::CopyDirectory(butil::FilePath(sa->state_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
-        butil::CopyDirectory(butil::FilePath(sa->db_dir_path), butil::FilePath(sa->ext_snapshot_path), true);
+
+        LOG(INFO) << "Copying system snapshot to external snapshot directory at " << sa->ext_snapshot_path;
+
+        const butil::FilePath& dest_state_dir = butil::FilePath(sa->ext_snapshot_path + "/state");
+
+        if(!butil::DirectoryExists(dest_state_dir)) {
+            butil::CreateDirectory(dest_state_dir, true);
+        }
+
+        const butil::FilePath& src_snapshot_dir = butil::FilePath(sa->state_dir_path + "/snapshot");
+        const butil::FilePath& src_meta_dir = butil::FilePath(sa->state_dir_path + "/meta");
+
+        butil::CopyDirectory(src_snapshot_dir, dest_state_dir, true);
+        butil::CopyDirectory(src_meta_dir, dest_state_dir, true);
+
+        // notify on demand closure that external snapshotting is done
+        sa->replication_state->notify();
     }
 
     // NOTE: *must* do a dummy write here since snapshots cannot be triggered if no write has happened since the
@@ -366,7 +427,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     arg->replication_state = this;
     arg->writer = writer;
     arg->state_dir_path = raft_dir_path;
-    arg->db_dir_path = store->get_state_dir_path();
     arg->db_snapshot_path = db_snapshot_path;
     arg->done = done;
 
@@ -375,7 +435,19 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         ext_snapshot_path = "";
     }
 
-    // Start a new bthread to avoid blocking StateMachine since it could be slow to write data to disk
+    // we will also delete all the skip indices in meta store and flush that DB
+    // this will block raft writes, but should be pretty fast
+    delete skip_index_iter;
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+
+    while(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
+        meta_store->remove(skip_index_iter->key().ToString());
+        skip_index_iter->Next();
+    }
+
+    meta_store->flush();
+
+    // Start a new bthread to avoid blocking StateMachine for slower operations that don't need a blocking view
     bthread_t tid;
     bthread_start_urgent(&tid, NULL, save_snapshot, arg);
 }
@@ -383,7 +455,9 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
 int ReplicationState::init_db() {
     LOG(INFO) << "Loading collections from disk...";
 
-    Option<bool> init_op = CollectionManager::get_instance().load();
+    Option<bool> init_op = CollectionManager::get_instance().load(
+        num_collections_parallel_load, num_documents_parallel_load
+    );
 
     if(init_op.ok()) {
         LOG(INFO) << "Finished loading collections from disk.";
@@ -396,12 +470,15 @@ int ReplicationState::init_db() {
 }
 
 int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
+    std::shared_lock lock(node_mutex);
     CHECK(!node || !node->is_leader()) << "Leader is not supposed to load snapshot";
+    lock.unlock();
 
     LOG(INFO) << "on_snapshot_load";
 
-    // ensures that reads are rejected, as `store->reload()` unique locks the DB handle
-    caught_up = false;
+    // ensures that reads and writes are rejected, as `store->reload()` unique locks the DB handle
+    read_caught_up = false;
+    write_caught_up = false;
 
     // Load snapshot from leader, replacing the running StateMachine
     std::string snapshot_path = reader->get_path();
@@ -412,10 +489,14 @@ int ReplicationState::on_snapshot_load(braft::SnapshotReader* reader) {
         return reload_store;
     }
 
-    return init_db();
+    bool init_db_status = init_db();
+
+    return init_db_status;
 }
 
 void ReplicationState::refresh_nodes(const std::string & nodes) {
+    std::shared_lock lock(node_mutex);
+
     if(!node) {
         LOG(WARNING) << "Node state is not initialized: unable to refresh nodes.";
         return ;
@@ -434,13 +515,12 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
              << ", applying_index: " << nodeStatus.applying_index
              << ", pending_index: " << nodeStatus.pending_index
              << ", disk_index: " << nodeStatus.disk_index
-             << ", pending_queue_size: " << nodeStatus.pending_queue_size;
-
+             << ", pending_queue_size: " << nodeStatus.pending_queue_size
+             << ", local_sequence: " << store->get_latest_seq_number();
 
     if(node->is_leader()) {
         RefreshNodesClosure* refresh_nodes_done = new RefreshNodesClosure;
         node->change_peers(new_conf, refresh_nodes_done);
-        this->caught_up = true;
     } else {
         if(node->leader_id().is_empty()) {
             // When node is not a leader, does not have a leader and is also a single-node cluster,
@@ -459,73 +539,72 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
                 LOG(WARNING) << "Multi-node with no leader: refusing to reset peers.";
             }
 
-            this->caught_up = false;
             return ;
         }
-
-        // update catch up status
-        thread_pool->enqueue([this]() {
-            auto seq_num = this->store->get_latest_seq_number();
-            const std::string & leader_addr = node->leader_id().to_string();
-
-            std::vector<std::string> addr_parts;
-            StringUtils::split(leader_addr, addr_parts, ":");
-            std::string leader_host_port = addr_parts[0] + ":" + addr_parts[2];
-            std::string protocol = this->api_uses_ssl ? "https" : "http";
-            std::string seq_url = protocol + "://" + leader_host_port + "/sequence";
-
-            std::string api_res;
-            std::map<std::string, std::string> res_headers;
-            long status = HttpClient::get_response(seq_url, api_res, res_headers);
-
-            if(status != 500) {
-                if(!StringUtils::is_uint64_t(api_res)) {
-                    LOG(ERROR) << "Invalid API response when fetching sequence number: " << api_res;
-                    this->caught_up = false;
-                    return ;
-                }
-
-                uint64_t leader_seq = std::atoll(api_res.c_str());
-                if(leader_seq < seq_num) {
-                    LOG(ERROR) << "Leader sequence " << leader_seq << " is less than local sequence " << seq_num;
-                    this->caught_up = false;
-                    return ;
-                }
-
-                const uint64_t seq_diff = leader_seq - seq_num;
-
-                if(seq_diff < CATCHUP_MIN_SEQUENCE_DIFF) {
-                    this->caught_up = true;
-                    return ;
-                }
-
-                float seq_progress = (float(seq_num) / leader_seq) * 100;
-                LOG(INFO) << "Follower progress percentage: " << seq_progress;
-                this->caught_up = (seq_progress >= catch_up_threshold_percentage);
-            }
-        });
     }
 }
 
-ReplicationState::ReplicationState(Store *store, ThreadPool* thread_pool, http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl, size_t catch_up_threshold_percentage,
-                                   bool create_init_db_snapshot, std::atomic<bool>& quit_service):
-        node(nullptr), leader_term(-1), store(store), thread_pool(thread_pool),
-        message_dispatcher(message_dispatcher), catch_up_threshold_percentage(catch_up_threshold_percentage),
-        api_uses_ssl(api_uses_ssl), create_init_db_snapshot(create_init_db_snapshot), shut_down(quit_service) {
+void ReplicationState::refresh_catchup_status(bool log_msg) {
+    std::shared_lock lock(node_mutex);
+    if(node == nullptr ) {
+        read_caught_up = write_caught_up = false;
+        return ;
+    }
+
+    bool leader_or_follower = (node->is_leader() || !node->leader_id().is_empty());
+    if(!leader_or_follower) {
+        read_caught_up = write_caught_up = false;
+        return ;
+    }
+
+    braft::NodeStatus n_status;
+    node->get_status(&n_status);
+    lock.unlock();
+
+    // work around for: https://github.com/baidu/braft/issues/277#issuecomment-823080171
+    int64_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
+    int64_t apply_lag = n_status.last_index - current_index;
+
+    //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
+    //LOG(INFO) << "apply_lag: " << apply_lag;
+
+    if (apply_lag > healthy_read_lag) {
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy read lag of " << healthy_read_lag;
+        this->read_caught_up = false;
+    } else {
+        this->read_caught_up = true;
+    }
+
+    if (apply_lag > healthy_write_lag) {
+        LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy write lag of " << healthy_write_lag;
+        this->write_caught_up = false;
+    } else {
+        this->write_caught_up = true;
+    }
+}
+
+ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta_store, ThreadPool* thread_pool,
+                                   http_message_dispatcher *message_dispatcher,
+                                   bool api_uses_ssl,
+                                   int64_t healthy_read_lag, int64_t healthy_write_lag,
+                                   size_t num_collections_parallel_load, size_t num_documents_parallel_load):
+        node(nullptr), leader_term(-1), server(server), store(store), meta_store(meta_store),
+        thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
+        healthy_read_lag(healthy_read_lag), healthy_write_lag(healthy_write_lag),
+        num_collections_parallel_load(num_collections_parallel_load),
+        num_documents_parallel_load(num_documents_parallel_load),
+        ready(false), shutting_down(false), pending_writes(0) {
 
 }
 
 bool ReplicationState::is_alive() const {
-    if(node == nullptr || !is_ready()) {
-        return false;
-    }
-
-    // node should either be a leader or have a leader
-    return (node->is_leader() || !node->leader_id().is_empty());
+    // for general health check we will only care about the `read_caught_up` threshold
+    return read_caught_up;
 }
 
 uint64_t ReplicationState::node_state() const {
+    std::shared_lock lock(node_mutex);
+
     if(node == nullptr) {
         return 0;
     }
@@ -536,12 +615,14 @@ uint64_t ReplicationState::node_state() const {
     return node_status.state;
 }
 
-void ReplicationState::do_snapshot(const std::string& snapshot_path, http_req& req, http_res& res) {
+void ReplicationState::do_snapshot(const std::string& snapshot_path, const std::shared_ptr<http_req>& req,
+                                   const std::shared_ptr<http_res>& res) {
     LOG(INFO) << "Triggerring an on demand snapshot...";
 
-    thread_pool->enqueue([&snapshot_path, &req, &res, this]() {
-        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, &req, &res);
+    thread_pool->enqueue([&snapshot_path, req, res, this]() {
+        OnDemandSnapshotClosure* snapshot_closure = new OnDemandSnapshotClosure(this, req, res);
         ext_snapshot_path = snapshot_path;
+        std::shared_lock lock(this->node_mutex);
         node->snapshot(snapshot_closure);
     });
 }
@@ -555,12 +636,16 @@ const std::string &ReplicationState::get_ext_snapshot_path() const {
 }
 
 void ReplicationState::do_dummy_write() {
+    std::shared_lock lock(node_mutex);
+
     if(node->leader_id().is_empty()) {
         LOG(ERROR) << "Could not do a dummy write, as node does not have a leader";
         return ;
     }
 
     const std::string & leader_addr = node->leader_id().to_string();
+    lock.unlock();
+
     const std::string protocol = api_uses_ssl ? "https" : "http";
     std::string url = get_leader_url_path(leader_addr, "/health", protocol);
 
@@ -572,6 +657,8 @@ void ReplicationState::do_dummy_write() {
 }
 
 bool ReplicationState::trigger_vote() {
+    std::shared_lock lock(node_mutex);
+
     if(node) {
         auto status = node->vote(election_timeout_interval_ms);
         LOG(INFO) << "Triggered vote. Ok? " << status.ok() << ", status: " << status;
@@ -589,28 +676,61 @@ Store* ReplicationState::get_store() {
     return store;
 }
 
-void InitSnapshotClosure::Run() {
-    // Auto delete this after Run()
-    std::unique_ptr<InitSnapshotClosure> self_guard(this);
+void ReplicationState::shutdown() {
+    LOG(INFO) << "Set shutting_down = true";
+    shutting_down = true;
 
-    if(status().ok()) {
-        LOG(INFO) << "Init snapshot succeeded!";
-        replication_state->get_store()->reload(false, "");
-        replication_state->init_db();
-    } else {
-        LOG(ERROR) << "Init snapshot failed, error: " << status().error_str() << ", code: " << status().error_code();
+    // wait for pending writes to drop to zero
+    LOG(INFO) << "Waiting for in-flight writes to finish...";
+    while(pending_writes.load() != 0) {
+        LOG(INFO) << "pending_writes: " << pending_writes;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
+
+    LOG(INFO) << "Replication state shutdown, store sequence: " << store->get_latest_seq_number();
+    std::unique_lock lock(node_mutex);
+
+    if (node) {
+        LOG(INFO) << "node->shutdown";
+        node->shutdown(nullptr);
+
+        // Blocking this thread until the node is eventually down.
+        LOG(INFO) << "node->join";
+        node->join();
+        delete node;
+        node = nullptr;
+    }
+
+    delete skip_index_iter;
+}
+
+void ReplicationState::persist_applying_index() {
+    std::shared_lock lock(node_mutex);
+
+    if(node == nullptr) {
+        return ;
+    }
+
+    braft::NodeStatus node_status;
+    node->get_status(&node_status);
+
+    lock.unlock();
+
+    LOG(INFO) << "Saving currently applying index: " << node_status.applying_index;
+
+    std::string key = SKIP_INDICES_PREFIX + std::to_string(node_status.applying_index);
+    meta_store->insert(key, std::to_string(node_status.applying_index));
 }
 
 void OnDemandSnapshotClosure::Run() {
-    // Auto delete this after Run()
+    // Auto delete this after Done()
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);
 
+    replication_state->wait(); // until on demand snapshotting completes
     replication_state->set_ext_snapshot_path("");
 
     req->last_chunk_aggregate = true;
     res->final = true;
-    res->auto_dispose = false;
 
     nlohmann::json response;
     uint32_t status_code;
@@ -629,14 +749,9 @@ void OnDemandSnapshotClosure::Run() {
     res->status_code = status_code;
     res->body = response.dump();
 
-    deferred_req_res_t* req_res = new deferred_req_res_t{req, res, nullptr};
-    std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
-
+    auto req_res = new deferred_req_res_t(req, res, nullptr, true);
     replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait for response to be sent
-    req_res->res->await.wait();
-
-    delete req;
-    delete res;
+    res->wait();
 }

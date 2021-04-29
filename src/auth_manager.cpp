@@ -8,6 +8,7 @@ constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
 Option<bool> AuthManager::init(Store *store) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     //LOG(INFO) << "AuthManager::init()";
+    std::unique_lock lock(mutex);
 
     this->store = store;
 
@@ -42,7 +43,9 @@ Option<bool> AuthManager::init(Store *store) {
     return Option<bool>(true);
 }
 
-Option<std::vector<api_key_t>> AuthManager::list_keys() {
+Option<std::vector<api_key_t>> AuthManager::list_keys() const {
+    std::shared_lock lock(mutex);
+
     std::vector<std::string> api_key_json_strs;
     store->scan_fill(API_KEYS_PREFIX, api_key_json_strs);
 
@@ -61,7 +64,9 @@ Option<std::vector<api_key_t>> AuthManager::list_keys() {
     return Option<std::vector<api_key_t>>(stored_api_keys);
 }
 
-Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
+Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) const {
+    std::shared_lock lock(mutex);
+
     std::string api_key_store_key = std::string(API_KEYS_PREFIX) + "_" + std::to_string(id);
     std::string api_key_json_str;
     StoreStatus status = store->get(api_key_store_key, api_key_json_str);
@@ -88,6 +93,7 @@ Option<api_key_t> AuthManager::get_key(uint32_t id, bool truncate_value) {
 
 Option<api_key_t> AuthManager::create_key(api_key_t& api_key) {
     //LOG(INFO) << "AuthManager::create_key()";
+    std::unique_lock lock(mutex);
 
     if(api_keys.count(api_key.value) != 0) {
         return Option<api_key_t>(409, "API key generation conflict.");
@@ -119,6 +125,8 @@ Option<api_key_t> AuthManager::remove_key(uint32_t id) {
         return Option<api_key_t>(500, "Could not delete API key.");
     }
 
+    std::unique_lock lock(mutex);
+
     api_key_t&& key = key_op.get();
     api_keys.erase(key.value);
 
@@ -134,43 +142,34 @@ bool AuthManager::authenticate(const std::string& req_api_key, const std::string
                                const std::vector<std::string>& collections,
                                std::map<std::string, std::string>& params) const {
 
+    std::shared_lock lock(mutex);
     //LOG(INFO) << "AuthManager::authenticate()";
 
-    if(req_api_key.size() > KEY_LEN) {
-        // scoped API key: validate and if valid, extract params
-        nlohmann::json embedded_params;
-        Option<bool> params_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
-        if(!params_op.ok()) {
-            // authentication failed
-            return false;
-        }
-
-        // enrich params with values from embedded_params
-        for(auto& item: embedded_params.items()) {
-            if(item.key() == "expires_at") {
-                continue;
-            }
-
-            if(params.count(item.key()) == 0) {
-                AuthManager::populate_req_params(params, item);
-            } else if(item.key() == "filter_by") {
-                params[item.key()] = params[item.key()] + "&&" + item.value().get<std::string>();
-            } else {
-                AuthManager::populate_req_params(params, item);
-            }
-        }
-
-        return true;
+    const auto& key_it = api_keys.find(req_api_key);
+    if(key_it != api_keys.end()) {
+        const api_key_t& api_key = key_it->second;
+        return auth_against_key(collections, action, api_key, false);
     }
 
-    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
-
-    if(api_keys.count(req_api_key) == 0) {
+    // could be a scoped API key
+    nlohmann::json embedded_params;
+    Option<bool> auth_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
+    if(!auth_op.ok()) {
         return false;
     }
 
-    const api_key_t& api_key = api_keys.at(req_api_key);
-    return auth_against_key(collections, action, api_key, false);
+    // enrich params with values from embedded_params
+    for(auto& item: embedded_params.items()) {
+        if(item.key() == "expires_at") {
+            continue;
+        }
+
+        // overwrite = true as embedded params have higher priority
+        AuthManager::add_item_to_params(params, item, true);
+    }
+
+    //LOG(INFO) << "api_keys.size() = " << api_keys.size();
+    return true;
 }
 
 bool AuthManager::auth_against_key(const std::vector<std::string>& collections, const std::string& action,
@@ -298,7 +297,10 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
 }
 
 std::string AuthManager::fmt_error(std::string&& error, const std::string& key) {
-    return error + " Key prefix: " + key.substr(0, api_key_t::PREFIX_LEN);
+    std::stringstream ss;
+    ss << error << " Key prefix: " << key.substr(0, api_key_t::PREFIX_LEN) << ", SHA256: "
+       << StringUtils::hash_sha256(key);
+    return ss.str();
 }
 
 Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
@@ -310,6 +312,10 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
         if(key_obj.count(key) == 0) {
             return Option<uint32_t>(400, std::string("Could not find a `") + key + "` key.");
         }
+    }
+
+    if(key_obj.count("value") != 0 && !key_obj["value"].is_string()) {
+        return Option<uint32_t>(400, std::string("Key value must be a string."));
     }
 
     if(!key_obj["actions"].is_array() || key_obj["actions"].empty()) {
@@ -342,18 +348,30 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
 }
 
 
-bool AuthManager::populate_req_params(std::map<std::string, std::string>& req_params,
-                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item) {
+bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_params,
+                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
+                                     bool overwrite) {
+
+    std::string str_value;
+
     if(item.value().is_string()) {
-        req_params[item.key()] = item.value();
+        str_value = item.value().get<std::string>();
     } else if(item.value().is_number_integer()) {
-        req_params[item.key()] = std::to_string(item.value().get<int64_t>());
+        str_value = std::to_string(item.value().get<int64_t>());
     } else if(item.value().is_number_float()) {
-        req_params[item.key()] = std::to_string(item.value().get<float>());
+        str_value = std::to_string(item.value().get<float>());
     } else if(item.value().is_boolean()) {
-        req_params[item.key()] = item.value().get<bool>() ? "true" : "false";
+        str_value = item.value().get<bool>() ? "true" : "false";
     } else {
         return false;
+    }
+
+    if(req_params.count(item.key()) == 0) {
+        req_params[item.key()] = str_value;
+    } else if(item.key() == "filter_by") {
+        req_params[item.key()] = req_params[item.key()] + "&&" + str_value;
+    } else if(overwrite) {
+        req_params[item.key()] = str_value;
     }
 
     return true;

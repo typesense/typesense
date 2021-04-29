@@ -4,6 +4,7 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
+#include <h3api.h>
 #include "collection.h"
 
 class CollectionFilteringTest : public ::testing::Test {
@@ -21,7 +22,7 @@ protected:
 
         store = new Store(state_dir_path);
         collectionManager.init(store, 1.0, "auth_key");
-        collectionManager.load();
+        collectionManager.load(8, 1000);
     }
 
     virtual void SetUp() {
@@ -47,7 +48,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -76,6 +77,18 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags : fine PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
+
+    // using just ":", filtering should return documents that contain ALL tokens in the filter expression
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // no documents contain both "white" and "platinum", so
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // with exact match operator (:=) partial matches are not allowed
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
 
     results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
@@ -119,6 +132,151 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
+    Collection *coll_str;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false),
+            field("starring", field_types::STRING, true),
+            field("cast", field_types::STRING_ARRAY, false),
+            field("points", field_types::INT32, false)
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    coll_str = collectionManager.get_collection("coll_str").get();
+    if(coll_str == nullptr) {
+        coll_str = collectionManager.create_collection("coll_str", 1, fields, "points").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        coll_str->add(document.dump());
+    }
+
+    infile.close();
+
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+
+    // exact filter on string field must fail when single token is used
+    facets.clear();
+    facets.emplace_back("starring");
+    auto results = coll_str->search("*", query_fields, "starring:= samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // multiple tokens but with a typo on one of them
+    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // same should succeed when verbatim filter is made
+    results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // contains filter with a single token should work as well
+    results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    // contains when only 1 token so should not match
+    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll_str");
+}
+
+TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
+    Collection *coll_array_fields;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("name_facet", field_types::STRING, true),
+                                 field("age", field_types::INT32, true),
+                                 field("years", field_types::INT32_ARRAY, true),
+                                 field("rating", field_types::FLOAT, true),
+                                 field("timestamps", field_types::INT64_ARRAY, true),
+                                 field("tags", field_types::STRING_ARRAY, true)};
+
+    std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
+
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
+    if(coll_array_fields == nullptr) {
+        coll_array_fields = collectionManager.create_collection("coll_array_fields", 1, fields, "age").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        nlohmann::json document = nlohmann::json::parse(json_line);
+        document["name_facet"] = document["name"];
+        const std::string & patched_json_line = document.dump();
+        coll_array_fields->add(patched_json_line);
+    }
+
+    infile.close();
+
+    query_fields = {"name"};
+    std::vector<std::string> facets = {"tags"};
+
+    // facet with filter on string array field must fail when exact token is used
+    facets.clear();
+    facets.push_back("tags");
+    auto results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // partial token filter should be made without "=" operator
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // to make tokens match facet value exactly, use "=" operator
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // don't allow exact filter on non-faceted field
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
+
+    // multi match exact query (OR condition)
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<size_t>());
+
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze, fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    // single array multi match
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll_array_fields");
+}
+
 TEST_F(CollectionFilteringTest, FilterOnTextFieldWithColon) {
     Collection *coll1;
 
@@ -127,7 +285,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFieldWithColon) {
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
     }
@@ -165,7 +323,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -219,7 +377,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
             field("points", field_types::INT32, false)
     };
 
-    coll_mul_fields = collectionManager.get_collection("coll_mul_fields");
+    coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
     if(coll_mul_fields == nullptr) {
         coll_mul_fields = collectionManager.create_collection("coll_mul_fields", 4, fields, "points").get();
     }
@@ -332,7 +490,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         // ensure that default_sorting_field is a non-array numerical field
         auto coll_op = collectionManager.create_collection("coll_array_fields", 4, fields, "years");
@@ -529,7 +687,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     std::vector<sort_by> sort_fields_desc = { sort_by("rating", "DESC") };
     std::vector<sort_by> sort_fields_asc = { sort_by("rating", "ASC") };
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if(coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -656,6 +814,62 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("int32_field", field_types::INT32, false),
+                                 field("int64_field", field_types::INT64, false),
+                                 field("float_field", field_types::FLOAT, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "int32_field").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Title 1", "-100", "5000000", "-10.45124"},
+        {"Title 2", "100", "-1000000", "0.45124"},
+        {"Title 3", "-200", "3000000", "-0.45124"},
+        {"Title 4", "150", "10000000", "1.45124"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["int32_field"] = std::stoi(records[i][1]);
+        doc["int64_field"] = std::stoll(records[i][2]);
+        doc["float_field"] = std::stof(records[i][3]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {}, "int32_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "int64_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {}, "float_field:<0", {}, {sort_by("float_field", "desc")}, 0, 10, 1, FREQUENCY,
+                            true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     Collection *coll_array_fields;
 
@@ -669,7 +883,7 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
 
     std::vector<sort_by> sort_fields_desc = {sort_by("rating", "DESC")};
 
-    coll_array_fields = collectionManager.get_collection("coll_array_fields");
+    coll_array_fields = collectionManager.get_collection("coll_array_fields").get();
     if (coll_array_fields == nullptr) {
         coll_array_fields = collectionManager.create_collection("coll_array_fields", 4, fields, "age").get();
     }
@@ -718,13 +932,154 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     collectionManager.drop_collection("coll_array_fields");
 }
 
+TEST_F(CollectionFilteringTest, GeoPointFiltering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Palais Garnier", "48.872576479306765, 2.332291112241466"},
+        {"Sacre Coeur", "48.888286721920934, 2.342340862419206"},
+        {"Arc de Triomphe", "48.87538726829884, 2.296113163780903"},
+        {"Place de la Concorde", "48.86536119187326, 2.321850747347093"},
+        {"Louvre Musuem", "48.86065813197502, 2.3381285349616725"},
+        {"Les Invalides", "48.856648379569904, 2.3118555692631357"},
+        {"Eiffel Tower", "48.85821022164442, 2.294239067890161"},
+        {"Notre-Dame de Paris", "48.852455825574495, 2.35071182406452"},
+        {"Musee Grevin", "48.872370541246816, 2.3431536410008906"},
+        {"Pantheon", "48.84620987789056, 2.345152755563131"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a location close to only the Sacre Coeur
+    auto results = coll1->search("*",
+                                 {}, "loc: (48.90615915923891, 2.3435897727061175, 3 km)",
+                                 {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // pick location close to none of the spots
+    results = coll1->search("*",
+                            {}, "loc: (48.910544830985785, 2.337218333651177, 2 km)",
+                            {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // pick a large radius covering all points
+
+    results = coll1->search("*",
+                            {}, "loc: (48.910544830985785, 2.337218333651177, 20 km)",
+                            {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(10, results["found"].get<size_t>());
+
+    // 1 mile radius
+
+    results = coll1->search("*",
+                            {}, "loc: (48.85825332869331, 2.303816427653377, 1 mi)",
+                            {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
+    ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Palais Garnier", "48.872576479306765, 2.332291112241466"},
+        {"Sacre Coeur", "48.888286721920934, 2.342340862419206"},
+        {"Arc de Triomphe", "48.87538726829884, 2.296113163780903"},
+        {"Place de la Concorde", "48.86536119187326, 2.321850747347093"},
+        {"Louvre Musuem", "48.86065813197502, 2.3381285349616725"},
+        {"Les Invalides", "48.856648379569904, 2.3118555692631357"},
+        {"Eiffel Tower", "48.85821022164442, 2.294239067890161"},
+        {"Notre-Dame de Paris", "48.852455825574495, 2.35071182406452"},
+        {"Musee Grevin", "48.872370541246816, 2.3431536410008906"},
+        {"Pantheon", "48.84620987789056, 2.345152755563131"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a location close to only the Sacre Coeur
+    auto results = coll1->search("*",
+                                 {}, "loc: (48.875223042424125,2.323509661928681, "
+                                     "48.85745408145392, 2.3267084486160856, "
+                                     "48.859636574404355,2.351469427048221, "
+                                     "48.87756059389807, 2.3443610121873206)",
+                                 {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
-    coll1 = collectionManager.get_collection("coll1");
+    coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
@@ -753,12 +1108,186 @@ TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
                                 {}, {}, 0, 10, 1, FREQUENCY, true);
 
     auto results = res_op.get();
-    LOG(INFO) << results;
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
     ASSERT_STREQ("23", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+            {"123", "Company 1", "50"},
+            {"125", "Company 2", "150"},
+            {"127", "Company 3", "250"},
+            {"129", "Stark Industries 4", "500"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["company_name"] = records[i][1];
+        doc["num_employees"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("num_employees", "ASC") };
+
+    auto results = coll1->search("*",
+                                {}, "num_employees:>=100 && num_employees:<=300",
+                                {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // when filter number is well below all values
+    results = coll1->search("*",
+                                 {}, "num_employees:>=100 && num_employees:<=10",
+                                 {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // check boundaries
+    results = coll1->search("*",
+                            {}, "num_employees:>=150 && num_employees:<=250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*",
+                            {}, "num_employees:>150 && num_employees:<250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+
+    results = coll1->search("*",
+                            {}, "num_employees:>50 && num_employees:<250",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // extreme boundaries
+
+    results = coll1->search("*",
+                            {}, "num_employees:>50 && num_employees:<=500",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("129", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*",
+                            {}, "num_employees:>=50 && num_employees:<500",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // no match
+    results = coll1->search("*",
+                            {}, "num_employees:>3000 && num_employees:<10",
+                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, NumericalFilteringWithArray) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("prices", field_types::INT32_ARRAY, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"1", "T Shirt 1", "1", "2", "3"},
+        {"2", "T Shirt 2", "1", "2", "3"},
+        {"3", "T Shirt 3", "1", "2", "3"},
+        {"4", "T Shirt 4", "1", "1", "1"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["title"] = records[i][1];
+
+        std::vector<int32_t> prices;
+        for(size_t j = 2; j <= 4; j++) {
+            prices.push_back(std::stoi(records[i][j]));
+        }
+
+        doc["prices"] = prices;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // check equals on a repeating price
+    auto results = coll1->search("*",
+                                 {}, "prices:1",
+                                 {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    // check ranges
+
+    results = coll1->search("*",
+                            {}, "prices:>=1",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:>=2",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:<4",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "prices:<=2",
+                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }

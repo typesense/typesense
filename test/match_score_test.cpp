@@ -23,7 +23,7 @@ TEST(MatchTest, MatchScoreV2) {
 
     auto match = Match(100, token_offsets, true);
     ASSERT_EQ(4, match.words_present);
-    ASSERT_EQ(97, match.distance);
+    ASSERT_EQ(3, match.distance);
 
     std::vector<uint16_t> expected_offsets = {25, 26, 24, 27};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -33,7 +33,7 @@ TEST(MatchTest, MatchScoreV2) {
     // without populate window
     match = Match(100, token_offsets, false);
     ASSERT_EQ(4, match.words_present);
-    ASSERT_EQ(97, match.distance);
+    ASSERT_EQ(3, match.distance);
     ASSERT_EQ(0, match.offsets.size());
 
     token_offsets.clear();
@@ -43,7 +43,7 @@ TEST(MatchTest, MatchScoreV2) {
 
     match = Match(100, token_offsets, true);
     ASSERT_EQ(3, match.words_present);
-    ASSERT_EQ(98, match.distance);
+    ASSERT_EQ(2, match.distance);
 
     expected_offsets = {170, 171, 169};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -57,7 +57,7 @@ TEST(MatchTest, MatchScoreV2) {
 
     match = Match(100, token_offsets, true);
     ASSERT_EQ(1, match.words_present);
-    ASSERT_EQ(100, match.distance);
+    ASSERT_EQ(0, match.distance);
 
     expected_offsets = {38, MAX_DISPLACEMENT, MAX_DISPLACEMENT};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -67,7 +67,7 @@ TEST(MatchTest, MatchScoreV2) {
     // without populate window
     match = Match(100, token_offsets, false);
     ASSERT_EQ(1, match.words_present);
-    ASSERT_EQ(100, match.distance);
+    ASSERT_EQ(0, match.distance);
     ASSERT_EQ(0, match.offsets.size());
 
 

@@ -1,53 +1,94 @@
 #include <sstream>
 #include "tokenizer.h"
 
-bool Tokenizer::next(std::string &token, size_t& token_index) {
-    std::stringstream out;
+bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_index, size_t& end_index) {
+    if(no_op) {
+        if(i == text.size()) {
+            return false;
+        }
 
-    if(i >= text.size()) {
-        if(i == text.size() && !text.empty() && text.back() == ' ') {
-            token = "";
-            i++;
-            return true;
+        token = text;
+        i = text.size();
+        start_index = 0;
+        end_index = text.size() - 1;
+        return true;
+    }
+
+    if(!locale.empty() && locale != "en") {
+        while (position != icu::BreakIterator::DONE) {
+            //LOG(INFO) << "Position: " << position;
+            bool found_token = false;
+
+            if(prev_position != -1) {
+                std::string word;
+                size_t length = position - prev_position;
+                token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+
+                //LOG(INFO) << "token: " << token;
+
+                if(!token.empty()) {
+                    if (!std::isalnum(token[0]) && is_ascii_char(token[i])) {
+                        // ignore ascii symbols
+                        found_token = false;
+                    } else if(locale == "ko" && token == "·") {
+                        found_token = false;
+                    } else {
+                        found_token = true;
+                        token_index = token_counter++;
+                    }
+
+                    start_index = utf8_start_index;
+                    end_index = utf8_start_index + token.size() - 1;
+                    utf8_start_index = end_index + 1;
+                }
+            }
+
+            prev_position = position;
+            position = bi->next();
+
+            if(found_token) {
+                return true;
+            }
         }
 
         return false;
     }
 
-    if(no_op) {
-        token = text;
-        i = text.size();
-        return true;
-    }
-
     while(i < text.size()) {
-        if((text[i] & ~0x7f) == 0 ) {
-            // ASCII character: split on space/newline or lowercase otherwise
-            bool is_space = text[i] == 32;
-            bool is_new_line = text[i] == 10;
-            bool space_or_newline = (is_space || is_new_line);
+        if(is_ascii_char(text[i])) {
+            size_t this_stream_mode = get_stream_mode(text[i]);
 
-            if(space_or_newline) {
+            if(this_stream_mode == SKIP) {
                 i++;
-                token = out.str();
-                out.clear();
+                continue;
+            }
 
-                if(!keep_empty && token.empty()) {
+            if(this_stream_mode == SEPARATE) {
+                if(out.empty()) {
+                    i++;
                     continue;
                 }
 
+                token = out;
+                out.clear();
+
                 token_index = token_counter++;
+                end_index = i - 1;
+                i++;
                 return true;
-            }
+            } else {
+                if(out.empty()) {
+                    start_index = i;
+                }
 
-            if(!normalize) {
-                out << text[i];
-            } else if(std::isalnum(text[i])) {
-                out << char(std::tolower(text[i]));
+                out += normalize ? char(std::tolower(text[i])) : text[i];
+                i++;
+                continue;
             }
+        }
 
-            i++;
-            continue;
+        if(out.empty()) {
+            start_index = i;
         }
 
         char inbuf[5];
@@ -62,7 +103,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
         size_t insize = (p - &inbuf[0]);
 
         if(!normalize) {
-            out << inbuf;
+            out += inbuf;
             continue;
         }
 
@@ -78,32 +119,32 @@ bool Tokenizer::next(std::string &token, size_t& token_index) {
 
         if(errno == EILSEQ) {
             // symbol cannot be represented as ASCII, so write the original symbol
-            out << inbuf;
+            out += inbuf;
         } else {
-            // NOTE: outsize indicates bytes available AFTER current position so have to do <=
             for(size_t out_index=0; out_index<5; out_index++) {
                 if(!normalize) {
-                    out << outbuf[out_index];
+                    out += outbuf[out_index];
                     continue;
                 }
 
-                bool is_ascii = ((outbuf[out_index] & ~0x7f) == 0);
-                bool keep_char = !is_ascii || std::isalnum(outbuf[out_index]);
+                bool unicode_is_ascii = is_ascii_char(outbuf[out_index]);
+                bool keep_char = !unicode_is_ascii || std::isalnum(outbuf[out_index]);
 
                 if(keep_char) {
-                    if(is_ascii && std::isalnum(outbuf[out_index])) {
+                    if(unicode_is_ascii && std::isalnum(outbuf[out_index])) {
                         outbuf[out_index] = char(std::tolower(outbuf[out_index]));
                     }
-                    out << outbuf[out_index];
+                    out += outbuf[out_index];
                 }
             }
         }
     }
 
-    token = out.str();
+    token = out;
     out.clear();
+    end_index = i - 1;
 
-    if(!keep_empty && token.empty()) {
+    if(token.empty()) {
         return false;
     }
 
@@ -123,4 +164,9 @@ void Tokenizer::tokenize(std::vector<std::string> &tokens) {
 void Tokenizer::tokenize(std::string& token) {
     size_t token_index;
     next(token, token_index);
+}
+
+bool Tokenizer::next(std::string &token, size_t &token_index) {
+    size_t start_index, end_index;
+    return next(token, token_index, start_index, end_index);
 }

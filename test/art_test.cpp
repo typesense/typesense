@@ -51,7 +51,7 @@ TEST(ArtTest, test_art_insert) {
         ASSERT_TRUE(art_size(&t) == line);
         line++;
 
-        delete document.offsets;
+        delete [] document.offsets;
     }
 
     res = art_tree_destroy(&t);
@@ -623,7 +623,7 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
     EXPECT_EQ(1, l->values->ids.at(0));
 
     std::vector<art_leaf*> leaves;
-    art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
+    art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key)-1, 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
@@ -783,7 +783,7 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
 
     for (const auto &key : keys) {
         std::vector<art_leaf *> leaves;
-        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size(), 0, 0, 10,
                          FREQUENCY, true, nullptr, 0, leaves);
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
@@ -822,6 +822,19 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
         line++;
     }
 
+    std::map<std::string, size_t> key_to_count {
+        std::make_pair("input", 2),
+        std::make_pair("image", 7),
+        std::make_pair("instrument", 2),
+        std::make_pair("in", 10),
+        std::make_pair("info", 2),
+        std::make_pair("inventor", 2),
+        std::make_pair("imageresize", 2),
+        std::make_pair("id", 5),
+        std::make_pair("insect", 2),
+        std::make_pair("ice", 2),
+    };
+
     for (const auto &key : keys) {
         //LOG(INFO) << "Searching for " << key;
         art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
@@ -829,11 +842,15 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
         EXPECT_EQ(1, l->values->ids.getLength());
 
         std::vector<art_leaf *> leaves;
-        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size(), 0, 0, 10,
                          FREQUENCY, true, nullptr, 0, leaves);
 
-        ASSERT_EQ(1, leaves.size());
-        ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+        if(key_to_count.count(key) != 0) {
+            ASSERT_EQ(key_to_count[key], leaves.size());
+        } else {
+            ASSERT_EQ(1, leaves.size());
+            ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
+        }
 
         leaves.clear();
 
@@ -872,7 +889,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
         EXPECT_EQ(1, l->values->ids.getLength());
 
         std::vector<art_leaf *> leaves;
-        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size()+1, 0, 0, 10,
+        art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size(), 0, 0, 10,
                          FREQUENCY, true, nullptr, 0, leaves);
 
         ASSERT_EQ(1, leaves.size());
@@ -886,6 +903,33 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
         ASSERT_EQ(1, leaves.size());
         ASSERT_STREQ(key.c_str(), (const char *) leaves.at(0)->key);
     }
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_search_roche_chews) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    std::vector<std::string> keys;
+    keys = {"roche"};
+
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc, 1));
+
+    std::string term = "chews";
+    std::vector<art_leaf *> leaves;
+    art_fuzzy_search(&t, (const unsigned char*)term.c_str(), term.size(), 0, 2, 10,
+                     FREQUENCY, true, nullptr, 0, leaves);
+
+    ASSERT_EQ(0, leaves.size());
+
+    art_fuzzy_search(&t, (const unsigned char*)keys[0].c_str(), keys[0].size() + 1, 0, 0, 10,
+                     FREQUENCY, false, nullptr, 0, leaves);
+
+    ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);

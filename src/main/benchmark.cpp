@@ -47,9 +47,9 @@ void benchmark_hn_titles(char* file_path) {
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, 4, "abcd");
-    collectionManager.load();
+    collectionManager.load(100, 100);
 
-    Collection *collection = collectionManager.get_collection("hnstories_direct");
+    Collection *collection = collectionManager.get_collection("hnstories_direct").get();
     if(collection == nullptr) {
         collection = collectionManager.create_collection("hnstories_direct", 4, fields_to_index, "points").get();
     }
@@ -117,9 +117,9 @@ void benchmark_reactjs_pages(char* file_path) {
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(store, 4, "abcd");
-    collectionManager.load();
+    collectionManager.load(100, 100);
 
-    Collection *collection = collectionManager.get_collection("reactjs_pages");
+    Collection* collection = collectionManager.get_collection("reactjs_pages").get();
     if(collection == nullptr) {
         collection = collectionManager.create_collection("reactjs_pages", 4, fields_to_index, "dummy_sorting_field").get();
     }
@@ -167,12 +167,34 @@ void benchmark_reactjs_pages(char* file_path) {
     std::cout << "Results total: " << results_total << std::endl;
 }
 
+void generate_word_freq() {
+    std::ifstream infile("/tmp/unigram_freq.jsonl");
+    std::ofstream outfile("/tmp/eng_words.jsonl", std::ios_base::app);
+
+    std::string json_line;
+    while (std::getline(infile, json_line)) {
+        try {
+            nlohmann::json obj = nlohmann::json::parse(json_line);
+            obj["count"] = uint64_t((double(obj["count"].get<uint64_t>()) / 23135851162) * 1000000000);
+            std::string json_str = obj.dump();
+            outfile << json_str << std::endl;
+        } catch(...) {
+            LOG(ERROR) << "Failed parsing: " << json_line;
+        }
+    }
+
+    infile.close();
+    outfile.close();
+}
+
 int main(int argc, char* argv[]) {
     srand(time(NULL));
-    system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
+//    system("rm -rf /tmp/typesense-data && mkdir -p /tmp/typesense-data");
 
-    benchmark_hn_titles(argv[1]);
+//    benchmark_hn_titles(argv[1]);
 //    benchmark_reactjs_pages(argv[1]);
+
+    generate_word_freq();
 
     return 0;
 }

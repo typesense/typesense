@@ -18,10 +18,11 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
     return perform_curl(curl, res_headers);
 }
 
-long HttpClient::post_response_async(const std::string &url, http_req* request, http_res* response, HttpServer* server) {
-    deferred_req_res_t* req_res = new deferred_req_res_t{request, response, server};
+long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
+                                     const std::shared_ptr<http_res> response, HttpServer* server) {
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server);
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
-    struct curl_slist *chunk = nullptr;
+    struct curl_slist* chunk = nullptr;
 
     CURL *curl = init_curl_async(url, req_res, chunk);
     if(curl == nullptr) {
@@ -113,7 +114,9 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
     CURLcode res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        LOG(ERROR) << "CURL failed. Code: " << res << ", strerror: " << curl_easy_strerror(res);
+        char* url = nullptr;
+        curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+        LOG(ERROR) << "CURL failed. URL: " << url << ", Code: " << res << ", strerror: " << curl_easy_strerror(res);
         curl_easy_cleanup(curl);
         curl_slist_free_all(chunk);
         return 500;
@@ -159,9 +162,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
     req_res->req->body_index += bytes_to_read;
 
-    //LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
-    //LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index;
-    //LOG(INFO) << "req_res->req->body.size(): " << req_res->req->body.size();
+    /*LOG(INFO) << "Wrote " << bytes_to_read << " bytes to request body (max_buffer_bytes=" << max_req_bytes << ")";
+    LOG(INFO) << "req_res->req->body_index: " << req_res->req->body_index
+              << ", req_res->req->body.size(): " << req_res->req->body.size();*/
 
     if(req_res->req->body_index == req_res->req->body.size()) {
         //LOG(INFO) << "Current body buffer has been consumed fully.";
@@ -179,7 +182,7 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
             server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
             //LOG(INFO) << "Waiting for request body to be ready";
-            req_res->req->await.wait();
+            req_res->req->wait();
             //LOG(INFO) << "Request body is ready";
             //LOG(INFO) << "Buffer refilled, unpausing request forwarding, body_size=" << req_res->req->body.size();
         }
@@ -223,8 +226,8 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until response is sent
-    //LOG(INFO) << "Waiting for response to be sent";
-    req_res->res->await.wait();
+    //LOG(INFO) << "Waiting on req_res " << req_res->res;
+    req_res->res->wait();
     //LOG(INFO) << "Response sent";
 
     return res_size;
@@ -245,12 +248,12 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait until final response is flushed or response object will be destroyed by caller
-    req_res->res->await.wait();
+    req_res->res->wait();
 
     return 0;
 }
 
-CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist *chunk) {
+CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* req_res, curl_slist*& chunk) {
     CURL *curl = curl_easy_init();
 
     if(curl == nullptr) {
@@ -267,6 +270,8 @@ CURL *HttpClient::init_curl_async(const std::string& url, deferred_req_res_t* re
     chunk = curl_slist_append(chunk, content_length_header.c_str());
 
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk);
+
+    // Enabling this causes issues in mixed mode: client using http/1 but follower -> leader using http/2
     //curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // callback called every time request body is needed
@@ -315,6 +320,7 @@ CURL *HttpClient::init_curl(const std::string& url, std::string& response) {
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, 4000);
+    curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
 
     // to allow self-signed certs
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
