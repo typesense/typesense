@@ -1177,10 +1177,9 @@ static inline void copyIntArray2(const int *src, int *dest, const int len) {
     }
 }
 
-static inline int levenshtein_dist(const int depth, const unsigned char p, const unsigned char c,
-                                   const unsigned char* term, const int term_len,
-                                   const int* irow, const int* jrow, int* krow) {
-    int row_min = std::numeric_limits<int>::max();
+static inline void levenshtein_dist(const int depth, const unsigned char p, const unsigned char c,
+                                    const unsigned char* term, const int term_len,
+                                    const int* irow, const int* jrow, int* krow) {
     krow[0] = jrow[0] + 1;
 
     // Calculate levenshtein distance incrementally (term => b, column => j, c => a[i], p => a[i-1], irow => d[i-1]):
@@ -1198,13 +1197,7 @@ static inline int levenshtein_dist(const int depth, const unsigned char p, const
         if(depth > 1 && column > 1 && c == term[column-1-1] && p == term[column-1]) {
             krow[column] = std::min(krow[column], irow[column-2] + 1);
         }
-
-        if(krow[column] < row_min) {
-            row_min = krow[column];
-        }
     }
-
-    return row_min;
 }
 
 static inline void art_fuzzy_children(unsigned char p, const art_node *n, int depth, const unsigned char *term, const int term_len,
@@ -1265,11 +1258,50 @@ static inline void rotate(int &i, int &j, int &k) {
     k = old_i;
 }
 
-// e.g. catapult against coratapult
-// e.g. microafot against microsoft
+// -1: return without adding, 0 : continue iteration, 1: return after adding
+static inline int fuzzy_search_state(const bool prefix, int key_index, bool last_key_char,
+                                     int term_len, const int* cost_row, int min_cost, int max_cost) {
+
+    // a) iter_len < term_len: "pltninum" (term) on "pst" (key)
+    // b) term_len < iter_len: "pst" (term) on "pltninum" (key)
+
+    int cost = 0;
+    int key_len = key_index + 1;
+
+    // a) because key's null character will appear first
+    if(last_key_char) {
+
+        if(term_len > key_len && (term_len - key_len) <= max_cost) {
+            cost = std::min(cost_row[key_len], cost_row[term_len]);
+        } else {
+            cost = cost_row[term_len];
+        }
+
+        if(cost >= min_cost && cost <= max_cost) {
+            return 1;
+        }
+
+        return -1;
+    }
+
+    if(key_len >= term_len) {
+        // b) we will iterate past term_len to catch trailing typos
+        cost = cost_row[term_len];
+        if(cost >= min_cost && cost <= max_cost) {
+            return 1;
+        }
+    } else {
+        cost = cost_row[key_len];
+    }
+
+    int bounded_cost = (cost <= 2) ? (max_cost + 1) : max_cost;
+    return (cost > bounded_cost) ? -1 : 0;
+}
+
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
                               const int term_len, const int* irow, const int* jrow, const int min_cost,
                               const int max_cost, const bool prefix, std::vector<const art_node *> &results) {
+
     if (!n) return ;
 
     const int columns = term_len+1;
@@ -1282,128 +1314,130 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
     copyIntArray2(irow, rows[i], columns);
     copyIntArray2(jrow, rows[j], columns);
 
-    int temp_cost = 0;
-
     if(depth == -1) {
+        // root node
         depth = 0;
-        goto PARTIAL_CALC;
-    }
+    } else {
+        // check indexed char first
+        bool last_key_char = (c == '\0');
 
-    if (!((c == '\0' && depth == term_len))) {
-        // Calculate cost with node char `c`
-        temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
-        rotate(i, j, k);
-        p = c;
+        if(!prefix || !last_key_char) {
+            levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+            rotate(i, j, k);
+            p = c;
+        }
+
+        int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+        if(1 == action) {
+            results.push_back(n);
+            return;
+        }
+
+        if(action == -1) {
+            return;
+        }
 
         depth++;
-
-        printf("Recurse char: %c, cost: %d, depth: %d\n", c, cost, depth);
-
-        if(temp_cost > max_cost) {
-            // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
-            return;
-        }
     }
 
-    // Cost is under control, let's check to see if we should proceed further
-
+    // check if node is a leaf
     if(IS_LEAF(n)) {
         art_leaf *l = (art_leaf *) LEAF_RAW(n);
-        printf("\nIS_LEAF\nLEAF KEY: %s, depth: %d\n", l->key, depth);
 
-        /*
-           For prefix search, when key is longer than term, we could potentially iterate till `term_len+max_cost`. E.g:
-           term = `th`, key = `mathematics` - if we compared only first 2 chars, it will exceed max_cost
-           However, we refrain from doing so for performance reasons, or atleast until we hear strong objections.
+        //std::string leaf_str((const char*)l->key, l->key_len-1);
+        //LOG(INFO) << "leaf key: " << leaf_str;
+        /*if(leaf_str == "illustrations") {
+            LOG(INFO) << "here";
+        }*/
 
-           Also, for prefix searches we don't compare with full leaf key.
-         */
-        const int iter_len = prefix ? min(l->key_len - 1, term_len) : l->key_len;
+        // look past term_len to deal with trailing typo, e.g. searching "pltinum" on "platinum" @ max_cost = 1
+        const int iter_len = std::min(int(l->key_len), term_len + max_cost);
 
-        // If at any point, `temp_cost > 2*max_cost` we can terminate immediately as we can never recover from that
-        while(depth < iter_len && temp_cost <= 2 * max_cost) {
+        if(depth >= iter_len) {
+            // when a preceding partial node completely contains the whole leaf (e.g. "[raspberr]y" on "raspberries")
+            int action = fuzzy_search_state(prefix, depth, true, term_len, rows[j], min_cost, max_cost);
+            if(action == 1) {
+                results.push_back(n);
+            }
+
+            return;
+        }
+
+        // we will iterate through remaining leaf characters
+        while(depth < iter_len) {
             c = l->key[depth];
-            temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
-            printf("leaf char: %c\n", l->key[depth]);
-            printf("cost: %d, depth: %d, term_len: %d\n", temp_cost, depth, term_len);
-            rotate(i, j, k);
-            p = c;
+            bool last_key_char = (c == '\0');
+
+            if(!prefix || !last_key_char) {
+                levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+
+                printf("leaf char: %c\n", l->key[depth]);
+                printf("cost: %d, depth: %d, term_len: %d\n", temp_cost, depth, term_len);
+
+                rotate(i, j, k);
+                p = c;
+            }
+
+            int action = fuzzy_search_state(prefix, depth, last_key_char, term_len, rows[j], min_cost, max_cost);
+            if(action == 1) {
+                results.push_back(n);
+                return;
+            }
+
+            if(action == -1) {
+                return;
+            }
+
             depth++;
         }
 
-        /* `rows[j][columns-1]` holds the final cost, `temp_cost` holds the temporary cost.
-            We will use the intermediate cost if the term is shorter than the key and if it's a prefix search.
-            For non-prefix, we will only use final cost.
-         */
-
-        int final_cost = rows[j][columns-1];
-
-        if(prefix && term_len < (int) l->key_len - 1 && temp_cost >= min_cost && temp_cost <= max_cost) {
-            results.push_back(n);
-            return;
-        }
-
-        if(prefix && term_len >= (int) l->key_len - 1 && final_cost >= min_cost && final_cost <= max_cost) {
-            results.push_back(n);
-            return;
-        }
-
-        if(!prefix && final_cost >= min_cost && final_cost <= max_cost) {
-            results.push_back(n);
-            return;
-        }
-
         return ;
     }
 
-    // For a prefix search whose depth has reached term length, we need not recurse further
-    if(prefix && depth >= term_len) {
-        results.push_back(n);
-        return ;
-    }
-
-    PARTIAL_CALC:
-
-    // For non-prefix search or if we have not reached term length, we will recurse further
+    // now check compressed prefix
 
     int partial_len = min(MAX_PREFIX_LEN, n->partial_len);
-    const int end_index = min(partial_len, term_len+max_cost);
+    //std::string partial_str(reinterpret_cast<const char *>(n->partial), n->partial_len);
 
-    printf("partial_len: %d\n", partial_len);
-
-    // calculate partial related cost
-    
-    for(int idx=0; idx<end_index; idx++) {
+    for (int idx = 0; idx < partial_len; idx++) {
         c = n->partial[idx];
-        printf("partial: %c\n", c);
-        temp_cost = levenshtein_dist(depth+idx, p, c, term, term_len, rows[i], rows[j], rows[k]);
+
+        levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
         rotate(i, j, k);
         p = c;
 
-        if(prefix && depth+idx+1 >= term_len && temp_cost <= max_cost) {
-            // For a prefix search, we store the node and not recurse further right now
+        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        if(action == 1) {
             results.push_back(n);
-            return ;
+            return;
         }
+
+        if(action == -1) {
+            return;
+        }
+
+        depth++;
     }
 
-    depth += partial_len;
-    printf("cost: %d\n", temp_cost);
+    // Some intermediate path may have been left out if partial_len is truncated: progress the levenshtein matrix
+    while(partial_len < n->partial_len && depth < term_len) {
+        c = term[depth];
+        levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
+        rotate(i, j, k);
+        p = c;
 
-    if(n->partial_len > MAX_PREFIX_LEN) {
-        // some intermediate path has been left out, so we have to "progress" the levenshtein matrix
-        while(partial_len++ < n->partial_len && depth < term_len) {
-            c = term[depth];
-            temp_cost = levenshtein_dist(depth, p, c, term, term_len, rows[i], rows[j], rows[k]);
-            rotate(i, j, k);
-            p = c;
-            depth++;
+        int action = fuzzy_search_state(prefix, depth, false, term_len, rows[j], min_cost, max_cost);
+        if(action == 1) {
+            results.push_back(n);
+            return;
         }
-    }
 
-    if(temp_cost > max_cost) {
-        // Speeds up things drastically, but can miss out on "front-loaded" typos like `kumputer`
-        return;
+        if(action == -1) {
+            return;
+        }
+
+        depth++;
+        partial_len++;
     }
 
     art_fuzzy_children(c, n, depth, term, term_len, rows[i], rows[j], min_cost, max_cost, prefix, results);
