@@ -718,7 +718,7 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
                                       false, 0).get();
     ASSERT_EQ(2, results["hits"].size());
 
-    ids = {"0", "1"};
+    ids = {"1", "0"};
 
     for (size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -766,26 +766,23 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
     ASSERT_EQ(0, results["hits"][0]["highlights"][1]["indices"][0]);
     ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"][1]);
 
-    ASSERT_EQ(3, results["hits"][1]["highlights"][0].size());
-    ASSERT_STREQ("title", results["hits"][1]["highlights"][0]["field"].get<std::string>().c_str());
-    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_EQ(1, results["hits"][1]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("Truth", results["hits"][1]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_EQ(4, results["hits"][1]["highlights"][0].size());
+    ASSERT_STREQ(results["hits"][1]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
+    ASSERT_EQ(2, results["hits"][1]["highlights"][0]["snippets"].size());
+    ASSERT_STREQ("<mark>truth</mark>", results["hits"][1]["highlights"][0]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][1]["highlights"][0]["snippets"][1].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][1]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("truth", results["hits"][1]["highlights"][0]["matched_tokens"][0][0].get<std::string>().c_str());
+    ASSERT_STREQ("truth", results["hits"][1]["highlights"][0]["matched_tokens"][1][0].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][1]["highlights"][0]["indices"].size());
+    ASSERT_EQ(1, results["hits"][1]["highlights"][0]["indices"][0]);
+    ASSERT_EQ(2, results["hits"][1]["highlights"][0]["indices"][1]);
 
-    ASSERT_EQ(4, results["hits"][1]["highlights"][1].size());
-    ASSERT_STREQ(results["hits"][1]["highlights"][1]["field"].get<std::string>().c_str(), "tags");
-
-    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["snippets"].size());
-    ASSERT_STREQ("<mark>truth</mark>", results["hits"][1]["highlights"][1]["snippets"][0].get<std::string>().c_str());
-    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][1]["highlights"][1]["snippets"][1].get<std::string>().c_str());
-
-    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["matched_tokens"].size());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][0][0].get<std::string>().c_str());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][1][0].get<std::string>().c_str());
-
-    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["indices"].size());
-    ASSERT_EQ(1, results["hits"][1]["highlights"][1]["indices"][0]);
-    ASSERT_EQ(2, results["hits"][1]["highlights"][1]["indices"][1]);
+    ASSERT_EQ(3, results["hits"][1]["highlights"][1].size());
+    ASSERT_STREQ("title", results["hits"][1]["highlights"][1]["field"].get<std::string>().c_str());
+    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][1]["highlights"][1]["snippet"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][1]["highlights"][1]["matched_tokens"].size());
+    ASSERT_STREQ("Truth", results["hits"][1]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
 
     // highlight fields must be ordered based on match score
     results = coll_array_text->search("amazing movie", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY,
@@ -2476,14 +2473,15 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"].size());
-    ASSERT_STREQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
-                 res["hits"][0]["highlights"][0]["value"].get<std::string>().c_str());
+    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["values"][0].get<std::string>());
+    ASSERT_EQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["highlights"][1]["value"].get<std::string>());
 
-    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["matched_tokens"].size());
+    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
 
-    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["values"][0].size());
-    ASSERT_STREQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["values"][0].get<std::string>().c_str());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["values"][0].size());
+    ASSERT_STREQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["values"][0].get<std::string>().c_str());
 
     // excluded fields should not be returned in highlights section
     spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
@@ -3083,6 +3081,59 @@ TEST_F(CollectionTest, MultiFieldRelevance5) {
     ASSERT_EQ(1, results["hits"][2]["highlights"].size());
     ASSERT_EQ("company_name", results["hits"][2]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][2]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionTest, ExactMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Alpha", "DJ"},
+        {"Alpha Beta", "DJ"},
+        {"Alpha Beta Gamma", "DJ"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("alpha beta",
+                                 {"title"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                                 true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, 2, 10, 1, FREQUENCY, true, 10).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
