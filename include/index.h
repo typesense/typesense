@@ -19,6 +19,7 @@
 #include "string_utils.h"
 #include "num_tree.h"
 #include "magic_enum.hpp"
+#include "match_score.h"
 
 struct token_t {
     size_t position;
@@ -223,7 +224,8 @@ private:
                            size_t & all_result_ids_len,
                            size_t& field_num_results,
                            const size_t typo_tokens_threshold,
-                           const size_t group_limit, const std::vector<std::string>& group_by_fields) const;
+                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
+                           const std::vector<token_t>& query_tokens) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -303,7 +305,7 @@ public:
                        spp::sparse_hash_set<uint64_t>& groups_processed,
                        const uint32_t *result_ids, const size_t result_size,
                        const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                       uint32_t token_bits) const;
+                       uint32_t token_bits, const std::vector<token_t>& query_tokens) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
@@ -366,8 +368,13 @@ public:
     static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
                                          const std::vector<uint32_t*>& leaf_to_indices,
                                          const size_t result_index,
-                                         std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> &array_token_positions);
+                                         std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions);
 
+    /*static bool is_exact_token_match(const art_leaf* leaf,
+                                     const std::vector<uint32_t*>& leaf_to_indices,
+                                     const size_t result_index,
+                                     std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions);
+*/
     static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
 
     static double transform_for_180th_meridian(Geofence& poly);

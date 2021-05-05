@@ -1449,14 +1449,16 @@ void Collection::highlight_result(const field &search_field,
         return ;
     }
 
+    //LOG(INFO) << "Document ID: " << document["id"];
+
     // positions in the field of each token in the query
-    std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
+    std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
     Index::populate_token_positions(query_suggestion, leaf_to_indices, 0, array_token_positions);
 
     std::vector<match_index_t> match_indices;
 
     for(const auto& kv: array_token_positions) {
-        const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
+        const std::vector<token_positions_t>& token_positions = kv.second;
         size_t array_index = kv.first;
 
         if(token_positions.empty()) {
