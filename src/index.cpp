@@ -534,7 +534,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
     Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale);
-    std::string token;
+    std::string token, last_token;
     size_t token_index = 0;
 
     std::vector<uint64_t> facet_hashes;
@@ -549,8 +549,12 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
             facet_hashes.push_back(hash);
         }
 
-        token_to_offsets[token].push_back(token_index);
+        token_to_offsets[token].push_back(token_index + 1);
+        last_token = token;
     }
+
+    // push 0 for the last occurring token (used for exact match ranking)
+    token_to_offsets[last_token].push_back(0);
 
     /*if(seq_id == 0) {
         LOG(INFO) << "field name: " << a_field.name;
@@ -581,7 +585,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
         Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale);
-        std::string token;
+        std::string token, last_token;
         size_t token_index = 0;
 
         // iterate and append offset positions
@@ -596,23 +600,25 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
                 //LOG(INFO) << "indexing " << token  << ", hash:" << hash;
             }
 
-            token_positions[token].push_back(token_index);
+            token_positions[token].push_back(token_index + 1);
             token_set.insert(token);
+            last_token = token;
         }
 
         if(is_facet) {
             facet_hashes.push_back(FACET_ARRAY_DELIMETER); // as a delimiter
         }
 
-        // repeat last element to indicate end of offsets for this array index
-        for(auto & the_token: token_set) {
+        for(auto& the_token: token_set) {
+            // repeat last element to indicate end of offsets for this array index
             token_positions[the_token].push_back(token_positions[the_token].back());
-        }
 
-        // iterate and append this array index to all tokens
-        for(auto & the_token: token_set) {
+            // iterate and append this array index to all tokens
             token_positions[the_token].push_back(array_index);
         }
+
+        // push 0 for the last occurring token (used for exact match ranking)
+        token_positions[last_token].push_back(0);
     }
 
     if(is_facet) {
@@ -863,7 +869,10 @@ void Index::search_candidates(const uint8_t & field_id,
                               uint32_t** all_result_ids, size_t & all_result_ids_len,
                               size_t& field_num_results,
                               const size_t typo_tokens_threshold,
-                              const size_t group_limit, const std::vector<std::string>& group_by_fields) const {
+                              const size_t group_limit,
+                              const std::vector<std::string>& group_by_fields,
+                              const std::vector<token_t>& query_tokens) const {
+
     const long long combination_limit = 10;
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
@@ -948,7 +957,7 @@ void Index::search_candidates(const uint8_t & field_id,
             // go through each matching document id and calculate match score
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
                           groups_processed, filtered_result_ids, filtered_results_size,
-                          group_limit, group_by_fields, token_bits);
+                          group_limit, group_by_fields, token_bits, query_tokens);
 
             field_num_results += filtered_results_size;
 
@@ -966,7 +975,7 @@ void Index::search_candidates(const uint8_t & field_id,
             }*/
 
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits);
+                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits, query_tokens);
 
             field_num_results += result_size;
 
@@ -1362,16 +1371,16 @@ void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
     }
 
     for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
-        std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
+        std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
         populate_token_positions(query_suggestion, leaf_to_indices, strt_ids_index, array_token_positions);
         // iterate array_token_positions and compute hash
 
         for(const auto& kv: array_token_positions) {
-            const std::vector<std::vector<uint16_t>>& token_positions = kv.second;
+            const std::vector<token_positions_t>& token_positions = kv.second;
             size_t this_hash = 1;
 
             for(size_t token_index = 0; token_index < token_positions.size(); token_index++) {
-                auto& positions = token_positions[token_index];
+                auto& positions = token_positions[token_index].positions;
                 for(auto pos: positions) {
                     this_hash *= (1779033703 + 2*(token_index+1)*(pos+1));
                 }
@@ -1592,7 +1601,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
         uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits);
+                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {});
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
         all_result_ids_len = filter_ids_length;
@@ -1679,7 +1688,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             }
 
             uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
-            uint64_t total_typos = 0, total_distances = 0;
+            uint64_t total_typos = 0, total_distances = 0, exact_matches = 0;
             uint64_t num_exact_matches = 0;
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
@@ -1696,11 +1705,12 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     //LOG(INFO) << "existing_field_kvs.count pop count: " << __builtin_popcount(token_bits);
 
                     int64_t match_score = existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index];
-                    total_distances += ((100 - (match_score & 0xFF)) + 1) * weight;
 
-                    uint64_t tokens_found = ((match_score >> 16) & 0xFF);
-                    int64_t field_typos = 255 - ((match_score >> 8) & 0xFF);
+                    uint64_t tokens_found = ((match_score >> 24) & 0xFF);
+                    int64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
                     total_typos += (field_typos + 1) * weight;
+                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
+                    exact_matches += (((match_score & 0xFF)) + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
                         num_exact_matches++;
@@ -1934,7 +1944,7 @@ void Index::search_field(const uint8_t & field_id,
             search_candidates(field_id, filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
-                              typo_tokens_threshold, group_limit, group_by_fields);
+                              typo_tokens_threshold, group_limit, group_by_fields, query_tokens);
         }
 
         resume_typo_loop:
@@ -2004,17 +2014,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           spp::sparse_hash_set<uint64_t>& groups_processed,
                           const uint32_t *result_ids, const size_t result_size,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                          uint32_t token_bits) const {
-
-    std::vector<uint32_t *> leaf_to_indices;
-    for (art_leaf *token_leaf: query_suggestion) {
-        uint32_t *indices = new uint32_t[result_size];
-        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
-        leaf_to_indices.push_back(indices);
-    }
-
-    Match single_token_match = Match(1, 0);
-    const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost);
+                          uint32_t token_bits,
+                          const std::vector<token_t>& query_tokens) const {
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     spp::sparse_hash_map<uint32_t, int64_t>* field_values[3];
@@ -2052,21 +2053,37 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
     }
 
+    std::vector<uint32_t *> leaf_to_indices;
+    for (art_leaf *token_leaf: query_suggestion) {
+        uint32_t *indices = new uint32_t[result_size];
+        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
+        leaf_to_indices.push_back(indices);
+    }
+
+    Match single_token_match = Match(1, 0);
+    const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost);
+
     //auto begin = std::chrono::high_resolution_clock::now();
+    //const std::string first_token((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1);
+
+    // We will have to be judicious about computing full match score: only when token does not match exact query
+    bool use_single_token_score = (query_suggestion.size() == 1) &&
+        (query_suggestion.size() == query_tokens.size()) &&
+        ((std::string((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1) != query_tokens[0].value));
 
     for (size_t i = 0; i < result_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
         uint64_t match_score = 0;
 
-        if (query_suggestion.size() <= 1) {
+        if (use_single_token_score) {
             match_score = single_token_match_score;
         } else {
-            std::unordered_map<size_t, std::vector<std::vector<uint16_t>>> array_token_positions;
+            std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
             populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
 
             for (const auto& kv: array_token_positions) {
-                const std::vector<std::vector<uint16_t>> &token_positions = kv.second;
+                const std::vector<token_positions_t>& token_positions = kv.second;
                 if (token_positions.empty()) {
                     continue;
                 }
@@ -2190,7 +2207,7 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
 void Index::populate_token_positions(const std::vector<art_leaf *>& query_suggestion,
                                      const std::vector<uint32_t*>& leaf_to_indices,
                                      const size_t result_index,
-                                     std::unordered_map<size_t, std::vector<std::vector<uint16_t>>>& array_token_positions) {
+                                     std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions) {
     if(query_suggestion.empty()) {
         return ;
     }
@@ -2209,9 +2226,14 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
             continue;
         }
 
-        // Array offset storage format:
-        // a) last element is array_index b) second and third last elements will be largest offset
-        // (last element is repeated to indicate end of offsets for a given array index)
+        //LOG(INFO) << "key: " << token_leaf->key;
+
+        // Plain string format:
+        // offset1, offset2, ... , 0 (if token is the last offset for the document)
+
+        // Array string format:
+        // offset1, ... , offsetn, offsetn, array_index, 0 (if token is the last offset for the document)
+        // (last offset is repeated to indicate end of offsets for a given array index)
 
         /*uint32_t* offsets = token_leaf->values->offsets.uncompress();
         for(size_t ii=0; ii < token_leaf->values->offsets.getLength(); ii++) {
@@ -2232,30 +2254,49 @@ void Index::populate_token_positions(const std::vector<art_leaf *>& query_sugges
 
         std::vector<uint16_t> positions;
         int prev_pos = -1;
+        bool is_last_token = false;
 
         while(start_offset < end_offset) {
             int pos = token_leaf->values->offsets.at(start_offset);
             start_offset++;
 
+            if(pos == 0) {
+                // indicates that token is the last token on the doc
+                is_last_token = true;
+                start_offset++;
+                continue;
+            }
+
             if(pos == prev_pos) {  // indicates end of array index
                 if(!positions.empty()) {
                     size_t array_index = (size_t) token_leaf->values->offsets.at(start_offset);
-                    array_token_positions[array_index].push_back(positions);
+                    is_last_token = false;
+
+                    if(start_offset+1 < end_offset) {
+                        size_t next_offset = (size_t) token_leaf->values->offsets.at(start_offset + 1);
+                        if(next_offset == 0) {
+                            // indicates that token is the last token on the doc
+                            is_last_token = true;
+                            start_offset++;
+                        }
+                    }
+
+                    array_token_positions[array_index].push_back(token_positions_t{is_last_token, positions});
                     positions.clear();
                 }
 
-                start_offset++;  // skip current value which is the array index
+                start_offset++;  // skip current value which is the array index or flag for last index
                 prev_pos = -1;
                 continue;
             }
 
             prev_pos = pos;
-            positions.push_back((uint16_t)pos);
+            positions.push_back((uint16_t)pos - 1);
         }
 
         if(!positions.empty()) {
             // for plain string fields
-            array_token_positions[0].push_back(positions);
+            array_token_positions[0].push_back(token_positions_t{is_last_token, positions});
         }
     }
 }

@@ -3,10 +3,19 @@
 #include <match_score.h>
 
 TEST(MatchTest, TokenOffsetsExceedWindowSize) {
-    std::vector<std::vector<uint16_t>> token_positions = {
-        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}),
-        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}),
-        std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1}), std::vector<uint16_t>({1})
+    std::vector<token_positions_t> token_positions = {
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})},
+        token_positions_t{false, std::vector<uint16_t>({1})}
     };
 
     const Match & this_match = Match(100, token_positions);
@@ -15,11 +24,11 @@ TEST(MatchTest, TokenOffsetsExceedWindowSize) {
 }
 
 TEST(MatchTest, MatchScoreV2) {
-    std::vector<std::vector<uint16_t>> token_offsets;
-    token_offsets.push_back({25});
-    token_offsets.push_back({26});
-    token_offsets.push_back({11, 18, 24, 60});
-    token_offsets.push_back({14, 27, 63});
+    std::vector<token_positions_t> token_offsets;
+    token_offsets.push_back(token_positions_t{false, {25}});
+    token_offsets.push_back(token_positions_t{false, {26}});
+    token_offsets.push_back(token_positions_t{false, {11, 18, 24, 60}});
+    token_offsets.push_back(token_positions_t{false, {14, 27, 63}});
 
     auto match = Match(100, token_offsets, true);
     ASSERT_EQ(4, match.words_present);
@@ -37,9 +46,9 @@ TEST(MatchTest, MatchScoreV2) {
     ASSERT_EQ(0, match.offsets.size());
 
     token_offsets.clear();
-    token_offsets.push_back({38, 50, 170, 187, 195, 222});
-    token_offsets.push_back({39, 140, 171, 189, 223});
-    token_offsets.push_back({169, 180});
+    token_offsets.push_back(token_positions_t{false, {38, 50, 170, 187, 195, 222}});
+    token_offsets.push_back(token_positions_t{false, {39, 140, 171, 189, 223}});
+    token_offsets.push_back(token_positions_t{false, {169, 180}});
 
     match = Match(100, token_offsets, true);
     ASSERT_EQ(3, match.words_present);
@@ -51,9 +60,9 @@ TEST(MatchTest, MatchScoreV2) {
     }
 
     token_offsets.clear();
-    token_offsets.push_back({38, 50, 187, 195, 201});
-    token_offsets.push_back({120, 167, 171, 223});
-    token_offsets.push_back({240, 250});
+    token_offsets.push_back(token_positions_t{false, {38, 50, 187, 195, 201}});
+    token_offsets.push_back(token_positions_t{false, {120, 167, 171, 223}});
+    token_offsets.push_back(token_positions_t{false, {240, 250}});
 
     match = Match(100, token_offsets, true);
     ASSERT_EQ(1, match.words_present);
