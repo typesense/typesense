@@ -18,6 +18,11 @@
 const size_t WINDOW_SIZE = 10;
 const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
 
+struct token_positions_t {
+    bool last_token = false;
+    std::vector<uint16_t> positions;
+};
+
 struct TokenOffset {
     uint8_t token_id;         // token identifier
     uint16_t offset;          // token's offset in the text
@@ -39,22 +44,24 @@ struct TokenOffset {
 struct Match {
     uint8_t words_present;
     uint8_t distance;
+    uint8_t exact_match;
     std::vector<TokenOffset> offsets;
 
-    Match() : words_present(0), distance(0) {
+    Match() : words_present(0), distance(0), exact_match(0) {
 
     }
 
-    Match(uint8_t words_present, uint8_t distance) : words_present(words_present), distance(distance) {
+    Match(uint8_t words_present, uint8_t distance) : words_present(words_present), distance(distance), exact_match(0) {
 
     }
 
     // Explicit construction of match score
     static inline uint64_t get_match_score(const uint32_t words_present, const uint32_t total_cost, const uint8_t distance) {
         uint64_t match_score = (
-            (int64_t(words_present) << 16) |
-            (int64_t(255 - total_cost) << 8) |
-            (int64_t(100 - distance))
+            (int64_t(words_present) << 24) |
+            (int64_t(255 - total_cost) << 16) |
+            (int64_t(100 - distance) << 8) |
+            (int64_t(0) << 1)
         );
 
         return match_score;
@@ -63,9 +70,10 @@ struct Match {
     // Construct a single match score from individual components (for multi-field sort)
     inline uint64_t get_match_score(const uint32_t total_cost) const {
         uint64_t match_score = (
-            (int64_t(words_present) << 16) |
-            (int64_t(255 - total_cost) << 8) |
-            (int64_t(100 - distance))
+            (int64_t(words_present) << 24) |
+            (int64_t(255 - total_cost) << 16) |
+            (int64_t(100 - distance) << 8) |
+            (int64_t(exact_match) << 1)
         );
 
         return match_score;
@@ -123,13 +131,13 @@ struct Match {
         Until queue size is 1.
     */
 
-    Match(uint32_t doc_id, const std::vector<std::vector<uint16_t>> &token_offsets, bool populate_window=true) {
+    Match(uint32_t doc_id, const std::vector<token_positions_t>& token_offsets, bool populate_window=true) {
         // in case if number of tokens in query is greater than max window
         const size_t tokens_size = std::min(token_offsets.size(), WINDOW_SIZE);
 
         std::vector<TokenOffset> window(tokens_size);
         for (size_t token_id = 0; token_id < tokens_size; token_id++) {
-            window[token_id] = TokenOffset{static_cast<uint8_t>(token_id), token_offsets[token_id][0], 0};
+            window[token_id] = TokenOffset{static_cast<uint8_t>(token_id), token_offsets[token_id].positions[0], 0};
         }
 
         std::vector<TokenOffset> best_window;
@@ -193,7 +201,7 @@ struct Match {
             window.pop_back();
 
             const uint8_t token_id = smallest_offset.token_id;
-            const std::vector<uint16_t> &this_token_offsets = token_offsets[token_id];
+            const std::vector<uint16_t>& this_token_offsets = token_offsets[token_id].positions;
 
             if (smallest_offset.offset == this_token_offsets.back()) {
                 // no more offsets for this token
@@ -214,6 +222,25 @@ struct Match {
         distance = uint8_t(best_displacement);
         if(populate_window) {
             offsets = best_window;
+        }
+
+        int last_token_index = -1;
+        size_t total_offsets = 0;
+        exact_match = 0;
+
+        for(const auto& token_positions: token_offsets) {
+            if(token_positions.last_token && !token_positions.positions.empty()) {
+                last_token_index = token_positions.positions.back();
+            }
+            total_offsets += token_positions.positions.size();
+            if(total_offsets > token_offsets.size()) {
+                break;
+            }
+        }
+
+        if(last_token_index == int(token_offsets.size())-1 &&
+           total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
+            exact_match = 1;
         }
     }
 };
