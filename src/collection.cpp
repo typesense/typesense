@@ -1967,6 +1967,9 @@ Option<bool> Collection::parse_geopoint_filter_value(std::string& raw_value,
 
 Option<bool> Collection::parse_filter_query(const std::string& simple_filter_query,
                                                       std::vector<filter>& filters) const {
+
+    std::vector<filter> exclude_filters;  // to ensure that they go last in the list of filters
+
     std::vector<std::string> filter_blocks;
     StringUtils::split(simple_filter_query, filter_blocks, "&&");
 
@@ -2141,6 +2144,15 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 // string filter should be evaluated in strict "equals" mode
                 str_comparator = EQUALS;
                 while(raw_value[++filter_value_index] == ' ');
+            } else if(raw_value[0] == '-') {
+                if(!_field.facet) {
+                    // EXCLUDE filtering on string is possible only on facet fields
+                    return Option<bool>(400, "To perform exclude filtering, filter field `" +
+                                             _field.name + "` must be a facet field.");
+                }
+
+                str_comparator = NOT_EQUALS;
+                while(raw_value[++filter_value_index] == ' ');
             }
 
             if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
@@ -2155,8 +2167,14 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                                 "`: Unidentified field data type, see docs for supported data types.");
         }
 
-        filters.push_back(f);
+        if(f.comparators.size() > 0 && f.comparators.front() == NOT_EQUALS) {
+            exclude_filters.push_back(f);
+        } else {
+            filters.push_back(f);
+        }
     }
+
+    filters.insert( filters.end(), exclude_filters.begin(), exclude_filters.end() );
 
     return Option<bool>(true);
 }
