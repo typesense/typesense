@@ -310,7 +310,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
                                       0, NULL, acl_req_headers.base, acl_req_headers.len);
                 h2o_add_header_by_str(&req->pool, &req->res.headers,
                                       H2O_STRLIT("access-control-max-age"),
-                                      0, NULL, H2O_STRLIT("86400"));
+                                      0, NULL, H2O_STRLIT("3600"));
 
                 h2o_start_response(req, &generator);
                 h2o_send(req, &res_body, 1, H2O_SEND_STATE_FINAL);
