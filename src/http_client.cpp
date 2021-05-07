@@ -94,6 +94,7 @@ void HttpClient::init(const std::string &api_key) {
         "/etc/pki/tls/cacert.pem",                           // OpenELEC
         "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem", // CentOS/RHEL 7
         "/usr/local/etc/openssl/cert.pem",                   // OSX
+        "/usr/local/etc/openssl@1.1/cert.pem",               // OSX
     };
 
     HttpClient::ca_cert_path = "";

@@ -162,7 +162,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
             size_t progress_modulo = std::max<size_t>(1, (num_collections / 10));  // every 10%
             if(num_processed % progress_modulo == 0) {
-                LOG(INFO) << "Loaded " << num_processed << " collection(s)";
+                LOG(INFO) << "Loaded " << num_processed << " collection(s) so far";
             }
         });
     }
@@ -184,7 +184,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
     delete iter;
 
-    LOG(INFO) << "Done loading all " << num_collections << " collection(s).";
+    LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
     loading_pool.shutdown();
 

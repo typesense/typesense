@@ -158,7 +158,7 @@ TEST(StringUtilsTest, ShouldParseQueryString) {
     ASSERT_EQ("points :> 100", qmap["filter_by"]);
     ASSERT_EQ("", qmap["enable_typos"]);
 
-    qs = "foo=" + StringUtils::randstring(2000);
+    qs = "foo=" + StringUtils::randstring(4000);
     qmap = StringUtils::parse_query_string(qs);
     ASSERT_EQ(0, qmap.size());
 
