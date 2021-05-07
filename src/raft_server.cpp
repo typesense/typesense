@@ -561,6 +561,13 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     node->get_status(&n_status);
     lock.unlock();
 
+    // `known_applied_index` guaranteed to be atleast 1 if raft log is available (after snapshot loading etc.)
+    if(n_status.known_applied_index == 0) {
+        LOG_IF(ERROR, log_msg) << "Node not ready yet (known_applied_index is 0).";
+        read_caught_up = write_caught_up = false;
+        return ;
+    }
+
     // work around for: https://github.com/baidu/braft/issues/277#issuecomment-823080171
     int64_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
     int64_t apply_lag = n_status.last_index - current_index;
