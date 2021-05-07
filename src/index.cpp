@@ -1252,7 +1252,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     }
                 }
 
-                if(a_filter.comparators[0] == EQUALS && f.is_facet()) {
+                if((a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) && f.is_facet()) {
                     // need to do exact match (unlike CONTAINS) by using the facet index
                     // field being a facet is already enforced upstream
                     uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
@@ -1305,14 +1305,36 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     strt_ids_size = exact_strt_size;
                 }
 
-                // Otherwise, we just ensure that given record contains tokens in the filter query
-                // (NOT implemented) if the query is wrapped by double quotes, ensure phrase match
-                // bool exact_match = (filter_value.front() == '"' && filter_value.back() == '"');
-                uint32_t* out = nullptr;
-                ids_size = ArrayUtils::or_scalar(ids, ids_size, strt_ids, strt_ids_size, &out);
-                delete[] strt_ids;
-                delete[] ids;
-                ids = out;
+                if(a_filter.comparators[0] == NOT_EQUALS && f.is_facet()) {
+                    // exclude records from existing IDs (from previous filters or ALL records)
+                    // upstream will guarantee that NOT_EQUALS is placed right at the end of filters list
+                    if(ids == nullptr) {
+                        if(filter_ids == nullptr) {
+                            ids = seq_ids.uncompress();
+                            ids_size = seq_ids.getLength();
+                        } else {
+                            ids = filter_ids;
+                            ids_size = filter_ids_length;
+                        }
+                    }
+
+                    uint32_t* excluded_strt_ids = new uint32_t[strt_ids_size];
+                    size_t excluded_strt_size = 0;
+                    excluded_strt_size = ArrayUtils::exclude_scalar(ids, ids_size, strt_ids,
+                                                                    strt_ids_size, &excluded_strt_ids);
+
+                    delete [] ids;
+                    ids = excluded_strt_ids;
+                    ids_size = excluded_strt_size;
+
+                } else {
+                    // Otherwise, we just ensure that given record contains tokens in the filter query
+                    uint32_t* out = nullptr;
+                    ids_size = ArrayUtils::or_scalar(ids, ids_size, strt_ids, strt_ids_size, &out);
+                    delete[] strt_ids;
+                    delete[] ids;
+                    ids = out;
+                }
             }
 
             result_ids = ids;
