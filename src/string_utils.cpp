@@ -71,8 +71,8 @@ std::string StringUtils::hash_sha256(const std::string& str) {
 }
 
 std::map<std::string, std::string> StringUtils::parse_query_string(const std::string &query) {
-    if(query.size() > 2000) {
-        LOG(ERROR) << "Query string exceeds max allowed length of 2000. Actual length: " << query.size();
+    if(query.size() > 4000) {
+        LOG(ERROR) << "Query string exceeds max allowed length of 4000. Actual length: " << query.size();
         return {};
     }
 
