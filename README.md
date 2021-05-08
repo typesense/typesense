@@ -30,6 +30,7 @@
 - Search a 32M songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
 - Search a 28M books dataset from OpenLibrary: [books-search.typesense.org](https://books-search.typesense.org/)
 - Search a 2M recipe dataset from RecipeNLG: [recipe-search.typesense.org](https://recipe-search.typesense.org/)
+- Search 1M Git commit messages from the Linux Kernel: [linux-commits-search.typesense.org](https://linux-commits-search.typesense.org/)
 - Spellchecker with type-ahead, with 333K English words: [spellcheck.typesense.org](https://spellcheck.typesense.org/)
 
 🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
