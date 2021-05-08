@@ -923,6 +923,8 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+
     auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `description_txt` in the schema.", res_op.error());
@@ -936,12 +938,19 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto update_op = coll1->add(doc.dump(), UPDATE, "0");
     ASSERT_TRUE(add_op.ok());
 
+    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+
     auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ("Some post updated.", res["hits"][0]["document"]["post"].get<std::string>());
 
     // try to delete doc with non-indexable field
     auto del_op = coll1->remove("0");
     ASSERT_TRUE(del_op.ok());
+
+    // facet search should also be disabled
+    auto fs_op = coll1->search("Amazon", {"company_name"}, "", {"description_txt"}, sort_fields, 0, 10, 1, FREQUENCY, false);
+    ASSERT_FALSE(fs_op.ok());
+    ASSERT_EQ("Could not find a facet field named `description_txt` in the schema.", fs_op.error());
 
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),

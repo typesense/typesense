@@ -353,10 +353,11 @@ public:
                 const std::vector<std::string>& group_by_fields,
                 const std::string& default_sorting_field) const;
 
-    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document);
+    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field);
+                                     const std::string & default_sorting_field,
+                                     const bool is_update);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record> & iter_batch,
