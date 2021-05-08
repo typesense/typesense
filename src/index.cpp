@@ -1329,7 +1329,11 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     excluded_strt_size = ArrayUtils::exclude_scalar(ids, ids_size, strt_ids,
                                                                     strt_ids_size, &excluded_strt_ids);
 
-                    delete [] ids;
+                    if(filter_ids == nullptr) {
+                        // means we had to uncompress `seq_ids` so need to free that
+                        delete [] ids;
+                    }
+
                     ids = excluded_strt_ids;
                     ids_size = excluded_strt_size;
 
