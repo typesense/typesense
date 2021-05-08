@@ -253,6 +253,10 @@ void sorted_array::indexOf(const uint32_t *values, const size_t values_len, uint
 }
 
 void sorted_array::remove_value(uint32_t value) {
+    if(length == 0) {
+        return ;
+    }
+
     // A lower bound search returns the first element in the sequence that is >= `value`
     // So, `found_val` will be either equal or greater than `value`
     uint32_t found_val;

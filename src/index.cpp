@@ -18,9 +18,11 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
 
     for(const auto & fname_field: search_schema) {
         if(fname_field.second.is_string()) {
-            art_tree *t = new art_tree;
-            art_tree_init(t);
-            search_index.emplace(fname_field.first, t);
+            if(fname_field.second.index) {
+                art_tree *t = new art_tree;
+                art_tree_init(t);
+                search_index.emplace(fname_field.first, t);
+            }
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
@@ -105,7 +107,8 @@ int64_t Index::float_to_in64_t(float f) {
 }
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
-                                        const std::string & default_sorting_field) {
+                                        const std::string & default_sorting_field,
+                                        const bool is_update) {
 
     std::unique_lock lock(mutex);
 
@@ -121,7 +124,10 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         points = get_points_from_doc(document, default_sorting_field);
     }
 
-    seq_ids.append(seq_id);
+    if(!is_update) {
+        // for updates, the seq_id will already exist
+        seq_ids.append(seq_id);
+    }
 
     // assumes that validation has already been done
     for(const auto& field_pair: search_schema) {
@@ -450,13 +456,13 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
                 // scrub string fields to reduce delete ops
                 get_doc_changes(index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
                 index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-                index->remove(index_rec.seq_id, index_rec.del_doc);
+                index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
             }
 
             Option<uint32_t> index_mem_op(0);
 
             try {
-                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field);
+                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
             } catch(const std::exception& e) {
                 const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
                 LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
@@ -464,7 +470,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             }
 
             if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field);
+                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, true);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
@@ -2388,7 +2394,7 @@ void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint
     delete[] new_array;
 }
 
-Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document) {
+Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update) {
     std::unique_lock lock(mutex);
 
     for(auto it = document.begin(); it != document.end(); ++it) {
@@ -2498,7 +2504,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         }
     }
 
-    if(seq_ids.contains(seq_id)) {
+    if(!is_update) {
         seq_ids.remove_value(seq_id);
     }
 

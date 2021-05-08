@@ -357,7 +357,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     Index* index = indices[seq_id % num_memory_shards];
-    index->index_in_memory(document, seq_id, default_sorting_field);
+    index->index_in_memory(document, seq_id, default_sorting_field, is_update);
 
     num_documents += 1;
     return Option<>(200);
@@ -1672,7 +1672,7 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
         std::unique_lock lock(mutex);
 
         Index* index = indices[seq_id % num_memory_shards];
-        index->remove(seq_id, document);
+        index->remove(seq_id, document, false);
         num_documents -= 1;
     }
 
