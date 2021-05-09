@@ -1343,3 +1343,60 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("place", field_types::STRING, true),
+                                 field("state", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"St. John's Cathedral, Denver, Colorado", "Colorado"},
+        {"Crater Lake National Park, Oregon", "Oregon"},
+        {"St. Patrick's Cathedral, Manhattan", "New York"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["place"] = records[i][0];
+        doc["state"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {"place"}, "place:= St. John's Cathedral, Denver, Colorado", {}, {}, 0, 10, 1,
+                                 FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`]", {}, {}, 0, 10, 1,
+                            FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`, `St. Patrick's Cathedral, Manhattan`]", {}, {}, 0, 10, 1,
+                            FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {"place"}, "place: [`Cathedral, Denver, Colorado`]", {}, {}, 0, 10, 1,
+                            FREQUENCY, true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

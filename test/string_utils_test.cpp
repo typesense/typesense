@@ -218,3 +218,41 @@ TEST(StringUtilsTest, ShouldParseQueryString) {
     qmap = StringUtils::parse_query_string(qs);
     ASSERT_EQ(0, qmap.size());
 }
+
+TEST(StringUtilsTest, ShouldParseStringifiedList) {
+    std::string str = "John Galt, Random Jack";
+    std::vector<std::string> strs;
+
+    StringUtils::split_to_values(str, strs);
+    ASSERT_EQ(2, strs.size());
+    ASSERT_EQ("John Galt", strs[0]);
+    ASSERT_EQ(" Random Jack", strs[1]);
+
+    strs.clear();
+    str = "`John Galt`, `Random, Jack`";
+    StringUtils::split_to_values(str, strs);
+    ASSERT_EQ(2, strs.size());
+    ASSERT_EQ("John Galt", strs[0]);
+    ASSERT_EQ(" Random, Jack", strs[1]);
+
+    strs.clear();
+    str = "`John Galt, `Random, Jack`";
+    StringUtils::split_to_values(str, strs);
+    ASSERT_EQ(2, strs.size());
+    ASSERT_EQ("John Galt, Random", strs[0]);
+    ASSERT_EQ(" Jack", strs[1]);
+
+    strs.clear();
+    str = "`Traveller's \\`delight\\`!`, Not wrapped, Last word";
+    StringUtils::split_to_values(str, strs);
+    ASSERT_EQ(3, strs.size());
+    ASSERT_EQ("Traveller's \\`delight\\`!", strs[0]);
+    ASSERT_EQ(" Not wrapped", strs[1]);
+    ASSERT_EQ(" Last word", strs[2]);
+
+    strs.clear();
+    str = "`John Galt`";
+    StringUtils::split_to_values(str, strs);
+    ASSERT_EQ(1, strs.size());
+    ASSERT_EQ("John Galt", strs[0]);
+}
