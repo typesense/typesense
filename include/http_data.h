@@ -83,6 +83,12 @@ struct http_res {
         //LOG(INFO) << "http_res " << this;
     }
 
+    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body) {
+        this->status_code = status_code;
+        this->content_type_header = content_type_header;
+        this->body = body;
+    }
+
     void wait() {
         auto lk = std::unique_lock<std::mutex>(mcv);
         cv.wait(lk, [&] { return ready; });
@@ -178,6 +184,28 @@ struct http_res {
     void set_body(uint32_t code, const std::string & message) {
         status_code = code;
         body = message;
+    }
+};
+
+struct cached_res_t {
+    uint32_t status_code;
+    std::string content_type_header;
+    std::string body;
+    uint64_t hash;
+
+    bool operator == (const cached_res_t& res) const {
+        return hash == res.hash;
+    }
+
+    bool operator != (const cached_res_t& res) const {
+        return hash != res.hash;
+    }
+
+    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body, uint64_t hash) {
+        this->status_code = status_code;
+        this->content_type_header = content_type_header;
+        this->body = body;
+        this->hash = hash;
     }
 };
 
