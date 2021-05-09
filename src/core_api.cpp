@@ -10,6 +10,12 @@
 #include "system_metrics.h"
 #include "logger.h"
 #include "core_api_utils.h"
+#include "lru/lru.hpp"
+
+using namespace std::chrono_literals;
+
+std::shared_mutex mutex;
+LRU::TimedCache<uint64_t, cached_res_t> res_cache(60*1000ms, 1000);
 
 bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body,
                            const route_path& rpath, const std::string& auth_key) {
@@ -190,7 +196,41 @@ bool get_log_sequence(const std::shared_ptr<http_req>& req, const std::shared_pt
     return true;
 }
 
+uint64_t hash_request(const std::shared_ptr<http_req>& req) {
+    std::stringstream ss;
+    ss << req->route_hash << req->body;
+
+    for(auto& kv: req->params) {
+        if(kv.first != "use_cache") {
+            ss << kv.second;
+        }
+    }
+
+    const std::string& req_str = ss.str();
+    return StringUtils::hash_wy(req_str.c_str(), req_str.size());
+}
+
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const auto cache_it = req->params.find("use_cache");
+    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    uint64_t req_hash = 0;
+
+    if(use_cache) {
+        // cache enabled, let's check if request is already in the cache
+        req_hash = hash_request(req);
+
+        //LOG(INFO) << "req_hash = " << req_hash;
+
+        std::shared_lock lock(mutex);
+        auto hit_it = res_cache.find(req_hash);
+        if(hit_it != res_cache.end()) {
+            //LOG(INFO) << "Result found in cache.";
+            const auto& cached_value = hit_it.value();
+            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
+            return true;
+        }
+    }
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, results_json_str);
 
@@ -201,10 +241,42 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     res->set_200(results_json_str);
 
+    // we will cache only successful requests
+    if(use_cache) {
+        //LOG(INFO) << "Adding to cache, key = " << req_hash;
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
+        std::unique_lock lock(mutex);
+
+        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
+        res_cache.erase(req_hash);
+        res_cache.insert(req_hash, cached_res);
+    }
+
     return true;
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const auto cache_it = req->params.find("use_cache");
+    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    uint64_t req_hash = 0;
+
+    if(use_cache) {
+        // cache enabled, let's check if request is already in the cache
+        req_hash = hash_request(req);
+
+        //LOG(INFO) << "req_hash = " << req_hash;
+
+        std::shared_lock lock(mutex);
+        auto hit_it = res_cache.find(req_hash);
+        if(hit_it != res_cache.end()) {
+            //LOG(INFO) << "Result found in cache.";
+            const auto& cached_value = hit_it.value();
+            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
+            return true;
+        }
+    }
+
     nlohmann::json req_json;
 
     try {
@@ -275,6 +347,19 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     res->set_200(response.dump());
+
+    // we will cache only successful requests
+    if(use_cache) {
+        //LOG(INFO) << "Adding to cache, key = " << req_hash;
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
+        std::unique_lock lock(mutex);
+
+        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
+        res_cache.erase(req_hash);
+        res_cache.insert(req_hash, cached_res);
+    }
+
     return true;
 }
 
