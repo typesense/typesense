@@ -1966,7 +1966,7 @@ Option<bool> Collection::parse_geopoint_filter_value(std::string& raw_value,
 }
 
 Option<bool> Collection::parse_filter_query(const std::string& simple_filter_query,
-                                                      std::vector<filter>& filters) const {
+                                            std::vector<filter>& filters) const {
 
     std::vector<filter> exclude_filters;  // to ensure that they go last in the list of filters
 
@@ -2157,7 +2157,7 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
 
             if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
-                StringUtils::split(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values, ",");
+                StringUtils::split_to_values(raw_value.substr(filter_value_index+1, raw_value.size() - filter_value_index - 2), filter_values);
                 f = {field_name, filter_values, {str_comparator}};
             } else {
                 f = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
