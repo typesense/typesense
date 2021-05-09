@@ -67,6 +67,8 @@ struct StringUtils {
         return ss.str();
     }
 
+    static void split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values);
+
     // Adapted from: http://stackoverflow.com/a/36000453/131050
     static std::string & trim(std::string & str) {
         // right trim

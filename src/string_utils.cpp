@@ -139,6 +139,47 @@ std::map<std::string, std::string> StringUtils::parse_query_string(const std::st
     return query_map;
 }
 
+void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values) {
+    size_t i = 0;
+
+    bool inside_tick = false;
+    std::string buffer;
+    buffer.reserve(20);
+
+    while(i < vals_str.size()) {
+        char c = vals_str[i];
+        bool escaped_tick = (i != 0) && c == '`' && vals_str[i-1] == '\\';
+
+        switch(c) {
+            case '`':
+                if(escaped_tick) {
+                    buffer += c;
+                } else if(inside_tick && !buffer.empty()) {
+                    inside_tick = false;
+                } else {
+                    inside_tick = true;
+                }
+                break;
+            case ',':
+                if(!inside_tick) {
+                    filter_values.push_back(buffer);
+                    buffer = "";
+                } else {
+                    buffer += c;
+                }
+                break;
+            default:
+                buffer += c;
+        }
+
+        i++;
+    }
+
+    if(!buffer.empty()) {
+        filter_values.push_back(buffer);
+    }
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
