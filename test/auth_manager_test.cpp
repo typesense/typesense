@@ -195,6 +195,14 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     api_key_t unexpired_key1 = api_key_t("abcd9", "expiry key", {"*"}, {"*"}, 2237712220);
     auth_manager.create_key(unexpired_key1);
     ASSERT_TRUE(auth_manager.authenticate(unexpired_key1.value, "collections:list", {"collection"}, sparams));
+
+    // wildcard action on any collection
+    api_key_t wildcard_action_coll_key = api_key_t("abcd10", "wildcard coll action key", {"collections:*"}, {"*"}, FUTURE_TS);
+    auth_manager.create_key(wildcard_action_coll_key);
+
+    ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:create", {"collection1"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:delete", {"collection1", "collection2"}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate(wildcard_action_coll_key.value, "documents:create", {"collection1"}, sparams));
 }
 
 TEST_F(AuthManagerTest, HandleAuthentication) {

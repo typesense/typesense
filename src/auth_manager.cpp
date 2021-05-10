@@ -194,6 +194,18 @@ bool AuthManager::auth_against_key(const std::vector<std::string>& collections, 
                 action_is_allowed = true;
                 break;
             }
+
+            // e.g. collections:create or documents:create
+            if (allowed_action.size() >= 2 && allowed_action[allowed_action.size() - 2] == ':' &&
+                allowed_action.back() == '*') {
+                std::string allowed_resource = allowed_action.substr(0, allowed_action.size() - 2);
+                std::vector<std::string> actual_action_parts;
+                StringUtils::split(action, actual_action_parts, ":");
+                if(actual_action_parts[0] == allowed_resource) {
+                    action_is_allowed = true;
+                    break;
+                }
+            }
         }
 
         if(!action_is_allowed) {
