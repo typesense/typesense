@@ -726,11 +726,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 return Option<nlohmann::json>(404, error);
             }
 
-            GeoCoord x {degsToRads(std::stod(geo_coords[0])), degsToRads(std::stod(geo_coords[1]))};
-            H3Index geoHash = geoToH3(&x, FINEST_GEO_RESOLUTION);
-
+            int64_t lat_lng = GeoPoint::pack_lat_lng(std::stod(geo_coords[0]), std::stod(geo_coords[1]));
             sort_field_std.name = actual_field_name;
-            sort_field_std.geopoint = geoHash;
+            sort_field_std.geopoint = lat_lng;
         }
 
         if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
