@@ -23,6 +23,7 @@ endif()
 
 # Needed to enable Snappy on RocksDB
 add_definitions(-DSNAPPY)
+add_definitions(-DS2_USE_GLOG)
 
 if (APPLE)
     add_definitions(-DGTEST_USE_OWN_TR1_TUPLE)
@@ -154,7 +155,7 @@ else()
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS kakasi h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for h3
+set(CORE_LIBS kakasi h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for s2 h3
               ${LevelDB_LIBRARIES} ${ROCKSDB_LIBS}
               glog ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${STACKTRACE_LIBS}
               ${OPENSSL_LIBRARIES} ${ZLIB_LIBRARIES} ${JEMALLOC_LIBRARIES}

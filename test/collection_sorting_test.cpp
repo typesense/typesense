@@ -492,7 +492,7 @@ TEST_F(CollectionSortingTest, GeoPointFiltering) {
     ASSERT_EQ(10, results["found"].get<size_t>());
 
     std::vector<std::string> expected_ids = {
-        "9", "7", "4", "3", "8", "5", "0", "6", "1", "2"
+        "9", "7", "4", "5", "3", "8", "0", "6", "1", "2"
     };
 
     for(size_t i=0; i < expected_ids.size(); i++) {

@@ -7,14 +7,6 @@
 #include <limits>
 #include "logger.h"
 
-#ifdef DEBUG
-#define D(x) x
-#else
-#define D(x)
-#endif
-
-#define TokenOffsetHeap std::priority_queue<TokenOffset, std::vector<TokenOffset>, TokenOffset>
-
 const size_t WINDOW_SIZE = 10;
 const uint16_t MAX_DISPLACEMENT = std::numeric_limits<uint16_t>::max();
 
