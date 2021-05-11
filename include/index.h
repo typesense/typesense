@@ -169,6 +169,8 @@ private:
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
+    spp::sparse_hash_map<std::string, std::vector<uint32_t>> geopoint_index;
+
     // facet_field => (seq_id => values)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>*> facet_index_v3;
 
