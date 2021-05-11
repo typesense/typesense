@@ -2125,7 +2125,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         if(sort_fields.size() > 2) {
-            if(field_values[2] != TEXT_MATCH_SENTINEL) {
+            if(field_values[2] == TEXT_MATCH_SENTINEL) {
                 scores[2] = int64_t(match_score);
                 match_score_index = 2;
             } else if (field_values[2] == SEQ_ID_SENTINEL) {
