@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <s2/s2latlng.h>
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
@@ -498,6 +499,32 @@ struct sort_by {
         order = other.order;
         geopoint = other.geopoint;
         return *this;
+    }
+};
+
+class GeoPoint {
+    constexpr static const double EARTH_RADIUS = 3958.75;
+    constexpr static const double METER_CONVERT = 1609.00;
+public:
+    static int64_t pack_lat_lng(double lat, double lng) {
+        // https://stackoverflow.com/a/1220393/131050
+        int32_t ilat = lat * 1000000;
+        int32_t ilng = lng * 1000000;
+        int64_t lat_lng = (int64_t(ilat) << 32) | ilng;
+        return lat_lng;
+    }
+
+    static void unpack_lat_lng(int64_t packed_lat_lng, S2LatLng& latlng) {
+        double lat = double(packed_lat_lng >> 32) / 1000000;
+        double lng = double(packed_lat_lng & 0xffffffffUL) / 1000000;
+        latlng = S2LatLng::FromDegrees(lat, lng);
+    }
+
+    // distance in meters
+    static int64_t distance(const S2LatLng& a, const S2LatLng& b) {
+        double rdist = a.GetDistance(b).radians();
+        double dist = EARTH_RADIUS * rdist;
+        return dist * METER_CONVERT;
     }
 };
 

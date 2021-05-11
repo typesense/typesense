@@ -1005,10 +1005,11 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
                             {}, "loc: (48.85825332869331, 2.303816427653377, 1 mi)",
                             {}, {}, 0, 10, 1, FREQUENCY).get();
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["found"].get<size_t>());
 
     ASSERT_STREQ("6", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
