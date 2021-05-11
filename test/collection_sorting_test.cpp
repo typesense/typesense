@@ -405,6 +405,48 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, ThreeSortFieldsTextMatchLast) {
+    Collection *coll1;
+
+    std::vector<field> fields = { field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false),
+                                 field("popularity", field_types::INT32, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Coby Grant", "100"},    // text_match: 33684577
+        {"Coby Prant", "84642"},  // text_match: 129377
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][0];
+        doc["popularity"] = std::stoi(records[i][1]);
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("popularity", "DESC"), sort_by("points", "DESC"), sort_by(sort_field_const::text_match, "DESC") };
+
+    auto res = coll1->search("grant",
+                                 {"title","artist"}, "", {}, sort_fields, 1, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, res["found"].get<size_t>());
+    ASSERT_STREQ("1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, NegativeInt64Value) {
     Collection *coll1;
 
