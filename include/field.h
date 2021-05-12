@@ -505,18 +505,20 @@ struct sort_by {
 class GeoPoint {
     constexpr static const double EARTH_RADIUS = 3958.75;
     constexpr static const double METER_CONVERT = 1609.00;
+    constexpr static const uint64_t MASK_H32_BITS = 0xffffffffUL;
 public:
-    static int64_t pack_lat_lng(double lat, double lng) {
+    static uint64_t pack_lat_lng(double lat, double lng) {
         // https://stackoverflow.com/a/1220393/131050
-        int32_t ilat = lat * 1000000;
-        int32_t ilng = lng * 1000000;
-        int64_t lat_lng = (int64_t(ilat) << 32) | ilng;
+        const int32_t ilat = lat * 1000000;
+        const int32_t ilng = lng * 1000000;
+        // during int32_t -> uint64_t, higher order bits will be 1, so we have to mask that
+        const uint64_t lat_lng = (uint64_t(ilat) << 32) | (uint64_t)(ilng & MASK_H32_BITS);
         return lat_lng;
     }
 
-    static void unpack_lat_lng(int64_t packed_lat_lng, S2LatLng& latlng) {
-        double lat = double(packed_lat_lng >> 32) / 1000000;
-        double lng = double(packed_lat_lng & 0xffffffffUL) / 1000000;
+    static void unpack_lat_lng(uint64_t packed_lat_lng, S2LatLng& latlng) {
+        const double lat = double(int32_t((packed_lat_lng >> 32) & MASK_H32_BITS)) / 1000000;
+        const double lng = double(int32_t(packed_lat_lng & MASK_H32_BITS)) / 1000000;
         latlng = S2LatLng::FromDegrees(lat, lng);
     }
 
