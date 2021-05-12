@@ -1663,7 +1663,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
             uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
             uint64_t total_typos = 0, total_distances = 0, exact_matches = 0;
-            uint64_t num_exact_matches = 0;
+            uint64_t num_query_matches = 0;
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
@@ -1687,7 +1687,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     exact_matches += (((match_score & 0xFF)) + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        num_exact_matches++;
+                        num_query_matches++;
                     }
 
                     /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
@@ -1733,14 +1733,15 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
                 if(words_present != 0) {
                     uint64_t match_score = Match::get_match_score(words_present, 0, 0);
-                    total_distances += ((100 - (match_score & 0xFF)) + 1) * weight;
 
-                    uint64_t tokens_found = ((match_score >> 16) & 0xFF);
-                    uint64_t field_typos = 255 - ((match_score >> 8) & 0xFF);
+                    uint64_t tokens_found = ((match_score >> 24) & 0xFF);
+                    uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
+                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
                     total_typos += (field_typos + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        num_exact_matches++;
+                        num_query_matches++;
+                        exact_matches++;
                     }
                     //LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << ((match_score >> 8) & 0xFF);
                 }
@@ -1751,10 +1752,11 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             total_distances = std::min<uint64_t>(100, total_distances);
 
             uint64_t aggregated_score = (
-                (num_exact_matches << 24) |
-                (tokens_present << 16) |
-                ((255 - total_typos) << 8) |
-                (100 - total_distances)
+                (num_query_matches << 32) |
+                (tokens_present << 24) |
+                ((255 - total_typos) << 16) |
+                ((100 - total_distances) << 8) |
+                (exact_matches)
             );
 
             /*LOG(INFO) << "seq id: " << seq_id << ", tokens_present: " << tokens_present
