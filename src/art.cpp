@@ -1294,7 +1294,7 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
         cost = cost_row[key_len];
     }
 
-    int bounded_cost = (cost <= 2) ? (max_cost + 1) : max_cost;
+    int bounded_cost = (max_cost == 0) ? max_cost : (max_cost + 1);
     return (cost > bounded_cost) ? -1 : 0;
 }
 
