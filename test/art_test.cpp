@@ -735,7 +735,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, nullptr, 0, leaves);
-    ASSERT_EQ(6, leaves.size());
+    ASSERT_EQ(7, leaves.size());
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
