@@ -714,6 +714,46 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithAuoFacetFieldType) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field(".*_name", field_types::AUTO, true, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Amazon";
+    doc["year_name"]  = 1990;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"]  = "Org";
+    doc["org_name"]  = "Walmart";
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
+    ASSERT_EQ("Amazon", results["hits"][1]["document"]["org_name"].get<std::string>());
+
+    ASSERT_EQ("Amazon", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    ASSERT_EQ("Walmart", results["facet_counts"][0]["counts"][1]["value"].get<std::string>());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][1]["count"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     Collection *coll1;
 
