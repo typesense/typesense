@@ -63,6 +63,7 @@ struct search_args {
     std::vector<std::string> group_by_fields;
     size_t group_limit;
     std::string default_sorting_field;
+    bool prioritize_exact_match;
     size_t all_result_ids_len;
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -82,7 +83,8 @@ struct search_args {
                 size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
-                const std::string& default_sorting_field):
+                const std::string& default_sorting_field,
+                bool prioritize_exact_match):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -90,7 +92,7 @@ struct search_args {
             page(page), token_order(token_order), prefix(prefix),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
-            all_result_ids_len(0) {
+            prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -211,6 +213,7 @@ private:
                       size_t& field_num_results,
                       const size_t group_limit,
                       const std::vector<std::string>& group_by_fields,
+                      bool prioritize_exact_match,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD) const;
@@ -227,7 +230,8 @@ private:
                            size_t& field_num_results,
                            const size_t typo_tokens_threshold,
                            const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                           const std::vector<token_t>& query_tokens) const;
+                           const std::vector<token_t>& query_tokens,
+                           bool prioritize_exact_match) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -302,12 +306,12 @@ public:
 
     static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
-    void score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index, const uint8_t & field_id,
-                       const uint32_t total_cost, Topster* topster, const std::vector<art_leaf *> & query_suggestion,
-                       spp::sparse_hash_set<uint64_t>& groups_processed,
-                       const uint32_t *result_ids, const size_t result_size,
-                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                       uint32_t token_bits, const std::vector<token_t>& query_tokens) const;
+    void score_results(const std::vector<sort_by> &sort_fields, const uint16_t &query_index, const uint8_t &field_id,
+                       const uint32_t total_cost, Topster *topster, const std::vector<art_leaf *> &query_suggestion,
+                       spp::sparse_hash_set<uint64_t> &groups_processed, const uint32_t *result_ids,
+                       const size_t result_size, const size_t group_limit,
+                       const std::vector<std::string> &group_by_fields, uint32_t token_bits,
+                       const std::vector<token_t> &query_tokens, bool prioritize_exact_match) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
@@ -353,7 +357,8 @@ public:
                 const size_t typo_tokens_threshold,
                 const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
-                const std::string& default_sorting_field) const;
+                const std::string& default_sorting_field,
+                bool prioritize_exact_match) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
