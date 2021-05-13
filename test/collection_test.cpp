@@ -3126,6 +3126,19 @@ TEST_F(CollectionTest, MultiFieldRelevance6) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
+    // when exact matches are disabled
+    results = coll1->search("taylor swift",
+                            {"title", "artist"}, "", {}, {}, 2, 10, 1, FREQUENCY,
+                            true, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1}, 100, false).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -3169,8 +3182,6 @@ TEST_F(CollectionTest, ExactMatch) {
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("alpha", {"title"}, "", {}, {}, 2, 10, 1, FREQUENCY, true, 10).get();
-
-    LOG(INFO) << results;
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());

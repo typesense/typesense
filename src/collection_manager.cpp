@@ -498,6 +498,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *HIGHLIGHT_START_TAG = "highlight_start_tag";
     const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
 
+    const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
+
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
     }
@@ -583,6 +585,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    if(req_params.count(PRIORITIZE_EXACT_MATCH) == 0) {
+        req_params[PRIORITIZE_EXACT_MATCH] = "true";
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -637,6 +643,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     if(!StringUtils::is_uint32_t(req_params[GROUP_LIMIT])) {
         return Option<bool>(400,"Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
     }
+
+    bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
 
     std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
 
@@ -718,7 +726,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           req_params[HIGHLIGHT_START_TAG],
                                                           req_params[HIGHLIGHT_END_TAG],
                                                           query_by_weights,
-                                                          static_cast<size_t>(std::stol(req_params[LIMIT_HITS]))
+                                                          static_cast<size_t>(std::stol(req_params[LIMIT_HITS])),
+                                                          prioritize_exact_match
     );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

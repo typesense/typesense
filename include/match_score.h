@@ -123,7 +123,8 @@ struct Match {
         Until queue size is 1.
     */
 
-    Match(uint32_t doc_id, const std::vector<token_positions_t>& token_offsets, bool populate_window=true) {
+    Match(uint32_t doc_id, const std::vector<token_positions_t>& token_offsets,
+          bool populate_window=true, bool check_exact_match=false) {
         // in case if number of tokens in query is greater than max window
         const size_t tokens_size = std::min(token_offsets.size(), WINDOW_SIZE);
 
@@ -216,23 +217,27 @@ struct Match {
             offsets = best_window;
         }
 
-        int last_token_index = -1;
-        size_t total_offsets = 0;
         exact_match = 0;
 
-        for(const auto& token_positions: token_offsets) {
-            if(token_positions.last_token && !token_positions.positions.empty()) {
-                last_token_index = token_positions.positions.back();
-            }
-            total_offsets += token_positions.positions.size();
-            if(total_offsets > token_offsets.size()) {
-                break;
-            }
-        }
+        if(check_exact_match) {
+            int last_token_index = -1;
+            size_t total_offsets = 0;
 
-        if(last_token_index == int(token_offsets.size())-1 &&
-           total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
-            exact_match = 1;
+            for(const auto& token_positions: token_offsets) {
+                if(token_positions.last_token && !token_positions.positions.empty()) {
+                    last_token_index = token_positions.positions.back();
+                }
+                total_offsets += token_positions.positions.size();
+                if(total_offsets > token_offsets.size()) {
+                    // if total offsets exceed query length, there cannot possibly be an exact match
+                    return;
+                }
+            }
+
+            if(last_token_index == int(token_offsets.size())-1 &&
+               total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
+                exact_match = 1;
+            }
         }
     }
 };
