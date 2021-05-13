@@ -503,7 +503,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
                                   std::vector<size_t> query_by_weights,
-                                  size_t limit_hits) const {
+                                  size_t limit_hits,
+                                  bool prioritize_exact_match) const {
 
     std::shared_lock lock(mutex);
 
@@ -857,7 +858,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                    sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                    per_page, page, token_order, prefix,
                                    drop_tokens_threshold, typo_tokens_threshold,
-                                   group_by_fields, group_limit, default_sorting_field);
+                                   group_by_fields, group_limit, default_sorting_field, prioritize_exact_match);
 
         search_args_vec.push_back(search_params);
 
@@ -1465,7 +1466,7 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        const Match & this_match = Match(field_order_kv->key, token_positions);
+        const Match & this_match = Match(field_order_kv->key, token_positions, true, true);
         uint64_t this_match_score = this_match.get_match_score(1);
         match_indices.emplace_back(this_match, this_match_score, array_index);
 

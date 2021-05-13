@@ -530,7 +530,8 @@ public:
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
                                   std::vector<size_t> query_by_weights={},
-                                  size_t limit_hits=UINT32_MAX) const;
+                                  size_t limit_hits=UINT32_MAX,
+                                  bool prioritize_exact_match=true) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
