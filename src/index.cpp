@@ -885,7 +885,8 @@ void Index::search_candidates(const uint8_t & field_id,
                               const size_t typo_tokens_threshold,
                               const size_t group_limit,
                               const std::vector<std::string>& group_by_fields,
-                              const std::vector<token_t>& query_tokens) const {
+                              const std::vector<token_t>& query_tokens,
+                              bool prioritize_exact_match) const {
 
     const long long combination_limit = 10;
 
@@ -969,9 +970,10 @@ void Index::search_candidates(const uint8_t & field_id,
             *all_result_ids = new_all_result_ids;
 
             // go through each matching document id and calculate match score
-            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
+                          query_suggestion,
                           groups_processed, filtered_result_ids, filtered_results_size,
-                          group_limit, group_by_fields, token_bits, query_tokens);
+                          group_limit, group_by_fields, token_bits, query_tokens, prioritize_exact_match);
 
             field_num_results += filtered_results_size;
 
@@ -988,8 +990,10 @@ void Index::search_candidates(const uint8_t & field_id,
                 LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size;
             }*/
 
-            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster, query_suggestion,
-                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits, query_tokens);
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
+                          query_suggestion,
+                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits,
+                          query_tokens, prioritize_exact_match);
 
             field_num_results += result_size;
 
@@ -1382,7 +1386,8 @@ void Index::run_search(search_args* search_params) {
            search_params->raw_result_kvs, search_params->override_result_kvs,
            search_params->typo_tokens_threshold,
            search_params->group_limit, search_params->group_by_fields,
-           search_params->default_sorting_field);
+           search_params->default_sorting_field,
+           search_params->prioritize_exact_match);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1473,7 +1478,8 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    const size_t typo_tokens_threshold,
                    const size_t group_limit,
                    const std::vector<std::string>& group_by_fields,
-                   const std::string& default_sorting_field) const {
+                   const std::string& default_sorting_field,
+                   bool prioritize_exact_match) const {
 
     std::shared_lock lock(mutex);
 
@@ -1575,7 +1581,8 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
         uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {});
+                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {},
+                      prioritize_exact_match);
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
         all_result_ids_len = filter_ids_length;
@@ -1625,7 +1632,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                              field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                             field_num_results, group_limit, group_by_fields, token_order, prefix,
+                             field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
                              drop_tokens_threshold, typo_tokens_threshold);
 
                 // do synonym based searches
@@ -1637,7 +1644,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                 field_num_results, group_limit, group_by_fields, token_order, prefix,
+                                 field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
                                  drop_tokens_threshold, typo_tokens_threshold);
                 }
 
@@ -1812,7 +1819,8 @@ void Index::search_field(const uint8_t & field_id,
                          Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                          uint32_t** all_result_ids, size_t & all_result_ids_len, size_t& field_num_results,
                          const size_t group_limit, const std::vector<std::string>& group_by_fields,
-                         const token_ordering token_order, const bool prefix, 
+                         bool prioritize_exact_match,
+                         const token_ordering token_order, const bool prefix,
                          const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) const {
 
     size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
@@ -1920,7 +1928,7 @@ void Index::search_field(const uint8_t & field_id,
             search_candidates(field_id, filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
-                              typo_tokens_threshold, group_limit, group_by_fields, query_tokens);
+                              typo_tokens_threshold, group_limit, group_by_fields, query_tokens, prioritize_exact_match);
         }
 
         resume_typo_loop:
@@ -1958,7 +1966,7 @@ void Index::search_field(const uint8_t & field_id,
         return search_field(field_id, query_tokens, truncated_tokens, exclude_token_ids, exclude_token_ids_size,
                             num_tokens_dropped, field, filter_ids, filter_ids_length, curated_ids,facets,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
-                            all_result_ids_len, field_num_results, group_limit, group_by_fields,
+                            all_result_ids_len, field_num_results, group_limit, group_by_fields, prioritize_exact_match,
                             token_order, prefix);
     }
 }
@@ -1991,7 +1999,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const uint32_t *result_ids, const size_t result_size,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits,
-                          const std::vector<token_t>& query_tokens) const {
+                          const std::vector<token_t>& query_tokens,
+                          bool prioritize_exact_match) const {
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     spp::sparse_hash_map<uint32_t, int64_t>* field_values[3];
@@ -2074,7 +2083,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 if (token_positions.empty()) {
                     continue;
                 }
-                const Match &match = Match(seq_id, token_positions, false);
+                const Match &match = Match(seq_id, token_positions, false, prioritize_exact_match);
                 uint64_t this_match_score = match.get_match_score(total_cost);
 
                 match_score += this_match_score;

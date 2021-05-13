@@ -47,12 +47,13 @@ TEST(MatchTest, MatchScoreV2) {
 
     token_offsets.clear();
     token_offsets.push_back(token_positions_t{false, {38, 50, 170, 187, 195, 222}});
-    token_offsets.push_back(token_positions_t{false, {39, 140, 171, 189, 223}});
+    token_offsets.push_back(token_positions_t{true, {39, 140, 171, 189, 223}});
     token_offsets.push_back(token_positions_t{false, {169, 180}});
 
-    match = Match(100, token_offsets, true);
+    match = Match(100, token_offsets, true, true);
     ASSERT_EQ(3, match.words_present);
     ASSERT_EQ(2, match.distance);
+    ASSERT_EQ(0, match.exact_match);
 
     expected_offsets = {170, 171, 169};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -62,11 +63,12 @@ TEST(MatchTest, MatchScoreV2) {
     token_offsets.clear();
     token_offsets.push_back(token_positions_t{false, {38, 50, 187, 195, 201}});
     token_offsets.push_back(token_positions_t{false, {120, 167, 171, 223}});
-    token_offsets.push_back(token_positions_t{false, {240, 250}});
+    token_offsets.push_back(token_positions_t{true, {240, 250}});
 
     match = Match(100, token_offsets, true);
     ASSERT_EQ(1, match.words_present);
     ASSERT_EQ(0, match.distance);
+    ASSERT_EQ(0, match.exact_match);
 
     expected_offsets = {38, MAX_DISPLACEMENT, MAX_DISPLACEMENT};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -78,7 +80,39 @@ TEST(MatchTest, MatchScoreV2) {
     ASSERT_EQ(1, match.words_present);
     ASSERT_EQ(0, match.distance);
     ASSERT_EQ(0, match.offsets.size());
+    ASSERT_EQ(0, match.exact_match);
 
+    // exact match
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {0}});
+    token_offsets.push_back(token_positions_t{true, {2}});
+    token_offsets.push_back(token_positions_t{false, {1}});
+
+    match = Match(100, token_offsets, true, true);
+    ASSERT_EQ(3, match.words_present);
+    ASSERT_EQ(2, match.distance);
+    ASSERT_EQ(1, match.exact_match);
+
+    match = Match(100, token_offsets, true, false);
+    ASSERT_EQ(3, match.words_present);
+    ASSERT_EQ(2, match.distance);
+    ASSERT_EQ(0, match.exact_match);
+
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {1}});
+    token_offsets.push_back(token_positions_t{false, {2}});
+    token_offsets.push_back(token_positions_t{true, {3}});
+
+    match = Match(100, token_offsets, true, true);
+    ASSERT_EQ(0, match.exact_match);
+
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {0}});
+    token_offsets.push_back(token_positions_t{false, {1}});
+    token_offsets.push_back(token_positions_t{false, {2}});
+
+    match = Match(100, token_offsets, true, true);
+    ASSERT_EQ(0, match.exact_match);
 
     /*size_t total_distance = 0, words_present = 0, offset_sum = 0;
     auto begin = std::chrono::high_resolution_clock::now();
