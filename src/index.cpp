@@ -307,6 +307,12 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                  "but is not found in the document.");
         }
 
+        if(a_field.optional && document[field_name].is_null()) {
+            // we will ignore `null` on an option field
+            document.erase(field_name);
+            continue;
+        }
+
         nlohmann::json::iterator dummy_iter;
         bool array_ele_erased = false;
 
