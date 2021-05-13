@@ -2632,6 +2632,48 @@ TEST_F(CollectionTest, OptionalFieldCanBeNull) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, EmptyStringNotIndexed) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("artist", field_types::STRING, false, true),
+                                 field("genres", field_types::STRING_ARRAY, false, true),
+                                 field("launch_year", field_types::STRING, false, true),
+                                 field("labels", field_types::STRING_ARRAY, false, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+
+    doc["id"] = "0";
+    doc["title"] = "Beat it";
+    doc["artist"] = "";
+    doc["launch_year"] = " ";
+    doc["genres"] = {""};
+    doc["labels"] = {"song", " ", ""};
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("beat",
+                                 {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_EQ(2, coll1->_get_indexes()[0]->_get_search_index().at("title")->size);
+    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("artist")->size);
+    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("launch_year")->size);
+    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("genres")->size);
+    ASSERT_EQ(1, coll1->_get_indexes()[0]->_get_search_index().at("labels")->size);
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, WildcardQueryReturnsResultsBasedOnPerPageParam) {
     std::vector<std::string> facets;
     spp::sparse_hash_set<std::string> empty;
