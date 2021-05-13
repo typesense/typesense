@@ -573,6 +573,10 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
         last_token = token;
     }
 
+    if(token_to_offsets.empty()) {
+        return;
+    }
+
     // push 0 for the last occurring token (used for exact match ranking)
     token_to_offsets[last_token].push_back(0);
 
@@ -625,6 +629,10 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
             last_token = token;
         }
 
+        if(token_set.empty()) {
+            continue;
+        }
+
         if(is_facet) {
             facet_hashes.push_back(FACET_ARRAY_DELIMETER); // as a delimiter
         }
@@ -639,6 +647,10 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
 
         // push 0 for the last occurring token (used for exact match ranking)
         token_positions[last_token].push_back(0);
+    }
+
+    if(token_positions.empty()) {
+        return;
     }
 
     if(is_facet) {
