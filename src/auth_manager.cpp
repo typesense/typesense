@@ -117,7 +117,7 @@ Option<api_key_t> AuthManager::remove_key(uint32_t id) {
     Option<api_key_t> key_op = get_key(id, false);
     
     if(!key_op.ok()) {
-        return Option<api_key_t>(500, key_op.error());
+        return Option<api_key_t>(key_op.code(), key_op.error());
     }
 
     std::string api_key_store_key = std::string(API_KEYS_PREFIX) + "_" + std::to_string(id);
