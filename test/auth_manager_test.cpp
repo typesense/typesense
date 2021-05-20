@@ -88,6 +88,14 @@ TEST_F(AuthManagerTest, CreateListDeleteAPIKeys) {
     ASSERT_EQ("abcd", list_op.get()[0].value);
     ASSERT_EQ("test key 2", list_op.get()[1].description);
     ASSERT_EQ("abcd", list_op.get()[1].value);
+
+    // delete key
+    auto del_op = auth_manager.remove_key(1);
+    ASSERT_TRUE(del_op.ok());
+
+    del_op = auth_manager.remove_key(1000);
+    ASSERT_FALSE(del_op.ok());
+    ASSERT_EQ(404, del_op.code());
 }
 
 TEST_F(AuthManagerTest, CheckRestoreOfAPIKeys) {
