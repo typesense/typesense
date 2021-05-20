@@ -16,9 +16,9 @@ struct token_positions_t {
 };
 
 struct TokenOffset {
-    uint8_t token_id;         // token identifier
-    uint16_t offset;          // token's offset in the text
-    uint16_t offset_index;    // index of the offset in the offset vector
+    uint8_t token_id;                            // token identifier
+    uint16_t offset = MAX_DISPLACEMENT;          // token's offset in the text
+    uint16_t offset_index;                       // index of the offset in the offset vector
 
     bool operator()(const TokenOffset &a, const TokenOffset &b) {
         return a.offset > b.offset;
@@ -157,22 +157,18 @@ struct Match {
             for (size_t i = 0; i < window.size(); i++) {
                 if(populate_window) {
                     this_window[window[i].token_id] = window[i];
+                    this_window[window[i].token_id].offset = MAX_DISPLACEMENT;
                 }
 
                 if ((window[i].offset - min_offset) <= WINDOW_SIZE) {
                     uint16_t next_offset = (i == window.size() - 1) ? window[i].offset : window[i + 1].offset;
                     this_displacement += window[i].offset - next_offset;
                     this_num_match++;
-                } else {
-                    // to indicate that this offset should not be considered
+
                     if(populate_window) {
-                        this_window[window[i].token_id].offset = MAX_DISPLACEMENT;
+                        this_window[window[i].token_id].offset = window[i].offset;
                     }
                 }
-            }
-
-            if(populate_window) {
-                this_window[window.back().token_id] = window.back();
             }
 
             if ( (this_num_match > best_num_match) ||

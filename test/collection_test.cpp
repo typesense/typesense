@@ -3758,3 +3758,46 @@ TEST_F(CollectionTest, FieldSpecificNumTypos) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, BadHighlightingOnText) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("text", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+
+    doc["id"] = "0";
+    doc["text"] = "include destruction of natural marine and estuarine\\nhabitats, loss of productive agricultural "
+                  "land,\\nand soil erosion. 90 When interviewed, multiple\\nexperts stated that inappropriate land use "
+                  "and\\nmanagement is a central factor contributing to\\nenvironmental degradation in the "
+                  "Castries-Gros\\nIslet Corridor. 91 The construction is placing greater\\nstress on natural resources "
+                  "and biodiversity, and\\nthe capacity to produce food and retain freshwater\\nhas been diminished. "
+                  "92 Moreover, increased\\nwater consumption by the tourism sector, when\\ncompounded by climate "
+                  "change, is increasing food\\nand water insecurity throughout Saint Lucia, as well\\nas suppressing "
+                  "long-term growth prospects. 93";
+
+    doc["points"] = 0;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("natural saint lucia", {"text"}, "", {}, {}, {1}, 10, 1, FREQUENCY,
+                                 true, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("food\\nand water insecurity throughout <mark>Saint</mark> <mark>Lucia,</mark> as well\\nas suppressing long-term",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("Saint", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_STREQ("Lucia,", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}

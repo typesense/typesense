@@ -114,6 +114,18 @@ TEST(MatchTest, MatchScoreV2) {
     match = Match(100, token_offsets, true, true);
     ASSERT_EQ(0, match.exact_match);
 
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {74}});
+    token_offsets.push_back(token_positions_t{false, {75}});
+    token_offsets.push_back(token_positions_t{false, {3, 42}});
+
+    expected_offsets = {74, 75, MAX_DISPLACEMENT};
+    match = Match(100, token_offsets, true, true);
+    ASSERT_EQ(3, match.offsets.size());
+    for(size_t i = 0; i < match.offsets.size(); i++) {
+        ASSERT_EQ(expected_offsets[i], match.offsets[i].offset);
+    }
+
     /*size_t total_distance = 0, words_present = 0, offset_sum = 0;
     auto begin = std::chrono::high_resolution_clock::now();
 
