@@ -424,4 +424,15 @@ TEST_F(AuthManagerTest, ValidateBadKeyProperties) {
     validate_op = api_key_t::validate(key_obj3);
     ASSERT_FALSE(validate_op.ok());
     ASSERT_STREQ("Key value must be a string.", validate_op.error().c_str());
+
+    // check for valid description
+    nlohmann::json key_obj4;
+    key_obj4["description"] = 42;
+    key_obj4["actions"] = {"*"};
+    key_obj4["collections"] = {"foobar"};
+    key_obj4["value"] = "abcd";
+
+    validate_op = api_key_t::validate(key_obj4);
+    ASSERT_FALSE(validate_op.ok());
+    ASSERT_STREQ("Key description must be a string.", validate_op.error().c_str());
 }
