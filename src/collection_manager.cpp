@@ -612,8 +612,22 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(400, "Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
     }
 
-    if(!StringUtils::is_uint32_t(req_params[NUM_TYPOS])) {
-        return Option<bool>(400,"Parameter `" + std::string(NUM_TYPOS) + "` must be an unsigned integer.");
+    std::vector<uint32_t> num_typos;
+
+    if(req_params[NUM_TYPOS].size() == 1 && StringUtils::is_uint32_t(req_params[NUM_TYPOS])) {
+        num_typos = {(uint32_t)std::stoi(req_params[NUM_TYPOS])};
+    } else {
+        std::vector<std::string> num_typos_str;
+        StringUtils::split(req_params[NUM_TYPOS], num_typos_str, ",");
+        for(auto& typo_s : num_typos_str) {
+            if(StringUtils::is_uint32_t(typo_s)) {
+                num_typos.push_back((uint32_t)std::stoi(typo_s));
+            }
+        }
+
+        if(num_typos.size() == 0) {
+            return Option<bool>(400, "Parameter `" + std::string(NUM_TYPOS) + "` is malformed.");
+        }
     }
 
     if(!StringUtils::is_uint32_t(req_params[PER_PAGE])) {
@@ -708,7 +722,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
-                                                          sort_fields, std::stoi(req_params[NUM_TYPOS]),
+                                                          sort_fields, num_typos,
                                                           static_cast<size_t>(std::stol(req_params[PER_PAGE])),
                                                           static_cast<size_t>(std::stol(req_params[PAGE])),
                                                           token_order, prefix, drop_tokens_threshold,
