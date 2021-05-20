@@ -52,7 +52,7 @@ struct search_args {
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by> sort_fields_std;
     facet_query_t facet_query;
-    int num_typos;
+    std::vector<uint32_t> num_typos;
     size_t max_facet_values;
     size_t per_page;
     size_t page;
@@ -79,8 +79,8 @@ struct search_args {
     search_args(std::vector<query_tokens_t> field_query_tokens,
                 std::vector<search_field_t> search_fields, std::vector<filter> filters,
                 std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
-                std::vector<sort_by> sort_fields_std, facet_query_t facet_query, int num_typos, size_t max_facet_values,
-                size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
+                std::vector<sort_by> sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
+                size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order, bool prefix,
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const std::string& default_sorting_field,
@@ -345,7 +345,7 @@ public:
                 facet_query_t & facet_query,
                 const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                 const std::vector<uint32_t> & excluded_ids,
-                const std::vector<sort_by> & sort_fields_std, const int num_typos,
+                const std::vector<sort_by> & sort_fields_std, const std::vector<uint32_t>& num_typos,
                 Topster* topster, Topster* curated_topster,
                 const size_t per_page, const size_t page, const token_ordering token_order,
                 const bool prefix, const size_t drop_tokens_threshold,
