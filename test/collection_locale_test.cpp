@@ -60,7 +60,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     }
 
     auto results = coll1->search("ลงรถไฟ",
-                                 {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -68,7 +68,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     ASSERT_EQ("<mark>ลง</mark>ที่นั่นโดย<mark>รถไฟ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("ลงรถไฟ downie",
-                            {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
@@ -78,7 +78,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("Gord <mark>Downie</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
-    results = coll1->search("พกไฟ", {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+    results = coll1->search("พกไฟ", {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
@@ -114,7 +114,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     }
 
     auto results = coll1->search("극장판",
-                                 {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -122,7 +122,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     ASSERT_EQ("안녕은하철도999<mark>극장판</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("산악",
-                            {"title", "artist"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -158,7 +158,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanTextContainingEnglishChars) {
     }
 
     auto results = coll1->search("위축됐다",
-                                 {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -166,7 +166,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanTextContainingEnglishChars) {
     ASSERT_EQ("개혁 등의 영향으로 11%나 <mark>위축됐다</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("11%",
-                            {"title"}, "", {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());

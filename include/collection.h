@@ -511,7 +511,7 @@ public:
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
-                                  const std::vector<sort_by> & sort_fields, int num_typos,
+                                  const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
                                   token_ordering token_order = FREQUENCY, bool prefix = false,
                                   size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,

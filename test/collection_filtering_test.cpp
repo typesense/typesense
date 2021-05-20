@@ -63,7 +63,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
 
     query_fields = {"name"};
     std::vector<std::string> facets;
-    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tags: gold", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tags: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     std::vector<std::string> ids = {"4", "0", "2"};
@@ -75,22 +75,22 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags : fine PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : fine PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     // using just ":", filtering should return documents that contain ALL tokens in the filter expression
-    results = coll_array_fields->search("Jeremy", query_fields, "tags : PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     // no documents contain both "white" and "platinum", so
-    results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : WHITE PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // with exact match operator (:=) partial matches are not allowed
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags : bronze", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"4", "2"};
@@ -103,7 +103,7 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     }
 
     // search with a list of tags, also testing extra padding of space
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: [bronze,   silver]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: [bronze,   silver]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "4", "0", "2"};
@@ -116,17 +116,17 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     }
 
     // need to be exact matches
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: bronze", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     // when comparators are used, they should be ignored
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:<bronze", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:<bronze", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:<=BRONZE", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -165,31 +165,31 @@ TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     // exact filter on string field must fail when single token is used
     facets.clear();
     facets.emplace_back("starring");
-    auto results = coll_str->search("*", query_fields, "starring:= samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    auto results = coll_str->search("*", query_fields, "starring:= samuel", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     // multiple tokens but with a typo on one of them
-    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_str->search("*", query_fields, "starring:= ssamuel l. Jackson", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     // same should succeed when verbatim filter is made
-    results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_str->search("*", query_fields, "starring:= samuel l. Jackson", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
     // contains filter with a single token should work as well
-    results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
-    results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_str->search("*", query_fields, "starring: samuel", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
     // contains when only 1 token so should not match
-    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_str->search("*", query_fields, "starring: samuel johnson", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_str");
@@ -231,46 +231,46 @@ TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
     // facet with filter on string array field must fail when exact token is used
     facets.clear();
     facets.push_back("tags");
-    auto results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    auto results = coll_array_fields->search("Jeremy", query_fields, "tags:= PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<size_t>());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FFINE PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // partial token filter should be made without "=" operator
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags: FINE", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
     // to make tokens match facet value exactly, use "=" operator
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE PLATINUM", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= FINE PLATINUM", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
     // don't allow exact filter on non-faceted field
-    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, {0}, 10, 1, FREQUENCY, false);
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
 
     // multi match exact query (OR condition)
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["found"].get<size_t>());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze, fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze, fine PLATINUM]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(4, results["found"].get<size_t>());
 
     // single array multi match
-    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [fine PLATINUM]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "tags:= [fine PLATINUM]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
@@ -300,11 +300,11 @@ TEST_F(CollectionFilteringTest, FilterOnTextFieldWithColon) {
     query_fields = {"url"};
     std::vector<std::string> facets;
 
-    auto res = coll1->search("*", query_fields, "url:= https://example.com/1", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    auto res = coll1->search("*", query_fields, "url:= https://example.com/1", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    res = coll1->search("*", query_fields, "url: https://example.com/1", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    res = coll1->search("*", query_fields, "url: https://example.com/1", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, res["hits"].size());
     ASSERT_STREQ("1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
 
@@ -340,27 +340,27 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     std::vector<std::string> facets;
 
     // when filter field does not exist in the schema
-    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tagzz: gold", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "tagzz: gold", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // searching using a string for a numeric field
-    results = coll_array_fields->search("Jeremy", query_fields, "age: abcdef", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age: abcdef", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // searching using a string for a numeric array field
-    results = coll_array_fields->search("Jeremy", query_fields, "timestamps: abcdef", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps: abcdef", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // malformed k:v syntax
-    results = coll_array_fields->search("Jeremy", query_fields, "timestamps abcdef", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps abcdef", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // just spaces - must be treated as empty filter
-    results = coll_array_fields->search("Jeremy", query_fields, "  ", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "  ", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
     // wrapping number with quotes
-    results = coll_array_fields->search("Jeremy", query_fields, "age: '21'", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age: '21'", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -395,7 +395,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
     // query shall be allowed on faceted text fields as well
     query_fields = {"cast"};
     Option<nlohmann::json> result_op =
-            coll_mul_fields->search("anton", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false);
+            coll_mul_fields->search("anton", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false);
     ASSERT_TRUE(result_op.ok());
 
     nlohmann::json results = result_op.get();
@@ -405,7 +405,7 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
 
     // filtering on string field should be possible
     query_fields = {"title"};
-    result_op = coll_mul_fields->search("captain", query_fields, "starring: Samuel L. Jackson", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "starring: Samuel L. Jackson", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(true, result_op.ok());
     results = result_op.get();
@@ -415,60 +415,60 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
 
     // filtering on facet field should be possible (supports partial word search but without typo tolerance)
     query_fields = {"title"};
-    result_op = coll_mul_fields->search("*", query_fields, "cast: chris", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("*", query_fields, "cast: chris", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(true, result_op.ok());
     results = result_op.get();
     ASSERT_EQ(3, results["hits"].size());
 
     // bad query string
-    result_op = coll_mul_fields->search("captain", query_fields, "BLAH", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "BLAH", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Could not parse the filter query.", result_op.error().c_str());
 
     // missing field
-    result_op = coll_mul_fields->search("captain", query_fields, "age: 100", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "age: 100", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Could not find a filter field named `age` in the schema.", result_op.error().c_str());
 
     // bad filter value type
-    result_op = coll_mul_fields->search("captain", query_fields, "points: \"100\"", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: \"100\"", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Error with filter field `points`: Numerical field has an invalid comparator.", result_op.error().c_str());
 
     // bad filter value type - equaling float on an integer field
-    result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: 100.34", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
 
     // bad filter value type - less than float on an integer field
-    result_op = coll_mul_fields->search("captain", query_fields, "points: <100.0", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <100.0", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
 
     // when an int32 field is queried with a 64-bit number
-    result_op = coll_mul_fields->search("captain", query_fields, "points: <2230070399", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <2230070399", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
     ASSERT_STREQ("Error with filter field `points`: Not an int32.", result_op.error().c_str());
 
     // using a string filter value against an integer field
-    result_op = coll_mul_fields->search("captain", query_fields, "points: <sdsdfsdf", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: <sdsdfsdf", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
 
     // large negative number
-    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230070399", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230070399", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(false, result_op.ok());
 
     // but should allow small negative number
-    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230", facets, sort_fields, 0, 10, 1,
+    result_op = coll_mul_fields->search("captain", query_fields, "points: >-3230", facets, sort_fields, {0}, 10, 1,
                                         FREQUENCY, false);
     ASSERT_EQ(true, result_op.ok());
 
@@ -513,7 +513,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     // Plain search with no filters - results should be sorted by rank fields
     query_fields = {"name"};
     std::vector<std::string> facets;
-    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "1", "4", "0", "2"};
@@ -526,7 +526,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // Searching on an int32 field
-    results = coll_array_fields->search("Jeremy", query_fields, "age:>24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:>24", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "1", "4"};
@@ -538,21 +538,21 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "age:>=24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:>=24", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "age:24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:24", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     // alternative `:=` syntax
-    results = coll_array_fields->search("Jeremy", query_fields, "age:=24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:=24", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "age:= 24", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:= 24", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     // Searching a number against an int32 array field
-    results = coll_array_fields->search("Jeremy", query_fields, "years:>2002", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "years:>2002", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"1", "0", "2"};
@@ -563,7 +563,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "years:<1989", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "years:<1989", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"3"};
@@ -575,7 +575,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // multiple filters
-    results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "years:<2005 && years:>1987", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"4"};
@@ -587,7 +587,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // multiple search values (works like SQL's IN operator) against a single int field
-    results = coll_array_fields->search("Jeremy", query_fields, "age:[21, 24, 63]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:[21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"3", "0", "2"};
@@ -599,11 +599,11 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // alternative `:=` syntax
-    results = coll_array_fields->search("Jeremy", query_fields, "age:= [21, 24, 63]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age:= [21, 24, 63]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     // multiple search values against an int32 array field - also use extra padding between symbols
-    results = coll_array_fields->search("Jeremy", query_fields, "years : [ 2015, 1985 , 1999]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "years : [ 2015, 1985 , 1999]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "1", "4", "0"};
@@ -615,7 +615,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // searching on an int64 array field - also ensure that padded space causes no issues
-    results = coll_array_fields->search("Jeremy", query_fields, "timestamps : > 475205222", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps : > 475205222", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"1", "4", "0", "2"};
@@ -628,7 +628,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
     }
 
     // range based filter
-    results = coll_array_fields->search("Jeremy", query_fields, "age: 21..32", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age: 21..32", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"4", "0", "2"};
@@ -639,10 +639,10 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "age: 0 .. 100", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age: 0 .. 100", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
-    results = coll_array_fields->search("Jeremy", query_fields, "age: [21..24, 40..65]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "age: [21..24, 40..65]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"3", "1", "0", "2"};
@@ -653,7 +653,7 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "rating: 7.812 .. 9.999", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: 7.812 .. 9.999", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"1", "2"};
@@ -664,11 +664,11 @@ TEST_F(CollectionFilteringTest, FilterOnNumericFields) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = coll_array_fields->search("Jeremy", query_fields, "rating: [7.812 .. 9.999, 1.05 .. 1.09]", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "rating: [7.812 .. 9.999, 1.05 .. 1.09]", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     // when filters don't match any record, no results should be returned
-    results = coll_array_fields->search("Jeremy", query_fields, "timestamps:>1591091288061", facets, sort_fields, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "timestamps:>1591091288061", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll_array_fields");
@@ -704,7 +704,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     // Plain search with no filters - results should be sorted by rating field DESC
     query_fields = {"name"};
     std::vector<std::string> facets;
-    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
     std::vector<std::string> ids = {"1", "2", "4", "0", "3"};
@@ -717,7 +717,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // Plain search with no filters - results should be sorted by rating field ASC
-    results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(5, results["hits"].size());
 
     ids = {"3", "0", "4", "2", "1"};
@@ -730,7 +730,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // Searching on a float field, sorted desc by rating
-    results = coll_array_fields->search("Jeremy", query_fields, "rating:>0.0", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:>0.0", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"1", "2", "4", "0"};
@@ -743,7 +743,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // Searching a float against an float array field
-    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"1", "2"};
@@ -755,7 +755,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // multiple filters
-    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8 && rating:>7.9", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3:>7.8 && rating:>7.9", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(1, results["hits"].size());
 
     ids = {"1"};
@@ -767,7 +767,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // multiple search values (works like SQL's IN operator) against a single float field
-    results = coll_array_fields->search("Jeremy", query_fields, "rating:[1.09, 7.812]", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "rating:[1.09, 7.812]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(2, results["hits"].size());
 
     ids = {"2", "0"};
@@ -779,7 +779,7 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // multiple search values against a float array field - also use extra padding between symbols
-    results = coll_array_fields->search("Jeremy", query_fields, "top_3 : [ 5.431, 0.001 , 7.812, 11.992]", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false).get();
+    results = coll_array_fields->search("Jeremy", query_fields, "top_3 : [ 5.431, 0.001 , 7.812, 11.992]", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ids = {"2", "4", "0"};
@@ -791,13 +791,13 @@ TEST_F(CollectionFilteringTest, FilterOnFloatFields) {
     }
 
     // when filters don't match any record, no results should be returned
-    auto results_op = coll_array_fields->search("Jeremy", query_fields, "rating:<-2.78", facets, sort_fields_desc, 0, 10, 1, FREQUENCY, false);
+    auto results_op = coll_array_fields->search("Jeremy", query_fields, "rating:<-2.78", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false);
     ASSERT_TRUE(results_op.ok());
     results = results_op.get();
     ASSERT_EQ(0, results["hits"].size());
 
     // rank tokens by default sorting field
-    results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, 0, 10, 1, MAX_SCORE, true);
+    results_op = coll_array_fields->search("j", query_fields, "", facets, sort_fields_desc, {0}, 10, 1, MAX_SCORE, true);
     ASSERT_TRUE(results_op.ok());
     results = results_op.get();
     ASSERT_EQ(5, results["hits"].size());
@@ -846,20 +846,20 @@ TEST_F(CollectionFilteringTest, FilterOnNegativeNumericalFields) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {}, "int32_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+    auto results = coll1->search("*", {}, "int32_field:<0", {}, {}, {0}, 10, 1, FREQUENCY, true, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
 
-    results = coll1->search("*", {}, "int64_field:<0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+    results = coll1->search("*", {}, "int64_field:<0", {}, {}, {0}, 10, 1, FREQUENCY, true, 10).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
-    results = coll1->search("*", {}, "float_field:<0", {}, {sort_by("float_field", "desc")}, 0, 10, 1, FREQUENCY,
+    results = coll1->search("*", {}, "float_field:<0", {}, {sort_by("float_field", "desc")}, {0}, 10, 1, FREQUENCY,
                             true, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -900,7 +900,7 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     query_fields = {"name"};
     std::vector<std::string> facets;
     nlohmann::json results = coll_array_fields->search("Jeremy", query_fields, "age: [24, >32]",
-            facets, sort_fields_desc, 0, 10, 1,FREQUENCY, false).get();
+            facets, sort_fields_desc, {0}, 10, 1,FREQUENCY, false).get();
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -916,7 +916,7 @@ TEST_F(CollectionFilteringTest, ComparatorsOnMultiValuedNumericalField) {
     // with <= and >=
 
     results = coll_array_fields->search("Jeremy", query_fields, "age: [<=24, >=44]",
-                                        facets, sort_fields_desc, 0, 10, 1,FREQUENCY, false).get();
+                                        facets, sort_fields_desc, {0}, 10, 1,FREQUENCY, false).get();
 
     ASSERT_EQ(4, results["hits"].size());
 
@@ -977,7 +977,7 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     // pick a location close to only the Sacre Coeur
     auto results = coll1->search("*",
                                  {}, "loc: (48.90615915923891, 2.3435897727061175, 3 km)",
-                                 {}, {}, 0, 10, 1, FREQUENCY).get();
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -987,7 +987,7 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     // pick location close to none of the spots
     results = coll1->search("*",
                             {}, "loc: (48.910544830985785, 2.337218333651177, 2 km)",
-                            {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
@@ -995,7 +995,7 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
 
     results = coll1->search("*",
                             {}, "loc: (48.910544830985785, 2.337218333651177, 20 km)",
-                            {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(10, results["found"].get<size_t>());
 
@@ -1003,7 +1003,7 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
 
     results = coll1->search("*",
                             {}, "loc: (48.85825332869331, 2.303816427653377, 1 mi)",
-                            {}, {}, 0, 10, 1, FREQUENCY).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
@@ -1062,7 +1062,7 @@ TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
                                      "48.85745408145392, 2.3267084486160856, "
                                      "48.859636574404355,2.351469427048221, "
                                      "48.87756059389807, 2.3443610121873206)",
-                                 {}, {}, 0, 10, 1, FREQUENCY).get();
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -1106,7 +1106,7 @@ TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
     // pick a location close to only the Sacre Coeur
     auto res_op = coll1->search("e",
                                 {"title"}, "points: 23",
-                                {}, {}, 0, 10, 1, FREQUENCY, true);
+                                {}, {}, {0}, 10, 1, FREQUENCY, true);
 
     auto results = res_op.get();
 
@@ -1150,7 +1150,7 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
 
     auto results = coll1->search("*",
                                 {}, "num_employees:>=100 && num_employees:<=300",
-                                {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                                {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
@@ -1161,14 +1161,14 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
     // when filter number is well below all values
     results = coll1->search("*",
                                  {}, "num_employees:>=100 && num_employees:<=10",
-                                 {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     // check boundaries
     results = coll1->search("*",
                             {}, "num_employees:>=150 && num_employees:<=250",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1176,14 +1176,14 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
 
     results = coll1->search("*",
                             {}, "num_employees:>150 && num_employees:<250",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
 
     results = coll1->search("*",
                             {}, "num_employees:>50 && num_employees:<250",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1192,7 +1192,7 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
 
     results = coll1->search("*",
                             {}, "num_employees:>50 && num_employees:<=500",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1201,7 +1201,7 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
 
     results = coll1->search("*",
                             {}, "num_employees:>=50 && num_employees:<500",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1211,7 +1211,7 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
     // no match
     results = coll1->search("*",
                             {}, "num_employees:>3000 && num_employees:<10",
-                            {}, sort_fields, 0, 10, 1, FREQUENCY, true).get();
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
@@ -1255,7 +1255,7 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithArray) {
     // check equals on a repeating price
     auto results = coll1->search("*",
                                  {}, "prices:1",
-                                 {}, {}, 0, 10, 1, FREQUENCY, true).get();
+                                 {}, {}, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_EQ(4, results["hits"].size());
@@ -1264,28 +1264,28 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithArray) {
 
     results = coll1->search("*",
                             {}, "prices:>=1",
-                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_EQ(4, results["hits"].size());
 
     results = coll1->search("*",
                             {}, "prices:>=2",
-                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
 
     results = coll1->search("*",
                             {}, "prices:<4",
-                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_EQ(4, results["hits"].size());
 
     results = coll1->search("*",
                             {}, "prices:<=2",
-                            {}, {}, 0, 10, 1, FREQUENCY, true).get();
+                            {}, {}, {0}, 10, 1, FREQUENCY, true).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_EQ(4, results["hits"].size());
@@ -1323,7 +1323,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {"artist"}, "artist:- Michael Jackson", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+    auto results = coll1->search("*", {"artist"}, "artist:- Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, true, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
@@ -1331,14 +1331,14 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"artist"}, "artist:- Michael Jackson && points: >0", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:- Michael Jackson && points: >0", {}, {}, {0}, 10, 1, FREQUENCY, true, 10).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // negation operation on multiple values
 
-    results = coll1->search("*", {"artist"}, "artist:- [Michael Jackson, Taylor Swift]", {}, {}, 0, 10, 1, FREQUENCY, true, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:- [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, true, 10).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
@@ -1374,26 +1374,26 @@ TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {"place"}, "place:= St. John's Cathedral, Denver, Colorado", {}, {}, 0, 10, 1,
+    auto results = coll1->search("*", {"place"}, "place:= St. John's Cathedral, Denver, Colorado", {}, {}, {0}, 10, 1,
                                  FREQUENCY, true, 10).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`]", {}, {}, 0, 10, 1,
+    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`]", {}, {}, {0}, 10, 1,
                             FREQUENCY, true, 10).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`, `St. Patrick's Cathedral, Manhattan`]", {}, {}, 0, 10, 1,
+    results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`, `St. Patrick's Cathedral, Manhattan`]", {}, {}, {0}, 10, 1,
                             FREQUENCY, true, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"place"}, "place: [`Cathedral, Denver, Colorado`]", {}, {}, 0, 10, 1,
+    results = coll1->search("*", {"place"}, "place: [`Cathedral, Denver, Colorado`]", {}, {}, {0}, 10, 1,
                             FREQUENCY, true, 10).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());

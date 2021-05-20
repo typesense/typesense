@@ -484,7 +484,7 @@ void Collection::populate_overrides(std::string query,
 
 Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string>& search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
-                                  const std::vector<sort_by> & sort_fields, const int num_typos,
+                                  const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
                                   token_ordering token_order, const bool prefix,
                                   const size_t drop_tokens_threshold,
@@ -520,6 +520,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     if(!group_by_fields.empty() && (group_limit == 0 || group_limit > GROUP_LIMIT_MAX)) {
         return Option<nlohmann::json>(400, "Value of `group_limit` must be between 1 and " +
                                       std::to_string(GROUP_LIMIT_MAX) + ".");
+    }
+
+    if(!search_fields.empty() && search_fields.size() != num_typos.size()) {
+        if(num_typos.size() != 1) {
+            return Option<nlohmann::json>(400, "Number of weights in `num_typos` does not match "
+                                               "number of `query_by` fields.");
+        }
     }
 
     std::vector<uint32_t> excluded_ids;

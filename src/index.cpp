@@ -1483,7 +1483,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                    const std::vector<uint32_t> & excluded_ids,
-                   const std::vector<sort_by> & sort_fields_std, const int num_typos,
+                   const std::vector<sort_by> & sort_fields_std, const std::vector<uint32_t>& num_typos,
                    Topster* topster,
                    Topster* curated_topster,
                    const size_t per_page, const size_t page, const token_ordering token_order,
@@ -1628,6 +1628,9 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                 q_pos_synonyms.emplace_back(q_pos_syn);
             }
 
+            // num_typos is already validated upstream, but still playing safe
+            int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
+
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || filter_ids_length > 0) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
@@ -1649,7 +1652,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                              field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
-                             num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                             field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                              field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
                              drop_tokens_threshold, typo_tokens_threshold);
 
@@ -1661,7 +1664,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
                     search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
-                                 num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                                 field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                                  field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
                                  drop_tokens_threshold, typo_tokens_threshold);
                 }
@@ -1687,8 +1690,11 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             }
 
             uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
-            uint64_t total_typos = 0, total_distances = 0, exact_matches = 0;
-            uint64_t num_query_matches = 0;
+            uint64_t total_typos = 0, total_distances = 0;
+
+            uint64_t verbatim_matches = 0;      // query matching field verbatim
+            uint64_t query_matches = 0;         // field containing query tokens
+            uint64_t cross_field_matches = 0;   // total matches across fields (including fuzzy ones)
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
@@ -1709,11 +1715,13 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     int64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
                     total_typos += (field_typos + 1) * weight;
                     total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
-                    exact_matches += (((match_score & 0xFF)) + 1) * weight;
+                    verbatim_matches += (((match_score & 0xFF)) + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        num_query_matches++;
+                        query_matches++;
                     }
+
+                    cross_field_matches += tokens_found;
 
                     /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
                                   << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * weight
@@ -1765,9 +1773,11 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     total_typos += (field_typos + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        num_query_matches++;
-                        exact_matches++;
+                        query_matches++;
+                        verbatim_matches++;
                     }
+
+                    cross_field_matches += tokens_found;
                     //LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << ((match_score >> 8) & 0xFF);
                 }
             }
@@ -1777,11 +1787,12 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             total_distances = std::min<uint64_t>(100, total_distances);
 
             uint64_t aggregated_score = (
-                (num_query_matches << 32) |
-                (tokens_present << 24) |
+                (query_matches << 40) |
+                (tokens_present << 32) |
+                (cross_field_matches << 24) |
                 ((255 - total_typos) << 16) |
                 ((100 - total_distances) << 8) |
-                (exact_matches)
+                (verbatim_matches)
             );
 
             /*LOG(INFO) << "seq id: " << seq_id << ", tokens_present: " << tokens_present
