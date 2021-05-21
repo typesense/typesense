@@ -404,6 +404,42 @@ TEST_F(CollectionFacetingTest, FacetCountsBool) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFacetingTest, FacetCountsFloatPrecision) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::FLOAT, true)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "Ford Mustang";
+    doc["points"] = 113.4;
+
+    coll1->add(doc.dump());
+
+    std::vector<std::string> facets = {"points"};
+
+    nlohmann::json results = coll1->search("*", {"title"}, "", facets, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    ASSERT_STREQ("points", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
+    ASSERT_STREQ("113.4", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("113.4",results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
     Collection *coll1;
 

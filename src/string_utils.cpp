@@ -180,6 +180,12 @@ void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::
     }
 }
 
+std::string StringUtils::float_to_str(float value) {
+    std::ostringstream os;
+    os << value;
+    return os.str();
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
