@@ -1370,11 +1370,11 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
         value = std::to_string(raw_val);
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
         float raw_val = document[a_facet.field_name].get<float>();
-        value = std::to_string(raw_val);
+        value = StringUtils::float_to_str(raw_val);
         value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
         float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
-        value = std::to_string(raw_val);
+        value = StringUtils::float_to_str(raw_val);
         value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
     } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
         value = std::to_string(document[a_facet.field_name].get<bool>());

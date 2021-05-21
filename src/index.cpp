@@ -163,7 +163,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                     }
                 } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
                     for(float value: document[field_name]){
-                        strings.push_back(std::to_string(value));
+                        strings.push_back(StringUtils::float_to_str(value));
                     }
                 } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
                     for(bool value: document[field_name]){
@@ -179,7 +179,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
                 } else if(field_pair.second.type == field_types::INT64) {
                     text = std::to_string(document[field_name].get<int64_t>());
                 } else if(field_pair.second.type == field_types::FLOAT) {
-                    text = std::to_string(document[field_name].get<float>());
+                    text = StringUtils::float_to_str(document[field_name].get<float>());
                 } else if(field_pair.second.type == field_types::BOOL) {
                     text = std::to_string(document[field_name].get<bool>());
                 }
@@ -2608,7 +2608,7 @@ Option<uint32_t> Index::coerce_string(const DIRTY_VALUES& dirty_values, const st
     }
 
     else if(item.is_number_float()) {
-        item = std::to_string((float)item);
+        item = StringUtils::float_to_str((float)item);
     }
 
     else if(item.is_boolean()) {
