@@ -54,6 +54,8 @@ public:
 
     uint32_t at(uint32_t index);
 
+    uint32_t last();
+
     bool contains(uint32_t value);
 
     uint32_t indexOf(uint32_t value);
