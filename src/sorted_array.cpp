@@ -397,3 +397,11 @@ void sorted_array::binary_count_indices(const uint32_t *values, int low_vindex, 
         binary_count_indices(values, pivot_vindex+1, high_vindex, src, in_index, high_index, num_found);
     }
 }
+
+uint32_t sorted_array::last() {
+    if(getLength() == 0) {
+        return UINT32_MAX;
+    }
+
+    return at(getLength()-1);
+}

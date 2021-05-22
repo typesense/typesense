@@ -242,8 +242,8 @@ private:
     void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                   uint32_t seq_id, bool is_facet, const field & a_field);
 
-    void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
-                                       const uint32_t indices_length);
+    static void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
+                                              const uint32_t indices_length);
 
     void collate_included_ids(const std::vector<std::string>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
