@@ -412,3 +412,180 @@ posting_list_t::block_t* posting_list_t::block_of(last_id_t id) {
     }
     return nullptr;
 }
+
+// Inspired by: https://stackoverflow.com/a/25509185/131050
+posting_list_t* posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists,
+                                          std::vector<uint32_t>& result_ids) {
+    auto its = std::vector<posting_list_t::iterator_t>();
+    its.reserve(posting_lists.size());
+
+    for(const auto& posting_list: posting_lists) {
+        its.push_back(posting_list->new_iterator());
+    }
+
+    size_t num_lists = its.size();
+
+    switch (num_lists) {
+        case 2:
+            while(!at_end2(its)) {
+                if(equals2(its)) {
+                    //LOG(INFO) << its[0].id();
+                    result_ids.push_back(its[0].id());
+                    advance_all2(its);
+                } else {
+                    advance_least2(its);
+                }
+            }
+            break;
+        default:
+            while(!at_end(its)) {
+                if(equals(its)) {
+                    //LOG(INFO) << its[0].id();
+                    result_ids.push_back(its[0].id());
+                    advance_all(its);
+                } else {
+                    advance_least(its);
+                }
+            }
+    }
+
+    return nullptr;
+}
+
+bool posting_list_t::at_end(const std::vector<posting_list_t::iterator_t>& its) {
+    // if any one iterator is at end, we can stop
+    for(const auto& it : its) {
+        if(!it.valid()) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool posting_list_t::at_end2(const std::vector<posting_list_t::iterator_t>& its) {
+    // if any one iterator is at end, we can stop
+    return !its[0].valid() || !its[1].valid();
+}
+
+bool posting_list_t::equals(const std::vector<posting_list_t::iterator_t>& its) {
+    for(size_t i = 0; i < its.size() - 1; i++) {
+        if(its[i].id() != its[i+1].id()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool posting_list_t::equals2(const std::vector<posting_list_t::iterator_t>& its) {
+    return its[0].id() == its[1].id();
+}
+
+posting_list_t::iterator_t posting_list_t::new_iterator() {
+    return posting_list_t::iterator_t(&root_block);
+}
+
+void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
+    for(auto& it: its) {
+        it.next();
+    }
+}
+
+void posting_list_t::advance_all2(std::vector<posting_list_t::iterator_t>& its) {
+    its[0].next();
+    its[1].next();
+}
+
+void posting_list_t::advance_least(std::vector<posting_list_t::iterator_t>& its) {
+    // we will find the iter with greatest value and then advance the rest until their value catches up
+    uint32_t greatest_value = 0;
+
+    for(size_t i = 0; i < its.size(); i++) {
+        if(its[i].id() > greatest_value) {
+            greatest_value = its[i].id();
+        }
+    }
+
+    for(size_t i = 0; i < its.size(); i++) {
+        if(its[i].id() != greatest_value) {
+            its[i].skip_to(greatest_value);
+        }
+    }
+}
+
+void posting_list_t::advance_least2(std::vector<posting_list_t::iterator_t>& its) {
+    if(its[0].id() > its[1].id()) {
+        its[1].skip_to(its[0].id());
+    } else {
+        its[0].skip_to(its[1].id());
+    }
+}
+
+/* iterator_t operations */
+
+posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root): block(root), index(0) {
+    ids = root->ids.uncompress();
+}
+
+bool posting_list_t::iterator_t::valid() const {
+    return (block != nullptr) && (index < block->size());
+}
+
+void posting_list_t::iterator_t::next() {
+    index++;
+    if(index == block->size()) {
+        index = 0;
+        block = block->next;
+        delete [] ids;
+        ids = nullptr;
+        if(block != nullptr) {
+            ids = block->ids.uncompress();
+        }
+    }
+}
+
+uint32_t posting_list_t::iterator_t::id() const {
+    //return block->ids.at(index);
+    return ids[index];
+}
+
+void posting_list_t::iterator_t::offsets(std::vector<uint32_t>& offsets) {
+    // TODO
+}
+
+void posting_list_t::iterator_t::skip_to(uint32_t id) {
+    bool skipped_block = false;
+    while(block != nullptr && block->ids.last() < id) {
+        block = block->next;
+        skipped_block = true;
+    }
+
+    if(skipped_block) {
+        index = 0;
+        delete [] ids;
+        ids = nullptr;
+
+        if(block != nullptr) {
+            ids = block->ids.uncompress();
+        }
+    }
+
+    while(block != nullptr && index < block->size() && ids[index] < id) {
+        index++;
+    }
+}
+
+posting_list_t::iterator_t::~iterator_t() {
+    delete [] ids;
+    ids = nullptr;
+}
+
+posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
+    block = rhs.block;
+    index = rhs.index;
+    ids = rhs.ids;
+
+    rhs.block = nullptr;
+    rhs.ids = nullptr;
+}

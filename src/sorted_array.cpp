@@ -399,9 +399,5 @@ void sorted_array::binary_count_indices(const uint32_t *values, int low_vindex, 
 }
 
 uint32_t sorted_array::last() {
-    if(getLength() == 0) {
-        return UINT32_MAX;
-    }
-
-    return at(getLength()-1);
+    return (length == 0) ? UINT32_MAX : max;
 }
