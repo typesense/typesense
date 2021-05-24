@@ -39,6 +39,22 @@ public:
         }
     };
 
+    class iterator_t {
+    private:
+        block_t* block;
+        uint32_t index;
+        uint32_t* ids;
+    public:
+        explicit iterator_t(block_t* root);
+        iterator_t(iterator_t&& rhs) noexcept;
+        ~iterator_t();
+        [[nodiscard]] bool valid() const;
+        void next();
+        void skip_to(uint32_t id);
+        [[nodiscard]] uint32_t id() const;
+        void offsets(std::vector<uint32_t>& offsets);
+    };
+
 private:
 
     // when a block reaches pre-allocated storage, it is expanded by this factor
@@ -58,6 +74,18 @@ private:
 
     static void merge_adjacent_blocks(block_t* block1, block_t* block2, size_t num_block2_ids);
 
+    static bool at_end(const std::vector<posting_list_t::iterator_t>& its);
+    static bool at_end2(const std::vector<posting_list_t::iterator_t>& its);
+
+    static bool equals(const std::vector<posting_list_t::iterator_t>& its);
+    static bool equals2(const std::vector<posting_list_t::iterator_t>& its);
+
+    static void advance_all(std::vector<posting_list_t::iterator_t>& its);
+    static void advance_all2(std::vector<posting_list_t::iterator_t>& its);
+
+    static void advance_least(std::vector<posting_list_t::iterator_t>& its);
+    static void advance_least2(std::vector<posting_list_t::iterator_t>& its);
+
 public:
 
     posting_list_t() = delete;
@@ -75,4 +103,9 @@ public:
     size_t size();
 
     block_t* block_of(last_id_t id);
+
+    iterator_t new_iterator();
+
+    static posting_list_t* intersect(const std::vector<posting_list_t*>& posting_lists,
+                                     std::vector<uint32_t>& result_ids);
 };
