@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "posting_list.h"
+#include "array_utils.h"
+#include <chrono>
 #include <vector>
 
 TEST(PostingListTest, Insert) {
@@ -316,16 +318,250 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
     std::vector<uint32_t> offsets1 = {0, 1, 3};
     std::vector<uint32_t> offsets2 = {10, 12};
 
+    // generate unique random IDs
+    std::set<uint32_t> ids;
+
     for(size_t i = 0; i < 100000; i++) {
-        const std::vector<uint32_t>& offsets = (i % 2 == 0) ? offsets1 : offsets2;
-        pl.upsert(rand() % 100000, offsets);
+        ids.insert(rand() % 100000);
+    }
+
+    size_t index = 0;
+
+    for(auto id: ids) {
+        const std::vector<uint32_t>& offsets = (index % 2 == 0) ? offsets1 : offsets2;
+        pl.upsert(id, offsets);
+        index++;
     }
 
     for(size_t i = 0; i < 10000; i++) {
-        const std::vector<uint32_t>& offsets = (i % 2 == 0) ? offsets1 : offsets2;
         pl.erase(rand() % 100000);
     }
 
-    bool size_within_range = (pl.size() < 1500) && (pl.size() > 1000);
-    ASSERT_TRUE(size_within_range);
+    ASSERT_LT(pl.size(), 750);
+    ASSERT_GT(pl.size(), 500);
+}
+
+TEST(PostingListTest, IntersectionBasics) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    std::vector<posting_list_t*> lists;
+
+    // [0, 2] [3, 20]
+    // [1, 3], [5, 10], [20]
+    // [2, 3], [5, 7], [20]
+
+    posting_list_t p1(2);
+    p1.upsert(0, offsets);
+    p1.upsert(2, offsets);
+    p1.upsert(3, offsets);
+    p1.upsert(20, offsets);
+
+    posting_list_t p2(2);
+    p2.upsert(1, offsets);
+    p2.upsert(3, offsets);
+    p2.upsert(5, offsets);
+    p2.upsert(10, offsets);
+    p2.upsert(20, offsets);
+
+    posting_list_t p3(2);
+    p3.upsert(2, offsets);
+    p3.upsert(3, offsets);
+    p3.upsert(5, offsets);
+    p3.upsert(7, offsets);
+    p3.upsert(20, offsets);
+
+    lists.push_back(&p1);
+    lists.push_back(&p2);
+    lists.push_back(&p3);
+
+    std::vector<uint32_t> result_ids;
+
+    posting_list_t::intersect(lists, result_ids);
+
+    ASSERT_EQ(2, result_ids.size());
+    ASSERT_EQ(3, result_ids[0]);
+    ASSERT_EQ(20, result_ids[1]);
+}
+
+TEST(PostingListTest, IntersectionSkipBlocks) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    std::vector<posting_list_t*> lists;
+
+    std::vector<uint32_t> p1_ids = {9, 11};
+    std::vector<uint32_t> p2_ids = {1, 2, 3, 4, 5, 6, 7, 8, 9, 11};
+    std::vector<uint32_t> p3_ids = {2, 3, 8, 9, 11, 20};
+
+    // [9, 11]
+    // [1, 2], [3, 4], [5, 6], [7, 8], [9, 11]
+    // [2, 3], [8, 9], [11, 20]
+
+    posting_list_t p1(2);
+    posting_list_t p2(2);
+    posting_list_t p3(2);
+
+    for(auto id: p1_ids) {
+        p1.upsert(id, offsets);
+    }
+
+    for(auto id: p2_ids) {
+        p2.upsert(id, offsets);
+    }
+
+    for(auto id: p3_ids) {
+        p3.upsert(id, offsets);
+    }
+
+    lists.push_back(&p1);
+    lists.push_back(&p2);
+    lists.push_back(&p3);
+
+    std::vector<uint32_t> result_ids;
+    posting_list_t::intersect(lists, result_ids);
+
+    uint32_t* p1_p2_intersected;
+    uint32_t* final_results;
+
+    size_t temp_len = ArrayUtils::and_scalar(&p1_ids[0], p1_ids.size(), &p2_ids[0], p2_ids.size(), &p1_p2_intersected);
+    size_t final_len = ArrayUtils::and_scalar(&p3_ids[0], p3_ids.size(), p1_p2_intersected, temp_len, &final_results);
+
+    ASSERT_EQ(final_len, result_ids.size());
+
+    for(size_t i = 0; i < result_ids.size(); i++) {
+        ASSERT_EQ(final_results[i], result_ids[i]);
+    }
+
+    delete [] p1_p2_intersected;
+    delete [] final_results;
+}
+
+TEST(PostingListTest, DISABLED_Benchmark) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(4096);
+    sorted_array arr;
+
+    for(size_t i = 0; i < 500000; i++) {
+        pl.upsert(i, offsets);
+        arr.append(i);
+    }
+
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    for(size_t i = 250000; i < 250005; i++) {
+        pl.upsert(i, offsets);
+    }
+
+    long long int timeMicros =
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+
+    LOG(INFO) << "Time taken for 5 posting list updates: " << timeMicros;
+
+    begin = std::chrono::high_resolution_clock::now();
+
+    for(size_t i = 250000; i < 250005; i++) {
+        arr.remove_value(i);
+        arr.append(i);
+    }
+
+    timeMicros =
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+
+    LOG(INFO) << "Time taken for 5 sorted array updates: " << timeMicros;
+}
+
+TEST(PostingListTest, DISABLED_BenchmarkIntersection) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+
+    time_t t;
+    srand((unsigned) time(&t));
+
+    std::set<uint32_t> rand_ids1;
+    std::set<uint32_t> rand_ids2;
+    std::set<uint32_t> rand_ids3;
+
+    const size_t list1_size = 100000;
+    const size_t list2_size = 50000;
+    const size_t list3_size = 25000;
+    const size_t num_range = 1000000;
+
+    /*const size_t list1_size = 10;
+    const size_t list2_size = 10;
+    const size_t num_range = 50;*/
+
+    for(size_t i = 0; i < list1_size; i++) {
+        rand_ids1.insert(rand() % num_range);
+    }
+
+    for(size_t i = 0; i < list2_size; i++) {
+        rand_ids2.insert(rand() % num_range);
+    }
+
+    for(size_t i = 0; i < list3_size; i++) {
+        rand_ids3.insert(rand() % num_range);
+    }
+
+    posting_list_t pl1(1024);
+    posting_list_t pl2(1024);
+    posting_list_t pl3(1024);
+    sorted_array arr1;
+    sorted_array arr2;
+    sorted_array arr3;
+
+    std::string id1_str = "";
+    std::string id2_str = "";
+    std::string id3_str = "";
+
+    for(auto id: rand_ids1) {
+        //id1_str += std::to_string(id) + " ";
+        pl1.upsert(id, offsets);
+        arr1.append(id);
+    }
+
+    for(auto id: rand_ids2) {
+        //id2_str += std::to_string(id) + " ";
+        pl2.upsert(id, offsets);
+        arr2.append(id);
+    }
+
+    for(auto id: rand_ids3) {
+        //id2_str += std::to_string(id) + " ";
+        pl3.upsert(id, offsets);
+        arr3.append(id);
+    }
+
+    //LOG(INFO) << "id1_str: " << id1_str;
+    //LOG(INFO) << "id2_str: " << id2_str;
+
+    std::vector<uint32_t> result_ids;
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    posting_list_t::intersect({&pl1, &pl2, &pl3}, result_ids);
+
+    long long int timeMicros =
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+
+    LOG(INFO) << "Posting list result len: " << result_ids.size();
+    LOG(INFO) << "Time taken for posting list intersection: " << timeMicros;
+
+    begin = std::chrono::high_resolution_clock::now();
+
+    auto a = arr1.uncompress();
+    auto b = arr2.uncompress();
+    auto c = arr3.uncompress();
+
+    uint32_t* ab;
+    size_t ab_len = ArrayUtils::and_scalar(a, arr1.getLength(), b, arr2.getLength(), &ab);
+
+    uint32_t* abc;
+    size_t abc_len = ArrayUtils::and_scalar(ab, ab_len, c, arr3.getLength(), &abc);
+
+    delete [] a;
+    delete [] b;
+    delete [] c;
+    delete [] ab;
+    delete [] abc;
+
+    timeMicros =
+            std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+
+    LOG(INFO) << "Sorted array result len: " << abc_len;
+    LOG(INFO) << "Time taken for sorted array intersection: " << timeMicros;
 }
