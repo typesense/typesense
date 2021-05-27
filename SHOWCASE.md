@@ -7,9 +7,7 @@ Please add to this file and send us a PR:
 | Name        | Description |
 | ----------- | ----------- |
 | [Recipe Search](https://recipe-search.typesense.org/) | A site that showcases Typesense in action on a 2 Million recipe database, with the ability to filter by ingredients.|
-| [Books Search](https://books-search.typesense.org/) | A site that showcases Typesense in action on a 28 Million books database from [OpenLibrary](https://openlibrary.org/), with the ability to filter by authors and subject.  |
-| [MusicBrainz Songs Search](https://songs-search.typesense.org/) | A site that showcases Typesense in action on a 32 Million Songs database from [MusicBrainz](https://musicbrainz.org/) |
-| [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) | Instant Search speeches of US Presidential Candidates side-by-side. |
+| [Linux Commit History Search](https://linux-commits-search.typesense.org/) | A site that indexes 1M linux commit messages in Typesense and lets you browse, search and filter through the commits.|
 | [Grafikart](https://www.grafikart.fr/) | Learning resources library |
 | [New York University Databrary](https://nyu.databrary.org/) | Video documentation library |
 | [ElbiseBul](https://www.elbisebul.com/) | E-commerce |
@@ -20,3 +18,6 @@ Please add to this file and send us a PR:
 | [Have A Class](https://haveaclass.com/) | Find the perfect teacher online |
 | [Follow up Boss](https://www.followupboss.com/) | Real-estate CRM software, using Typesense for user notes search. |
 | [Jobsort](https://www.jobsort.com/) | Job search engine for developers, by developers (quicksort for tech jobs.) |
+| [Books Search](https://books-search.typesense.org/) | A site that showcases Typesense in action on a 28 Million books database from [OpenLibrary](https://openlibrary.org/), with the ability to filter by authors and subject.  |
+| [MusicBrainz Songs Search](https://songs-search.typesense.org/) | A site that showcases Typesense in action on a 32 Million Songs database from [MusicBrainz](https://musicbrainz.org/) |
+| [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) | Instant Search speeches of US Presidential Candidates side-by-side. |
