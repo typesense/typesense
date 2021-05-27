@@ -62,6 +62,7 @@
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety.
 - **Federated Search:** Search across multiple collections (indices) in a single HTTP request.
+- **Geo Search:** Search and sort by results around a geographic location - [in beta](https://github.com/typesense/typesense/issues/78#issuecomment-842308057).
 - **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant applications.
 - **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
