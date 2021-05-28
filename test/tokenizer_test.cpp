@@ -228,3 +228,12 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("な", tokens[2]);
     ASSERT_EQ("いぬ", tokens[3]);
 }
+
+TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
+    std::string tstr = "ผู้เขียนมีความสนใจเกี่ยวกับ Discrete Math และการคำนวณโดยทั่วไป";
+    std::vector<std::string> ttokens;
+    Tokenizer(tstr, true, false, "th").tokenize(ttokens);
+    ASSERT_EQ(14, ttokens.size());
+    ASSERT_EQ("discrete", ttokens[7]);
+    ASSERT_EQ("math", ttokens[8]);
+}

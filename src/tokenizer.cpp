@@ -1,4 +1,5 @@
 #include <sstream>
+#include <algorithm>
 #include "tokenizer.h"
 
 bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_index, size_t& end_index) {
@@ -33,6 +34,13 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     } else if(locale == "ko" && token == "·") {
                         found_token = false;
                     } else {
+
+                        if(std::isalnum(token[0]) && is_ascii_char(token[0])) {
+                            // normalize an ascii string
+                            std::transform(token.begin(), token.end(), token.begin(),
+                                           [](unsigned char c){ return std::tolower(c); });
+                        }
+
                         found_token = true;
                         token_index = token_counter++;
                     }
