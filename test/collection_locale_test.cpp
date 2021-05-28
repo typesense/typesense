@@ -85,6 +85,49 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     ASSERT_EQ("<mark>พกไฟ</mark>\nเสมอ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
 
+TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"ติดกับดักรายได้ปานกลาง", "Expected Result"},
+        {"ข้อมูลรายคนหรือรายบริษัทในการเชื่อมโยงส่วนได้ส่วนเสีย", "Another Result"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+    auto results = coll1->search("รายได้",
+                                 {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_EQ("ติดกับดัก<mark>ราย</mark><mark>ได้</mark>ปานกลาง",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("ข้อมูลรายคนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
+              results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+}
+
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     Collection *coll1;
 
