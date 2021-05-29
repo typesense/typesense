@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "posting_list.h"
+#include "posting.h"
 #include "array_utils.h"
 #include <chrono>
 #include <vector>
@@ -431,6 +431,219 @@ TEST(PostingListTest, IntersectionSkipBlocks) {
 
     delete [] p1_p2_intersected;
     delete [] final_results;
+}
+
+TEST(PostingListTest, CompactPostingListUpsertAppends) {
+    uint32_t ids[] = {0, 1000, 1002};
+    uint32_t offset_index[] = {0, 3, 6};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // no-op since the container expects resizing to be done outside
+    list->upsert(1003, {1, 2});
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // now resize
+    void* obj = SET_COMPACT_POSTING(list);
+    posting_t::upsert(obj, 1003, {1, 2});
+    ASSERT_EQ(1003, COMPACT_POSTING_PTR(obj)->last_id());
+
+    ASSERT_EQ(19, (COMPACT_POSTING_PTR(obj))->length);
+    ASSERT_EQ(24, (COMPACT_POSTING_PTR(obj))->capacity);
+
+    // insert enough docs to NOT exceed compact posting list threshold
+    posting_t::upsert(obj, 1004, {1, 2, 3, 4, 5, 6, 7, 8});
+    ASSERT_EQ(1004, COMPACT_POSTING_PTR(obj)->last_id());
+    posting_t::upsert(obj, 1005, {1, 2, 3, 4, 5, 6, 7, 8});
+    ASSERT_EQ(1005, COMPACT_POSTING_PTR(obj)->last_id());
+    posting_t::upsert(obj, 1006, {1, 2, 3, 4, 5, 6, 7, 8});
+    ASSERT_EQ(1006, COMPACT_POSTING_PTR(obj)->last_id());
+    posting_t::upsert(obj, 1007, {1, 2, 3, 4, 5, 6, 7, 8});
+    ASSERT_EQ(1007, COMPACT_POSTING_PTR(obj)->last_id());
+    ASSERT_TRUE(IS_COMPACT_POSTING(obj));
+    ASSERT_EQ(1007, COMPACT_POSTING_PTR(obj)->last_id());
+
+    // next upsert will exceed threshold
+    posting_t::upsert(obj, 1008, {1, 2, 3, 4, 5, 6, 7, 8});
+    ASSERT_FALSE(IS_COMPACT_POSTING(obj));
+
+    ASSERT_EQ(1, ((posting_list_t*)(obj))->size());
+    ASSERT_EQ(9, ((posting_list_t*)(obj))->get_root()->size());
+    ASSERT_EQ(1008, ((posting_list_t*)(obj))->get_root()->ids.last());
+
+    delete ((posting_list_t*)(obj));
+}
+
+TEST(PostingListTest, CompactPostingListUpserts) {
+    uint32_t ids[] = {3, 1000, 1002};
+    uint32_t offset_index[] = {0, 3, 6};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // insert before first ID
+
+    void* obj = SET_COMPACT_POSTING(list);
+    posting_t::upsert(obj, 2, {1, 2});
+    ASSERT_EQ(1002, COMPACT_POSTING_PTR(obj)->last_id());
+    ASSERT_EQ(19, COMPACT_POSTING_PTR(obj)->length);
+    ASSERT_EQ(24, COMPACT_POSTING_PTR(obj)->capacity);
+
+    // insert in the middle
+    posting_t::upsert(obj, 999, {1, 2});
+    ASSERT_EQ(1002, COMPACT_POSTING_PTR(obj)->last_id());
+    ASSERT_EQ(23, COMPACT_POSTING_PTR(obj)->length);
+    ASSERT_EQ(24, COMPACT_POSTING_PTR(obj)->capacity);
+
+    uint32_t expected_id_offsets[] = {
+        2, 1, 2, 2,
+        3, 0, 3, 4, 3,
+        2, 1, 2, 999,
+        3, 0, 3, 4, 1000,
+        3, 0, 3, 4, 1002
+    };
+
+    ASSERT_EQ(23, COMPACT_POSTING_PTR(obj)->length);
+
+    for(size_t i = 0; i < COMPACT_POSTING_PTR(obj)->length; i++) {
+        ASSERT_EQ(expected_id_offsets[i], COMPACT_POSTING_PTR(obj)->id_offsets[i]);
+    }
+
+    free(COMPACT_POSTING_PTR(obj));
+}
+
+TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
+    uint32_t ids[] = {0, 1000, 1002};
+    uint32_t offset_index[] = {0, 3, 6};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // update middle
+
+    list->upsert(1000, {1, 2});
+    ASSERT_EQ(14, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets[] = {3, 0, 3, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets[i], list->id_offsets[i]);
+    }
+
+    // update start
+    list->upsert(0, {2, 4});
+    ASSERT_EQ(13, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets2[] = {2, 2, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets2[i], list->id_offsets[i]);
+    }
+
+    // update end
+    list->upsert(1002, {2, 4});
+    ASSERT_EQ(12, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets3[] = {2, 2, 4, 0, 2, 1, 2, 1000, 2, 2, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets3[i], list->id_offsets[i]);
+    }
+
+    free(list);
+}
+
+TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
+    uint32_t ids[] = {0, 1000, 1002};
+    uint32_t offset_index[] = {0, 3, 6};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // update middle
+    void* obj = SET_COMPACT_POSTING(list);
+    posting_t::upsert(obj, 1000, {1, 2, 3, 4});
+    list = COMPACT_POSTING_PTR(obj);
+    ASSERT_EQ(16, list->length);
+    ASSERT_EQ(20, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets[] = {3, 0, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 3, 0, 3, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets[i], list->id_offsets[i]);
+    }
+
+    // update start
+    list->upsert(0, {1, 2, 3, 4});
+    ASSERT_EQ(17, list->length);
+    ASSERT_EQ(20, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets2[] = {4, 1, 2, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 3, 0, 3, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets2[i], list->id_offsets[i]);
+    }
+
+    // update end
+    list->upsert(1002, {1, 2, 3, 4});
+    ASSERT_EQ(18, list->length);
+    ASSERT_EQ(20, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+    uint32_t expected_id_offsets3[] = {4, 1, 2, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 4, 1, 2, 3, 4, 1002};
+    for(size_t i = 0; i < list->length; i++) {
+        ASSERT_EQ(expected_id_offsets3[i], list->id_offsets[i]);
+    }
+
+    free(list);
+}
+
+TEST(PostingListTest, CompactPostingListErase) {
+    uint32_t ids[] = {0, 1000, 1002};
+    uint32_t offset_index[] = {0, 3, 6};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list = compact_posting_list_t::create(3, ids, offset_index, 9, offsets);
+
+    list->erase(3); // erase non-existing ID
+
+    ASSERT_EQ(15, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    list->erase(1000);
+    ASSERT_EQ(10, list->length);
+    ASSERT_EQ(15, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    // deleting using posting wrapper
+    void* obj = SET_COMPACT_POSTING(list);
+    posting_t::erase(obj, 1002);
+    ASSERT_TRUE(IS_COMPACT_POSTING(obj));
+    ASSERT_EQ(5, (COMPACT_POSTING_PTR(obj))->length);
+    ASSERT_EQ(7, (COMPACT_POSTING_PTR(obj))->capacity);
+    ASSERT_EQ(0, (COMPACT_POSTING_PTR(obj))->last_id());
+
+    // upsert again
+    posting_t::upsert(obj, 1002, {0, 3, 4});
+    list = COMPACT_POSTING_PTR(obj);
+    ASSERT_EQ(10, list->length);
+    ASSERT_EQ(13, list->capacity);
+    ASSERT_EQ(1002, list->last_id());
+
+    free(list);
 }
 
 TEST(PostingListTest, DISABLED_Benchmark) {
