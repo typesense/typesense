@@ -41,6 +41,8 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
         return -1;
     }
 
+    LOG(INFO) << "Nodes config: " << actual_nodes_config;
+
     this->read_caught_up = false;
     this->write_caught_up = false;
 
@@ -123,14 +125,42 @@ void ReplicationState::populate_skip_index() {
 
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
                                               const std::string& nodes_config) {
-    std::string actual_nodes_config = nodes_config;
-
     if(nodes_config.empty()) {
         std::string ip_str = butil::ip2str(peering_endpoint.ip).c_str();
-        actual_nodes_config = ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+        return ip_str + ":" + std::to_string(peering_endpoint.port) + ":" + std::to_string(api_port);
+    } else {
+        return resolve_node_hosts(nodes_config);
+    }
+}
+
+string ReplicationState::resolve_node_hosts(const string& nodes_config) {
+    std::vector<std::string> final_nodes_vec;
+    std::vector<std::string> node_strings;
+    StringUtils::split(nodes_config, node_strings, ",");
+
+    for(const auto& node_str: node_strings) {
+        // could be an IP or a hostname that must be resolved
+        std::vector<std::string> node_parts;
+        StringUtils::split(node_str, node_parts, ":");
+
+        if(node_parts.size() != 3) {
+            final_nodes_vec.push_back(node_str);
+            continue;
+        }
+
+        butil::ip_t ip;
+        int status = butil::hostname2ip(node_parts[0].c_str(), &ip);
+        if(status == 0) {
+            final_nodes_vec.push_back(
+                std::string(butil::ip2str(ip).c_str()) + ":" + node_parts[1] + ":" + node_parts[2]
+            );
+        } else {
+            final_nodes_vec.push_back(node_str);
+        }
     }
 
-    return actual_nodes_config;
+    std::string final_nodes_config = StringUtils::join(final_nodes_vec, ",");
+    return final_nodes_config;
 }
 
 void ReplicationState::write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
