@@ -206,6 +206,8 @@ public:
         cv.notify_all();
     }
 
+    static std::string resolve_node_hosts(const std::string& nodes_config);
+
 private:
 
     friend class ReplicationClosure;
