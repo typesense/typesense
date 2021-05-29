@@ -57,9 +57,6 @@ public:
 
 private:
 
-    // when a block reaches pre-allocated storage, it is expanded by this factor
-    static constexpr float BLOCK_GROWTH_FACTOR = 1.3;
-
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
     const uint16_t BLOCK_MAX_ELEMENTS;
 
