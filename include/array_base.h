@@ -42,4 +42,8 @@ public:
     uint32_t getSizeInBytes();
 
     uint32_t getLength() const;
+
+    uint32_t getMin() const;
+
+    uint32_t getMax() const;
 };
