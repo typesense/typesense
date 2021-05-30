@@ -25,19 +25,120 @@ void posting_list_t::block_t::insert_and_shift_offset_index(const uint32_t index
 }
 
 void posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
-    size_t inserted_index = ids.append(id);
+    if(id <= ids.last()) {
+        // we have to check if `id` already exists, for an opportunity to do in-place updates
+        uint32_t id_index = ids.indexOf(id);
 
-    if(inserted_index == ids.getLength()-1) {
-        // treat as appends
-        uint32_t curr_index = offsets.getLength();
-        offset_index.append(curr_index);
-        for(uint32_t position : positions) {
-            offsets.append(position);
+        if(id_index != ids.getLength()) {
+            // id is already present, so we will only update offset index and offsets
+            uint32_t start_offset_index = offset_index.at(id_index);
+            uint32_t end_offset_index = (id == ids.last()) ? offsets.getLength()-1 : offset_index.at(id_index + 1)-1;
+            uint32_t num_offsets = (end_offset_index - start_offset_index) + 1;
+            uint32_t* curr_offsets = offsets.uncompress();
+            uint32_t m = offsets.getMin(), M = offsets.getMax();
+
+            if(num_offsets == positions.size()) {
+                // no need to touch the offset index and need to just do inplace updates of offsets
+                bool find_new_min_max = false;
+                for(size_t i = 0; i < positions.size(); i++) {
+                    if((curr_offsets[start_offset_index + i] == m || curr_offsets[start_offset_index + i] == M) &&
+                        curr_offsets[start_offset_index + i] != positions[i]) {
+                        // when an existing min/max is affected we will have to find the new min/max
+                        find_new_min_max = true;
+                    }
+
+                    if(positions[i] < m) {
+                        m = positions[i];
+                    }
+
+                    if(positions[i] > M) {
+                        M = positions[i];
+                    }
+
+                    curr_offsets[start_offset_index + i] = positions[i];
+                }
+
+                if(find_new_min_max) {
+                    for(size_t i = 0; i < offsets.getLength(); i++) {
+                        if(curr_offsets[i] < m) {
+                            m = curr_offsets[i];
+                        }
+
+                        if(curr_offsets[i] > M) {
+                            M = curr_offsets[i];
+                        }
+                    }
+                }
+
+                offsets.load(curr_offsets, offsets.getLength(), m, M);
+            } else {
+                // need to resize offsets array
+                int64_t size_diff = int64_t(positions.size()) - num_offsets;   // size_diff can be negative
+                size_t new_offsets_length = offsets.getLength() + size_diff;
+                uint32_t* new_offsets = new uint32_t[new_offsets_length];
+                std::memmove(new_offsets, curr_offsets, sizeof(uint32_t) * start_offset_index);
+
+                bool find_new_min_max = false;
+                for(size_t i = 0; i < num_offsets; i++) {
+                    if(curr_offsets[start_offset_index + i] == m || curr_offsets[start_offset_index + i] == M) {
+                        // when an existing min/max is affected we will have to find the new min/max
+                        find_new_min_max = true;
+                    }
+                }
+
+                for(size_t i = 0; i < positions.size(); i++) {
+                    if(positions[i] < m) {
+                        m = positions[i];
+                    }
+
+                    if(positions[i] > M) {
+                        M = positions[i];
+                    }
+
+                    new_offsets[start_offset_index + i] = positions[i];
+                }
+
+                std::memmove(new_offsets + start_offset_index + positions.size(),
+                             curr_offsets + end_offset_index + 1,
+                             sizeof(uint32_t) * (offsets.getLength() - (end_offset_index + 1)));
+
+                if(find_new_min_max) {
+                    for(size_t i = 0; i < offsets.getLength(); i++) {
+                        if(curr_offsets[i] < m) {
+                            m = curr_offsets[i];
+                        }
+
+                        if(curr_offsets[i] > M) {
+                            M = curr_offsets[i];
+                        }
+                    }
+                }
+
+                offsets.load(new_offsets, new_offsets_length, m, M);
+                delete [] new_offsets;
+
+                // shift offset index
+                uint32_t* current_offset_index = offset_index.uncompress();
+                for(size_t i = id_index+1; i < ids.getLength(); i++) {
+                    current_offset_index[i] += size_diff;
+                }
+
+                offset_index.load(current_offset_index, offset_index.getLength());
+                delete [] current_offset_index;
+            }
+
+            delete [] curr_offsets;
+            return;
         }
-    } else {
-        uint32_t existing_offset_index = offset_index.at(inserted_index);
-        insert_and_shift_offset_index(inserted_index, positions.size());
-        offsets.insert(existing_offset_index, &positions[0], positions.size());
+    }
+
+    // treat as regular append (either id not found or exceeds max id)
+
+    ids.append(id);
+    uint32_t curr_index = offsets.getLength();
+    offset_index.append(curr_index);
+    for(uint32_t position : positions) {
+        offsets.append(position);
     }
 }
 
