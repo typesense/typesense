@@ -143,7 +143,8 @@ public:
     // Starts this node
     int start(const butil::EndPoint & peering_endpoint, int api_port,
               int election_timeout_ms, int snapshot_interval_s,
-              const std::string & raft_dir, const std::string & nodes);
+              const std::string & raft_dir, const std::string & nodes,
+              const std::atomic<bool>& quit_abruptly);
 
     // Generic write method for synchronizing all writes
     void write(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
