@@ -28,20 +28,42 @@ void ReplicationClosure::Run() {
 
 int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int api_port,
                             int election_timeout_ms, int snapshot_interval_s,
-                            const std::string & raft_dir, const std::string & nodes) {
+                            const std::string & raft_dir, const std::string & nodes,
+                            const std::atomic<bool>& quit_abruptly) {
 
     this->election_timeout_interval_ms = election_timeout_ms;
     this->raft_dir_path = raft_dir;
 
     braft::NodeOptions node_options;
-    std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
 
-    if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
-        LOG(ERROR) << "Failed to parse nodes configuration `" << nodes << "`";
-        return -1;
+    size_t max_tries = 3;
+
+    while(true) {
+        std::string actual_nodes_config = to_nodes_config(peering_endpoint, api_port, nodes);
+
+        if(node_options.initial_conf.parse_from(actual_nodes_config) != 0) {
+            if(--max_tries == 0) {
+                LOG(ERROR) << "Giving up parsing nodes configuration: `" << nodes << "`";
+                return -1;
+            }
+
+            LOG(ERROR) << "Failed to parse nodes configuration: `" << nodes << "` -- " << " will retry shortly...";
+
+            size_t i = 0;
+            while(i++ < 30) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                if(quit_abruptly) {
+                    // enables quitting of server during retries
+                    return -1;
+                }
+            }
+
+            continue;
+       }
+
+        LOG(INFO) << "Nodes configuration: " << actual_nodes_config;
+        break;
     }
-
-    LOG(INFO) << "Nodes config: " << actual_nodes_config;
 
     this->read_caught_up = false;
     this->write_caught_up = false;
@@ -150,11 +172,13 @@ string ReplicationState::resolve_node_hosts(const string& nodes_config) {
 
         butil::ip_t ip;
         int status = butil::hostname2ip(node_parts[0].c_str(), &ip);
+
         if(status == 0) {
             final_nodes_vec.push_back(
                 std::string(butil::ip2str(ip).c_str()) + ":" + node_parts[1] + ":" + node_parts[2]
             );
         } else {
+            LOG(ERROR) << "Unable to resolve host: " << node_parts[0];
             final_nodes_vec.push_back(node_str);
         }
     }
