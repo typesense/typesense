@@ -110,6 +110,155 @@ TEST(PostingListTest, Insert) {
     }
 }
 
+TEST(PostingListTest, InplaceUpserts) {
+    std::vector<uint32_t> offsets = {1, 2, 3};
+    posting_list_t pl(5);
+
+    pl.upsert(2, offsets);
+    pl.upsert(5, offsets);
+    pl.upsert(7, offsets);
+
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(9, pl.get_root()->offsets.getLength());
+
+    // update starting ID with same length of offsets
+    pl.upsert(2, {1, 2, 4});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(9, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(1, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(4, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(4, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(1, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
+
+    // update starting ID with smaller number of offsets
+    pl.upsert(2, {5, 7});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(8, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(5, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(7, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(1, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(7, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(1, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(2, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(5, pl.get_root()->offset_index.at(2));
+
+    // update starting ID with larger number of offsets
+    pl.upsert(2, {0, 2, 8});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(9, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(0, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(8, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(1, pl.get_root()->offsets.at(3));
+    ASSERT_EQ(8, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(0, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
+
+    // update middle ID with smaller number of offsets
+    pl.upsert(5, {1, 10});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(8, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(0, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(8, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(1, pl.get_root()->offsets.at(3));
+    ASSERT_EQ(10, pl.get_root()->offsets.at(4));
+
+    ASSERT_EQ(10, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(0, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(5, pl.get_root()->offset_index.at(2));
+
+    // update middle ID with larger number of offsets
+    pl.upsert(5, {2, 4, 12});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(9, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(0, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(8, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(3));
+    ASSERT_EQ(4, pl.get_root()->offsets.at(4));
+    ASSERT_EQ(12, pl.get_root()->offsets.at(5));
+    ASSERT_EQ(1, pl.get_root()->offsets.at(6));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(7));
+    ASSERT_EQ(3, pl.get_root()->offsets.at(8));
+
+    ASSERT_EQ(12, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(0, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
+
+    // update last ID with smaller number of offsets
+
+    pl.upsert(7, {3});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(7, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(0, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(8, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(3));
+    ASSERT_EQ(4, pl.get_root()->offsets.at(4));
+    ASSERT_EQ(12, pl.get_root()->offsets.at(5));
+    ASSERT_EQ(3, pl.get_root()->offsets.at(6));
+
+    ASSERT_EQ(12, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(0, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
+
+    // update last ID with larger number of offsets
+
+    pl.upsert(7, {5, 20});
+    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.get_root()->ids.getLength());
+    ASSERT_EQ(8, pl.get_root()->offsets.getLength());
+
+    ASSERT_EQ(0, pl.get_root()->offsets.at(0));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(1));
+    ASSERT_EQ(8, pl.get_root()->offsets.at(2));
+    ASSERT_EQ(2, pl.get_root()->offsets.at(3));
+    ASSERT_EQ(4, pl.get_root()->offsets.at(4));
+    ASSERT_EQ(12, pl.get_root()->offsets.at(5));
+    ASSERT_EQ(5, pl.get_root()->offsets.at(6));
+    ASSERT_EQ(20, pl.get_root()->offsets.at(7));
+
+    ASSERT_EQ(20, pl.get_root()->offsets.getMax());
+    ASSERT_EQ(0, pl.get_root()->offsets.getMin());
+
+    ASSERT_EQ(0, pl.get_root()->offset_index.at(0));
+    ASSERT_EQ(3, pl.get_root()->offset_index.at(1));
+    ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
+}
+
 TEST(PostingListTest, RemovalsOnFirstBlock) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(5);
@@ -318,11 +467,10 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
     std::vector<uint32_t> offsets1 = {0, 1, 3};
     std::vector<uint32_t> offsets2 = {10, 12};
 
-    // generate unique random IDs
-    std::set<uint32_t> ids;
+    std::vector<uint32_t> ids;
 
     for(size_t i = 0; i < 100000; i++) {
-        ids.insert(rand() % 100000);
+        ids.push_back(rand() % 100000);
     }
 
     size_t index = 0;
@@ -337,8 +485,8 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
         pl.erase(rand() % 100000);
     }
 
-    ASSERT_LT(pl.size(), 750);
-    ASSERT_GT(pl.size(), 500);
+    ASSERT_GT(pl.size(), 750);
+    ASSERT_LT(pl.size(), 1000);
 }
 
 TEST(PostingListTest, IntersectionBasics) {

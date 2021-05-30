@@ -14,3 +14,11 @@ uint32_t array_base::getSizeInBytes() {
 uint32_t array_base::getLength() const {
     return length;
 }
+
+uint32_t array_base::getMin() const {
+    return min;
+}
+
+uint32_t array_base::getMax() const {
+    return max;
+}
