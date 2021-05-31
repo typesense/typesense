@@ -193,16 +193,16 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     tokens.clear();
     Tokenizer("경승지·산악·협곡", false, false, "ko").tokenize(tokens);
     ASSERT_EQ(3, tokens.size());
-    ASSERT_EQ("경승지", tokens[0]);
-    ASSERT_EQ("산악", tokens[1]);
-    ASSERT_EQ("협곡", tokens[2]);
+    ASSERT_EQ("경승지", tokens[0]);
+    ASSERT_EQ("산악", tokens[1]);
+    ASSERT_EQ("협곡", tokens[2]);
 
     tokens.clear();
     Tokenizer("안녕은하철도999극장판", false, false, "ko").tokenize(tokens);
     ASSERT_EQ(3, tokens.size());
-    ASSERT_EQ("안녕은하철도", tokens[0]);
+    ASSERT_EQ("안녕은하철도", tokens[0]);
     ASSERT_EQ("999", tokens[1]);
-    ASSERT_EQ("극장판", tokens[2]);
+    ASSERT_EQ("극장판", tokens[2]);
 
     // japanese
     tokens.clear();

@@ -8,16 +8,16 @@
 #include <random>
 #include <map>
 #include "wyhash_v5.h"
+#include <unicode/normalizer2.h>
 
 struct StringUtils {
 
-    StringUtils() {
+    // non-deletable singleton
+    const icu::Normalizer2* nfkd;
 
-    }
+    StringUtils();
 
-    ~StringUtils() {
-
-    }
+    ~StringUtils();
 
     // Adapted from: http://stackoverflow.com/a/236180/131050
     static size_t split(const std::string& s, std::vector<std::string> & result, const std::string& delim,
@@ -280,6 +280,8 @@ struct StringUtils {
         // reserve max() for use as a delimiter
         return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
+
+    std::string unicode_nfkd(const std::string& text);
 
     static std::string randstring(size_t length);
 
