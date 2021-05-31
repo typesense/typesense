@@ -21,3 +21,4 @@ Please add to this file and send us a PR:
 | [Books Search](https://books-search.typesense.org/) | A site that showcases Typesense in action on a 28 Million books database from [OpenLibrary](https://openlibrary.org/), with the ability to filter by authors and subject.  |
 | [MusicBrainz Songs Search](https://songs-search.typesense.org/) | A site that showcases Typesense in action on a 32 Million Songs database from [MusicBrainz](https://musicbrainz.org/) |
 | [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) | Instant Search speeches of US Presidential Candidates side-by-side. |
+| [Read This Twice](https://www.readthistwice.com/) | Book discovery platform uses typesense to power the book/people search |
