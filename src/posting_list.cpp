@@ -392,7 +392,6 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
     last_id_t before_upsert_last_id;
 
     if(id_block_map.empty()) {
-        //id_block_map.emplace(id, &root_block);
         upsert_block = &root_block;
         before_upsert_last_id = UINT32_MAX;
     } else {
