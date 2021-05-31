@@ -1505,8 +1505,13 @@ void Collection::highlight_result(const field &search_field,
             }
         }
 
-        const std::string& text = (search_field.type == field_types::STRING) ? document[search_field.name] : document[search_field.name][match_index.index];
+        std::string text = (search_field.type == field_types::STRING) ? document[search_field.name] :
+                           document[search_field.name][match_index.index];
         Tokenizer tokenizer(text, true, false, search_field.locale);
+
+        if(search_field.locale == "ko") {
+            text = string_utils.unicode_nfkd(text);
+        }
 
         // need an ordered map here to ensure that it is ordered by the key (start offset)
         std::map<size_t, size_t> token_offsets;
