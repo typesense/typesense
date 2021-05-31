@@ -2,6 +2,39 @@
 #include <algorithm>
 #include "tokenizer.h"
 
+Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
+                     const std::vector<char>& symbols_to_index):
+                     i(0), normalize(normalize), no_op(no_op), locale(locale) {
+
+    if(locale == "ja") {
+        normalized_text = JapaneseLocalizer::get_instance().normalize(input);
+        text = normalized_text;
+    } else {
+        text = input;
+    }
+
+    cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
+
+    if(!locale.empty() && locale != "en") {
+        UErrorCode status = U_ZERO_ERROR;
+        const icu::Locale& icu_locale = icu::Locale(locale.c_str());
+        bi = icu::BreakIterator::createWordInstance(icu_locale, status);
+
+        unicode_text = icu::UnicodeString::fromUTF8(text);
+        bi->setText(unicode_text);
+
+        position = bi->first();
+        prev_position = -1;
+    }
+
+    for(char c: symbols_to_index) {
+        index_symbols[uint8_t(c)] = 1;
+    }
+
+    UErrorCode errcode = U_ZERO_ERROR;
+    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+}
+
 bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_index, size_t& end_index) {
     if(no_op) {
         if(i == text.size()) {
@@ -23,9 +56,24 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             if(prev_position != -1) {
                 std::string word;
                 size_t length = position - prev_position;
-                token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
-
                 //LOG(INFO) << "token: " << token;
+
+                if(locale == "ko") {
+                    UErrorCode errcode = U_ZERO_ERROR;
+                    icu::UnicodeString src = unicode_text.tempSubString(prev_position, length);
+                    icu::UnicodeString dst;
+                    nfkd->normalize(src, dst, errcode);
+
+                    if(!U_FAILURE(errcode)) {
+                        std::string output;
+                        dst.toUTF8String(output);
+                        token = output;
+                    } else {
+                        LOG(ERROR) << "Unicode error during parsing: " << errcode;
+                    }
+                } else {
+                    token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+                }
 
                 if(!token.empty()) {
                     if (!std::isalnum(token[0]) && is_ascii_char(token[i])) {
