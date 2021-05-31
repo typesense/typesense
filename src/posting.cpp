@@ -141,7 +141,6 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, uint32_
     pl->length = 0;
     pl->capacity = length_required;
 
-    size_t id_offsets_index = 0;
     for(size_t i = 0; i < num_ids; i++) {
         uint32_t start_offset = offset_index[i];
         uint32_t next_start_offset = (i == num_ids-1) ? num_offsets : offset_index[i+1];
