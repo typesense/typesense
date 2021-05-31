@@ -7,6 +7,16 @@
 #include <map>
 #include "logger.h"
 
+
+StringUtils::StringUtils() {
+    UErrorCode errcode = U_ZERO_ERROR;
+    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+}
+
+StringUtils::~StringUtils() {
+
+}
+
 std::string lower_and_no_special_chars(const std::string & str) {
     std::stringstream ss;
 
@@ -184,6 +194,22 @@ std::string StringUtils::float_to_str(float value) {
     std::ostringstream os;
     os << value;
     return os.str();
+}
+
+std::string StringUtils::unicode_nfkd(const std::string& text) {
+    UErrorCode errcode = U_ZERO_ERROR;
+    icu::UnicodeString src = icu::UnicodeString::fromUTF8(text);
+    icu::UnicodeString dst;
+    nfkd->normalize(src, dst, errcode);
+
+    if(!U_FAILURE(errcode)) {
+        std::string output;
+        dst.toUTF8String(output);
+        return output;
+    } else {
+        LOG(ERROR) << "Unicode error during parsing: " << errcode;
+        return text;
+    }
 }
 
 /*size_t StringUtils::unicode_length(const std::string& bytes) {

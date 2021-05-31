@@ -131,7 +131,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -162,7 +162,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("안녕은하철도999<mark>극장판</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("안녕은하철도999<mark>극장판</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("산악",
                             {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
@@ -170,7 +170,108 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("경승지·<mark>산악</mark>·협곡", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("경승지·<mark>산악</mark>·협곡", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+}
+
+TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"서울특별시 성북구", "Wrong Result"},
+        {"서울특별시 중구 초동", "Wrong Result"},
+        {"서울특별시 관악구", "Expected Result"},
+        {"서울특별시 용산구 용산동", "Wrong Result"},
+        {"서울특별시 동대문구 이문동", "Wrong Result"},
+        {"서울특별시 서대문구 현저동", "Wrong Result"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+
+    // To ensure that NFKD works, we will test for both &#4352; (Hangul Choseong Kiyeok)
+    auto results = coll1->search("서울특별시 ᄀ",
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(6, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // and &#12593; (Hangul Letter Kiyeok)
+    results = coll1->search("서울특별시 ㄱ",
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(6, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // search for full word
+    results = coll1->search("서울특별시 관",
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(6, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionLocaleTest, KoreanTextPrefixVowel) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"서울특별시 강서구 공항동", "Wrong Result"},
+        {"서울특별시 관악구", "Wrong Result"},
+        {"서울특별시 강동구 고덕동", "Expected Result"},
+        {"서울특별시 관악구 관악산나들길", "Wrong Result"},
+        {"서울특별시 관악구 관악로", "Wrong Result"},
+        {"서울특별시 관악구 과천대로", "Wrong Result"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
+
+    auto results = coll1->search("서울특별시 고",
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(6, results["found"].get<size_t>());
+    ASSERT_EQ(6, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanTextContainingEnglishChars) {
