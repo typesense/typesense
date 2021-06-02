@@ -447,6 +447,50 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsTextMatchLast) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
+    // when queried with a single field, _text_match score should be used implicitly as the second sorting field
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Ayxha Beta"},
+        {"Alpha Beta"},
+        {"Alppha Beta"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = 100;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };
+
+    auto results = coll1->search("alpha",
+                                 {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY,
+                                 false, 10).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, NegativeInt64Value) {
     Collection *coll1;
 
