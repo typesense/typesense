@@ -2427,6 +2427,51 @@ TEST_F(CollectionTest, UpdateDocumentSorting) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionTest, UpdateDocumentUnIndexedField) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.";
+    doc["foo"] = "foo1";
+    doc["points"] = 25;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("lazy", {"title"}, "", {}, sort_fields, {0}, 10, 1,
+                             token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("The quick brown fox jumped over the lazy dog and ran straight to the forest to sleep.",
+                 res["hits"][0]["document"]["title"].get<std::string>().c_str());
+
+    // reindex the document again by changing only the unindexed field
+    doc["foo"] = "foo2";
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, {0}, 10, 1,
+                        token_ordering::FREQUENCY, true, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_STREQ("foo2", res["hits"][0]["document"]["foo"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionTest, SearchHighlightFieldFully) {
     Collection *coll1;
 
