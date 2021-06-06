@@ -6,7 +6,26 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
                      const std::vector<char>& symbols_to_index):
                      i(0), normalize(normalize), no_op(no_op), locale(locale) {
 
-    if(locale == "ja") {
+    if(locale == "zh") {
+        UErrorCode translit_status = U_ZERO_ERROR;
+        transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
+                                                             UTRANS_FORWARD, translit_status);
+        if(U_FAILURE(translit_status)) {
+            //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
+            transliterator = nullptr;
+            text = input;
+        } else {
+            icu::UnicodeString unicode_input = icu::UnicodeString::fromUTF8(input);
+            transliterator->transliterate(unicode_input);
+            std::string output;
+            unicode_input.toUTF8String(output);
+            normalized_text = (char *)malloc(output.size()+1);
+            strcpy(normalized_text, output.c_str());
+            text = normalized_text;
+        }
+    }
+
+    else if(locale == "ja") {
         normalized_text = JapaneseLocalizer::get_instance().normalize(input);
         text = normalized_text;
     } else {
@@ -80,6 +99,8 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                         // ignore ascii symbols
                         found_token = false;
                     } else if(locale == "ko" && token == "·") {
+                        found_token = false;
+                    } else if(locale == "zh" && (token == "，" || token == "─" || token == "。")) {
                         found_token = false;
                     } else {
 

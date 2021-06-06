@@ -157,6 +157,71 @@ TEST(TokenizerTest, ShouldTokenizeTextWithCustomSpecialChars) {
     ASSERT_EQ("-more", tokens[2]);
 }
 
+TEST(TokenizerTest, ShouldTokenizeChineseText) {
+    std::vector<std::string> tokens;
+
+    // traditional -> simplified
+    Tokenizer("語", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_EQ("语", tokens[0]);
+
+    tokens.clear();
+    Tokenizer("說", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(1, tokens.size());
+    ASSERT_EQ("说", tokens[0]);
+
+    // tokenize traditional
+    tokens.clear();
+    Tokenizer("愛並不會因時間而", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(6, tokens.size());
+    ASSERT_EQ("爱", tokens[0]);
+    ASSERT_EQ("并不", tokens[1]);
+    ASSERT_EQ("会", tokens[2]);
+    ASSERT_EQ("因", tokens[3]);
+    ASSERT_EQ("时间", tokens[4]);
+    ASSERT_EQ("而", tokens[5]);
+
+    // tokenize simplified
+    tokens.clear();
+    Tokenizer("爱并不会因时间而", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(6, tokens.size());
+    ASSERT_EQ("爱", tokens[0]);
+    ASSERT_EQ("并不", tokens[1]);
+    ASSERT_EQ("会", tokens[2]);
+    ASSERT_EQ("因", tokens[3]);
+    ASSERT_EQ("时间", tokens[4]);
+    ASSERT_EQ("而", tokens[5]);
+
+    // with separators
+    tokens.clear();
+    Tokenizer("很久以前，傳說在臺中北屯的一個地方", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(10, tokens.size());
+    ASSERT_EQ("很久", tokens[0]);
+    ASSERT_EQ("以前", tokens[1]);
+    ASSERT_EQ("传说", tokens[2]);
+    ASSERT_EQ("在", tokens[3]);
+    ASSERT_EQ("台中", tokens[4]);
+    ASSERT_EQ("北", tokens[5]);
+    ASSERT_EQ("屯", tokens[6]);
+    ASSERT_EQ("的", tokens[7]);
+    ASSERT_EQ("一个", tokens[8]);
+    ASSERT_EQ("地方", tokens[9]);
+
+    tokens.clear();
+    Tokenizer("朵雲──海", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("朵", tokens[0]);
+    ASSERT_EQ("云", tokens[1]);
+    ASSERT_EQ("海", tokens[2]);
+
+    tokens.clear();
+    Tokenizer("山丘上。媽媽", false, false, "zh").tokenize(tokens);
+    ASSERT_EQ(3, tokens.size());
+    ASSERT_EQ("山丘", tokens[0]);
+    ASSERT_EQ("上", tokens[1]);
+    ASSERT_EQ("妈妈", tokens[2]);
+}
+
 TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     std::string tstr = "ลงรถไฟ";
     std::vector<std::string> ttokens;

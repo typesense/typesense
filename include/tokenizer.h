@@ -5,6 +5,7 @@
 #include <iconv.h>
 #include <unicode/brkiter.h>
 #include <unicode/normalizer2.h>
+#include <unicode/translit.h>
 #include "japanese_localizer.h"
 #include "logger.h"
 
@@ -37,6 +38,8 @@ private:
     // non-deletable singleton
     const icu::Normalizer2* nfkd;
 
+    icu::Transliterator* transliterator = nullptr;
+
     inline size_t get_stream_mode(char c) {
         return (std::isalnum(c) || index_symbols[uint8_t(c)] == 1) ? INDEX : (
             (c == ' ' || c == '\n') ? SEPARATE : SKIP
@@ -58,6 +61,7 @@ public:
         iconv_close(cd);
         free(normalized_text);
         delete bi;
+        delete transliterator;
     }
 
     bool next(std::string& token, size_t& token_index, size_t& start_index, size_t& end_index);
