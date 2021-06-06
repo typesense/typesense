@@ -30,6 +30,70 @@ protected:
     }
 };
 
+TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "zh"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"爱并不会因时间而", "Dustin Kensrue"},
+        {"很久以前，傳說在臺中北屯的一個地方", "Gord Downie"},
+        {"獻給我思念的每一朵雲──海", "Dustin Kensrue"},
+        {"看誰先跑到小山丘上。媽媽總是第", "Jamie Phua"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("并",
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("爱<mark>并不</mark>会因时间而", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    // partial token should not match as prefix when prefix is set to false
+
+    results = coll1->search("并",
+                            {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("上媽",
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("看誰先跑到小山丘<mark>上</mark>。<mark>媽媽</mark>總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    // search using simplified chinese
+
+    results = coll1->search("妈",
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("看誰先跑到小山丘上。<mark>媽媽</mark>總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     Collection *coll1;
 
