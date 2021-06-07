@@ -499,6 +499,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
 
     const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
+    const char *PRE_SEGMENTED_QUERY = "pre_segmented_query";
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
@@ -589,6 +590,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[PRIORITIZE_EXACT_MATCH] = "true";
     }
 
+    if(req_params.count(PRE_SEGMENTED_QUERY) == 0) {
+        req_params[PRE_SEGMENTED_QUERY] = "false";
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -659,6 +664,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
+    bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
 
     std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
 
@@ -741,8 +747,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           req_params[HIGHLIGHT_END_TAG],
                                                           query_by_weights,
                                                           static_cast<size_t>(std::stol(req_params[LIMIT_HITS])),
-                                                          prioritize_exact_match
-    );
+                                                          prioritize_exact_match,
+                                                          pre_segmented_query
+                                                        );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
