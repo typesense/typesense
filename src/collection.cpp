@@ -504,7 +504,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string& highlight_end_tag,
                                   std::vector<size_t> query_by_weights,
                                   size_t limit_hits,
-                                  bool prioritize_exact_match) const {
+                                  bool prioritize_exact_match,
+                                  bool pre_segmented_query) const {
 
     std::shared_lock lock(mutex);
 
@@ -870,7 +871,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     if(search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(query, field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_exclude_tokens,"");
+        parse_search_query(query, field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_exclude_tokens, "",
+                           false);
     } else {
         for(size_t i = 0; i < search_fields.size(); i++) {
             const auto& search_field = search_fields[i];
@@ -878,7 +880,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
             const std::string & field_locale = search_schema.at(search_field).locale;
             parse_search_query(query, field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_exclude_tokens,
-                               field_locale);
+                               field_locale, pre_segmented_query);
 
             // get synonyms
             std::vector<std::vector<std::string>> q_synonyms;
@@ -1278,13 +1280,18 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
                                     std::vector<std::string>& q_exclude_tokens,
-                                    const std::string& locale) const {
+                                    const std::string& locale, const bool already_segmented) const {
     if(query == "*") {
         q_exclude_tokens = {};
         q_include_tokens = {query};
     } else {
         std::vector<std::string> tokens;
-        Tokenizer(query, true, false, locale, {'-'}).tokenize(tokens);
+
+        if(already_segmented) {
+            StringUtils::split(query, tokens, " ");
+        } else {
+            Tokenizer(query, true, false, locale, {'-'}).tokenize(tokens);
+        }
 
         bool exclude_operator_prior = false;
 
