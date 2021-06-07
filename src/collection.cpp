@@ -719,23 +719,58 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
 
             const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
-            std::vector<std::string> geo_coords;
-            StringUtils::split(geo_coordstr, geo_coords, ",");
 
-            if(geo_coords.size() != 2) {
-                std::string error = "Geopoint sorting field `" + actual_field_name +
-                                    "` must be in the `field(24.56,10.45):ASC` format.";
-                return Option<nlohmann::json>(404, error);
+            // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
+
+            std::vector<std::string> geo_parts;
+            StringUtils::split(geo_coordstr, geo_parts, ",");
+
+            std::string error = "Bad syntax for geopoint sorting field `" + actual_field_name + "`";
+
+            if(geo_parts.size() != 2 && geo_parts.size() != 3) {
+                return Option<nlohmann::json>(400, error);
             }
 
-            if(!StringUtils::is_float(geo_coords[0]) || !StringUtils::is_float(geo_coords[1])) {
-                std::string error = "Geopoint sorting field `" + actual_field_name +
-                                    "` must be in the `field(24.56,10.45):ASC` format.";
-                return Option<nlohmann::json>(404, error);
+            if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
+                return Option<nlohmann::json>(400, error);
             }
 
-            double lat = std::stod(geo_coords[0]);
-            double lng = std::stod(geo_coords[1]);
+            if(geo_parts.size() == 3) {
+                // try to parse the exclude radius option
+                if(!StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> exclude_parts;
+                StringUtils::split(geo_parts[2], exclude_parts, ":");
+
+                if(exclude_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> exclude_value_parts;
+                StringUtils::split(exclude_parts[1], exclude_value_parts, " ");
+
+                if(exclude_value_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                if(!StringUtils::is_float(exclude_value_parts[0])) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                if(exclude_value_parts[1] == "km") {
+                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1000;
+                } else if(exclude_value_parts[1] == "mi") {
+                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1609.34;
+                } else {
+                    return Option<nlohmann::json>(400, "Sort field's exclude radius "
+                                                       "unit must be either `km` or `mi`.");
+                }
+            }
+
+            double lat = std::stod(geo_parts[0]);
+            double lng = std::stod(geo_parts[1]);
             int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
             sort_field_std.name = actual_field_name;
             sort_field_std.geopoint = lat_lng;

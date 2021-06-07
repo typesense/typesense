@@ -2069,6 +2069,10 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                     dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
                 }
 
+                if(dist < sort_fields[i].exclude_radius) {
+                    dist = 0;
+                }
+
                 geopoint_distances[i].emplace(seq_id, dist);
             }
 
