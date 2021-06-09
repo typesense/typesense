@@ -223,14 +223,21 @@ TEST(TokenizerTest, ShouldTokenizeChineseText) {
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleText) {
-    std::string tstr = "ลงรถไฟ";
-    std::vector<std::string> ttokens;
-    Tokenizer(tstr, true, false, "th").tokenize(ttokens);
-
-    std::string str = "จิ้งจอกสีน้ำตาลด่วน";
     std::vector<std::string> tokens;
-    Tokenizer(str, false, false, "th").tokenize(tokens);
 
+    tokens.clear();
+    std::string str = "ความเหลื่อมล้ำ";
+    Tokenizer(str, true, false, "th").tokenize(tokens);
+    //ASSERT_EQ(2, tokens.size());
+
+    tokens.clear();
+    str = "เหลื่";
+    Tokenizer(str, false, false, "th").tokenize(tokens);
+    //ASSERT_EQ(1, tokens.size());
+
+    tokens.clear();
+    str = "จิ้งจอกสีน้ำตาลด่วน";
+    Tokenizer(str, false, false, "th").tokenize(tokens);
     ASSERT_EQ(4, tokens.size());
     ASSERT_EQ("จิ้งจอก", tokens[0]);
     ASSERT_EQ("สี", tokens[1]);
@@ -292,6 +299,22 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ("だ", tokens[1]);
     ASSERT_EQ("な", tokens[2]);
     ASSERT_EQ("いぬ", tokens[3]);
+
+    tokens.clear();
+    Tokenizer("今ぶり拍治ルツ", false, false, "ja").tokenize(tokens);
+    ASSERT_EQ(9, tokens.size());
+    ASSERT_EQ("いま", tokens[0]);
+    ASSERT_EQ("ぶり", tokens[1]);
+    ASSERT_EQ("は", tokens[2]);
+    ASSERT_EQ("く", tokens[3]);
+    ASSERT_EQ("お", tokens[4]);
+    ASSERT_EQ("さ", tokens[5]);
+    ASSERT_EQ("む", tokens[6]);
+    ASSERT_EQ("る", tokens[7]);
+    ASSERT_EQ("つ", tokens[8]);
+
+    tokens.clear();  // 配管
+    Tokenizer("配管", false, false, "ja").tokenize(tokens);
 }
 
 TEST(TokenizerTest, ShouldTokenizeLocaleTextWithEnglishText) {
