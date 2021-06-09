@@ -30,6 +30,43 @@ protected:
     }
 };
 
+TEST_F(CollectionLocaleTest, SearchAgainstJapaneseText) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ja"),
+                                 field("artist", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"今ぶり拍治ルツ", "Dustin Kensrue"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("拍治",
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+
+    //LOG(INFO) << results;
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    //ASSERT_EQ("今ぶり<mark>拍</mark><mark>治</mark>ルツ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+}
+
 TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     Collection *coll1;
 
