@@ -485,6 +485,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *PINNED_HITS = "pinned_hits";
     const char *HIDDEN_HITS = "hidden_hits";
+    const char *ENABLE_OVERRIDES = "enable_overrides";
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
@@ -705,6 +706,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[HIDDEN_HITS] = "";
     }
 
+    if(req_params.count(ENABLE_OVERRIDES) == 0) {
+        req_params[ENABLE_OVERRIDES] = "true";
+    }
+
+    bool enable_overrides = (req_params[ENABLE_OVERRIDES] == "true");
+
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req_params["collection"]);
 
@@ -760,7 +767,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           query_by_weights,
                                                           static_cast<size_t>(std::stol(req_params[LIMIT_HITS])),
                                                           prioritize_exact_match,
-                                                          pre_segmented_query
+                                                          pre_segmented_query,
+                                                          enable_overrides
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
