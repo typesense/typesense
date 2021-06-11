@@ -60,7 +60,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
     query_fields = {"title"};
     std::vector<std::string> facets;
     sort_fields = { sort_by("points", "ASC") };
-    nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 15, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 15, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(10, results["hits"].size());
 
     std::vector<std::string> ids = {"17", "13", "10", "4", "0", "1", "8", "6", "16", "11"};
@@ -74,7 +74,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
 
     // limiting results to just 5, "ASC" keyword must be case insensitive
     sort_fields = { sort_by("points", "asc") };
-    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 5, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 5, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(5, results["hits"].size());
 
     ids = {"17", "13", "10", "4", "0"};
@@ -89,7 +89,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
     // desc
 
     sort_fields = { sort_by("points", "dEsc") };
-    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 15, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("the", query_fields, "", facets, sort_fields, {0}, 15, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(10, results["hits"].size());
 
     ids = {"11", "16", "6", "8", "1", "0", "10", "4", "13", "17"};
@@ -104,7 +104,7 @@ TEST_F(CollectionSortingTest, SortingOrder) {
     // With empty list of sort_by fields:
     // should be ordered desc on the default sorting field, since the match score will be the same for all records.
     sort_fields = { };
-    results = coll_mul_fields->search("of", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("of", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(5, results["hits"].size());
 
     ids = {"11", "12", "5", "4", "17"};
@@ -163,7 +163,7 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
     infile.close();
 
     // without a default sorting field, matches should be sorted by (text_match, seq_id)
-    auto results = coll1->search("rocket", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("rocket", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(5, results["found"]);
     ASSERT_EQ(5, results["hits"].size());
@@ -179,7 +179,7 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
     auto remove_op = coll1->remove("0");
     ASSERT_TRUE(remove_op.ok());
 
-    results = coll1->search("*", {}, "", {}, {}, {1}, 30, 1, FREQUENCY, false).get();
+    results = coll1->search("*", {}, "", {}, {}, {1}, 30, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(23, results["found"]);
     ASSERT_EQ(23, results["hits"].size());
@@ -221,7 +221,7 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
         }
     }
 
-    auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, true).get();
+    auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, {true}).get();
 
     // 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2
     ASSERT_EQ(65, results["found"]);
@@ -266,7 +266,7 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
     query_fields = {"title"};
     std::vector<std::string> facets;
     sort_fields = { sort_by("points", "ASC") };
-    nlohmann::json results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 
     std::vector<std::string> ids = {"3", "1", "0", "2"};
@@ -280,7 +280,7 @@ TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
 
     // DESC
     sort_fields = { sort_by("points", "desc") };
-    results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll_mul_fields->search("foo", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"2", "0", "1", "3"};
@@ -320,7 +320,7 @@ TEST_F(CollectionSortingTest, SortOnFloatFields) {
 
     query_fields = {"title"};
     std::vector<std::string> facets;
-    nlohmann::json results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(7, results["hits"].size());
 
     std::vector<std::string> ids = {"2", "0", "3", "1", "5", "4", "6"};
@@ -333,7 +333,7 @@ TEST_F(CollectionSortingTest, SortOnFloatFields) {
     }
 
     std::vector<sort_by> sort_fields_asc = { sort_by("score", "ASC"), sort_by("average", "ASC") };
-    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(7, results["hits"].size());
 
     ids = {"6", "4", "5", "1", "3", "0", "2"};
@@ -348,7 +348,7 @@ TEST_F(CollectionSortingTest, SortOnFloatFields) {
     // second field by desc
 
     std::vector<sort_by> sort_fields_asc_desc = { sort_by("score", "ASC"), sort_by("average", "DESC") };
-    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc_desc, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll_float_fields->search("Jeremy", query_fields, "", facets, sort_fields_asc_desc, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(7, results["hits"].size());
 
     ids = {"5", "4", "6", "1", "3", "0", "2"};
@@ -397,7 +397,7 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsLimit) {
     };
 
     query_fields = {"title"};
-    auto res_op = coll1->search("the", query_fields, "", {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("the", query_fields, "", {}, sort_fields_desc, {0}, 10, 1, FREQUENCY, {false});
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Only upto 3 sort_by fields can be specified.", res_op.error().c_str());
@@ -479,7 +479,7 @@ TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
 
     auto results = coll1->search("alpha",
                                  {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY,
-                                 false, 10).get();
+                                 {false}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -517,7 +517,7 @@ TEST_F(CollectionSortingTest, NegativeInt64Value) {
 
     query_fields = {"title"};
     auto res = coll1->search("*", query_fields, "points:>=1577836800", {}, sort_fields_desc, {0}, 10, 1, FREQUENCY,
-                             false).get();
+                             {false}).get();
 
     ASSERT_EQ(0, res["found"].get<size_t>());
 

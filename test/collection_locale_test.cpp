@@ -58,7 +58,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstJapaneseText) {
     }
 
     auto results = coll1->search("拍治",
-                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 
     //LOG(INFO) << results;
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -98,7 +98,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     }
 
     auto results = coll1->search("并",
-                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -113,7 +113,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     ASSERT_EQ(0, results["found"].get<size_t>());
 
     results = coll1->search("上媽",
-                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -123,7 +123,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     // search using simplified chinese
 
     results = coll1->search("妈",
-                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -216,10 +216,10 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
     }
 
     auto results = coll1->search("เหลื่",
-                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true,
+                                 {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
                                  10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {1}, 1000, true, true).get();
+                                 "<mark>", "</mark>", {1}, 1000, true, {true}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -349,7 +349,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // To ensure that NFKD works, we will test for both &#4352; (Hangul Choseong Kiyeok)
     auto results = coll1->search("서울특별시 ᄀ",
-                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -357,7 +357,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // and &#12593; (Hangul Letter Kiyeok)
     results = coll1->search("서울특별시 ㄱ",
-                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -365,7 +365,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // search for full word
     results = coll1->search("서울특별시 관",
-                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -407,7 +407,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixVowel) {
     std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
 
     auto results = coll1->search("서울특별시 고",
-                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, true).get();
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());

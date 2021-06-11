@@ -290,7 +290,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     coll_mul_fields->add_override(override_include);
 
     auto results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
 
@@ -320,7 +320,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     coll_mul_fields->add_override(override);
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
@@ -336,7 +336,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     // ensure per_page is respected
     // first with per_page = 0
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 0, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: scott").get();
 
@@ -349,7 +349,7 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
 
     coll_mul_fields->add_override(override_include);
     results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, {0}, 1, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "").get();
 
@@ -371,7 +371,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     // basic pinning
 
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
@@ -388,7 +388,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
 
     std::string hidden_hits="11,16";
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -402,7 +402,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     pinned_hits = "13:4,4:5";
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 2, 2, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -440,7 +440,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     coll_mul_fields->add_override(override_include);
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -460,7 +460,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsSmallerThanPageSize) {
     // 11, 16, 6, 8, 1, 0, 10, 4, 13, 17
 
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 8, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
@@ -478,7 +478,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsSmallerThanPageSize) {
     std::vector<size_t> expected_ids_p2 = {10, 4};
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 8, 2, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -498,7 +498,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
     // pinned hits larger than page size: check that pagination works
 
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 2, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
@@ -510,7 +510,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 2, 2, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -522,7 +522,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsLargerThanPageSize) {
     ASSERT_STREQ("11", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 2, 3, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -540,7 +540,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
     // multiple pinned hits specified, but query produces no result
 
     auto results = coll_mul_fields->search("notfoundquery", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
@@ -554,7 +554,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWhenThereAreNotEnoughResults) {
 
     // multiple pinned hits but only single result
     results = coll_mul_fields->search("burgundy", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                       "", 10,
@@ -596,7 +596,7 @@ TEST_F(CollectionOverrideTest, HiddenHitsHidingSingleResult) {
 
     std::string hidden_hits="0";
     auto results = coll1->search("the train", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY,
-                                      false, Index::DROP_TOKENS_THRESHOLD,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                       "", 10,
@@ -606,7 +606,7 @@ TEST_F(CollectionOverrideTest, HiddenHitsHidingSingleResult) {
     ASSERT_EQ(0, results["hits"].size());
 
     results = coll1->search("the train", {"title"}, "points:0", {}, {}, {0}, 50, 1, FREQUENCY,
-                           false, Index::DROP_TOKENS_THRESHOLD,
+                           {false}, Index::DROP_TOKENS_THRESHOLD,
                            spp::sparse_hash_set<std::string>(),
                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                            "", 10,
@@ -625,7 +625,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     // and other IDs should appear in their original positions
 
     auto results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
-                                           false, Index::DROP_TOKENS_THRESHOLD,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
                                            spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                                            "", 10,
@@ -646,7 +646,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsGrouping) {
     // with grouping
 
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
-                            false, Index::DROP_TOKENS_THRESHOLD,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "starring: will", 30, 5,
                             "", 10,
@@ -698,7 +698,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsWithWildCardQuery) {
     auto pinned_hits = "7:1,4:2";
 
     auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 30, 11, FREQUENCY,
-                                       false, Index::DROP_TOKENS_THRESHOLD,
+                                       {false}, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
                                        spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                        "", 10,
@@ -744,7 +744,7 @@ TEST_F(CollectionOverrideTest, PinnedHitsIdsHavingColon) {
     std::string pinned_hits_str = "https://example.com/1:1, https://example.com/3:2";  // can have space
 
     auto res_op = coll1->search("*", {"url"}, "", {}, {}, {0}, 25, 1, FREQUENCY,
-                                  false, Index::DROP_TOKENS_THRESHOLD,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                   "", 10,
