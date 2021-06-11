@@ -350,7 +350,7 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
     syn_op = synonym_t::parse(syn_json2, synonym2);
     ASSERT_TRUE(syn_op.ok());
 
-    res = coll_mul_fields->search("samuel leroy jackson", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, false, 0).get();
+    res = coll_mul_fields->search("samuel leroy jackson", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(0, res["hits"].size());
 
     coll_mul_fields->add_synonym(synonym2);
@@ -364,7 +364,7 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
 
     // for now we don't support synonyms on ANY prefix
 
-    res = coll_mul_fields->search("ler", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, true).get();
+    res = coll_mul_fields->search("ler", {"starring"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
     ASSERT_EQ(0, res["hits"].size());
     ASSERT_EQ(0, res["found"].get<uint32_t>());
 }
@@ -410,7 +410,7 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
 
     coll1->add_synonym(synonym);
 
-    auto res = coll1->search("laughing", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, false, 0).get();
+    auto res = coll1->search("laughing", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
 
     ASSERT_EQ(4, res["hits"].size());
     ASSERT_EQ(4, res["found"].get<uint32_t>());
@@ -464,7 +464,7 @@ TEST_F(CollectionSynonymsTest, SynonymFieldOrdering) {
 
     coll1->add_synonym(synonym);
 
-    auto res = coll1->search("laughing", {"title", "description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, false, 0).get();
+    auto res = coll1->search("laughing", {"title", "description"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());

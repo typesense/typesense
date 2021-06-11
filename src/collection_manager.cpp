@@ -712,7 +712,19 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(404, "Not found.");
     }
 
-    bool prefix = (req_params[PREFIX] == "true");
+    std::vector<bool> prefixes;
+
+    if(req_params[PREFIX] == "true" || req_params[PREFIX] == "false") {
+        prefixes.push_back(req_params[PREFIX] == "true");
+    } else {
+        std::vector<std::string> prefix_str;
+        StringUtils::split(req_params[PREFIX], prefix_str, ",");
+        for(auto& prefix_s : prefix_str) {
+            prefixes.push_back(prefix_s == "true");
+        }
+    }
+
+
     const size_t drop_tokens_threshold = (size_t) std::stoi(req_params[DROP_TOKENS_THRESHOLD]);
     const size_t typo_tokens_threshold = (size_t) std::stoi(req_params[TYPO_TOKENS_THRESHOLD]);
 
@@ -731,7 +743,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           sort_fields, num_typos,
                                                           static_cast<size_t>(std::stol(req_params[PER_PAGE])),
                                                           static_cast<size_t>(std::stol(req_params[PAGE])),
-                                                          token_order, prefix, drop_tokens_threshold,
+                                                          token_order, prefixes, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
                                                           static_cast<size_t>(std::stol(req_params[MAX_FACET_VALUES])),
                                                           req_params[FACET_QUERY],

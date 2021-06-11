@@ -62,7 +62,7 @@ protected:
 TEST_F(CollectionGroupingTest, GroupingBasics) {
     // group by size (int32)
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                                   false, Index::DROP_TOKENS_THRESHOLD,
+                                   {false}, Index::DROP_TOKENS_THRESHOLD,
                                    spp::sparse_hash_set<std::string>(),
                                    spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                    "", 10,
@@ -105,7 +105,7 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
     // group by rating (float) and sort by size
     std::vector<sort_by> sort_size = {sort_by("size", "DESC")};
     res = coll_group->search("*", {}, "", {"brand"}, sort_size, {0}, 50, 1, FREQUENCY,
-                             false, Index::DROP_TOKENS_THRESHOLD,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "brand: omeg", 30, 5,
                              "", 10,
@@ -145,7 +145,7 @@ TEST_F(CollectionGroupingTest, GroupingBasics) {
 TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     // group by size+brand (int32, string)
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                                  false, Index::DROP_TOKENS_THRESHOLD,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                   "", 10,
@@ -192,7 +192,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
 
     // pagination with page=2, per_page=2
     res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 2, 2, FREQUENCY,
-                             false, Index::DROP_TOKENS_THRESHOLD,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                              "", 10,
@@ -228,7 +228,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
 
     // respect min and max grouping limit (greater than 0 and less than 99)
     auto res_op = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                             false, Index::DROP_TOKENS_THRESHOLD,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "brand: omeg", 30, 5,
                              "", 10,
@@ -238,7 +238,7 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
     ASSERT_STREQ("Value of `group_limit` must be between 1 and 99.", res_op.error().c_str());
 
     res_op = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                                false, Index::DROP_TOKENS_THRESHOLD,
+                                {false}, Index::DROP_TOKENS_THRESHOLD,
                                 spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "brand: omeg", 30, 5,
                                 "", 10,
@@ -287,7 +287,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
                                  {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                                 false, Index::DROP_TOKENS_THRESHOLD,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10,
@@ -315,7 +315,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 
 TEST_F(CollectionGroupingTest, GroupingWithGropLimitOfOne) {
     auto res = coll_group->search("*", {}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                                  false, Index::DROP_TOKENS_THRESHOLD,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                   "", 10,
@@ -389,7 +389,7 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     ASSERT_TRUE(ov2_op.ok());
 
     auto res = coll_group->search("shirt", {"title"}, "", {"brand"}, {}, {0}, 50, 1, FREQUENCY,
-                                  false, Index::DROP_TOKENS_THRESHOLD,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
                                   spp::sparse_hash_set<std::string>(),
                                   spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                   "", 10,
