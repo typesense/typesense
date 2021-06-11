@@ -486,7 +486,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
-                                  token_ordering token_order, const bool prefix,
+                                  token_ordering token_order, const std::vector<bool>& prefixes,
                                   const size_t drop_tokens_threshold,
                                   const spp::sparse_hash_set<std::string> & include_fields,
                                   const spp::sparse_hash_set<std::string> & exclude_fields,
@@ -526,6 +526,13 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     if(!search_fields.empty() && search_fields.size() != num_typos.size()) {
         if(num_typos.size() != 1) {
             return Option<nlohmann::json>(400, "Number of weights in `num_typos` does not match "
+                                               "number of `query_by` fields.");
+        }
+    }
+
+    if(!search_fields.empty() && search_fields.size() != prefixes.size()) {
+        if(prefixes.size() != 1) {
+            return Option<nlohmann::json>(400, "Number of prefix values in `prefix` does not match "
                                                "number of `query_by` fields.");
         }
     }
@@ -900,7 +907,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                    filters, facets, index_to_included_ids[index_id],
                                    index_to_excluded_ids[index_id],
                                    sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                   per_page, page, token_order, prefix,
+                                   per_page, page, token_order, prefixes,
                                    drop_tokens_threshold, typo_tokens_threshold,
                                    group_by_fields, group_limit, default_sorting_field, prioritize_exact_match);
 

@@ -1398,7 +1398,7 @@ void Index::run_search(search_args* search_params) {
            search_params->sort_fields_std, search_params->num_typos,
            search_params->topster, search_params->curated_topster,
            search_params->per_page, search_params->page, search_params->token_order,
-           search_params->prefix, search_params->drop_tokens_threshold,
+           search_params->prefixes, search_params->drop_tokens_threshold,
            search_params->all_result_ids_len, search_params->groups_processed,
            search_params->searched_queries,
            search_params->raw_result_kvs, search_params->override_result_kvs,
@@ -1487,7 +1487,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    Topster* topster,
                    Topster* curated_topster,
                    const size_t per_page, const size_t page, const token_ordering token_order,
-                   const bool prefix, const size_t drop_tokens_threshold,
+                   const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
                    size_t & all_result_ids_len,
                    spp::sparse_hash_set<uint64_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
@@ -1631,6 +1631,8 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             // num_typos is already validated upstream, but still playing safe
             int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
 
+            bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
+
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || filter_ids_length > 0) {
                 const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
@@ -1653,7 +1655,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                              field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                             field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
+                             field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, field_prefix,
                              drop_tokens_threshold, typo_tokens_threshold);
 
                 // do synonym based searches
@@ -1665,7 +1667,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                  field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                 field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, prefix,
+                                 field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, field_prefix,
                                  drop_tokens_threshold, typo_tokens_threshold);
                 }
 
@@ -1731,6 +1733,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                 }
 
                 const std::string& field = search_fields[i].name;
+                const bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
 
                 // compute approximate match score for this field from actual query
 
@@ -1740,7 +1743,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     const auto& token = field_query_tokens[i].q_include_tokens[token_index];
 
                     std::vector<art_leaf*> leaves;
-                    const bool prefix_search = prefix && (token_index == field_query_tokens[i].q_include_tokens.size()-1);
+                    const bool prefix_search = field_prefix && (token_index == field_query_tokens[i].q_include_tokens.size()-1);
                     const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
                     art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                      0, 0, 1, token_order, prefix_search, nullptr, 0, leaves);

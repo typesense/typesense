@@ -83,7 +83,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_EQ(DIRTY_VALUES::DROP, coll1->parse_dirty_values_option(dirty_values));
 
     // same should succeed when verbatim filter is made
-    auto results = coll1->search("will", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("will", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -91,7 +91,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("chris", {"cast"}, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("chris", {"cast"}, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(3, results["found"].get<size_t>());
@@ -118,7 +118,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     add_op = coll1->add(doc_json);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("300", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("300", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("300", results["hits"][0]["document"]["title"].get<std::string>().c_str());
 
@@ -130,7 +130,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("With bad cast field", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("With bad cast field", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("With bad cast field.", results["hits"][0]["document"]["title"].get<std::string>().c_str());
     ASSERT_EQ(0, results["hits"][0]["document"].count("cast"));
@@ -143,10 +143,10 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::DROP);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("1200", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("1200", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
-    results = coll1->search("Jeremy Livingston", {"cast"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("Jeremy Livingston", {"cast"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(0, results["hits"][0]["document"].count("title"));
 
@@ -160,7 +160,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
 
     // try querying using an non-existing sort field
     sort_fields = { sort_by("not-found", "DESC") };
-    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `not-found` in the schema for sorting.", res_op.error());
 
@@ -213,7 +213,7 @@ TEST_F(CollectionAllFieldsTest, HandleArrayTypes) {
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES:: DROP);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("second", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("second", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
     // check that the "bad" value does not exists in the stored document
@@ -234,7 +234,7 @@ TEST_F(CollectionAllFieldsTest, HandleArrayTypes) {
 
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
-    results = coll1->search("third", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("third", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(0, results["hits"][0]["document"].count("int_values"));
 
@@ -294,7 +294,7 @@ TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
     add_op = coll1->add(doc.dump(), UPDATE, "0", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("second", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("second", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("SECOND", results["hits"][0]["document"]["title"].get<std::string>());
@@ -341,7 +341,7 @@ TEST_F(CollectionAllFieldsTest, ShouldBeAbleToUpdateSchemaDetectedDocs) {
     res = coll1->add_many(json_lines, insert_doc, UPDATE);
     ASSERT_TRUE(res["success"].get<bool>());
 
-    results = coll1->search("updated", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY, false).get();
+    results = coll1->search("updated", {"title"}, "", {}, {}, {0}, 50, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(20, results["hits"].size());
 
     for(auto& hit: results["hits"]) {
@@ -373,7 +373,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     ASSERT_EQ("1", added_doc["int_values"][0].get<std::string>());
     ASSERT_EQ("2", added_doc["int_values"][1].get<std::string>());
 
-    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
 
@@ -387,7 +387,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("second", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("second", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("SECOND", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ(1, results["hits"][0]["document"].count("int_values"));
@@ -424,7 +424,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("fifth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("fifth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIFTH", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
@@ -434,7 +434,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     add_op = coll1->add(doc.dump(), CREATE, "66", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("sixth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("sixth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("SIXTH", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
@@ -464,11 +464,11 @@ TEST_F(CollectionAllFieldsTest, SearchStringifiedField) {
     Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
     ASSERT_TRUE(add_op.ok());
 
-    auto results_op = coll1->search("stark", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto results_op = coll1->search("stark", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(results_op.ok());
     ASSERT_EQ(1, results_op.get()["hits"].size());
 
-    results_op = coll1->search("engineering", {"department"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    results_op = coll1->search("engineering", {"department"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(results_op.ok());
     ASSERT_EQ(1, results_op.get()["hits"].size());
 
@@ -501,7 +501,7 @@ TEST_F(CollectionAllFieldsTest, StringSingularAllValues) {
     ASSERT_EQ("FIRST", added_doc["title"].get<std::string>());
     ASSERT_EQ("123", added_doc["int_values"].get<std::string>());
 
-    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("first", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ("123", results["hits"][0]["document"]["int_values"].get<std::string>());
@@ -674,7 +674,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
@@ -695,7 +695,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_EQ("company_name", results["facet_counts"][0]["field_name"].get<std::string>());
@@ -739,7 +739,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithAuoFacetFieldType) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
@@ -778,7 +778,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("org", {"title"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("Walmart", results["hits"][0]["document"]["org_name"].get<std::string>());
@@ -799,7 +799,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("*", {"title"}, "", {"company_name", "org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_EQ("company_name", results["facet_counts"][0]["field_name"].get<std::string>());
@@ -820,7 +820,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto res_op = coll1->search("*", {"description"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("*", {"description"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `description` in the schema.", res_op.error());
 
@@ -896,17 +896,17 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto res_op = coll1->search("Amazon", {"org_name"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("Amazon", {"org_name"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a facet field named `org_name` in the schema.", res_op.error());
 
-    auto results = coll1->search("Amazon", {"org_name"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = coll1->search("Amazon", {"org_name"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
-    res_op = coll1->search("fizzbuzz", {"rand_str"}, "", {"rand_str"}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    res_op = coll1->search("fizzbuzz", {"rand_str"}, "", {"rand_str"}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_EQ("Could not find a facet field named `rand_str` in the schema.", res_op.error());
 
-    results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
@@ -965,11 +965,11 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
 
-    auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `description_txt` in the schema.", res_op.error());
 
-    res_op = coll1->search("Amazon", {"post"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    res_op = coll1->search("Amazon", {"post"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Field `post` is marked as a non-indexed field in the schema.", res_op.error());
 
@@ -980,7 +980,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
 
-    auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ("Some post updated.", res["hits"][0]["document"]["post"].get<std::string>());
 
     // try to delete doc with non-indexable field
@@ -988,7 +988,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     ASSERT_TRUE(del_op.ok());
 
     // facet search should also be disabled
-    auto fs_op = coll1->search("Amazon", {"company_name"}, "", {"description_txt"}, sort_fields, {0}, 10, 1, FREQUENCY, false);
+    auto fs_op = coll1->search("Amazon", {"company_name"}, "", {"description_txt"}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(fs_op.ok());
     ASSERT_EQ("Could not find a facet field named `description_txt` in the schema.", fs_op.error());
 

@@ -231,7 +231,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> search_fields = {"starring", "title"};
     std::vector<std::string> facets;
 
-    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     LOG(INFO) << results;
     ASSERT_EQ(4, results["hits"].size());
 
@@ -283,7 +283,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, synonyms.at("id3").root.size());
     ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
 
-    results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, false).get();
+    results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 }
 
@@ -372,7 +372,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     }
 
     // try searching for record with bad data
-    auto results = restored_coll->search("12345", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, false).get();
+    auto results = restored_coll->search("12345", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(1, results["hits"].size());
 
@@ -388,7 +388,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(7, restored_coll->get_num_documents());
 
     sort_fields = { sort_by("average", "DESC") };
-    results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, {0}, 10, 1, FREQUENCY, false).get();
+    results = restored_coll->search("*", {"title"}, "", {}, {sort_fields}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(7, results["hits"].size());
 
