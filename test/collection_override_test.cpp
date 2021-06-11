@@ -170,6 +170,32 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
+    // ability to disable overrides
+    bool enable_overrides = false;
+    res_op = coll_mul_fields->search("will", {"title"}, "", {}, {}, {0}, 10,
+                                     1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 0, {}, {}, {}, 0,
+                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_overrides);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<uint32_t>());
+
+    ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    enable_overrides = true;
+    res_op = coll_mul_fields->search("will", {"title"}, "", {}, {}, {0}, 10,
+                                     1, FREQUENCY, {false}, 0, spp::sparse_hash_set<std::string>(),
+                                     spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 0, {}, {}, {}, 0,
+                                     "<mark>", "</mark>", {1}, 10000, true, false, enable_overrides);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<uint32_t>());
+
     coll_mul_fields->remove_override("include-rule");
 }
 
