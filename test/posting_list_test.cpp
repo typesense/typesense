@@ -22,7 +22,8 @@ TEST(PostingListTest, Insert) {
 
     ASSERT_EQ(root->next->next->next, nullptr);
 
-    ASSERT_EQ(3, pl.size());
+    ASSERT_EQ(3, pl.num_blocks());
+    ASSERT_EQ(15, pl.num_ids());
     ASSERT_EQ(root, pl.block_of(4));
     ASSERT_EQ(root->next, pl.block_of(9));
     ASSERT_EQ(root->next->next, pl.block_of(14));
@@ -41,7 +42,8 @@ TEST(PostingListTest, Insert) {
     ASSERT_EQ(3, root->next->ids.getLength());
 
     ASSERT_EQ(root->next->next, nullptr);
-    ASSERT_EQ(2, pl2.size());
+    ASSERT_EQ(2, pl2.num_blocks());
+    ASSERT_EQ(8, pl2.num_ids());
 
     ASSERT_EQ(root, pl2.block_of(8));
     ASSERT_EQ(root->next, pl2.block_of(14));
@@ -60,10 +62,12 @@ TEST(PostingListTest, Insert) {
     pl3.upsert(9, offsets);
     pl3.upsert(10, offsets);
     pl3.upsert(12, offsets);
+    ASSERT_EQ(10, pl3.num_ids());
 
     // [0,1,2,3,4], [6,8,9,10,12]
     pl3.upsert(5, offsets);
-    ASSERT_EQ(3, pl3.size());
+    ASSERT_EQ(3, pl3.num_blocks());
+    ASSERT_EQ(11, pl3.num_ids());
     ASSERT_EQ(5, pl3.get_root()->ids.getLength());
     ASSERT_EQ(3, pl3.get_root()->next->ids.getLength());
     ASSERT_EQ(8, pl3.get_root()->next->ids.last());
@@ -93,7 +97,8 @@ TEST(PostingListTest, Insert) {
 
     // [0,1,2,3,4], [6,8,9,10,12]
     pl4.upsert(11, offsets);
-    ASSERT_EQ(3, pl4.size());
+    ASSERT_EQ(3, pl4.num_blocks());
+    ASSERT_EQ(11, pl4.num_ids());
 
     ASSERT_EQ(5, pl4.get_root()->ids.getLength());
     ASSERT_EQ(3, pl4.get_root()->next->ids.getLength());
@@ -118,13 +123,15 @@ TEST(PostingListTest, InplaceUpserts) {
     pl.upsert(5, offsets);
     pl.upsert(7, offsets);
 
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(9, pl.get_root()->offsets.getLength());
 
     // update starting ID with same length of offsets
     pl.upsert(2, {1, 2, 4});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(9, pl.get_root()->offsets.getLength());
 
@@ -140,7 +147,8 @@ TEST(PostingListTest, InplaceUpserts) {
 
     // update starting ID with smaller number of offsets
     pl.upsert(2, {5, 7});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(8, pl.get_root()->offsets.getLength());
 
@@ -156,7 +164,8 @@ TEST(PostingListTest, InplaceUpserts) {
 
     // update starting ID with larger number of offsets
     pl.upsert(2, {0, 2, 8});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.num_ids());
+    ASSERT_EQ(1, pl.num_blocks());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(9, pl.get_root()->offsets.getLength());
 
@@ -173,7 +182,8 @@ TEST(PostingListTest, InplaceUpserts) {
 
     // update middle ID with smaller number of offsets
     pl.upsert(5, {1, 10});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(3, pl.num_ids());
+    ASSERT_EQ(1, pl.num_blocks());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(8, pl.get_root()->offsets.getLength());
 
@@ -192,7 +202,8 @@ TEST(PostingListTest, InplaceUpserts) {
 
     // update middle ID with larger number of offsets
     pl.upsert(5, {2, 4, 12});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(9, pl.get_root()->offsets.getLength());
 
@@ -216,7 +227,8 @@ TEST(PostingListTest, InplaceUpserts) {
     // update last ID with smaller number of offsets
 
     pl.upsert(7, {3});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(7, pl.get_root()->offsets.getLength());
 
@@ -238,7 +250,8 @@ TEST(PostingListTest, InplaceUpserts) {
     // update last ID with larger number of offsets
 
     pl.upsert(7, {5, 20});
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(3, pl.num_ids());
     ASSERT_EQ(3, pl.get_root()->ids.getLength());
     ASSERT_EQ(8, pl.get_root()->offsets.getLength());
 
@@ -263,18 +276,22 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(5);
 
-    ASSERT_EQ(0, pl.size());
+    ASSERT_EQ(0, pl.num_blocks());
+    ASSERT_EQ(0, pl.num_ids());
 
     // try to erase when posting list is empty
     pl.erase(0);
 
-    ASSERT_EQ(0, pl.size());
+    ASSERT_EQ(0, pl.num_ids());
+    ASSERT_EQ(0, pl.num_blocks());
 
     // insert a single element and erase it
     pl.upsert(0, offsets);
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(1, pl.num_blocks());
+    ASSERT_EQ(1, pl.num_ids());
     pl.erase(0);
-    ASSERT_EQ(0, pl.size());
+    ASSERT_EQ(0, pl.num_blocks());
+    ASSERT_EQ(0, pl.num_ids());
 
     ASSERT_EQ(0, pl.get_root()->ids.getLength());
     ASSERT_EQ(0, pl.get_root()->offset_index.getLength());
@@ -285,14 +302,17 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
         pl.upsert(i, offsets);
     }
 
-    ASSERT_EQ(2, pl.size());
+    ASSERT_EQ(2, pl.num_blocks());
+    ASSERT_EQ(6, pl.num_ids());
 
     // delete non-existing element
     pl.erase(1000);
+    ASSERT_EQ(6, pl.num_ids());
 
     // delete elements from first block: blocks should not be merged until it falls below 50% occupancy
     pl.erase(1);
-    ASSERT_EQ(2, pl.size());
+    ASSERT_EQ(2, pl.num_blocks());
+    ASSERT_EQ(5, pl.num_ids());
 
     // [0, 2, 3, 4], [5]
 
@@ -305,11 +325,12 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
     }
 
     pl.erase(2);
-    ASSERT_EQ(2, pl.size());
+    ASSERT_EQ(2, pl.num_blocks());
     pl.erase(3);
+    ASSERT_EQ(3, pl.num_ids());
 
     // [0, 4], [5]
-    ASSERT_EQ(2, pl.size());
+    ASSERT_EQ(2, pl.num_blocks());
     ASSERT_EQ(2, pl.get_root()->size());
     ASSERT_EQ(1, pl.get_root()->next->size());
     ASSERT_EQ(pl.get_root(), pl.block_of(4));
@@ -327,7 +348,8 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
 
     // [0, 5]
     // ensure that merge has happened
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(2, pl.num_ids());
+    ASSERT_EQ(1, pl.num_blocks());
     ASSERT_EQ(pl.get_root(), pl.block_of(5));
     ASSERT_EQ(nullptr, pl.get_root()->next);
     ASSERT_EQ(2, pl.get_root()->size());
@@ -353,7 +375,8 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
     // erase last element of last, non-first block
 
     pl.erase(5);
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(5, pl.num_ids());
+    ASSERT_EQ(1, pl.num_blocks());
     ASSERT_EQ(5, pl.get_root()->size());
     ASSERT_EQ(4, pl.get_root()->ids.last());
     ASSERT_EQ(nullptr, pl.get_root()->next);
@@ -368,7 +391,8 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
 
     // erase last element of the only block when block is atleast half full
     pl.erase(4);
-    ASSERT_EQ(1, pl.size());
+    ASSERT_EQ(4, pl.num_ids());
+    ASSERT_EQ(1, pl.num_blocks());
     ASSERT_EQ(4, pl.get_root()->size());
     ASSERT_EQ(3, pl.get_root()->ids.last());
     ASSERT_EQ(pl.get_root(), pl.block_of(3));
@@ -381,6 +405,8 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
     pl.erase(5);
     pl.erase(6);
     pl.erase(7);
+
+    ASSERT_EQ(12, pl.num_ids());
 
     for(size_t i = 0; i < pl.get_root()->next->offset_index.getLength(); i++) {
         ASSERT_EQ(i * 3, pl.get_root()->next->offset_index.at(i));
@@ -403,7 +429,8 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
 
     // [0..4], [9], [10..14] => [0..4], [9,10,11,12,13], [14]
 
-    ASSERT_EQ(3, pl.size());
+    ASSERT_EQ(3, pl.num_blocks());
+    ASSERT_EQ(11, pl.num_ids());
     ASSERT_EQ(5, pl.get_root()->next->size());
     ASSERT_EQ(1, pl.get_root()->next->next->size());
     ASSERT_EQ(13, pl.get_root()->next->ids.last());
@@ -437,7 +464,7 @@ TEST(PostingListTest, OutOfOrderUpserts) {
     pl.upsert(0, offsets);
     pl.upsert(200000, offsets);
 
-    ASSERT_EQ(2, pl.size());
+    ASSERT_EQ(2, pl.num_blocks());
 
     ASSERT_EQ(3, pl.get_root()->size());
     ASSERT_EQ(4, pl.get_root()->next->size());
@@ -485,8 +512,8 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
         pl.erase(rand() % 100000);
     }
 
-    ASSERT_GT(pl.size(), 750);
-    ASSERT_LT(pl.size(), 1000);
+    ASSERT_GT(pl.num_blocks(), 750);
+    ASSERT_LT(pl.num_blocks(), 1000);
 }
 
 TEST(PostingListTest, IntersectionBasics) {
@@ -590,12 +617,14 @@ TEST(PostingListTest, CompactPostingListUpsertAppends) {
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     // no-op since the container expects resizing to be done outside
     list->upsert(1003, {1, 2});
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     // now resize
     void* obj = SET_COMPACT_POSTING(list);
@@ -604,6 +633,7 @@ TEST(PostingListTest, CompactPostingListUpsertAppends) {
 
     ASSERT_EQ(19, (COMPACT_POSTING_PTR(obj))->length);
     ASSERT_EQ(24, (COMPACT_POSTING_PTR(obj))->capacity);
+    ASSERT_EQ(4, (COMPACT_POSTING_PTR(obj))->ids_length);
 
     // insert enough docs to NOT exceed compact posting list threshold
     posting_t::upsert(obj, 1004, {1, 2, 3, 4, 5, 6, 7, 8});
@@ -616,14 +646,17 @@ TEST(PostingListTest, CompactPostingListUpsertAppends) {
     ASSERT_EQ(1007, COMPACT_POSTING_PTR(obj)->last_id());
     ASSERT_TRUE(IS_COMPACT_POSTING(obj));
     ASSERT_EQ(1007, COMPACT_POSTING_PTR(obj)->last_id());
+    ASSERT_EQ(8, (COMPACT_POSTING_PTR(obj))->ids_length);
 
     // next upsert will exceed threshold
     posting_t::upsert(obj, 1008, {1, 2, 3, 4, 5, 6, 7, 8});
     ASSERT_FALSE(IS_COMPACT_POSTING(obj));
 
-    ASSERT_EQ(1, ((posting_list_t*)(obj))->size());
+    ASSERT_EQ(1, ((posting_list_t*)(obj))->num_blocks());
     ASSERT_EQ(9, ((posting_list_t*)(obj))->get_root()->size());
     ASSERT_EQ(1008, ((posting_list_t*)(obj))->get_root()->ids.last());
+    ASSERT_EQ(9, ((posting_list_t*)(obj))->get_root()->ids.getLength());
+    ASSERT_EQ(9, ((posting_list_t*)(obj))->num_ids());
 
     delete ((posting_list_t*)(obj));
 }
@@ -637,6 +670,7 @@ TEST(PostingListTest, CompactPostingListUpserts) {
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     // insert before first ID
 
@@ -645,12 +679,14 @@ TEST(PostingListTest, CompactPostingListUpserts) {
     ASSERT_EQ(1002, COMPACT_POSTING_PTR(obj)->last_id());
     ASSERT_EQ(19, COMPACT_POSTING_PTR(obj)->length);
     ASSERT_EQ(24, COMPACT_POSTING_PTR(obj)->capacity);
+    ASSERT_EQ(4, COMPACT_POSTING_PTR(obj)->num_ids());
 
     // insert in the middle
     posting_t::upsert(obj, 999, {1, 2});
     ASSERT_EQ(1002, COMPACT_POSTING_PTR(obj)->last_id());
     ASSERT_EQ(23, COMPACT_POSTING_PTR(obj)->length);
     ASSERT_EQ(24, COMPACT_POSTING_PTR(obj)->capacity);
+    ASSERT_EQ(5, COMPACT_POSTING_PTR(obj)->num_ids());
 
     uint32_t expected_id_offsets[] = {
         2, 1, 2, 2,
@@ -678,6 +714,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     // update middle
 
@@ -685,6 +722,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     ASSERT_EQ(14, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets[] = {3, 0, 3, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets[i], list->id_offsets[i]);
@@ -695,6 +733,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     ASSERT_EQ(13, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets2[] = {2, 2, 4, 0, 2, 1, 2, 1000, 3, 0, 3, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets2[i], list->id_offsets[i]);
@@ -705,6 +744,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     ASSERT_EQ(12, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets3[] = {2, 2, 4, 0, 2, 1, 2, 1000, 2, 2, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets3[i], list->id_offsets[i]);
@@ -722,6 +762,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     // update middle
     void* obj = SET_COMPACT_POSTING(list);
@@ -730,6 +771,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     ASSERT_EQ(16, list->length);
     ASSERT_EQ(20, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets[] = {3, 0, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 3, 0, 3, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets[i], list->id_offsets[i]);
@@ -740,6 +782,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     ASSERT_EQ(17, list->length);
     ASSERT_EQ(20, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets2[] = {4, 1, 2, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 3, 0, 3, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets2[i], list->id_offsets[i]);
@@ -750,6 +793,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     ASSERT_EQ(18, list->length);
     ASSERT_EQ(20, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
     uint32_t expected_id_offsets3[] = {4, 1, 2, 3, 4, 0, 4, 1, 2, 3, 4, 1000, 4, 1, 2, 3, 4, 1002};
     for(size_t i = 0; i < list->length; i++) {
         ASSERT_EQ(expected_id_offsets3[i], list->id_offsets[i]);
@@ -770,11 +814,13 @@ TEST(PostingListTest, CompactPostingListErase) {
     ASSERT_EQ(15, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(3, list->num_ids());
 
     list->erase(1000);
     ASSERT_EQ(10, list->length);
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(2, list->num_ids());
 
     // deleting using posting wrapper
     void* obj = SET_COMPACT_POSTING(list);
@@ -783,6 +829,7 @@ TEST(PostingListTest, CompactPostingListErase) {
     ASSERT_EQ(5, (COMPACT_POSTING_PTR(obj))->length);
     ASSERT_EQ(7, (COMPACT_POSTING_PTR(obj))->capacity);
     ASSERT_EQ(0, (COMPACT_POSTING_PTR(obj))->last_id());
+    ASSERT_EQ(1, (COMPACT_POSTING_PTR(obj))->num_ids());
 
     // upsert again
     posting_t::upsert(obj, 1002, {0, 3, 4});
@@ -790,6 +837,7 @@ TEST(PostingListTest, CompactPostingListErase) {
     ASSERT_EQ(10, list->length);
     ASSERT_EQ(13, list->capacity);
     ASSERT_EQ(1002, list->last_id());
+    ASSERT_EQ(2, list->num_ids());
 
     free(list);
 }

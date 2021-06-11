@@ -24,7 +24,7 @@ void posting_list_t::block_t::insert_and_shift_offset_index(const uint32_t index
     delete [] curr_array;
 }
 
-void posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
+uint32_t posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
     if(id <= ids.last()) {
         // we have to check if `id` already exists, for an opportunity to do in-place updates
         uint32_t id_index = ids.indexOf(id);
@@ -128,7 +128,7 @@ void posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32
             }
 
             delete [] curr_offsets;
-            return;
+            return 0;
         }
     }
 
@@ -140,13 +140,15 @@ void posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32
     for(uint32_t position : positions) {
         offsets.append(position);
     }
+
+    return 1;
 }
 
-void posting_list_t::block_t::erase(const uint32_t id) {
+uint32_t posting_list_t::block_t::erase(const uint32_t id) {
     uint32_t doc_index = ids.indexOf(id);
 
     if (doc_index == ids.getLength()) {
-        return;
+        return 0;
     }
 
     uint32_t start_offset = offset_index.at(doc_index);
@@ -159,6 +161,8 @@ void posting_list_t::block_t::erase(const uint32_t id) {
 
     offsets.remove_index(start_offset, end_offset);
     ids.remove_value(id);
+
+    return 1;
 }
 
 void posting_list_t::block_t::remove_and_shift_offset_index(const uint32_t* indices_sorted,
@@ -402,7 +406,9 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
 
     // happy path: upsert_block is not full
     if(upsert_block->size() < BLOCK_MAX_ELEMENTS) {
-        upsert_block->upsert(id, offsets);
+        uint32_t num_inserted = upsert_block->upsert(id, offsets);
+        ids_length += num_inserted;
+
         last_id_t after_upsert_last_id = upsert_block->ids.at(upsert_block->size() - 1);
         if(before_upsert_last_id != after_upsert_last_id) {
             id_block_map.erase(before_upsert_last_id);
@@ -413,10 +419,12 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
 
         if(upsert_block->next == nullptr && upsert_block->ids.last() < id) {
             // appending to the end of the last block where the id will reside on a newly block
-            new_block->upsert(id, offsets);
+            uint32_t num_inserted = new_block->upsert(id, offsets);
+            ids_length += num_inserted;
         } else {
             // upsert and then split block
-            upsert_block->upsert(id, offsets);
+            uint32_t num_inserted = upsert_block->upsert(id, offsets);
+            ids_length += num_inserted;
 
             // evenly divide elements between both blocks
             split_block(upsert_block, new_block);
@@ -443,7 +451,8 @@ void posting_list_t::erase(const uint32_t id) {
 
     block_t* erase_block = it->second;
     last_id_t before_last_id = it->first;
-    erase_block->erase(id);
+    uint32_t num_erased = erase_block->erase(id);
+    ids_length -= num_erased;
 
     size_t new_ids_length = erase_block->size();
 
@@ -501,7 +510,7 @@ posting_list_t::block_t* posting_list_t::get_root() {
     return &root_block;
 }
 
-size_t posting_list_t::size() {
+size_t posting_list_t::num_blocks() {
     return id_block_map.size();
 }
 
@@ -620,6 +629,10 @@ void posting_list_t::advance_least2(std::vector<posting_list_t::iterator_t>& its
     } else {
         its[0].skip_to(its[1].id());
     }
+}
+
+size_t posting_list_t::num_ids() {
+    return ids_length;
 }
 
 /* iterator_t operations */

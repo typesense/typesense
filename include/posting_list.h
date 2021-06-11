@@ -30,9 +30,9 @@ public:
 
         void remove_and_shift_offset_index(const uint32_t* indices_sorted, uint32_t num_indices);
 
-        void upsert(uint32_t id, const std::vector<uint32_t>& offsets);
+        uint32_t upsert(uint32_t id, const std::vector<uint32_t>& offsets);
 
-        void erase(uint32_t id);
+        uint32_t erase(uint32_t id);
 
         uint32_t size() {
             return ids.getLength();
@@ -59,6 +59,7 @@ private:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
     const uint16_t BLOCK_MAX_ELEMENTS;
+    uint16_t ids_length = 0;
 
     block_t root_block;
 
@@ -97,7 +98,9 @@ public:
 
     block_t* get_root();
 
-    size_t size();
+    size_t num_blocks();
+
+    size_t num_ids();
 
     block_t* block_of(last_id_t id);
 
