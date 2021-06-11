@@ -10,8 +10,9 @@
 #define COMPACT_POSTING_PTR(x) ((compact_posting_list_t*)((uintptr_t)x & ~1))
 
 struct compact_posting_list_t {
-    // use uint16_t to get 4 byte alignment for `id_offsets`
-    uint16_t length = 0;
+    // structured to get 4 byte alignment for `id_offsets`
+    uint8_t length = 0;
+    uint8_t ids_length = 0;
     uint16_t capacity = 0;
 
     // format: num_offsets, offset1,..,offsetn, id1 | num_offsets, offset1,..,offsetn, id2
@@ -28,6 +29,8 @@ struct compact_posting_list_t {
     void erase(uint32_t id);
 
     uint32_t last_id();
+
+    uint32_t num_ids() const;
 };
 
 class posting_t {
@@ -40,4 +43,5 @@ public:
 
     static void erase(void*& obj, uint32_t id);
 
+    static uint32_t num_ids(void*& obj);
 };
