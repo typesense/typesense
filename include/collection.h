@@ -346,11 +346,12 @@ private:
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void populate_overrides(std::string query,
-                            const std::map<size_t, std::vector<std::string>>& pinned_hits,
-                            const std::vector<std::string>& hidden_hits,
-                            std::map<size_t, std::vector<uint32_t>>& include_ids,
-                            std::vector<uint32_t> & excluded_ids) const;
+    void curate_results(std::string query,
+                        const std::map<size_t, std::vector<std::string>>& pinned_hits,
+                        const std::vector<std::string>& hidden_hits,
+                        std::map<size_t, std::vector<uint32_t>>& include_ids,
+                        std::vector<uint32_t> & excluded_ids,
+                        bool enable_overrides) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
@@ -532,7 +533,8 @@ public:
                                   std::vector<size_t> query_by_weights={},
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
-                                  bool pre_segmented_query=false) const;
+                                  bool pre_segmented_query=false,
+                                  bool enable_overrides=true) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
