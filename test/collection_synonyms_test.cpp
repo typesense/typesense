@@ -130,6 +130,17 @@ TEST_F(CollectionSynonymsTest, SynonymParsingFromJson) {
     ASSERT_FALSE(syn_op.ok());
     ASSERT_STREQ("Could not find an array of `synonyms`", syn_op.error().c_str());
 
+    // empty string in synonym list
+    nlohmann::json syn_json_bad_type4 = {
+        {"id", "syn-1"},
+        {"root", "Ocean"},
+        {"synonyms", {""} }
+    };
+
+    syn_op = synonym_t::parse(syn_json_bad_type4, synonym);
+    ASSERT_FALSE(syn_op.ok());
+    ASSERT_STREQ("Could not find a valid string array of `synonyms`", syn_op.error().c_str());
+
     // root bad type
 
     nlohmann::json syn_json_root_bad_type = {
