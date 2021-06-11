@@ -24,6 +24,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
         }
         length += num_offsets;
         id_offsets[length++] = id;
+        ids_length++;
     } else {
         // locate position and shift contents to make space available
         int64_t i = 0;
@@ -92,6 +93,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
 
                 i += num_offsets;
                 id_offsets[i++] = id;
+                ids_length++;
                 break;
             }
 
@@ -128,6 +130,8 @@ void compact_posting_list_t::erase(const uint32_t id) {
 
         i += num_existing_offsets + 2;
     }
+
+    ids_length--;
 }
 
 compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, uint32_t* ids, const uint32_t* offset_index,
@@ -140,6 +144,7 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, uint32_
 
     pl->length = 0;
     pl->capacity = length_required;
+    pl->ids_length = 0;
 
     for(size_t i = 0; i < num_ids; i++) {
         uint32_t start_offset = offset_index[i];
@@ -173,6 +178,10 @@ posting_list_t* compact_posting_list_t::to_full_posting_list() {
 
 uint32_t compact_posting_list_t::last_id() {
     return (length == 0) ? UINT32_MAX : id_offsets[length - 1];
+}
+
+uint32_t compact_posting_list_t::num_ids() const {
+    return ids_length;
 }
 
 /* posting operations */
@@ -235,7 +244,7 @@ void posting_t::erase(void*& obj, uint32_t id) {
     } else {
         posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
         list->erase(id);
-        if(list->size() == 1 && list->get_root()->size() <= 10) {
+        if(list->num_blocks() == 1 && list->get_root()->size() <= 10) {
             // convert to compact posting format
             auto root_block = list->get_root();
             auto ids = root_block->ids.uncompress();
@@ -256,3 +265,12 @@ void posting_t::erase(void*& obj, uint32_t id) {
     }
 }
 
+uint32_t posting_t::num_ids(void*& obj) {
+    if(IS_COMPACT_POSTING(obj)) {
+        compact_posting_list_t* list = (compact_posting_list_t*) RAW_POSTING_PTR(obj);
+        return list->num_ids();
+    } else {
+        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        return list->num_ids();
+    }
+}
