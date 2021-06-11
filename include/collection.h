@@ -229,8 +229,8 @@ struct synonym_t {
             return Option<bool>(400, "Could not find an array of `synonyms`");
         }
 
-        for(const auto & synonym: synonym_json["synonyms"]) {
-            if(!synonym.is_string()) {
+        for(const auto& synonym: synonym_json["synonyms"]) {
+            if(!synonym.is_string() || synonym == "") {
                 return Option<bool>(400, "Could not find a valid string array of `synonyms`");
             }
 
