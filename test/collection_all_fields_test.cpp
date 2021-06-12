@@ -532,6 +532,22 @@ TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, NormalFieldWithAutoType) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("publication_year", field_types::AUTO, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_FALSE(coll_op.ok());
+        ASSERT_EQ("Cannot use type `auto` for `publication_year`. It can be used only for a field name containing `.*`",
+                  coll_op.error());
+    }
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     nlohmann::json fields_json = nlohmann::json::array();
     nlohmann::json all_field;
