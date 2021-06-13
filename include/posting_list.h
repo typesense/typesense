@@ -43,7 +43,11 @@ public:
     private:
         block_t* block;
         uint32_t index;
+
+        // uncompressed data structures for performance
+        block_t* uncompressed_block;
         uint32_t* ids;
+
     public:
         explicit iterator_t(block_t* root);
         iterator_t(iterator_t&& rhs) noexcept;
@@ -51,7 +55,7 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
-        [[nodiscard]] uint32_t id() const;
+        [[nodiscard]] inline uint32_t id();
         void offsets(std::vector<uint32_t>& offsets);
     };
 
@@ -75,8 +79,8 @@ private:
     static bool at_end(const std::vector<posting_list_t::iterator_t>& its);
     static bool at_end2(const std::vector<posting_list_t::iterator_t>& its);
 
-    static bool equals(const std::vector<posting_list_t::iterator_t>& its);
-    static bool equals2(const std::vector<posting_list_t::iterator_t>& its);
+    static bool equals(std::vector<posting_list_t::iterator_t>& its);
+    static bool equals2(std::vector<posting_list_t::iterator_t>& its);
 
     static void advance_all(std::vector<posting_list_t::iterator_t>& its);
     static void advance_all2(std::vector<posting_list_t::iterator_t>& its);

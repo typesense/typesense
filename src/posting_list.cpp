@@ -582,7 +582,7 @@ bool posting_list_t::at_end2(const std::vector<posting_list_t::iterator_t>& its)
     return !its[0].valid() || !its[1].valid();
 }
 
-bool posting_list_t::equals(const std::vector<posting_list_t::iterator_t>& its) {
+bool posting_list_t::equals(std::vector<posting_list_t::iterator_t>& its) {
     for(size_t i = 0; i < its.size() - 1; i++) {
         if(its[i].id() != its[i+1].id()) {
             return false;
@@ -592,7 +592,7 @@ bool posting_list_t::equals(const std::vector<posting_list_t::iterator_t>& its) 
     return true;
 }
 
-bool posting_list_t::equals2(const std::vector<posting_list_t::iterator_t>& its) {
+bool posting_list_t::equals2(std::vector<posting_list_t::iterator_t>& its) {
     return its[0].id() == its[1].id();
 }
 
@@ -642,8 +642,9 @@ size_t posting_list_t::num_ids() {
 
 /* iterator_t operations */
 
-posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root): block(root), index(0) {
-    ids = root->ids.uncompress();
+posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root):
+    block(root), index(0), uncompressed_block(nullptr), ids(nullptr) {
+
 }
 
 bool posting_list_t::iterator_t::valid() const {
@@ -655,16 +656,22 @@ void posting_list_t::iterator_t::next() {
     if(index == block->size()) {
         index = 0;
         block = block->next;
+    }
+}
+
+uint32_t posting_list_t::iterator_t::id() {
+    //return block->ids.at(index);
+
+    if(uncompressed_block != block) {
         delete [] ids;
         ids = nullptr;
+        uncompressed_block = block;
+
         if(block != nullptr) {
             ids = block->ids.uncompress();
         }
     }
-}
 
-uint32_t posting_list_t::iterator_t::id() const {
-    //return block->ids.at(index);
     return ids[index];
 }
 
@@ -681,15 +688,9 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
 
     if(skipped_block) {
         index = 0;
-        delete [] ids;
-        ids = nullptr;
-
-        if(block != nullptr) {
-            ids = block->ids.uncompress();
-        }
     }
 
-    while(block != nullptr && index < block->size() && ids[index] < id) {
+    while(block != nullptr && index < block->size() && this->id() < id) {
         index++;
     }
 }
@@ -702,6 +703,7 @@ posting_list_t::iterator_t::~iterator_t() {
 posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     block = rhs.block;
     index = rhs.index;
+    uncompressed_block = rhs.uncompressed_block;
     ids = rhs.ids;
 
     rhs.block = nullptr;
