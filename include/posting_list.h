@@ -102,10 +102,11 @@ public:
 
     size_t num_ids();
 
+    uint32_t first_id();
+
     block_t* block_of(last_id_t id);
 
     iterator_t new_iterator();
 
-    static posting_list_t* intersect(const std::vector<posting_list_t*>& posting_lists,
-                                     std::vector<uint32_t>& result_ids);
+    static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 };

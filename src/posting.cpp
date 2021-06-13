@@ -184,6 +184,14 @@ uint32_t compact_posting_list_t::num_ids() const {
     return ids_length;
 }
 
+uint32_t compact_posting_list_t::first_id() {
+    if(length == 0) {
+        return 0;
+    }
+
+    return id_offsets[id_offsets[0] + 1];
+}
+
 /* posting operations */
 
 void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets) {
@@ -265,12 +273,47 @@ void posting_t::erase(void*& obj, uint32_t id) {
     }
 }
 
-uint32_t posting_t::num_ids(void*& obj) {
+uint32_t posting_t::num_ids(const void* obj) {
     if(IS_COMPACT_POSTING(obj)) {
-        compact_posting_list_t* list = (compact_posting_list_t*) RAW_POSTING_PTR(obj);
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         return list->num_ids();
     } else {
         posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
         return list->num_ids();
+    }
+}
+
+uint32_t posting_t::first_id(const void* obj) {
+    if(IS_COMPACT_POSTING(obj)) {
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
+        return list->first_id();
+    } else {
+        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        return list->first_id();
+    }
+}
+
+void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
+    // we will have to convert the compact posting list (if any) to full form
+    std::vector<posting_list_t*> plists;
+    std::vector<uint32_t> expanded_plist_indices;
+
+    for(size_t i = 0; i < raw_posting_lists.size(); i++) {
+        auto raw_posting_list = raw_posting_lists[i];
+
+        if(IS_COMPACT_POSTING(raw_posting_list)) {
+            auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
+            plists.emplace_back(compact_posting_list->to_full_posting_list());
+            expanded_plist_indices.push_back(i);
+        } else {
+            posting_list_t* full_posting_list = (posting_list_t*) RAW_POSTING_PTR(raw_posting_list);
+            plists.emplace_back(full_posting_list);
+        }
+    }
+
+    posting_list_t::intersect(plists, result_ids);
+
+    for(uint32_t expanded_plist_index: expanded_plist_indices) {
+        delete plists[expanded_plist_index];
     }
 }
