@@ -514,6 +514,14 @@ size_t posting_list_t::num_blocks() {
     return id_block_map.size();
 }
 
+uint32_t posting_list_t::first_id() {
+    if(ids_length == 0) {
+        return 0;
+    }
+
+    return root_block.ids.at(0);
+}
+
 posting_list_t::block_t* posting_list_t::block_of(last_id_t id) {
     auto it = id_block_map.find(id);
     if(it != id_block_map.end()) {
@@ -523,8 +531,7 @@ posting_list_t::block_t* posting_list_t::block_of(last_id_t id) {
 }
 
 // Inspired by: https://stackoverflow.com/a/25509185/131050
-posting_list_t* posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists,
-                                          std::vector<uint32_t>& result_ids) {
+void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids) {
     auto its = std::vector<posting_list_t::iterator_t>();
     its.reserve(posting_lists.size());
 
@@ -557,8 +564,6 @@ posting_list_t* posting_list_t::intersect(const std::vector<posting_list_t*>& po
                 }
             }
     }
-
-    return nullptr;
 }
 
 bool posting_list_t::at_end(const std::vector<posting_list_t::iterator_t>& its) {
