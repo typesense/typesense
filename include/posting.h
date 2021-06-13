@@ -28,6 +28,7 @@ struct compact_posting_list_t {
 
     void erase(uint32_t id);
 
+    uint32_t first_id();
     uint32_t last_id();
 
     uint32_t num_ids() const;
@@ -43,5 +44,9 @@ public:
 
     static void erase(void*& obj, uint32_t id);
 
-    static uint32_t num_ids(void*& obj);
+    static uint32_t num_ids(const void* obj);
+
+    static uint32_t first_id(const void* obj);
+
+    static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 };
