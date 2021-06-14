@@ -557,6 +557,86 @@ TEST(PostingListTest, IntersectionBasics) {
     ASSERT_EQ(20, result_ids[1]);
 }
 
+TEST(PostingListTest, ResultsAndOffsetsBasics) {
+    // NOTE: due to the way offsets1 are parsed, the actual positions are 1 less than the offset values stored
+    // (to account for the special offset `0` which indicates last offset
+    std::vector<uint32_t> offsets1 = {1, 2, 4};
+    std::vector<uint32_t> offsets2 = {5, 6};
+    std::vector<uint32_t> offsets3 = {7};
+
+    std::vector<posting_list_t*> lists;
+
+    // T1: [0, 2] [3, 20]
+    // T2: [1, 3], [5, 10], [20]
+    // T3: [2, 3], [5, 7], [20]
+
+    // 3: (0, 1, 3} {4, 5} {6}
+    // 2: {6}       {4, 5} {0, 1, 3}
+
+    std::vector<token_positions_t> actual_offsets_3 = {
+        token_positions_t{false, {0, 1, 3}},
+        token_positions_t{false, {4, 5}},
+        token_positions_t{false, {6}},
+    };
+
+    std::vector<token_positions_t> actual_offsets_20 = {
+        token_positions_t{false, {6}},
+        token_positions_t{false, {4, 5}},
+        token_positions_t{false, {0, 1, 3}},
+    };
+
+    posting_list_t p1(2);
+    p1.upsert(0, offsets1);
+    p1.upsert(2, offsets1);
+    p1.upsert(3, offsets1);
+    p1.upsert(20, offsets3);
+
+    posting_list_t p2(2);
+    p2.upsert(1, offsets1);
+    p2.upsert(3, offsets2);
+    p2.upsert(5, offsets1);
+    p2.upsert(10, offsets1);
+    p2.upsert(20, offsets2);
+
+    posting_list_t p3(2);
+    p3.upsert(2, offsets1);
+    p3.upsert(3, offsets3);
+    p3.upsert(5, offsets1);
+    p3.upsert(7, offsets1);
+    p3.upsert(20, offsets1);
+
+    lists.push_back(&p1);
+    lists.push_back(&p2);
+    lists.push_back(&p3);
+
+    std::vector<posting_list_t::iterator_t> its;
+
+    posting_list_t::result_iter_state_t iter_state;
+    posting_list_t::block_intersect(lists, 2, its, iter_state);
+
+    ASSERT_EQ(2, iter_state.ids.size());
+    ASSERT_EQ(3, iter_state.ids[0]);
+    ASSERT_EQ(20, iter_state.ids[1]);
+
+    ASSERT_EQ(2, iter_state.blocks.size());
+    ASSERT_EQ(3, iter_state.blocks[0].size());
+    ASSERT_EQ(3, iter_state.blocks[1].size());
+
+    ASSERT_EQ(2, iter_state.indices.size());
+
+    std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
+    posting_list_t::get_offsets(iter_state, array_token_positions_vec);
+    ASSERT_EQ(2, array_token_positions_vec.size());
+
+    ASSERT_EQ(actual_offsets_3[0].positions, array_token_positions_vec[0].at(0)[0].positions);
+    ASSERT_EQ(actual_offsets_3[1].positions, array_token_positions_vec[0].at(0)[1].positions);
+    ASSERT_EQ(actual_offsets_3[2].positions, array_token_positions_vec[0].at(0)[2].positions);
+
+    ASSERT_EQ(actual_offsets_20[0].positions, array_token_positions_vec[1].at(0)[0].positions);
+    ASSERT_EQ(actual_offsets_20[1].positions, array_token_positions_vec[1].at(0)[1].positions);
+    ASSERT_EQ(actual_offsets_20[2].positions, array_token_positions_vec[1].at(0)[2].positions);
+}
+
 TEST(PostingListTest, IntersectionSkipBlocks) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     std::vector<posting_list_t*> lists;
@@ -876,7 +956,7 @@ TEST(PostingListTest, DISABLED_Benchmark) {
     LOG(INFO) << "Time taken for 5 sorted array updates: " << timeMicros;
 }
 
-TEST(PostingListTest, DISABLED_BenchmarkIntersection) {
+TEST(PostingListTest, BenchmarkIntersection) {
     std::vector<uint32_t> offsets = {0, 1, 3};
 
     time_t t;
