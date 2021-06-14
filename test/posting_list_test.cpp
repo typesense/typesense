@@ -516,6 +516,50 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
     ASSERT_LT(pl.num_blocks(), 1000);
 }
 
+TEST(PostingListTest, MergeBasics) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    std::vector<posting_list_t*> lists;
+
+    // [0, 2] [3, 20]
+    // [1, 3], [5, 10], [20]
+    // [2, 3], [5, 7], [20]
+
+    posting_list_t p1(2);
+    p1.upsert(0, offsets);
+    p1.upsert(2, offsets);
+    p1.upsert(3, offsets);
+    p1.upsert(20, offsets);
+
+    posting_list_t p2(2);
+    p2.upsert(1, offsets);
+    p2.upsert(3, offsets);
+    p2.upsert(5, offsets);
+    p2.upsert(10, offsets);
+    p2.upsert(20, offsets);
+
+    posting_list_t p3(2);
+    p3.upsert(2, offsets);
+    p3.upsert(3, offsets);
+    p3.upsert(5, offsets);
+    p3.upsert(7, offsets);
+    p3.upsert(20, offsets);
+
+    lists.push_back(&p1);
+    lists.push_back(&p2);
+    lists.push_back(&p3);
+
+    std::vector<uint32_t> result_ids;
+
+    posting_list_t::merge(lists, result_ids);
+
+    std::vector<uint32_t> expected_ids = {0, 1, 2, 3, 5, 7, 10, 20};
+    ASSERT_EQ(expected_ids.size(), result_ids.size());
+
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], result_ids[i]);
+    }
+}
+
 TEST(PostingListTest, IntersectionBasics) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     std::vector<posting_list_t*> lists;
@@ -956,7 +1000,7 @@ TEST(PostingListTest, DISABLED_Benchmark) {
     LOG(INFO) << "Time taken for 5 sorted array updates: " << timeMicros;
 }
 
-TEST(PostingListTest, BenchmarkIntersection) {
+TEST(PostingListTest, DISABLED_BenchmarkIntersection) {
     std::vector<uint32_t> offsets = {0, 1, 3};
 
     time_t t;

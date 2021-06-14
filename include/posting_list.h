@@ -95,8 +95,11 @@ private:
     static void advance_all(std::vector<posting_list_t::iterator_t>& its);
     static void advance_all2(std::vector<posting_list_t::iterator_t>& its);
 
-    static void advance_least(std::vector<posting_list_t::iterator_t>& its);
-    static void advance_least2(std::vector<posting_list_t::iterator_t>& its);
+    static void advance_non_largest(std::vector<posting_list_t::iterator_t>& its);
+    static void advance_non_largest2(std::vector<posting_list_t::iterator_t>& its);
+
+    static uint32_t advance_smallest(std::vector<posting_list_t::iterator_t>& its);
+    static uint32_t advance_smallest2(std::vector<posting_list_t::iterator_t>& its);
 
 public:
 
@@ -121,6 +124,8 @@ public:
     block_t* block_of(last_id_t id);
 
     iterator_t new_iterator();
+
+    static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
