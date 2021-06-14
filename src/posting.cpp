@@ -293,11 +293,34 @@ uint32_t posting_t::first_id(const void* obj) {
     }
 }
 
+void posting_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
+    // we will have to convert the compact posting list (if any) to full form
+    std::vector<posting_list_t*> plists;
+    std::vector<uint32_t> expanded_plist_indices;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+
+    posting_list_t::merge(plists, result_ids);
+
+    for(uint32_t expanded_plist_index: expanded_plist_indices) {
+        delete plists[expanded_plist_index];
+    }
+}
+
 void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
     std::vector<uint32_t> expanded_plist_indices;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
 
+    posting_list_t::intersect(plists, result_ids);
+
+    for(uint32_t expanded_plist_index: expanded_plist_indices) {
+        delete plists[expanded_plist_index];
+    }
+}
+
+void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
+                                   std::vector<uint32_t>& expanded_plist_indices) {
     for(size_t i = 0; i < raw_posting_lists.size(); i++) {
         auto raw_posting_list = raw_posting_lists[i];
 
@@ -309,11 +332,5 @@ void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vect
             posting_list_t* full_posting_list = (posting_list_t*) RAW_POSTING_PTR(raw_posting_list);
             plists.emplace_back(full_posting_list);
         }
-    }
-
-    posting_list_t::intersect(plists, result_ids);
-
-    for(uint32_t expanded_plist_index: expanded_plist_indices) {
-        delete plists[expanded_plist_index];
     }
 }
