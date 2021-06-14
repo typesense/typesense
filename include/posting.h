@@ -38,6 +38,9 @@ class posting_t {
 private:
     static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
 
+    static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
+                                   std::vector<uint32_t>& expanded_plist_indices);
+
 public:
 
     static void upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets);
@@ -47,6 +50,8 @@ public:
     static uint32_t num_ids(const void* obj);
 
     static uint32_t first_id(const void* obj);
+
+    static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 };

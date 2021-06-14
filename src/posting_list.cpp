@@ -530,6 +530,65 @@ posting_list_t::block_t* posting_list_t::block_of(last_id_t id) {
     return nullptr;
 }
 
+
+void posting_list_t::merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids) {
+    auto its = std::vector<posting_list_t::iterator_t>();
+    its.reserve(posting_lists.size());
+
+    size_t sum_sizes = 0;
+
+    for(const auto& posting_list: posting_lists) {
+        its.push_back(posting_list->new_iterator());
+        sum_sizes += posting_list->num_ids();
+    }
+
+    result_ids.reserve(sum_sizes);
+    size_t num_lists = its.size();
+
+    switch (num_lists) {
+        case 2:
+            while(!at_end2(its)) {
+                if(equals2(its)) {
+                    //LOG(INFO) << its[0].id();
+                    result_ids.push_back(its[0].id());
+                    advance_all2(its);
+                } else {
+                    uint32_t smallest_value = advance_smallest2(its);
+                    result_ids.push_back(smallest_value);
+                }
+            }
+
+            while(its[0].valid()) {
+                result_ids.push_back(its[0].id());
+                its[0].next();
+            }
+
+            while(its[1].valid()) {
+                result_ids.push_back(its[1].id());
+                its[1].next();
+            }
+
+            break;
+        default:
+            while(!at_end(its)) {
+                if(equals(its)) {
+                    result_ids.push_back(its[0].id());
+                    advance_all(its);
+                } else {
+                    uint32_t smallest_value = advance_smallest(its);
+                    result_ids.push_back(smallest_value);
+                }
+            }
+
+            for(auto& it: its) {
+                while(it.valid()) {
+                    result_ids.push_back(it.id());
+                    it.next();
+                }
+            }
+    }
+}
+
 // Inspired by: https://stackoverflow.com/a/25509185/131050
 void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids) {
     auto its = std::vector<posting_list_t::iterator_t>();
@@ -549,7 +608,7 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
                     result_ids.push_back(its[0].id());
                     advance_all2(its);
                 } else {
-                    advance_least2(its);
+                    advance_non_largest2(its);
                 }
             }
             break;
@@ -560,7 +619,7 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
                     result_ids.push_back(its[0].id());
                     advance_all(its);
                 } else {
-                    advance_least(its);
+                    advance_non_largest(its);
                 }
             }
     }
@@ -604,7 +663,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
 
                     advance_all2(its);
                 } else {
-                    advance_least2(its);
+                    advance_non_largest2(its);
                 }
 
                 if(iter_state.ids.size() == batch_size) {
@@ -631,7 +690,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
 
                     advance_all(its);
                 } else {
-                    advance_least(its);
+                    advance_non_largest(its);
                 }
 
                 if(iter_state.ids.size() == batch_size) {
@@ -770,7 +829,7 @@ void posting_list_t::advance_all2(std::vector<posting_list_t::iterator_t>& its) 
     its[1].next();
 }
 
-void posting_list_t::advance_least(std::vector<posting_list_t::iterator_t>& its) {
+void posting_list_t::advance_non_largest(std::vector<posting_list_t::iterator_t>& its) {
     // we will find the iter with greatest value and then advance the rest until their value catches up
     uint32_t greatest_value = 0;
 
@@ -787,12 +846,45 @@ void posting_list_t::advance_least(std::vector<posting_list_t::iterator_t>& its)
     }
 }
 
-void posting_list_t::advance_least2(std::vector<posting_list_t::iterator_t>& its) {
+void posting_list_t::advance_non_largest2(std::vector<posting_list_t::iterator_t>& its) {
     if(its[0].id() > its[1].id()) {
         its[1].skip_to(its[0].id());
     } else {
         its[0].skip_to(its[1].id());
     }
+}
+
+uint32_t posting_list_t::advance_smallest(std::vector<posting_list_t::iterator_t>& its) {
+    // we will advance the iterator(s) with the smallest value and then return that value
+    uint32_t smallest_value = UINT32_MAX;
+
+    for(size_t i = 0; i < its.size(); i++) {
+        if(its[i].id() < smallest_value) {
+            smallest_value = its[i].id();
+        }
+    }
+
+    for(size_t i = 0; i < its.size(); i++) {
+        if(its[i].id() == smallest_value) {
+            its[i].next();
+        }
+    }
+
+    return smallest_value;
+}
+
+uint32_t posting_list_t::advance_smallest2(std::vector<posting_list_t::iterator_t>& its) {
+    uint32_t smallest_value = 0;
+
+    if(its[0].id() < its[1].id()) {
+        smallest_value = its[0].id();
+        its[0].next();
+    } else {
+        smallest_value = its[1].id();
+        its[1].next();
+    }
+
+    return smallest_value;
 }
 
 size_t posting_list_t::num_ids() {
