@@ -1,7 +1,10 @@
 #pragma once
+
 #include <map>
+#include <unordered_map>
 #include "sorted_array.h"
 #include "array.h"
+#include "match_score.h"
 
 typedef uint32_t last_id_t;
 
@@ -41,8 +44,8 @@ public:
 
     class iterator_t {
     private:
-        block_t* block;
-        uint32_t index;
+        block_t* curr_block;
+        uint32_t curr_index;
 
         // uncompressed data structures for performance
         block_t* uncompressed_block;
@@ -56,7 +59,14 @@ public:
         void next();
         void skip_to(uint32_t id);
         [[nodiscard]] inline uint32_t id();
-        void offsets(std::vector<uint32_t>& offsets);
+        [[nodiscard]] inline uint32_t index() const;
+        [[nodiscard]] inline block_t* block() const;
+    };
+
+    struct result_iter_state_t {
+        std::vector<std::vector<block_t*>> blocks;
+        std::vector<std::vector<uint32_t>> indices;
+        std::vector<uint32_t> ids;
     };
 
 private:
@@ -113,4 +123,16 @@ public:
     iterator_t new_iterator();
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
+
+    static bool block_intersect(
+        const std::vector<posting_list_t*>& posting_lists,
+        size_t batch_size,
+        std::vector<posting_list_t::iterator_t>& its,
+        result_iter_state_t& iter_state
+    );
+
+    static bool get_offsets(
+        result_iter_state_t& iter_state,
+        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions
+    );
 };
