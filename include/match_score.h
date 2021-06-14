@@ -1,9 +1,10 @@
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <vector>
 #include <queue>
-#include <stdlib.h>
+#include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include "logger.h"
 
