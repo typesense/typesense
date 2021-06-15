@@ -192,6 +192,27 @@ uint32_t compact_posting_list_t::first_id() {
     return id_offsets[id_offsets[0] + 1];
 }
 
+bool compact_posting_list_t::contains(uint32_t id) {
+    size_t i = 0;
+    while(i < length) {
+        size_t num_existing_offsets = id_offsets[i];
+        size_t existing_id = id_offsets[i + num_existing_offsets + 1];
+
+        if(existing_id > id) {
+            // not found!
+            return false;
+        }
+
+        if(existing_id == id) {
+            return true;
+        }
+
+        i += num_existing_offsets + 2;
+    }
+
+    return false;
+}
+
 /* posting operations */
 
 void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets) {
@@ -293,6 +314,16 @@ uint32_t posting_t::first_id(const void* obj) {
     }
 }
 
+bool posting_t::contains(const void* obj, uint32_t id) {
+    if(IS_COMPACT_POSTING(obj)) {
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
+        return list->contains(id);
+    } else {
+        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        return list->contains(id);
+    }
+}
+
 void posting_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
@@ -333,4 +364,23 @@ void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, 
             plists.emplace_back(full_posting_list);
         }
     }
+}
+
+bool posting_t::block_intersect(const std::vector<void*>& raw_posting_lists, size_t batch_size,
+                                std::vector<posting_list_t::iterator_t>& its,
+                                posting_list_t::result_iter_state_t& iter_state) {
+    // we will have to convert the compact posting list (if any) to full form
+    std::vector<posting_list_t*> plists;
+    std::vector<uint32_t> expanded_plist_indices;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+
+    bool done = posting_list_t::block_intersect(plists, batch_size, its, iter_state);
+
+    if(done) {
+        for(uint32_t expanded_plist_index: expanded_plist_indices) {
+            delete plists[expanded_plist_index];
+        }
+    }
+
+    return done;
 }
