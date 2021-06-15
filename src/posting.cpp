@@ -408,15 +408,15 @@ bool posting_t::block_intersect(const std::vector<void*>& raw_posting_lists, siz
     std::vector<uint32_t> expanded_plist_indices;
     to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
 
-    bool done = posting_list_t::block_intersect(plists, batch_size, its, iter_state);
+    bool has_more = posting_list_t::block_intersect(plists, batch_size, its, iter_state);
 
-    if(done) {
+    if(!has_more) {
         for(uint32_t expanded_plist_index: expanded_plist_indices) {
             delete plists[expanded_plist_index];
         }
     }
 
-    return done;
+    return has_more;
 }
 
 void posting_t::destroy_list(void*& obj) {
