@@ -651,7 +651,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                 }
 
                 if(iter_state.ids.size() == batch_size) {
-                    return true;
+                    return !at_end2(its);
                 }
             }
             break;
@@ -678,7 +678,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                 }
 
                 if(iter_state.ids.size() == batch_size) {
-                    return true;
+                    return !at_end(its);
                 }
             }
     }
