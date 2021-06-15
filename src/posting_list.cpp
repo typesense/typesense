@@ -886,6 +886,30 @@ bool posting_list_t::contains(uint32_t id) {
     return potential_block->contains(id);
 }
 
+bool posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size) {
+    posting_list_t::iterator_t it = new_iterator();
+    size_t target_ids_index = 0;
+
+    while(target_ids_index < target_ids_size && it.valid()) {
+        uint32_t id = it.id();
+
+        if(id == target_ids[target_ids_index]) {
+            return true;
+        } else {
+            // advance smallest value
+            if(id > target_ids[target_ids_index]) {
+                while(target_ids_index < target_ids_size && target_ids[target_ids_index] < id) {
+                    target_ids_index++;
+                }
+            } else {
+                it.skip_to(target_ids[target_ids_index]);
+            }
+        }
+    }
+
+    return false;
+}
+
 /* iterator_t operations */
 
 posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root):
@@ -956,5 +980,6 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     ids = rhs.ids;
 
     rhs.curr_block = nullptr;
+    rhs.uncompressed_block = nullptr;
     rhs.ids = nullptr;
 }
