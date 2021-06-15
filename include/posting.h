@@ -23,6 +23,8 @@ struct compact_posting_list_t {
 
     posting_list_t* to_full_posting_list();
 
+    bool contains(uint32_t id);
+
     int64_t upsert(uint32_t id, const std::vector<uint32_t>& offsets);
     int64_t upsert(uint32_t id, const uint32_t* offsets, uint32_t num_offsets);
 
@@ -51,7 +53,16 @@ public:
 
     static uint32_t first_id(const void* obj);
 
+    static bool contains(const void* obj, uint32_t id);
+
     static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
+
+    static bool block_intersect(
+        const std::vector<void*>& posting_lists,
+        size_t batch_size,
+        std::vector<posting_list_t::iterator_t>& its,
+        posting_list_t::result_iter_state_t& iter_state
+    );
 };
