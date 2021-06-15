@@ -34,6 +34,8 @@ struct compact_posting_list_t {
     uint32_t last_id();
 
     uint32_t num_ids() const;
+
+    bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 };
 
 class posting_t {
@@ -49,11 +51,15 @@ public:
 
     static void erase(void*& obj, uint32_t id);
 
+    static void destroy_list(void*& obj);
+
     static uint32_t num_ids(const void* obj);
 
     static uint32_t first_id(const void* obj);
 
     static bool contains(const void* obj, uint32_t id);
+
+    static bool contains_atleast_one(const void* obj, const uint32_t* target_ids, size_t target_ids_size);
 
     static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 

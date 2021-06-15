@@ -125,6 +125,8 @@ public:
 
     bool contains(uint32_t id);
 
+    bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
+
     iterator_t new_iterator();
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);

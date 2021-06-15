@@ -738,6 +738,42 @@ TEST(PostingListTest, IntersectionSkipBlocks) {
     delete [] final_results;
 }
 
+TEST(PostingListTest, PostingListContainsAtleastOne) {
+    // when posting list is larger than target IDs
+    posting_list_t p1(100);
+
+    for(size_t i = 20; i < 1000; i++) {
+        p1.upsert(i, {1, 2, 3});
+    }
+
+    std::vector<uint32_t> target_ids1 = {200, 300};
+    std::vector<uint32_t> target_ids2 = {200, 3000};
+    std::vector<uint32_t> target_ids3 = {2000, 3000};
+
+    ASSERT_TRUE(p1.contains_atleast_one(&target_ids1[0], target_ids1.size()));
+    ASSERT_TRUE(p1.contains_atleast_one(&target_ids2[0], target_ids2.size()));
+    ASSERT_FALSE(p1.contains_atleast_one(&target_ids3[0], target_ids3.size()));
+
+    // when posting list is smaller than target IDs
+    posting_list_t p2(2);
+    for(size_t i = 10; i < 20; i++) {
+        p2.upsert(i, {1, 2, 3});
+    }
+
+    target_ids1.clear();
+    for(size_t i = 5; i < 1000; i++) {
+        target_ids1.push_back(i);
+    }
+
+    target_ids2.clear();
+    for(size_t i = 25; i < 1000; i++) {
+        target_ids2.push_back(i);
+    }
+
+    ASSERT_TRUE(p2.contains_atleast_one(&target_ids1[0], target_ids1.size()));
+    ASSERT_FALSE(p2.contains_atleast_one(&target_ids2[0], target_ids2.size()));
+}
+
 TEST(PostingListTest, CompactPostingListUpsertAppends) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
@@ -976,6 +1012,29 @@ TEST(PostingListTest, CompactPostingListErase) {
     ASSERT_EQ(2, list->num_ids());
 
     free(list);
+}
+
+TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
+    uint32_t ids[] = {5, 6, 7, 8};
+    uint32_t offset_index[] = {0, 3, 6, 9};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    std::vector<uint32_t> target_ids1 = {4, 7, 11};
+    std::vector<uint32_t> target_ids2 = {2, 3, 4, 20};
+
+    compact_posting_list_t* list1 = compact_posting_list_t::create(4, ids, offset_index, 12, offsets);
+    ASSERT_TRUE(list1->contains_atleast_one(&target_ids1[0], target_ids1.size()));
+    ASSERT_FALSE(list1->contains_atleast_one(&target_ids2[0], target_ids2.size()));
+
+    compact_posting_list_t* list2 = static_cast<compact_posting_list_t*>(malloc(sizeof(compact_posting_list_t)));
+    void* obj = SET_COMPACT_POSTING(list2);
+    posting_t::upsert(obj, 3, {1, 5});
+
+    std::vector<uint32_t> target_ids3 = {1, 2, 3, 4, 100};
+    std::vector<uint32_t> target_ids4 = {4, 5, 6, 100};
+
+    ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids3[0], target_ids3.size()));
+    ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids4[0], target_ids4.size()));
 }
 
 TEST(PostingListTest, DISABLED_Benchmark) {

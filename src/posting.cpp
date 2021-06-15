@@ -213,6 +213,30 @@ bool compact_posting_list_t::contains(uint32_t id) {
     return false;
 }
 
+bool compact_posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size) {
+    size_t i = 0;
+    size_t target_ids_index = 0;
+
+    while(i < length && target_ids_index < target_ids_size) {
+        size_t num_existing_offsets = id_offsets[i];
+        size_t existing_id = id_offsets[i + num_existing_offsets + 1];
+
+        if(existing_id == target_ids[target_ids_index]) {
+            return true;
+        }
+
+        if(target_ids[target_ids_index] < existing_id) {
+            while(target_ids_index < target_ids_size && target_ids[target_ids_index] < existing_id) {
+                target_ids_index++;
+            }
+        } else {
+            i += num_existing_offsets + 2;
+        }
+    }
+
+    return false;
+}
+
 /* posting operations */
 
 void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets) {
@@ -324,6 +348,16 @@ bool posting_t::contains(const void* obj, uint32_t id) {
     }
 }
 
+bool posting_t::contains_atleast_one(const void* obj, const uint32_t* target_ids, size_t target_ids_size) {
+    if(IS_COMPACT_POSTING(obj)) {
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
+        return list->contains_atleast_one(target_ids, target_ids_size);
+    } else {
+        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        return list->contains_atleast_one(target_ids, target_ids_size);
+    }
+}
+
 void posting_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
@@ -383,4 +417,16 @@ bool posting_t::block_intersect(const std::vector<void*>& raw_posting_lists, siz
     }
 
     return done;
+}
+
+void posting_t::destroy_list(void*& obj) {
+    if(IS_COMPACT_POSTING(obj)) {
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
+        free(list); // assigned via malloc, so must be free()d
+    } else {
+        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        delete list;
+    }
+
+    obj = nullptr;
 }
