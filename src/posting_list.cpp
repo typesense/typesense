@@ -4,26 +4,6 @@
 
 /* block_t operations */
 
-void posting_list_t::block_t::insert_and_shift_offset_index(const uint32_t index, const uint32_t num_offsets) {
-    uint32_t existing_offset_index = offset_index.at(index);
-    uint32_t length = offset_index.getLength();
-    uint32_t new_length = length + 1;
-    uint32_t* curr_array = offset_index.uncompress(new_length);
-
-    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length - index));
-    curr_array[index] = existing_offset_index;
-
-    uint32_t curr_index = index + 1;
-    while(curr_index < new_length) {
-        curr_array[curr_index] += num_offsets;
-        curr_index++;
-    }
-
-    offset_index.load(curr_array, new_length);
-
-    delete [] curr_array;
-}
-
 uint32_t posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
     if(id <= ids.last()) {
         // we have to check if `id` already exists, for an opportunity to do in-place updates
@@ -196,6 +176,10 @@ void posting_list_t::block_t::remove_and_shift_offset_index(const uint32_t* indi
 
     delete[] curr_array;
     delete[] new_array;
+}
+
+bool posting_list_t::block_t::contains(uint32_t id) {
+    return ids.contains(id);
 }
 
 /* posting_list_t operations */
@@ -889,6 +873,17 @@ uint32_t posting_list_t::advance_smallest2(std::vector<posting_list_t::iterator_
 
 size_t posting_list_t::num_ids() {
     return ids_length;
+}
+
+bool posting_list_t::contains(uint32_t id) {
+    const auto it = id_block_map.lower_bound(id);
+
+    if(it == id_block_map.end()) {
+        return false;
+    }
+
+    block_t* potential_block = it->second;
+    return potential_block->contains(id);
 }
 
 /* iterator_t operations */

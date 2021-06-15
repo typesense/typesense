@@ -281,6 +281,7 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
 
     // try to erase when posting list is empty
     pl.erase(0);
+    ASSERT_FALSE(pl.contains(0));
 
     ASSERT_EQ(0, pl.num_ids());
     ASSERT_EQ(0, pl.num_blocks());
@@ -304,6 +305,11 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
 
     ASSERT_EQ(2, pl.num_blocks());
     ASSERT_EQ(6, pl.num_ids());
+
+    ASSERT_TRUE(pl.contains(2));
+    ASSERT_TRUE(pl.contains(5));
+    ASSERT_FALSE(pl.contains(6));
+    ASSERT_FALSE(pl.contains(1000));
 
     // delete non-existing element
     pl.erase(1000);
@@ -742,6 +748,12 @@ TEST(PostingListTest, CompactPostingListUpsertAppends) {
     ASSERT_EQ(15, list->capacity);
     ASSERT_EQ(1002, list->last_id());
     ASSERT_EQ(3, list->num_ids());
+
+    ASSERT_TRUE(list->contains(0));
+    ASSERT_TRUE(list->contains(1000));
+    ASSERT_TRUE(list->contains(1002));
+    ASSERT_FALSE(list->contains(500));
+    ASSERT_FALSE(list->contains(2));
 
     // no-op since the container expects resizing to be done outside
     list->upsert(1003, {1, 2});

@@ -29,7 +29,7 @@ public:
         // link to next block
         block_t* next = nullptr;
 
-        void insert_and_shift_offset_index(uint32_t index, uint32_t num_offsets);
+        bool contains(uint32_t id);
 
         void remove_and_shift_offset_index(const uint32_t* indices_sorted, uint32_t num_indices);
 
@@ -122,6 +122,8 @@ public:
     uint32_t first_id();
 
     block_t* block_of(last_id_t id);
+
+    bool contains(uint32_t id);
 
     iterator_t new_iterator();
 
