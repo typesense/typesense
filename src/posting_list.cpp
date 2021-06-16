@@ -506,12 +506,13 @@ uint32_t posting_list_t::first_id() {
     return root_block.ids.at(0);
 }
 
-posting_list_t::block_t* posting_list_t::block_of(last_id_t id) {
-    auto it = id_block_map.find(id);
-    if(it != id_block_map.end()) {
-        return it->second;
+posting_list_t::block_t* posting_list_t::block_of(uint32_t id) {
+    const auto it = id_block_map.lower_bound(id);
+    if(it == id_block_map.end()) {
+        return nullptr;
     }
-    return nullptr;
+
+    return it->second;
 }
 
 
@@ -706,6 +707,10 @@ bool posting_list_t::get_offsets(posting_list_t::result_iter_state_t& iter_state
         for(size_t j = 0; j < iter_state.blocks[i].size(); j++) {
             block_t* curr_block = iter_state.blocks[i][j];
             uint32_t curr_index = iter_state.indices[i][j];
+
+            if(curr_block == nullptr || curr_index == UINT32_MAX) {
+                continue;
+            }
 
             uint32_t* offsets = curr_block->offsets.uncompress();
 
