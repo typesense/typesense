@@ -95,4 +95,10 @@ public:
     static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
+
+    static void get_array_token_positions(
+        uint32_t id,
+        const std::vector<void*>& posting_lists,
+        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec
+    );
 };

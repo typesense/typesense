@@ -416,3 +416,45 @@ void posting_t::destroy_list(void*& obj) {
 
     obj = nullptr;
 }
+
+void posting_t::get_array_token_positions(uint32_t id, const std::vector<void*>& raw_posting_lists,
+                                          std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec) {
+
+    std::vector<posting_list_t*> plists;
+    std::vector<uint32_t> expanded_plist_indices;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+
+    posting_list_t::result_iter_state_t iter_state;
+    iter_state.ids.push_back(id);
+
+    iter_state.indices.emplace_back();
+    iter_state.blocks.emplace_back();
+
+    std::vector<posting_list_t::block_t*>& block_vec = iter_state.blocks.back();
+    std::vector<uint32_t>& index_vec = iter_state.indices.back();
+
+    for(posting_list_t* pl: plists) {
+        posting_list_t::block_t* block = pl->block_of(id);
+        block_vec.push_back(block);
+
+        bool found_index = false;
+
+        if(block != nullptr) {
+            uint32_t index = block->ids.indexOf(id);
+            if(index != block->ids.getLength()) {
+                index_vec.push_back(index);
+                found_index = true;
+            }
+        }
+
+        if(!found_index) {
+            index_vec.push_back(UINT32_MAX);
+        }
+    }
+
+    posting_list_t::get_offsets(iter_state, array_token_positions_vec);
+
+    for(uint32_t expanded_plist_index: expanded_plist_indices) {
+        delete plists[expanded_plist_index];
+    }
+}
