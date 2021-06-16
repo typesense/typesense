@@ -269,14 +269,14 @@ void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& off
         }
 
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         list->upsert(id, offsets);
     }
 }
 
 void posting_t::erase(void*& obj, uint32_t id) {
     if(IS_COMPACT_POSTING(obj)) {
-        compact_posting_list_t* list = (compact_posting_list_t*) RAW_POSTING_PTR(obj);
+        compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         list->erase(id);
 
         // if the list becomes too small, we resize it to save memory
@@ -295,9 +295,10 @@ void posting_t::erase(void*& obj, uint32_t id) {
         }
 
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         list->erase(id);
-        if(list->num_blocks() == 1 && list->get_root()->size() <= 10) {
+
+        if(list->num_blocks() == 1 && ((2 * list->get_root()->size()) + list->get_root()->offsets.getLength()) <= COMPACT_LIST_THRESHOLD_LENGTH) {
             // convert to compact posting format
             auto root_block = list->get_root();
             auto ids = root_block->ids.uncompress();
@@ -311,9 +312,9 @@ void posting_t::erase(void*& obj, uint32_t id) {
             delete [] ids;
             delete [] offset_index;
             delete [] offsets;
-            free(list);
+            delete list;
 
-            obj = COMPACT_POSTING_PTR(compact_list);
+            obj = SET_COMPACT_POSTING(compact_list);
         }
     }
 }
@@ -323,7 +324,7 @@ uint32_t posting_t::num_ids(const void* obj) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         return list->num_ids();
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         return list->num_ids();
     }
 }
@@ -333,7 +334,7 @@ uint32_t posting_t::first_id(const void* obj) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         return list->first_id();
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         return list->first_id();
     }
 }
@@ -343,7 +344,7 @@ bool posting_t::contains(const void* obj, uint32_t id) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         return list->contains(id);
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         return list->contains(id);
     }
 }
@@ -353,7 +354,7 @@ bool posting_t::contains_atleast_one(const void* obj, const uint32_t* target_ids
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         return list->contains_atleast_one(target_ids, target_ids_size);
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         return list->contains_atleast_one(target_ids, target_ids_size);
     }
 }
@@ -394,7 +395,7 @@ void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, 
             plists.emplace_back(compact_posting_list->to_full_posting_list());
             expanded_plist_indices.push_back(i);
         } else {
-            posting_list_t* full_posting_list = (posting_list_t*) RAW_POSTING_PTR(raw_posting_list);
+            posting_list_t* full_posting_list = (posting_list_t*)(raw_posting_list);
             plists.emplace_back(full_posting_list);
         }
     }
@@ -409,7 +410,7 @@ void posting_t::destroy_list(void*& obj) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         free(list); // assigned via malloc, so must be free()d
     } else {
-        posting_list_t* list = (posting_list_t*) RAW_POSTING_PTR(obj);
+        posting_list_t* list = (posting_list_t*)(obj);
         delete list;
     }
 
