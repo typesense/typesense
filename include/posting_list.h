@@ -121,7 +121,7 @@ public:
 
     uint32_t first_id();
 
-    block_t* block_of(last_id_t id);
+    block_t* block_of(uint32_t id);
 
     bool contains(uint32_t id);
 
