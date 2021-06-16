@@ -1059,6 +1059,48 @@ TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
     posting_t::destroy_list(obj);
 }
 
+TEST(PostingListTest, CompactToFullPostingListConversion) {
+    uint32_t ids[] = {5, 6, 7, 8};
+    uint32_t offset_index[] = {0, 3, 6, 9};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* c1 = compact_posting_list_t::create(4, ids, offset_index, 12, offsets);
+    posting_list_t* p1 = c1->to_full_posting_list();
+
+    ASSERT_EQ(4, c1->num_ids());
+    ASSERT_EQ(4, p1->num_ids());
+}
+
+TEST(PostingListTest, BlockIntersectionOnMixedLists) {
+    uint32_t ids[] = {5, 6, 7, 8};
+    uint32_t offset_index[] = {0, 3, 6, 9};
+    uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
+
+    compact_posting_list_t* list1 = compact_posting_list_t::create(4, ids, offset_index, 12, offsets);
+
+    posting_list_t p1(2);
+    std::vector<uint32_t> offsets1 = {2, 4};
+
+    p1.upsert(0, offsets1);
+    p1.upsert(5, offsets1);
+    p1.upsert(8, offsets1);
+    p1.upsert(20, offsets1);
+
+    std::vector<void*> raw_posting_lists = {SET_COMPACT_POSTING(list1), &p1};
+    posting_list_t::result_iter_state_t iter_state;
+    posting_t::block_intersector_t intersector(raw_posting_lists, 1, iter_state);
+
+    ASSERT_TRUE(intersector.intersect());
+    ASSERT_EQ(1, iter_state.ids.size());
+    ASSERT_EQ(5, iter_state.ids[0]);
+
+    ASSERT_FALSE(intersector.intersect());
+    ASSERT_EQ(1, iter_state.ids.size());
+    ASSERT_EQ(8, iter_state.ids[0]);
+
+    free(list1);
+}
+
 TEST(PostingListTest, DISABLED_Benchmark) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(4096);

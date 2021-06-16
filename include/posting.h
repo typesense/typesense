@@ -47,6 +47,37 @@ private:
 
 public:
 
+    struct block_intersector_t {
+        size_t batch_size;
+        std::vector<posting_list_t::iterator_t> its;
+        std::vector<posting_list_t*> plists;
+        std::vector<uint32_t> expanded_plist_indices;
+
+        posting_list_t::result_iter_state_t& iter_state;
+
+        block_intersector_t(const std::vector<void*>& raw_posting_lists,
+                            size_t batch_size,
+                            posting_list_t::result_iter_state_t& iter_state):
+                            batch_size(batch_size), iter_state(iter_state) {
+            to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+
+            its.reserve(plists.size());
+            for(const auto& posting_list: plists) {
+                its.push_back(posting_list->new_iterator());
+            }
+        }
+
+        ~block_intersector_t() {
+            for(uint32_t expanded_plist_index: expanded_plist_indices) {
+                delete plists[expanded_plist_index];
+            }
+        }
+
+        bool intersect() {
+            return posting_list_t::block_intersect(plists, batch_size, its, iter_state);;
+        }
+    };
+
     static void upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets);
 
     static void erase(void*& obj, uint32_t id);
@@ -64,11 +95,4 @@ public:
     static void merge(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<void*>& posting_lists, std::vector<uint32_t>& result_ids);
-
-    static bool block_intersect(
-        const std::vector<void*>& posting_lists,
-        size_t batch_size,
-        std::vector<posting_list_t::iterator_t>& its,
-        posting_list_t::result_iter_state_t& iter_state
-    );
 };
