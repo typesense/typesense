@@ -11,7 +11,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
     int64_t new_storage_needed = 0;
 
     if(length == 0 || id > last_id) {
-        new_storage_needed = num_offsets + 2;
+        new_storage_needed = sizeof(uint32_t) * (num_offsets + 2);
         if(length + new_storage_needed > capacity) {
             // enough storage should have been provided upstream
             return (length + new_storage_needed) - capacity;
@@ -34,7 +34,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
             size_t existing_id = id_offsets[i + num_existing_offsets + 1];
 
             if(existing_id == id) {
-                new_storage_needed = (num_offsets - num_existing_offsets);
+                new_storage_needed = sizeof(uint32_t) * (num_offsets - num_existing_offsets);
                 if(new_storage_needed > 0) {
                     if(length + new_storage_needed > capacity) {
                         // enough storage should have been provided upstream
@@ -71,7 +71,7 @@ int64_t compact_posting_list_t::upsert(const uint32_t id, const uint32_t* offset
             }
 
             else if(existing_id > id) {
-                new_storage_needed = (num_offsets + 2);
+                new_storage_needed = sizeof(uint32_t) * (num_offsets + 2);
                 if(length + new_storage_needed > capacity) {
                     // enough storage should have been provided upstream
                     return (length + new_storage_needed) - capacity;
@@ -134,7 +134,7 @@ void compact_posting_list_t::erase(const uint32_t id) {
     ids_length--;
 }
 
-compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, uint32_t* ids, const uint32_t* offset_index,
+compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
                                                        uint32_t num_offsets, uint32_t* offsets) {
     // format: num_offsets, offset1,..,offsetn, id1 | num_offsets, offset1,..,offsetn, id2
 
@@ -420,6 +420,10 @@ bool posting_t::block_intersect(const std::vector<void*>& raw_posting_lists, siz
 }
 
 void posting_t::destroy_list(void*& obj) {
+    if(obj == nullptr) {
+        return;
+    }
+
     if(IS_COMPACT_POSTING(obj)) {
         compact_posting_list_t* list = COMPACT_POSTING_PTR(obj);
         free(list); // assigned via malloc, so must be free()d

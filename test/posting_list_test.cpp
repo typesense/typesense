@@ -1043,8 +1043,10 @@ TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
     compact_posting_list_t* list1 = compact_posting_list_t::create(4, ids, offset_index, 12, offsets);
     ASSERT_TRUE(list1->contains_atleast_one(&target_ids1[0], target_ids1.size()));
     ASSERT_FALSE(list1->contains_atleast_one(&target_ids2[0], target_ids2.size()));
+    free(list1);
 
     compact_posting_list_t* list2 = static_cast<compact_posting_list_t*>(malloc(sizeof(compact_posting_list_t)));
+    list2->capacity = list2->ids_length = list2->length = 0;
     void* obj = SET_COMPACT_POSTING(list2);
     posting_t::upsert(obj, 3, {1, 5});
 
@@ -1053,6 +1055,8 @@ TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
 
     ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids3[0], target_ids3.size()));
     ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids4[0], target_ids4.size()));
+
+    posting_t::destroy_list(obj);
 }
 
 TEST(PostingListTest, DISABLED_Benchmark) {

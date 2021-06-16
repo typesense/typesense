@@ -18,7 +18,7 @@ struct compact_posting_list_t {
     // format: num_offsets, offset1,..,offsetn, id1 | num_offsets, offset1,..,offsetn, id2
     uint32_t id_offsets[];
 
-    static compact_posting_list_t* create(uint32_t num_ids, uint32_t* ids, const uint32_t* offset_index,
+    static compact_posting_list_t* create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
                                           uint32_t num_offsets, uint32_t* offsets);
 
     posting_list_t* to_full_posting_list();

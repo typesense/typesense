@@ -5,7 +5,7 @@
 /* block_t operations */
 
 uint32_t posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
-    if(id <= ids.last()) {
+    if(id <= ids.last() && ids.getLength() != 0) {
         // we have to check if `id` already exists, for an opportunity to do in-place updates
         uint32_t id_index = ids.indexOf(id);
 
