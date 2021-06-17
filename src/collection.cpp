@@ -1310,6 +1310,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(token[0] == '-') {
                 exclude_operator_prior = true;
                 token = token.substr(1);
+            } else {
+                // remove hyphens (added earlier for supporting negation syntax)
+                // to maintain parity with indexing which currently removing special symbols
+                token.erase(std::remove(token.begin(), token.end(), '-'), token.end());
             }
 
             if(exclude_operator_prior) {
