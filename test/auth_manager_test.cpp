@@ -17,7 +17,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        auth_manager.init(store);
+        auth_manager.init(store, "bootstrap-key");
     }
 
     virtual void SetUp() {
@@ -53,6 +53,18 @@ TEST_F(AuthManagerTest, CreateListDeleteAPIKeys) {
     insert_op = auth_manager.create_key(api_key2);
     ASSERT_TRUE(insert_op.ok());
     ASSERT_EQ(5, insert_op.get().value.size());
+
+    // reject on conflict
+    insert_op = auth_manager.create_key(api_key2);
+    ASSERT_FALSE(insert_op.ok());
+    ASSERT_EQ(409, insert_op.code());
+    ASSERT_EQ("API key generation conflict.", insert_op.error());
+
+    api_key2.value = "bootstrap-key";
+    insert_op = auth_manager.create_key(api_key2);
+    ASSERT_FALSE(insert_op.ok());
+    ASSERT_EQ(409, insert_op.code());
+    ASSERT_EQ("API key generation conflict.", insert_op.error());
 
     // get an individual key
 
@@ -106,7 +118,7 @@ TEST_F(AuthManagerTest, CheckRestoreOfAPIKeys) {
     std::string key_value2 = auth_manager.create_key(api_key2).get().value;
 
     AuthManager auth_manager2;
-    auth_manager2.init(store);
+    auth_manager2.init(store, "bootstrap-key");
 
     // list keys
 

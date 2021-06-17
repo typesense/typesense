@@ -5,12 +5,13 @@
 constexpr const char* AuthManager::DOCUMENTS_SEARCH_ACTION;
 constexpr const uint64_t api_key_t::FAR_FUTURE_TIMESTAMP;
 
-Option<bool> AuthManager::init(Store *store) {
+Option<bool> AuthManager::init(Store* store, const std::string& bootstrap_auth_key) {
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     //LOG(INFO) << "AuthManager::init()";
     std::unique_lock lock(mutex);
 
     this->store = store;
+    this->bootstrap_auth_key = bootstrap_auth_key;
 
     std::string next_api_key_id_str;
     StoreStatus next_api_key_id_status = store->get(API_KEY_NEXT_ID_KEY, next_api_key_id_str);
@@ -95,7 +96,7 @@ Option<api_key_t> AuthManager::create_key(api_key_t& api_key) {
     //LOG(INFO) << "AuthManager::create_key()";
     std::unique_lock lock(mutex);
 
-    if(api_keys.count(api_key.value) != 0) {
+    if(api_keys.count(api_key.value) != 0 || api_key.value == bootstrap_auth_key) {
         return Option<api_key_t>(409, "API key generation conflict.");
     }
 
