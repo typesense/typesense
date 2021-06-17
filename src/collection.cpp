@@ -497,7 +497,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   const std::string & simple_facet_query,
                                   const size_t snippet_threshold,
                                   const size_t highlight_affix_num_tokens,
-                                  const std::string & highlight_full_fields,
+                                  const std::string& highlight_full_fields,
                                   size_t typo_tokens_threshold,
                                   const std::string& pinned_hits_str,
                                   const std::string& hidden_hits_str,
@@ -509,7 +509,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   size_t limit_hits,
                                   bool prioritize_exact_match,
                                   bool pre_segmented_query,
-                                  bool enable_overrides) const {
+                                  bool enable_overrides,
+                                  const std::string& highlight_fields) const {
 
     std::shared_lock lock(mutex);
 
@@ -1089,18 +1090,35 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             spp::sparse_hash_set<std::string> fields_highlighted_fully;
             StringUtils::split(highlight_full_fields, fields_highlighted_fully_vec, ",");
 
+            std::vector<std::string> fields_highlighted_vec;
+            std::vector<size_t> fields_highlighted_indices;
+            if(highlight_fields.empty()) {
+                for(size_t i = 0; i < search_fields.size(); i++) {
+                    const auto& field_name = search_fields[i];
+                    // should not pick excluded field for highlighting
+                    if(exclude_fields.count(field_name) > 0) {
+                        continue;
+                    }
+
+                    fields_highlighted_vec.emplace_back(field_name);
+                    fields_highlighted_indices.push_back(i);
+                }
+            } else {
+                if(query != "*") {
+                    StringUtils::split(highlight_fields, fields_highlighted_vec, ",");
+                    for(size_t i = 0; i < fields_highlighted_vec.size(); i++) {
+                        fields_highlighted_indices.push_back(0);
+                    }
+                }
+            }
+
             for(std::string & highlight_full_field: fields_highlighted_fully_vec) {
                 fields_highlighted_fully.emplace(highlight_full_field);
             }
 
-            for(size_t i = 0; i < search_fields.size(); i++) {
-                const std::string& field_name = search_fields[i];
-                const std::vector<std::string>& q_tokens = field_query_tokens[i].q_include_tokens;
-
-                // should not pick excluded field for highlighting
-                if(exclude_fields.count(field_name) > 0) {
-                    continue;
-                }
+            for(size_t i = 0; i < fields_highlighted_vec.size(); i++) {
+                const std::string& field_name = fields_highlighted_vec[i];
+                const std::vector<std::string>& q_tokens = field_query_tokens[fields_highlighted_indices[i]].q_include_tokens;
 
                 field search_field = search_schema.at(field_name);
                 if(query != "*" && (search_field.type == field_types::STRING ||

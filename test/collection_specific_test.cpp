@@ -56,3 +56,90 @@ TEST_F(CollectionSpecificTest, SearchTextWithHyphen) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The quick brown fox was too fast.";
+    doc["description"] = "A story about a brown fox who was fast.";
+    doc["author"] = "David Pernell";
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("brown fox pernell", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}, 10000, true, false, true, "description,author").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("A story about a <mark>brown</mark> <mark>fox</mark> who was fast.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("author", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("David <mark>Pernell</mark>", results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    // excluded fields are NOT respected if explicit highlight fields are provided
+
+    results = coll1->search("brown fox pernell", {"title"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            {"description"}, 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 10000, true, false, true, "description,author").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_FALSE(results["hits"][0]["document"].contains("description"));
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("author", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+
+    // query not matching field selected for highlighting
+
+    results = coll1->search("pernell", {"title", "author"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            {"description"}, 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1,1}, 10000, true, false, true, "description").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    // wildcard query with search field names
+
+    results = coll1->search("*", {"title", "author"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            {"description"}, 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1,1}, 10000, true, false, true, "description,author").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    // wildcard query without search field names
+
+    results = coll1->search("*", {}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            {"description"}, 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1,1}, 10000, true, false, true, "description,author").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    collectionManager.drop_collection("coll1");
+}

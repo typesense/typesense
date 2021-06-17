@@ -534,7 +534,8 @@ public:
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
-                                  bool enable_overrides=true) const;
+                                  bool enable_overrides=true,
+                                  const std::string& highlight_fields="") const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
