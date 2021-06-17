@@ -495,6 +495,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     // list of fields which will be highlighted fully without snippeting
     const char *HIGHLIGHT_FULL_FIELDS = "highlight_full_fields";
+    const char *HIGHLIGHT_FIELDS = "highlight_fields";
 
     const char *HIGHLIGHT_START_TAG = "highlight_start_tag";
     const char *HIGHLIGHT_END_TAG = "highlight_end_tag";
@@ -544,6 +545,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(req_params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
         req_params[HIGHLIGHT_FULL_FIELDS] = "";
+    }
+
+    if(req_params.count(HIGHLIGHT_FIELDS) == 0) {
+        req_params[HIGHLIGHT_FIELDS] = "";
     }
 
     if(req_params.count(HIGHLIGHT_START_TAG) == 0) {
@@ -768,7 +773,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           static_cast<size_t>(std::stol(req_params[LIMIT_HITS])),
                                                           prioritize_exact_match,
                                                           pre_segmented_query,
-                                                          enable_overrides
+                                                          enable_overrides,
+                                                          req_params[HIGHLIGHT_FIELDS]
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
