@@ -103,7 +103,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     // This function must be idempotent, i.e. when called multiple times, must produce the same state without leaks
     LOG(INFO) << "CollectionManager::load()";
 
-    Option<bool> auth_init_op = auth_manager.init(store);
+    Option<bool> auth_init_op = auth_manager.init(store, bootstrap_auth_key);
     if(!auth_init_op.ok()) {
         LOG(ERROR) << "Auth manager init failed, error=" << auth_init_op.error();
     }
