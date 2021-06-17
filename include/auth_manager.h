@@ -85,6 +85,8 @@ private:
     std::map<std::string, api_key_t> api_keys;  // stores key_value => key mapping
     Store *store;
 
+    std::string bootstrap_auth_key;
+
     // Auto incrementing API KEY ID
     std::atomic<uint32_t> next_api_key_id;
 
@@ -112,7 +114,7 @@ public:
 
     AuthManager() = default;
 
-    Option<bool> init(Store *store);
+    Option<bool> init(Store* store, const std::string& bootstrap_auth_key);
 
     Option<std::vector<api_key_t>> list_keys() const;
 
