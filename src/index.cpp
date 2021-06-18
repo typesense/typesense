@@ -1086,7 +1086,33 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
             size_t value_index = 0;
             for(const std::string & filter_value: a_filter.values) {
                 int64_t bool_int64 = (filter_value == "1") ? 1 : 0;
-                num_tree->search(a_filter.comparators[value_index], bool_int64, &result_ids, result_ids_len);
+                if(a_filter.comparators[value_index] == NOT_EQUALS) {
+                    uint32_t* to_exclude_ids = nullptr;
+                    size_t to_exclude_ids_len = 0;
+                    num_tree->search(EQUALS, bool_int64, &to_exclude_ids, to_exclude_ids_len);
+
+                    auto all_ids = seq_ids.uncompress();
+                    auto all_ids_size = seq_ids.getLength();
+
+                    uint32_t* excluded_ids = nullptr;
+                    size_t excluded_ids_len = 0;
+
+                    excluded_ids_len = ArrayUtils::exclude_scalar(all_ids, all_ids_size, to_exclude_ids,
+                                                                  to_exclude_ids_len, &excluded_ids);
+
+                    delete [] all_ids;
+                    delete [] to_exclude_ids;
+
+                    uint32_t *out = nullptr;
+                    result_ids_len = ArrayUtils::or_scalar(result_ids, result_ids_len,
+                                                           excluded_ids, excluded_ids_len, &out);
+                    delete [] result_ids;
+                    result_ids = out;
+                    delete [] excluded_ids;
+                } else {
+                    num_tree->search(a_filter.comparators[value_index], bool_int64, &result_ids, result_ids_len);
+                }
+
                 value_index++;
             }
 
@@ -1200,7 +1226,9 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     posting_lists.push_back(leaf->values);
                 }
 
-                if(posting_lists.size() != str_tokens.size()) {
+                // For NOT_EQUALS alone, it is okay for none of the results to match prior to negation
+                // e.g. field:- [RANDOM_NON_EXISTING_STRING]
+                if(a_filter.comparators[0] != NOT_EQUALS && posting_lists.size() != str_tokens.size()) {
                     continue;
                 }
 
