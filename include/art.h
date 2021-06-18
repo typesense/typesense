@@ -99,7 +99,7 @@ typedef struct {
 typedef struct {
     uint32_t key_len;
     int64_t max_score;
-    art_values* values;
+    void* values;
     unsigned char key[];
 } art_leaf;
 
@@ -118,8 +118,7 @@ typedef struct {
 typedef struct {
     int32_t score;
     uint32_t id;
-    uint32_t offsets_len;
-    uint32_t* offsets;
+    std::vector<uint32_t> offsets;
 } art_document;
 
 enum token_ordering {
@@ -186,7 +185,7 @@ inline uint64_t art_size(art_tree *t) {
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document, uint32_t num_hits);
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document);
 
 /**
  * Deletes a value from the ART tree

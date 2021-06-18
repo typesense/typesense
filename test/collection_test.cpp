@@ -75,7 +75,7 @@ protected:
         std::vector<std::string> strs;
 
         for(size_t i = 0 ; i < num_words ; i++ ) {
-            int word_index = rand() % 100;
+            int word_index = rand() % words.size();
             strs.push_back(words[word_index]);
         }
         return StringUtils::join(strs, " ");
@@ -1182,6 +1182,50 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(409, import_results[1]["code"].get<size_t>());
 }
 
+TEST_F(CollectionTest, DISABLED_CrashTroubleshooting) {
+    Collection *coll1;
+    std::vector<field> fields = {
+            field("title", field_types::STRING_ARRAY, false, true),
+            field("points", field_types::INT32, false)
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+    }
+
+    std::ifstream create_file("/tmp/create.jsonl");
+    std::string json_line;
+    std::vector<std::string> create_records;
+
+    while (std::getline(create_file, json_line)) {
+        create_records.push_back(json_line);
+    }
+
+    create_file.close();
+
+    nlohmann::json document;
+    auto import_response = coll1->add_many(create_records, document, CREATE);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // now try to upsert
+
+    std::ifstream upsert_file("/tmp/upsert.jsonl");
+    std::vector<std::string> upsert_records;
+
+    while (std::getline(upsert_file, json_line)) {
+        upsert_records.push_back(json_line);
+    }
+
+    upsert_file.close();
+
+    import_response = coll1->add_many(upsert_records, document, UPSERT);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+}
 
 TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     Collection *coll1;

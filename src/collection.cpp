@@ -15,6 +15,7 @@
 #include <h3api.h>
 #include <regex>
 #include <list>
+#include <posting.h>
 #include "topster.h"
 #include "logger.h"
 
@@ -1478,11 +1479,10 @@ void Collection::highlight_result(const field &search_field,
         return ;
     }
 
-    std::vector<uint32_t*> leaf_to_indices;
     std::vector<art_leaf*> query_suggestion;
     std::set<std::string> query_suggestion_tokens;
 
-    for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
+    for (const art_leaf* token_leaf : searched_queries[field_order_kv->query_index]) {
         // Must search for the token string fresh on that field for the given document since `token_leaf`
         // is from the best matched field and need not be present in other fields of a document.
         Index* index = indices[field_order_kv->key % num_memory_shards];
@@ -1494,11 +1494,6 @@ void Collection::highlight_result(const field &search_field,
             query_suggestion.push_back(actual_leaf);
             std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len-1);
             query_suggestion_tokens.insert(token);
-            std::vector<uint16_t> positions;
-            uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
-            auto doc_indices = new uint32_t[1];
-            doc_indices[0] = doc_index;
-            leaf_to_indices.push_back(doc_indices);
         }
     }
 
@@ -1514,30 +1509,31 @@ void Collection::highlight_result(const field &search_field,
                                                           reinterpret_cast<const unsigned char *>(q_token.c_str()),
                                                           q_token.size() + 1);
             if(actual_leaf != nullptr) {
-                std::vector<uint16_t> positions;
-                uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
-                if(doc_index != actual_leaf->values->ids.getLength()) {
-                    auto doc_indices = new uint32_t[1];
-                    doc_indices[0] = doc_index;
-                    leaf_to_indices.push_back(doc_indices);
-                    query_suggestion.push_back(actual_leaf);
-                }
+                query_suggestion.push_back(actual_leaf);
             }
         }
     }
 
     if(query_suggestion.empty()) {
         // none of the tokens from the query were found on this field
-        free_leaf_indices(leaf_to_indices);
         return ;
     }
 
     //LOG(INFO) << "Document ID: " << document["id"];
 
-    // positions in the field of each token in the query
-    std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
-    Index::populate_token_positions(query_suggestion, leaf_to_indices, 0, array_token_positions);
+    std::vector<void*> posting_lists;
+    for(art_leaf* leaf: query_suggestion) {
+        posting_lists.push_back(leaf->values);
+    }
 
+    std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
+    posting_t::get_array_token_positions(field_order_kv->key, posting_lists, array_token_positions_vec);
+
+    if(array_token_positions_vec.empty()) {
+        return;
+    }
+
+    std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions = array_token_positions_vec[0];
     std::vector<match_index_t> match_indices;
 
     for(const auto& kv: array_token_positions) {
@@ -1559,7 +1555,6 @@ void Collection::highlight_result(const field &search_field,
 
     if(match_indices.empty()) {
         // none of the tokens from the query were found on this field
-        free_leaf_indices(leaf_to_indices);
         return ;
     }
 
@@ -1707,8 +1702,6 @@ void Collection::highlight_result(const field &search_field,
 
     highlight.field = search_field.name;
     highlight.match_score = match_indices[0].match_score;
-
-    free_leaf_indices(leaf_to_indices);
 }
 
 void Collection::free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const {

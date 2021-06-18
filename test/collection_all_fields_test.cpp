@@ -505,6 +505,8 @@ TEST_F(CollectionAllFieldsTest, StringSingularAllValues) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ("123", results["hits"][0]["document"]["int_values"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {

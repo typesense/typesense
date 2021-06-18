@@ -12,6 +12,7 @@
 #include <limits>
 #include <queue>
 #include <stdint.h>
+#include <posting.h>
 #include "art.h"
 #include "logger.h"
 
@@ -39,10 +40,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                            NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
-static void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets);
-
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
-    return a->values->ids.getLength() > b->values->ids.getLength();
+    return posting_t::num_ids(a->values) > posting_t::num_ids(b->values);
 }
 
 bool compare_art_leaf_score(const art_leaf *a, const art_leaf *b) {
@@ -54,12 +53,12 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
-        a_value = al->values->ids.getLength();
+        a_value = posting_t::num_ids(al->values);
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
-        b_value = bl->values->ids.getLength();
+        b_value = posting_t::num_ids(bl->values);
     }
 
     return a_value > b_value;
@@ -138,7 +137,7 @@ static void destroy_node(art_node *n) {
     // Special case leafs
     if (IS_LEAF(n)) {
         art_leaf *leaf = (art_leaf *) LEAF_RAW(n);
-        delete leaf->values;
+        posting_t::destroy_list(leaf->values);
         free(leaf);
         return;
     }
@@ -415,47 +414,20 @@ art_leaf* art_maximum(art_tree *t) {
 
 static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
     leaf->max_score = MAX(leaf->max_score, document->score);
-    size_t inserted_index = leaf->values->ids.append(document->id);
-
-    if(inserted_index == leaf->values->ids.getLength()-1) {
-        // treat as appends
-        uint32_t curr_index = leaf->values->offsets.getLength();
-        leaf->values->offset_index.append(curr_index);
-        for(uint32_t i=0; i<document->offsets_len; i++) {
-            leaf->values->offsets.append(document->offsets[i]);
-        }
-    } else {
-        uint32_t existing_offset_index = leaf->values->offset_index.at(inserted_index);
-        insert_and_shift_offset_index(leaf->values->offset_index, inserted_index, document->offsets_len);
-        leaf->values->offsets.insert(existing_offset_index, document->offsets, document->offsets_len);
-    }
-}
-
-void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets) {
-    uint32_t existing_offset_index = offset_index.at(index);
-    uint32_t length = offset_index.getLength();
-    uint32_t new_length = length + 1;
-    uint32_t *curr_array = offset_index.uncompress(new_length);
-
-    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length - index));
-    curr_array[index] = existing_offset_index;
-
-    uint32_t curr_index = index + 1;
-    while(curr_index < new_length) {
-        curr_array[curr_index] += num_offsets;
-        curr_index++;
-    }
-
-    offset_index.load(curr_array, new_length);
-
-    delete [] curr_array;
+    posting_t::upsert(leaf->values, document->id, document->offsets);
 }
 
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
-    l->values = new art_values;
-    l->max_score = 0;
     l->key_len = key_len;
+    l->max_score = 0;
+
+    uint32_t ids[1] = {document->id};
+    uint32_t offset_index[1] = {0};
+    compact_posting_list_t* list = compact_posting_list_t::create(1, ids, offset_index, document->offsets.size(),
+                                                                  &document->offsets[0]);
+    l->values = SET_COMPACT_POSTING(list);
+
     memcpy(l->key, key, key_len);
     add_document_to_leaf(document, l);
     return l;
@@ -622,7 +594,7 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, uint32_t num_hits, int depth, int *old) {
+static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, int depth, int *old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
         *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
@@ -636,14 +608,8 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
             *old = 1;
-            art_values *ret_val = l->values;
-
-            // updates are not supported
-            if(!l->values->ids.contains(document->id)) {
-                add_document_to_leaf(document, l);
-            }
-            
-            return ret_val;
+            add_document_to_leaf(document, l);
+            return l->values;
         }
 
         // New value, we must split the leaf into a node4
@@ -705,7 +671,7 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, document, num_hits, depth + 1, old);
+        return recursive_insert(*child, child, key, key_len, document, depth + 1, old);
     }
 
     // No child, node goes within us
@@ -723,10 +689,10 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document, uint32_t num_hits) {
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document) {
     int old_val = 0;
 
-    void *old = recursive_insert(t->root, &t->root, key, key_len, document, num_hits, 0, &old_val);
+    void *old = recursive_insert(t->root, &t->root, key, key_len, document, 0, &old_val);
     if (!old_val) t->size++;
     return old;
 }
@@ -951,8 +917,8 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 results.push_back(l);
             } else {
                 // we will push leaf only if filter matches with leaf IDs
-                size_t found_len = l->values->ids.numFoundOf(filter_ids, filter_ids_length);
-                if(found_len != 0) {
+                bool found_atleast_one = posting_t::contains_atleast_one(l->values, filter_ids, filter_ids_length);
+                if(found_atleast_one) {
                     results.push_back(l);
                 }
             }
