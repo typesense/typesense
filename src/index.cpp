@@ -1202,7 +1202,9 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     query_suggestion.push_back(leaf);
                 }
 
-                if(query_suggestion.size() != str_tokens.size()) {
+                // For NOT_EQUALS alone, it is okay for none of the results to match prior to negation
+                // e.g. field:- [RANDOM_NON_EXISTING_STRING]
+                if(a_filter.comparators[0] != NOT_EQUALS && query_suggestion.size() != str_tokens.size()) {
                     continue;
                 }
 
