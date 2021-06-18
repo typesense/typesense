@@ -2232,7 +2232,7 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 // string filter should be evaluated in strict "equals" mode
                 str_comparator = EQUALS;
                 while(raw_value[++filter_value_index] == ' ');
-            } else if(raw_value[0] == '-') {
+            } else if(raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
                 if(!_field.facet) {
                     // EXCLUDE filtering on string is possible only on facet fields
                     return Option<bool>(400, "To perform exclude filtering, filter field `" +
