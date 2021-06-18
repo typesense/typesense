@@ -1302,7 +1302,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
     }
 
     std::vector<std::vector<std::string>> records = {
