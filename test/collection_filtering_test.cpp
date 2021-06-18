@@ -1323,7 +1323,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {"artist"}, "artist:- Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto results = coll1->search("*", {"artist"}, "artist:!= Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
@@ -1331,14 +1331,14 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"artist"}, "artist:- Michael Jackson && points: >0", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:!= Michael Jackson && points: >0", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // negation operation on multiple values
 
-    results = coll1->search("*", {"artist"}, "artist:- [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:!= [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
