@@ -2156,6 +2156,27 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 }
             }
         } else if(_field.is_bool()) {
+            NUM_COMPARATOR bool_comparator = EQUALS;
+            size_t filter_value_index = 0;
+
+            if(raw_value[0] == '=') {
+                bool_comparator = EQUALS;
+                while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            } else if(raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
+                bool_comparator = NOT_EQUALS;
+                filter_value_index++;
+                while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            }
+
+            if(filter_value_index != 0) {
+                raw_value = raw_value.substr(filter_value_index);
+            }
+
+            if(filter_value_index == raw_value.size()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value cannot be empty.");
+            }
+
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
@@ -2169,14 +2190,15 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
 
                     filter_value = (filter_value == "true") ? "1" : "0";
                     f.values.push_back(filter_value);
-                    f.comparators.push_back(EQUALS);
+                    f.comparators.push_back(bool_comparator);
                 }
             } else {
                 if(raw_value != "true" && raw_value != "false") {
                     return Option<bool>(400, "Value of filter field `" + _field.name + "` must be `true` or `false`.");
                 }
+
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
-                f = {field_name, {bool_value}, {EQUALS}};
+                f = {field_name, {bool_value}, {bool_comparator}};
             }
 
         } else if(_field.is_geopoint()) {
