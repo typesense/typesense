@@ -129,6 +129,11 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
 
+    // bad filter value (empty)
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "tags:=", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
+
     collectionManager.drop_collection("coll_array_fields");
 }
 
@@ -319,7 +324,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     std::vector<field> fields = {field("name", field_types::STRING, false), field("age", field_types::INT32, false),
                                  field("years", field_types::INT32_ARRAY, false),
                                  field("timestamps", field_types::INT64_ARRAY, false),
-                                 field("tags", field_types::STRING_ARRAY, false)};
+                                 field("tags", field_types::STRING_ARRAY, true)};
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
@@ -363,6 +368,20 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     results = coll_array_fields->search("Jeremy", query_fields, "age: '21'", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
 
+    // empty value for a numerical filter field
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "age:", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `age`: Numerical field has an invalid comparator.", res_op.error());
+
+    // empty value for string filter field
+    res_op = coll_array_fields->search("Jeremy", query_fields, "tags:", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll_array_fields->search("Jeremy", query_fields, "tags:= ", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
+
     collectionManager.drop_collection("coll_array_fields");
 }
 
@@ -371,10 +390,10 @@ TEST_F(CollectionFilteringTest, FilterAndQueryFieldRestrictions) {
 
     std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
     std::vector<field> fields = {
-            field("title", field_types::STRING, false),
-            field("starring", field_types::STRING, false),
-            field("cast", field_types::STRING_ARRAY, true),
-            field("points", field_types::INT32, false)
+        field("title", field_types::STRING, false),
+        field("starring", field_types::STRING, false),
+        field("cast", field_types::STRING_ARRAY, true),
+        field("points", field_types::INT32, false)
     };
 
     coll_mul_fields = collectionManager.get_collection("coll_mul_fields").get();
@@ -1302,7 +1321,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -1323,7 +1342,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {"artist"}, "artist:- Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto results = coll1->search("*", {"artist"}, "artist:!=Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
@@ -1331,16 +1350,25 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
-    results = coll1->search("*", {"artist"}, "artist:- Michael Jackson && points: >0", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:!= Michael Jackson && points: >0", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // negation operation on multiple values
 
-    results = coll1->search("*", {"artist"}, "artist:- [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    results = coll1->search("*", {"artist"}, "artist:!= [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // empty value (bad filtering)
+    auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {"artist"}, "artist:!= ", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1435,4 +1463,138 @@ TEST_F(CollectionFilteringTest, NumericalRangeFilter) {
     ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, QueryBoolFields) {
+    Collection *coll_bool;
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/bool_documents.jsonl");
+    std::vector<field> fields = {
+            field("popular", field_types::BOOL, false),
+            field("title", field_types::STRING, false),
+            field("rating", field_types::FLOAT, false),
+            field("bool_array", field_types::BOOL_ARRAY, false),
+    };
+
+    std::vector<sort_by> sort_fields = { sort_by("popular", "DESC"), sort_by("rating", "DESC") };
+
+    coll_bool = collectionManager.get_collection("coll_bool").get();
+    if(coll_bool == nullptr) {
+        coll_bool = collectionManager.create_collection("coll_bool", 1, fields, "rating").get();
+    }
+
+    std::string json_line;
+
+    while (std::getline(infile, json_line)) {
+        coll_bool->add(json_line);
+    }
+
+    infile.close();
+
+    // Plain search with no filters - results should be sorted correctly
+    query_fields = {"title"};
+    std::vector<std::string> facets;
+    nlohmann::json results = coll_bool->search("the", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(5, results["hits"].size());
+
+    std::vector<std::string> ids = {"1", "3", "4", "9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // Searching on a bool field
+    results = coll_bool->search("the", query_fields, "popular:true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    ids = {"1", "3", "4"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // alternative `:=` syntax
+    results = coll_bool->search("the", query_fields, "popular:=true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    results = coll_bool->search("the", query_fields, "popular:false", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    results = coll_bool->search("the", query_fields, "popular:= false", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    ids = {"9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // searching against a bool array field
+
+    // should be able to filter with an array of boolean values
+    Option<nlohmann::json> res_op = coll_bool->search("the", query_fields, "bool_array:[true, false]", facets,
+                                                      sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(5, results["hits"].size());
+
+    results = coll_bool->search("the", query_fields, "bool_array: true", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ids = {"1", "4", "9", "2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // should be able to search using array with a single element boolean value
+
+    results = coll_bool->search("the", query_fields, "bool_array:[true]", facets,
+                                 sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string result_id = result["document"]["id"];
+        std::string id = ids.at(i);
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // not equals on bool field
+
+    results = coll_bool->search("the", query_fields, "popular:!= true", facets,
+                             sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // not equals on bool array field
+    results = coll_bool->search("the", query_fields, "bool_array:!= [true]", facets,
+                                sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // empty filter value
+    res_op = coll_bool->search("the", query_fields, "bool_array:=", facets,
+                                    sort_fields, {0}, 10, 1, FREQUENCY, {false});
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `bool_array`: Filter value cannot be empty.", res_op.error());
+
+    collectionManager.drop_collection("coll_bool");
 }
