@@ -129,6 +129,11 @@ TEST_F(CollectionFilteringTest, FilterOnTextFields) {
     results = coll_array_fields->search("Jeremy", query_fields, "tags:>BRONZE", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
 
+    // bad filter value (empty)
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "tags:=", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
+
     collectionManager.drop_collection("coll_array_fields");
 }
 
@@ -319,7 +324,7 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     std::vector<field> fields = {field("name", field_types::STRING, false), field("age", field_types::INT32, false),
                                  field("years", field_types::INT32_ARRAY, false),
                                  field("timestamps", field_types::INT64_ARRAY, false),
-                                 field("tags", field_types::STRING_ARRAY, false)};
+                                 field("tags", field_types::STRING_ARRAY, true)};
 
     std::vector<sort_by> sort_fields = { sort_by("age", "DESC") };
 
@@ -362,6 +367,20 @@ TEST_F(CollectionFilteringTest, HandleBadlyFormedFilterQuery) {
     // wrapping number with quotes
     results = coll_array_fields->search("Jeremy", query_fields, "age: '21'", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
+
+    // empty value for a numerical filter field
+    auto res_op = coll_array_fields->search("Jeremy", query_fields, "age:", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `age`: Numerical field has an invalid comparator.", res_op.error());
+
+    // empty value for string filter field
+    res_op = coll_array_fields->search("Jeremy", query_fields, "tags:", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll_array_fields->search("Jeremy", query_fields, "tags:= ", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `tags`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -1323,7 +1342,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("*", {"artist"}, "artist:!= Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto results = coll1->search("*", {"artist"}, "artist:!=Michael Jackson", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
 
@@ -1341,6 +1360,15 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     results = coll1->search("*", {"artist"}, "artist:!= [Michael Jackson, Taylor Swift]", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // empty value (bad filtering)
+    auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {"artist"}, "artist:!= ", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `artist`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
