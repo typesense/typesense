@@ -20,6 +20,7 @@
 #include "num_tree.h"
 #include "magic_enum.hpp"
 #include "match_score.h"
+#include "posting_list.h"
 
 struct token_t {
     size_t position;
@@ -309,8 +310,10 @@ public:
 
     void score_results(const std::vector<sort_by> &sort_fields, const uint16_t &query_index, const uint8_t &field_id,
                        const uint32_t total_cost, Topster *topster, const std::vector<art_leaf *> &query_suggestion,
-                       spp::sparse_hash_set<uint64_t> &groups_processed, const uint32_t *result_ids,
-                       const size_t result_size, const size_t group_limit,
+                       spp::sparse_hash_set<uint64_t> &groups_processed,
+                       const std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec,
+                       const uint32_t* result_ids, size_t result_ids_size,
+                       const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        const std::vector<token_t> &query_tokens, bool prioritize_exact_match) const;
 
@@ -325,10 +328,6 @@ public:
     static int64_t float_to_in64_t(float n);
 
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
-
-    void eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
-                             const std::vector<art_leaf *> &query_suggestion,
-                             uint32_t *exact_strt_ids, size_t& exact_strt_size) const;
 
     void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
 
@@ -374,16 +373,6 @@ public:
                                      const std::map<std::string, field> & facet_schema,
                                      const std::string& fallback_field_type);
 
-    static void populate_token_positions(const std::vector<art_leaf *> &query_suggestion,
-                                         const std::vector<uint32_t*>& leaf_to_indices,
-                                         const size_t result_index,
-                                         std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions);
-
-    /*static bool is_exact_token_match(const art_leaf* leaf,
-                                     const std::vector<uint32_t*>& leaf_to_indices,
-                                     const size_t result_index,
-                                     std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions);
-*/
     static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
 
     static double transform_for_180th_meridian(Geofence& poly);

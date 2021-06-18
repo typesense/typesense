@@ -3,6 +3,9 @@
 - Writes on dedicated threads
 - Single field aggregation short circuit
 - Test for group + multiple fields
+- Intersect with single posting list
+- Test for erase dropping elements below compressed list threshold
+- Test for array token positions
 
 **Search index**
 

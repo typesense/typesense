@@ -17,6 +17,7 @@
 #include <s2/s2earth.h>
 #include <s2/s2loop.h>
 #include <s2/s2builder.h>
+#include <posting.h>
 #include "logger.h"
 
 Index::Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
@@ -506,29 +507,15 @@ void Index::insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
         art_document art_doc;
         art_doc.id = seq_id;
         art_doc.score = score;
-        art_doc.offsets_len = (uint32_t) kv.second.size();
-        art_doc.offsets = new uint32_t[kv.second.size()];
+        art_doc.offsets = kv.second;
 
         uint32_t num_hits = 0;
 
         const unsigned char *key = (const unsigned char *) kv.first.c_str();
         int key_len = (int) kv.first.length() + 1;  // for the terminating \0 char
 
-        art_leaf* leaf = (art_leaf *) art_search(t, key, key_len);
-        if(leaf != NULL) {
-            num_hits = leaf->values->ids.getLength();
-        }
-
-        num_hits += 1;
-
-        for(size_t i=0; i<kv.second.size(); i++) {
-            art_doc.offsets[i] = kv.second[i];
-        }
-
         //LOG(INFO) << "key: " << key << ", art_doc.id: " << art_doc.id;
-        art_insert(t, key, key_len, &art_doc, num_hits);
-        delete [] art_doc.offsets;
-        art_doc.offsets = nullptr;
+        art_insert(t, key, key_len, &art_doc);
     }
 }
 
@@ -929,94 +916,105 @@ void Index::search_candidates(const uint8_t & field_id,
         }*/
 
         // initialize results with the starting element (for further intersection)
-        size_t result_size = query_suggestion[0]->values->ids.getLength();
+        size_t result_size = posting_t::num_ids(query_suggestion[0]->values);
         if(result_size == 0) {
             continue;
         }
 
-        uint32_t* result_ids = query_suggestion[0]->values->ids.uncompress();
+        // Prepare excluded document IDs that we can later remove from the result set
+        uint32_t* excluded_result_ids = nullptr;
+        size_t excluded_result_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                            &curated_ids[0], curated_ids.size(), &excluded_result_ids);
 
-        // intersect the document ids for each token to find docs that contain all the tokens (stored in `result_ids`)
-        for(size_t i=1; i < query_suggestion.size(); i++) {
-            uint32_t* out = nullptr;
-            uint32_t* ids = query_suggestion[i]->values->ids.uncompress();
-            result_size = ArrayUtils::and_scalar(ids, query_suggestion[i]->values->ids.getLength(), result_ids, result_size, &out);
-            delete[] ids;
-            delete[] result_ids;
-            result_ids = out;
+        std::vector<void*> posting_lists;
+
+        for(auto& query_leaf : query_suggestion) {
+            posting_lists.push_back(query_leaf->values);
         }
 
-        if(result_size == 0) {
-            delete[] result_ids;
-            continue;
-        }
+        std::vector<posting_list_t::iterator_t> its;
+        posting_list_t::result_iter_state_t iter_state;
+        std::vector<uint32_t> result_id_vec;
 
-        // Exclude document IDs associated with excluded tokens from the result set
-        if(exclude_token_ids_size != 0) {
-            uint32_t *excluded_result_ids = nullptr;
-            result_size = ArrayUtils::exclude_scalar(result_ids, result_size, exclude_token_ids, exclude_token_ids_size,
-                                                     &excluded_result_ids);
-            delete[] result_ids;
-            result_ids = excluded_result_ids;
-        }
+        size_t excluded_result_ids_index = 0;
+        size_t filter_ids_index = 0;
 
-        if(!curated_ids.empty()) {
-            uint32_t *excluded_result_ids = nullptr;
-            result_size = ArrayUtils::exclude_scalar(result_ids, result_size, &curated_ids[0],
-                                                     curated_ids.size(), &excluded_result_ids);
+        posting_t::block_intersector_t intersector(posting_lists, 1000, iter_state);
+        bool has_more = true;
 
-            delete [] result_ids;
-            result_ids = excluded_result_ids;
-        }
+        while(has_more) {
+            has_more = intersector.intersect();
+            posting_list_t::result_iter_state_t updated_iter_state;
 
-        //LOG(INFO) << "n: " << n;
-        /*std::stringstream log_query;
-        for(size_t i=0; i < query_suggestion.size(); i++) {
-            log_query << query_suggestion[i]->key << " ";
-        }*/
+            for(size_t i = 0; i < iter_state.ids.size(); i++) {
+                uint32_t id = iter_state.ids[i];
 
-        if(filter_ids != nullptr) {
-            // intersect once again with filter ids
-            uint32_t* filtered_result_ids = nullptr;
-            size_t filtered_results_size = ArrayUtils::and_scalar(filter_ids, filter_ids_length, result_ids,
-                                                                  result_size, &filtered_result_ids);
+                // decide if this result id should be excluded
+                if(excluded_result_ids_size != 0) {
+                    while(excluded_result_ids_index < excluded_result_ids_size &&
+                          excluded_result_ids[excluded_result_ids_index] < id) {
+                        excluded_result_ids_index++;
+                    }
 
-            uint32_t* new_all_result_ids = nullptr;
-            all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, filtered_result_ids,
-                                  filtered_results_size, &new_all_result_ids);
-            delete [] *all_result_ids;
-            *all_result_ids = new_all_result_ids;
+                    if(excluded_result_ids_index < excluded_result_ids_size &&
+                       id == excluded_result_ids[excluded_result_ids_index]) {
+                        excluded_result_ids_index++;
+                        continue;
+                    }
+                }
 
-            // go through each matching document id and calculate match score
+                bool id_found_in_filter = true;
+
+                // decide if this result be matched with filter results
+                if(filter_ids_length != 0) {
+                    id_found_in_filter = false;
+
+                    // e.g. [1, 3] vs [2, 3]
+
+                    while(filter_ids_index < filter_ids_length && filter_ids[filter_ids_index] < id) {
+                        filter_ids_index++;
+                    }
+
+                    if(filter_ids_index < filter_ids_length && filter_ids[filter_ids_index] == id) {
+                        filter_ids_index++;
+                        id_found_in_filter = true;
+                    }
+                }
+
+                if(id_found_in_filter) {
+                    result_id_vec.push_back(id);
+
+                    updated_iter_state.ids.push_back(id);
+                    updated_iter_state.blocks.push_back(iter_state.blocks[i]);
+                    updated_iter_state.indices.push_back(iter_state.indices[i]);
+                }
+            }
+
+            std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
+            posting_list_t::get_offsets(updated_iter_state, array_token_positions_vec);
+
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
-                          query_suggestion,
-                          groups_processed, filtered_result_ids, filtered_results_size,
+                          query_suggestion, groups_processed, array_token_positions_vec,
+                          &updated_iter_state.ids[0], updated_iter_state.ids.size(),
                           group_limit, group_by_fields, token_bits, query_tokens, prioritize_exact_match);
-
-            field_num_results += filtered_results_size;
-
-            delete[] filtered_result_ids;
-            delete[] result_ids;
-        } else {
-            uint32_t* new_all_result_ids = nullptr;
-            all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, result_ids,
-                                  result_size, &new_all_result_ids);
-            delete [] *all_result_ids;
-            *all_result_ids = new_all_result_ids;
-
-            /*if(result_size != 0) {
-                LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size;
-            }*/
-
-            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
-                          query_suggestion,
-                          groups_processed, result_ids, result_size, group_limit, group_by_fields, token_bits,
-                          query_tokens, prioritize_exact_match);
-
-            field_num_results += result_size;
-
-            delete[] result_ids;
         }
+
+        if(result_id_vec.empty()) {
+            continue;
+        }
+
+        uint32_t* result_ids = &result_id_vec[0];
+        result_size = result_id_vec.size();
+
+        field_num_results += result_id_vec.size();
+
+        uint32_t* new_all_result_ids = nullptr;
+        all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, result_ids,
+                                                   result_size, &new_all_result_ids);
+        delete [] *all_result_ids;
+        *all_result_ids = new_all_result_ids;
+
+        delete [] excluded_result_ids;
 
         searched_queries.push_back(actual_query_suggestion);
 
@@ -1179,7 +1177,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 uint32_t* strt_ids = nullptr;
                 size_t strt_ids_size = 0;
 
-                std::vector<art_leaf *> query_suggestion;
+                std::vector<void*> posting_lists;
 
                 // there could be multiple tokens in a filter value, which we have to treat as ANDs
                 // e.g. country: South Africa
@@ -1199,27 +1197,19 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                         continue;
                     }
 
-                    query_suggestion.push_back(leaf);
+                    posting_lists.push_back(leaf->values);
                 }
 
-                if(query_suggestion.size() != str_tokens.size()) {
+                if(posting_lists.size() != str_tokens.size()) {
                     continue;
                 }
 
-                for(const auto& leaf: query_suggestion) {
-                    if(strt_ids == nullptr) {
-                        strt_ids = leaf->values->ids.uncompress();
-                        strt_ids_size = leaf->values->ids.getLength();
-                    } else {
-                        // do AND for an exact match
-                        uint32_t* out = nullptr;
-                        uint32_t* leaf_ids = leaf->values->ids.uncompress();
-                        strt_ids_size = ArrayUtils::and_scalar(strt_ids, strt_ids_size, leaf_ids,
-                                                               leaf->values->ids.getLength(), &out);
-                        delete[] leaf_ids;
-                        delete[] strt_ids;
-                        strt_ids = out;
-                    }
+                std::vector<uint32_t> result_id_vec;
+                posting_t::intersect(posting_lists, result_id_vec);
+                if(!result_id_vec.empty()) {
+                    strt_ids = new uint32_t [result_id_vec.size()];
+                    std::copy(result_id_vec.begin(), result_id_vec.end(), strt_ids);
+                    strt_ids_size = result_id_vec.size();
                 }
 
                 if((a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) && f.is_facet()) {
@@ -1234,7 +1224,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                         bool found_filter = false;
 
                         if(!f.is_array()) {
-                            found_filter = (query_suggestion.size() == fvalues.length);
+                            found_filter = (posting_lists.size() == fvalues.length);
                         } else {
                             uint64_t filter_hash = 1;
 
@@ -1335,59 +1325,6 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
 
     *filter_ids_out = filter_ids;
     return filter_ids_length;
-}
-
-void Index::eq_str_filter_plain(const uint32_t *strt_ids, size_t strt_ids_size,
-                                const std::vector<art_leaf *>& query_suggestion, uint32_t *exact_strt_ids,
-                                size_t& exact_strt_size) const {
-    std::vector<uint32_t*> leaf_to_indices;
-    for (art_leaf *token_leaf: query_suggestion) {
-        if(token_leaf == nullptr) {
-            leaf_to_indices.push_back(nullptr);
-            continue;
-        }
-
-        uint32_t *indices = new uint32_t[strt_ids_size];
-        token_leaf->values->ids.indexOf(strt_ids, strt_ids_size, indices);
-        leaf_to_indices.push_back(indices);
-    }
-
-    // e.g. First In First Out => hash([0, 1, 0, 2])
-    spp::sparse_hash_map<size_t, uint32_t> leaf_to_id;
-    size_t next_id = 1;
-    size_t filter_hash = 1;
-
-    for(size_t leaf_index=0; leaf_index<query_suggestion.size(); leaf_index++) {
-        if(leaf_to_id.count(leaf_index) == 0) {
-            leaf_to_id.emplace(leaf_index, next_id++);
-        }
-
-        uint32_t leaf_id = leaf_to_id[leaf_index];
-        filter_hash *= (1779033703 + 2*leaf_id*(leaf_index+1));
-    }
-
-    for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
-        std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
-        populate_token_positions(query_suggestion, leaf_to_indices, strt_ids_index, array_token_positions);
-        // iterate array_token_positions and compute hash
-
-        for(const auto& kv: array_token_positions) {
-            const std::vector<token_positions_t>& token_positions = kv.second;
-            size_t this_hash = 1;
-
-            for(size_t token_index = 0; token_index < token_positions.size(); token_index++) {
-                auto& positions = token_positions[token_index].positions;
-                for(auto pos: positions) {
-                    this_hash *= (1779033703 + 2*(token_index+1)*(pos+1));
-                }
-            }
-
-            if(this_hash == filter_hash) {
-                exact_strt_ids[exact_strt_size++] = strt_ids[strt_ids_index];
-                break;
-            }
-        }
-    }
 }
 
 void Index::run_search(search_args* search_params) {
@@ -1535,22 +1472,30 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
     // find documents that contain the excluded tokens to exclude them from results later
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string & field_name = search_fields[i].name;
+
+        std::vector<void*> posting_lists;
+
         for(const std::string& exclude_token: field_query_tokens[i].q_exclude_tokens) {
             art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
                                                      (const unsigned char *) exclude_token.c_str(),
                                                      exclude_token.size() + 1);
 
             if(leaf) {
-                uint32_t *ids = leaf->values->ids.uncompress();
-                uint32_t *exclude_token_ids_merged = nullptr;
-                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size, ids,
-                                                               leaf->values->ids.getLength(),
-                                                               &exclude_token_ids_merged);
-                delete[] ids;
-                delete[] exclude_token_ids;
-                exclude_token_ids = exclude_token_ids_merged;
+                posting_lists.push_back(leaf->values);
             }
         }
+
+        std::vector<uint32_t> exclude_token_id_vec;
+        if(!posting_lists.empty()) {
+            posting_t::merge(posting_lists, exclude_token_id_vec);
+        }
+
+        uint32_t *exclude_token_ids_merged = nullptr;
+        exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                       &exclude_token_id_vec[0], exclude_token_id_vec.size(),
+                                                       &exclude_token_ids_merged);
+        delete[] exclude_token_ids;
+        exclude_token_ids = exclude_token_ids_merged;
     }
 
     std::vector<Topster*> ftopsters;
@@ -1599,7 +1544,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
         uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                      groups_processed, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {},
+                      groups_processed, {}, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {},
                       prioritize_exact_match);
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
@@ -1752,8 +1697,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                         continue;
                     }
 
-                    uint32_t doc_index = leaves[0]->values->ids.indexOf(seq_id);
-                    if (doc_index == leaves[0]->values->ids.getLength()) {
+                    if(!posting_t::contains(leaves[0]->values, seq_id)) {
                         continue;
                     }
 
@@ -2016,8 +1960,8 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 
     for(size_t i=0; i < leaves.size(); i++) {
         std::string key((char*)leaves[i]->key, leaves[i]->key_len);
-        LOG(INFO) << key << " - " << leaves[i]->values->ids.getLength();
-        LOG(INFO) << "frequency: " << leaves[i]->values->ids.getLength() << ", max_score: " << leaves[i]->max_score;
+        LOG(INFO) << key << " - " << posting_t::num_ids(leaves[i]->values);
+        LOG(INFO) << "frequency: " << posting_t::num_ids(leaves[i]->values) << ", max_score: " << leaves[i]->max_score;
         /*for(auto j=0; j<leaves[i]->values->ids.getLength(); j++) {
             LOG(INFO) << "id: " << leaves[i]->values->ids.at(j);
         }*/
@@ -2028,7 +1972,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const uint8_t & field_id, const uint32_t total_cost, Topster* topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_set<uint64_t>& groups_processed,
-                          const uint32_t *result_ids, const size_t result_size,
+                          const std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec,
+                          const uint32_t* result_ids, size_t result_ids_size,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits,
                           const std::vector<token_t>& query_tokens,
@@ -2060,7 +2005,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             S2LatLng reference_lat_lng;
             GeoPoint::unpack_lat_lng(sort_fields[i].geopoint, reference_lat_lng);
 
-            for (size_t rindex = 0; rindex < result_size; rindex++) {
+            for (size_t rindex = 0; rindex < result_ids_size; rindex++) {
                 const uint32_t seq_id = result_ids[rindex];
                 auto it = geopoints->find(seq_id);
                 int64_t dist = INT32_MAX;
@@ -2085,13 +2030,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
     }
 
-    std::vector<uint32_t *> leaf_to_indices;
-    for (art_leaf *token_leaf: query_suggestion) {
-        uint32_t *indices = new uint32_t[result_size];
-        token_leaf->values->ids.indexOf(result_ids, result_size, indices);
-        leaf_to_indices.push_back(indices);
-    }
-
     Match single_token_match = Match(1, 0);
     const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost);
 
@@ -2103,16 +2041,16 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         (query_suggestion.size() == query_tokens.size()) &&
         ((std::string((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1) != query_tokens[0].value));
 
-    for (size_t i = 0; i < result_size; i++) {
+    for (size_t i = 0; i < result_ids_size; i++) {
         const uint32_t seq_id = result_ids[i];
 
         uint64_t match_score = 0;
 
-        if (use_single_token_score) {
+        if (use_single_token_score || array_token_positions_vec.empty()) {
             match_score = single_token_match_score;
         } else {
-            std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
-            populate_token_positions(query_suggestion, leaf_to_indices, i, array_token_positions);
+            const std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions =
+                    array_token_positions_vec[i];
 
             for (const auto& kv: array_token_positions) {
                 const std::vector<token_positions_t>& token_positions = kv.second;
@@ -2201,10 +2139,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     //long long int timeNanos = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for results iteration: " << timeNanos << "ms";
-
-    for(uint32_t* leaf_indices: leaf_to_indices) {
-        delete [] leaf_indices;
-    }
 }
 
 // pre-filter group_by_fields such that we can avoid the find() check
@@ -2236,103 +2170,6 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
     return distinct_id;
 }
 
-void Index::populate_token_positions(const std::vector<art_leaf *>& query_suggestion,
-                                     const std::vector<uint32_t*>& leaf_to_indices,
-                                     const size_t result_index,
-                                     std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions) {
-    if(query_suggestion.empty()) {
-        return ;
-    }
-
-    // array_token_positions:
-    // for every element in a potential array, for every token in query suggestion, get the positions
-
-    for(size_t i = 0; i < query_suggestion.size(); i++) {
-        const art_leaf* token_leaf = query_suggestion[i];
-        uint32_t doc_index = leaf_to_indices[i][result_index];
-        /*LOG(INFO) << "doc_id: " << token_leaf->values->ids.at(doc_index) << ", token_leaf->values->ids.getLength(): "
-                  << token_leaf->values->ids.getLength();*/
-
-        // it's possible for a query token to not appear in a resulting document
-        if(doc_index == token_leaf->values->ids.getLength()) {
-            continue;
-        }
-
-        //LOG(INFO) << "key: " << token_leaf->key;
-
-        // Plain string format:
-        // offset1, offset2, ... , 0 (if token is the last offset for the document)
-
-        // Array string format:
-        // offset1, ... , offsetn, offsetn, array_index, 0 (if token is the last offset for the document)
-        // (last offset is repeated to indicate end of offsets for a given array index)
-
-        /*uint32_t* offsets = token_leaf->values->offsets.uncompress();
-        for(size_t ii=0; ii < token_leaf->values->offsets.getLength(); ii++) {
-            LOG(INFO) << "offset: " << offsets[ii];
-        }
-
-        uint32_t* offset_indices = token_leaf->values->offset_index.uncompress();
-        for(size_t ii=0; ii < token_leaf->values->offset_index.getLength(); ii++) {
-            LOG(INFO) << "offset index: " << offset_indices[ii];
-        }
-
-        LOG(INFO) << "token_leaf->values->offsets.getLength(): " << token_leaf->values->offsets.getLength();*/
-
-        uint32_t start_offset = token_leaf->values->offset_index.at(doc_index);
-        uint32_t end_offset = (doc_index == token_leaf->values->ids.getLength() - 1) ?
-                              token_leaf->values->offsets.getLength() :
-                              token_leaf->values->offset_index.at(doc_index+1);
-
-        std::vector<uint16_t> positions;
-        int prev_pos = -1;
-        bool is_last_token = false;
-
-        while(start_offset < end_offset) {
-            int pos = token_leaf->values->offsets.at(start_offset);
-            start_offset++;
-
-            if(pos == 0) {
-                // indicates that token is the last token on the doc
-                is_last_token = true;
-                start_offset++;
-                continue;
-            }
-
-            if(pos == prev_pos) {  // indicates end of array index
-                if(!positions.empty()) {
-                    size_t array_index = (size_t) token_leaf->values->offsets.at(start_offset);
-                    is_last_token = false;
-
-                    if(start_offset+1 < end_offset) {
-                        size_t next_offset = (size_t) token_leaf->values->offsets.at(start_offset + 1);
-                        if(next_offset == 0) {
-                            // indicates that token is the last token on the doc
-                            is_last_token = true;
-                            start_offset++;
-                        }
-                    }
-
-                    array_token_positions[array_index].push_back(token_positions_t{is_last_token, positions});
-                    positions.clear();
-                }
-
-                start_offset++;  // skip current value which is the array index or flag for last index
-                prev_pos = -1;
-                continue;
-            }
-
-            prev_pos = pos;
-            positions.push_back((uint16_t)pos - 1);
-        }
-
-        if(!positions.empty()) {
-            // for plain string fields
-            array_token_positions[0].push_back(token_positions_t{is_last_token, positions});
-        }
-    }
-}
-
 inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
                                    long long int n,
                                    std::vector<art_leaf *>& actual_query_suggestion,
@@ -2359,7 +2196,7 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
     // Sort ascending based on matched documents for each token for faster intersection.
     // However, this causes the token order to deviate from original query's order.
     sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
-        return left->values->ids.getLength() < right->values->ids.getLength();
+        return posting_t::num_ids(left->values) < posting_t::num_ids(right->values);
     });
 
     return total_cost;
@@ -2419,39 +2256,17 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
             std::vector<std::string> tokens;
             tokenize_string_field(document, search_field, tokens, search_field.locale);
 
-            for(auto & token: tokens) {
+            for(size_t i = 0; i < tokens.size(); i++) {
+                const auto& token = tokens[i];
                 const unsigned char *key = (const unsigned char *) token.c_str();
                 int key_len = (int) (token.length() + 1);
 
                 art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
                 if(leaf != nullptr) {
-                    uint32_t doc_index = leaf->values->ids.indexOf(seq_id);
-
-                    if (doc_index == leaf->values->ids.getLength()) {
-                        // not found - happens when 2 tokens repeat in a field, e.g "is it or is is not?"
-                        continue;
-                    }
-
-                    uint32_t start_offset = leaf->values->offset_index.at(doc_index);
-                    uint32_t end_offset = (doc_index == leaf->values->ids.getLength() - 1) ?
-                                          leaf->values->offsets.getLength() :
-                                          leaf->values->offset_index.at(doc_index + 1);
-
-                    uint32_t doc_indices[1] = {doc_index};
-                    remove_and_shift_offset_index(leaf->values->offset_index, doc_indices, 1);
-
-                    leaf->values->offsets.remove_index(start_offset, end_offset);
-                    leaf->values->ids.remove_value(seq_id);
-
-                    /*len = leaf->values->offset_index.getLength();
-                    for(auto i=0; i<len; i++) {
-                        LOG(INFO) << "i: " << i << ", val: " << leaf->values->offset_index.at(i);
-                    }
-                    LOG(INFO) << "----";*/
-
-                    if (leaf->values->ids.getLength() == 0) {
-                        art_values *values = (art_values *) art_delete(search_index.at(field_name), key, key_len);
-                        delete values;
+                    posting_t::erase(leaf->values, seq_id);
+                    if (posting_t::num_ids(leaf->values) == 0) {
+                        void* values = art_delete(search_index.at(field_name), key, key_len);
+                        posting_t::destroy_list(values);
                     }
                 }
             }
