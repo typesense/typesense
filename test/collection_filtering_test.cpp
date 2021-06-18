@@ -1401,3 +1401,38 @@ TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, NumericalRangeFilter) {
+    std::vector<field> fields = {field("company", field_types::STRING, true),
+                                 field("num_employees", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"123", "Company 1", "50"},
+        {"125", "Company 2", "150"},
+        {"127", "Company 3", "250"},
+        {"129", "Stark Industries 4", "500"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["company"] = records[i][1];
+        doc["num_employees"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("num_employees", "ASC") };
+
+    auto results = coll1->search("*", {}, "num_employees:>=100 && num_employees:<=300", {}, sort_fields, {0}, 10, 1,
+                                 FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
