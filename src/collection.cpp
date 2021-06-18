@@ -2231,7 +2231,7 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
 
                 // string filter should be evaluated in strict "equals" mode
                 str_comparator = EQUALS;
-                while(raw_value[++filter_value_index] == ' ');
+                while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
             } else if(raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
                 if(!_field.facet) {
                     // EXCLUDE filtering on string is possible only on facet fields
@@ -2240,7 +2240,13 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
                 }
 
                 str_comparator = NOT_EQUALS;
-                while(raw_value[++filter_value_index] == ' ');
+                filter_value_index++;
+                while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            }
+
+            if(filter_value_index == raw_value.size()) {
+                return Option<bool>(400, "Error with filter field `" + _field.name +
+                                         "`: Filter value cannot be empty.");
             }
 
             if(raw_value[filter_value_index] == '[' && raw_value[raw_value.size() - 1] == ']') {
