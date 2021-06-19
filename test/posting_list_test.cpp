@@ -792,6 +792,145 @@ TEST(PostingListTest, PostingListContainsAtleastOne) {
     ASSERT_FALSE(p2.contains_atleast_one(&target_ids2[0], target_ids2.size()));
 }
 
+TEST(PostingListTest, PostingListMergeAdjancentBlocks) {
+    // when posting list is larger than target IDs
+    posting_list_t p1(6);
+
+    for(size_t i = 0; i < 18; i++) {
+        p1.upsert(i, {2, 3});
+    }
+
+    p1.erase(0);
+    p1.erase(1);
+
+    // IDs: [4] [6] [6]
+    //      [6] [4] [6]
+    // Offsets:
+    //     Before: [8]   [12]  [12]
+    //     After:  [12]  [8]  [12]
+
+    posting_list_t::block_t* next_block = p1.get_root()->next;
+    posting_list_t::merge_adjacent_blocks(p1.get_root(), next_block, 2);
+
+    ASSERT_EQ(6, p1.get_root()->ids.getLength());
+    ASSERT_EQ(6, p1.get_root()->offset_index.getLength());
+    ASSERT_EQ(12, p1.get_root()->offsets.getLength());
+
+    std::vector<uint32_t> ids = {2, 3, 4, 5, 6, 7};
+    for(size_t i = 0 ; i < ids.size(); i++) {
+        auto id = ids[i];
+        ASSERT_EQ(id, p1.get_root()->ids.at(i));
+    }
+
+    for(size_t i = 0; i < p1.get_root()->offset_index.getLength(); i++) {
+        ASSERT_EQ(i*2, p1.get_root()->offset_index.at(i));
+    }
+
+    for(size_t i = 0; i < p1.get_root()->offsets.getLength(); i++) {
+        auto expected_offset = (i % 2 == 0) ? 2 : 3;
+        ASSERT_EQ(expected_offset, p1.get_root()->offsets.at(i));
+    }
+
+    ASSERT_EQ(4, next_block->ids.getLength());
+    ASSERT_EQ(4, next_block->offset_index.getLength());
+    ASSERT_EQ(8, next_block->offsets.getLength());
+
+    ids = {8, 9, 10, 11};
+    for(size_t i = 0 ; i < ids.size(); i++) {
+        auto id = ids[i];
+        ASSERT_EQ(id, next_block->ids.at(i));
+    }
+
+    for(size_t i = 0; i < next_block->offset_index.getLength(); i++) {
+        ASSERT_EQ(i*2, next_block->offset_index.at(i));
+    }
+
+    for(size_t i = 0; i < next_block->offsets.getLength(); i++) {
+        auto expected_offset = (i % 2 == 0) ? 2 : 3;
+        ASSERT_EQ(expected_offset, next_block->offsets.at(i));
+    }
+
+    // full merge
+
+    posting_list_t::block_t* block1 = next_block;
+    posting_list_t::block_t* block2 = next_block->next;
+
+    posting_list_t::merge_adjacent_blocks(block1, block2, 6);
+    ASSERT_EQ(10, block1->ids.getLength());
+    ASSERT_EQ(10, block1->offset_index.getLength());
+    ASSERT_EQ(20, block1->offsets.getLength());
+
+    ids = {8, 9, 10, 11, 12, 13, 14, 15, 16, 17};
+
+    for(size_t i = 0; i < ids.size(); i++) {
+        auto id = ids[i];
+        ASSERT_EQ(id, block1->ids.at(i));
+    }
+
+    for(size_t i = 0; i < block1->offset_index.getLength(); i++) {
+        ASSERT_EQ(i*2, block1->offset_index.at(i));
+    }
+
+    for(size_t i = 0; i < block1->offsets.getLength(); i++) {
+        auto expected_offset = (i % 2 == 0) ? 2 : 3;
+        ASSERT_EQ(expected_offset, block1->offsets.at(i));
+    }
+
+    ASSERT_EQ(0, block2->ids.getLength());
+    ASSERT_EQ(0, block2->offset_index.getLength());
+    ASSERT_EQ(0, block2->offsets.getLength());
+}
+
+TEST(PostingListTest, PostingListSplitBlock) {
+    posting_list_t p1(6);
+
+    for (size_t i = 0; i < 6; i++) {
+        p1.upsert(i, {2, 3});
+    }
+
+    posting_list_t::block_t* block1 = p1.get_root();
+    posting_list_t::block_t block2;
+    posting_list_t::split_block(block1, &block2);
+
+    ASSERT_EQ(3, block1->ids.getLength());
+    ASSERT_EQ(3, block1->offset_index.getLength());
+    ASSERT_EQ(6, block1->offsets.getLength());
+
+    std::vector<uint32_t> ids = {0, 1, 2};
+
+    for(size_t i = 0; i < ids.size(); i++) {
+        ASSERT_EQ(ids[i], block1->ids.at(i));
+    }
+
+    for(size_t i = 0; i < block1->offset_index.getLength(); i++) {
+        ASSERT_EQ(i*2, block1->offset_index.at(i));
+    }
+
+    for(size_t i = 0; i < block1->offsets.getLength(); i++) {
+        auto expected_offset = (i % 2 == 0) ? 2 : 3;
+        ASSERT_EQ(expected_offset, block1->offsets.at(i));
+    }
+
+    ASSERT_EQ(3, block2.ids.getLength());
+    ASSERT_EQ(3, block2.offset_index.getLength());
+    ASSERT_EQ(6, block2.offsets.getLength());
+
+    ids = {3, 4, 5};
+
+    for(size_t i = 0; i < ids.size(); i++) {
+        ASSERT_EQ(ids[i], block2.ids.at(i));
+    }
+
+    for(size_t i = 0; i < block2.offset_index.getLength(); i++) {
+        ASSERT_EQ(i*2, block2.offset_index.at(i));
+    }
+
+    for(size_t i = 0; i < block2.offsets.getLength(); i++) {
+        auto expected_offset = (i % 2 == 0) ? 2 : 3;
+        ASSERT_EQ(expected_offset, block2.offsets.at(i));
+    }
+}
+
 TEST(PostingListTest, CompactPostingListUpsertAppends) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
