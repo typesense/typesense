@@ -69,6 +69,7 @@
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
 - **Raft-based Clustering:** Setup a distributed cluster that is highly available.
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
+- **No Runtime Dependencies:** Typesense is a single binary that you can run locally or in production with a single command.
 
 **Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
 
