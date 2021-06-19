@@ -82,10 +82,6 @@ private:
     // MUST be ordered
     std::map<last_id_t, block_t*> id_block_map;
 
-    static void split_block(block_t* src_block, block_t* dst_block);
-
-    static void merge_adjacent_blocks(block_t* block1, block_t* block2, size_t num_block2_ids);
-
     static bool at_end(const std::vector<posting_list_t::iterator_t>& its);
     static bool at_end2(const std::vector<posting_list_t::iterator_t>& its);
 
@@ -108,6 +104,10 @@ public:
     explicit posting_list_t(uint16_t max_block_elements);
 
     ~posting_list_t();
+
+    static void split_block(block_t* src_block, block_t* dst_block);
+
+    static void merge_adjacent_blocks(block_t* block1, block_t* block2, size_t num_block2_ids_to_move);
 
     void upsert(uint32_t id, const std::vector<uint32_t>& offsets);
 
