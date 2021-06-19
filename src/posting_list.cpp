@@ -198,92 +198,112 @@ posting_list_t::~posting_list_t() {
 }
 
 void posting_list_t::merge_adjacent_blocks(posting_list_t::block_t* block1, posting_list_t::block_t* block2,
-                                           size_t num_block2_ids) {
+                                           size_t num_block2_ids_to_move) {
     // merge ids
-    uint32_t* raw_ids1 = block1->ids.uncompress();
-    uint32_t* raw_ids2 = block2->ids.uncompress();
+    uint32_t* ids1 = block1->ids.uncompress();
+    uint32_t* ids2 = block2->ids.uncompress();
 
     size_t block1_orig_size = block1->size();
     size_t block2_orig_size = block2->size();
 
-    uint32_t* raw_ids = new uint32_t[block1->size() + num_block2_ids];
-    std::memmove(raw_ids, raw_ids1, sizeof(uint32_t) * block1->size());
-    std::memmove(raw_ids + block1->size(), raw_ids2, sizeof(uint32_t) * num_block2_ids);
+    size_t block1_orig_offset_size = block1->offsets.getLength();
+    size_t block2_orig_offset_size = block2->offsets.getLength();
 
-    block1->ids.load(raw_ids, block1->size() + num_block2_ids);
-    block2->ids.load(raw_ids2 + num_block2_ids, block2->size() - num_block2_ids);
+    size_t block1_orig_offset_index_size = block1->offset_index.getLength();
+    size_t block2_orig_offset_index_size = block2->offset_index.getLength();
 
-    delete [] raw_ids1;
-    delete [] raw_ids2;
-    delete [] raw_ids;
+    uint32_t* new_ids = new uint32_t[block1->size() + num_block2_ids_to_move];
+    std::memmove(new_ids, ids1, sizeof(uint32_t) * block1->size());
+    std::memmove(new_ids + block1->size(), ids2, sizeof(uint32_t) * num_block2_ids_to_move);
+
+    block1->ids.load(new_ids, block1->size() + num_block2_ids_to_move);
+    if(block2->size() != num_block2_ids_to_move) {
+        block2->ids.load(ids2 + num_block2_ids_to_move, block2->size() - num_block2_ids_to_move);
+    } else {
+        block2->ids.load(nullptr, 0);
+    }
+
+    delete [] ids1;
+    delete [] ids2;
+    delete [] new_ids;
 
     // merge offset indices
-    uint32_t* raw_offset_index1 = block1->offset_index.uncompress();
-    uint32_t* raw_offset_index2 = block2->offset_index.uncompress();
-    uint32_t* raw_offset_index = new uint32_t[block1_orig_size + block2_orig_size];
+    uint32_t* offset_index1 = block1->offset_index.uncompress();
+    uint32_t* offset_index2 = block2->offset_index.uncompress();
+    uint32_t* new_offset_index = new uint32_t[block1_orig_size + block2_orig_size];
 
-    std::memmove(raw_offset_index, raw_offset_index1, sizeof(uint32_t) * block1->offset_index.getLength());
+    size_t num_block2_offsets_to_move = (num_block2_ids_to_move == block2_orig_size) ? block2->offsets.getLength() :
+                                        offset_index2[num_block2_ids_to_move];
+
+    std::memmove(new_offset_index, offset_index1, sizeof(uint32_t) * block1->offset_index.getLength());
     size_t start_index = block1->offset_index.getLength();
     size_t base_offset_len = block1->offsets.getLength();
 
-    for(size_t i = 0; i < num_block2_ids; i++) {
-        raw_offset_index[start_index + i] = raw_offset_index2[i] + base_offset_len;
+    for(size_t i = 0; i < num_block2_ids_to_move; i++) {
+        new_offset_index[start_index + i] = offset_index2[i] + base_offset_len;
     }
 
-    block1->offset_index.load(raw_offset_index, block1->offset_index.getLength() + num_block2_ids);
+    block1->offset_index.load(new_offset_index, block1->offset_index.getLength() + num_block2_ids_to_move);
 
-    for(size_t i = 0; i < (block2_orig_size - num_block2_ids); i++) {
-        raw_offset_index2[num_block2_ids + i] -= raw_offset_index2[num_block2_ids];
+    if(block2->offset_index.getLength() != num_block2_ids_to_move) {
+        const uint32_t offset_index2_base_index = offset_index2[num_block2_ids_to_move];
+
+        for(size_t i = 0; i < (block2_orig_size - num_block2_ids_to_move); i++) {
+            offset_index2[num_block2_ids_to_move + i] -= offset_index2_base_index;
+        }
+
+        block2->offset_index.load(offset_index2 + num_block2_ids_to_move, block2_orig_size - num_block2_ids_to_move);
+    } else {
+        block2->offset_index.load(nullptr, 0);
     }
-
-    block2->offset_index.load(raw_offset_index2 + num_block2_ids, block2_orig_size - num_block2_ids);
 
     // merge offsets
-    uint32_t* raw_offsets1 = block1->offsets.uncompress();
-    uint32_t* raw_offsets2 = block2->offsets.uncompress();
-    size_t num_block2_offset_elements = (num_block2_ids == block2_orig_size) ? block2->offsets.getLength() :
-                                        raw_offset_index2[num_block2_ids];
+    uint32_t* offsets1 = block1->offsets.uncompress();
+    uint32_t* offsets2 = block2->offsets.uncompress();
 
-    uint32_t* raw_offsets = new uint32_t[block1->offsets.getLength() + num_block2_offset_elements];
+    // we will have to compute new min and max for new block1 and block2 offsets
 
-    uint32_t min = raw_offsets1[0], max = raw_offsets1[0];
+    size_t new_block1_offsets_size = block1->offsets.getLength() + num_block2_offsets_to_move;
+    uint32_t* new_block1_offsets = new uint32_t[new_block1_offsets_size];
+
+    uint32_t min = offsets1[0], max = offsets1[0];
 
     // we have to manually copy over so we can find the new min and max
     for(size_t i = 0; i < block1->offsets.getLength(); i++) {
-        raw_offsets[i] = raw_offsets1[i];
-        if(raw_offsets[i] < min) {
-            min = raw_offsets[i];
+        new_block1_offsets[i] = offsets1[i];
+        if(new_block1_offsets[i] < min) {
+            min = new_block1_offsets[i];
         }
 
-        if(raw_offsets[i] > max) {
-            max = raw_offsets[i];
+        if(new_block1_offsets[i] > max) {
+            max = new_block1_offsets[i];
         }
     }
 
     size_t block2_base_index = block1->offsets.getLength();
 
-    for(size_t i = 0; i < num_block2_offset_elements; i++) {
+    for(size_t i = 0; i < num_block2_offsets_to_move; i++) {
         size_t j = block2_base_index + i;
-        raw_offsets[j] = raw_offsets2[i];
+        new_block1_offsets[j] = offsets2[i];
 
-        if(raw_offsets[j] < min) {
-            min = raw_offsets[j];
+        if(new_block1_offsets[j] < min) {
+            min = new_block1_offsets[j];
         }
 
-        if(raw_offsets[j] > max) {
-            max = raw_offsets[j];
+        if(new_block1_offsets[j] > max) {
+            max = new_block1_offsets[j];
         }
     }
 
-    block1->offsets.load(raw_offsets, block1->offsets.getLength() + num_block2_offset_elements, min, max);
+    block1->offsets.load(new_block1_offsets, new_block1_offsets_size, min, max);
 
     // reset block2 offsets with remaining elements
-    if(block2->offsets.getLength() != num_block2_offset_elements) {
-        const size_t block2_new_offsets_length = (block2->offsets.getLength() - num_block2_offset_elements);
+    if(block2->offsets.getLength() != num_block2_offsets_to_move) {
+        const size_t block2_new_offsets_length = (block2->offsets.getLength() - num_block2_offsets_to_move);
         uint32_t* block2_new_raw_offsets = new uint32_t[block2_new_offsets_length];
-        min = max = raw_offsets2[num_block2_offset_elements];
+        min = max = offsets2[num_block2_offsets_to_move];
         for(size_t i = 0; i < block2_new_offsets_length; i++) {
-            block2_new_raw_offsets[i] = raw_offsets2[num_block2_offset_elements + i];
+            block2_new_raw_offsets[i] = offsets2[num_block2_offsets_to_move + i];
             if(block2_new_raw_offsets[i] < min) {
                 min = block2_new_raw_offsets[i];
             }
@@ -298,14 +318,26 @@ void posting_list_t::merge_adjacent_blocks(posting_list_t::block_t* block1, post
         block2->offsets.load(nullptr, 0, 0, 0);
     }
 
-    delete [] raw_offset_index1;
-    delete [] raw_offset_index2;
-    delete [] raw_offset_index;
+    if(block1->offsets.getLength() < block1->offset_index.getLength()) {
+        LOG(ERROR) << "Block offset length is smaller than offset index length after merging.";
+    }
 
-    delete [] raw_offsets1;
-    delete [] raw_offsets2;
-    delete [] raw_offsets;
+    delete [] offset_index1;
+    delete [] offset_index2;
+    delete [] new_offset_index;
+
+    delete [] offsets1;
+    delete [] offsets2;
+    delete [] new_block1_offsets;
 }
+
+/*void print_vec(const std::vector<uint32_t>& vec) {
+    LOG(INFO) << "---";
+    for(auto x: vec) {
+        LOG(INFO) << x;
+    }
+    LOG(INFO) << "---";
+}*/
 
 void posting_list_t::split_block(posting_list_t::block_t* src_block, posting_list_t::block_t* dst_block) {
     if(src_block->size() <= 1) {
@@ -368,6 +400,11 @@ void posting_list_t::split_block(posting_list_t::block_t* src_block, posting_lis
 
     size_t offsets_second_half_length = src_offsets_length - offset_first_half_length;
     dst_block->offsets.load(raw_offsets + offset_first_half_length, offsets_second_half_length, min, max);
+
+    if(dst_block->offsets.getLength() < dst_block->offset_index.getLength() ||
+       src_block->offsets.getLength() < src_block->offset_index.getLength()) {
+        LOG(ERROR) << "Block offset length is smaller than offset index length after splitting.";
+    }
 
     delete [] raw_ids;
     delete [] raw_offset_indices;
