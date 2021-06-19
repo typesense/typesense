@@ -688,6 +688,16 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
         case 1:
             while(its[0].valid()) {
                 iter_state.ids.push_back(its[0].id());
+
+                std::vector<block_t*> block_vec(1);
+                std::vector<uint32_t> index_vec(1);
+
+                block_vec[0] = its[0].block();
+                index_vec[0] = its[0].index();
+
+                iter_state.blocks.emplace_back(block_vec);
+                iter_state.indices.emplace_back(index_vec);
+
                 its[0].next();
 
                 if(iter_state.ids.size() == batch_size) {
@@ -702,7 +712,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                     iter_state.ids.push_back(its[0].id());
 
                     std::vector<block_t*> block_vec(2);
-                    std::vector<uint32_t> index_vec(its.size());
+                    std::vector<uint32_t> index_vec(2);
                     block_vec[0] = its[0].block();
                     block_vec[1] = its[1].block();
 
