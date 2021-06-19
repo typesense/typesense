@@ -613,6 +613,20 @@ void posting_list_t::merge(const std::vector<posting_list_t*>& posting_lists, st
 
 // Inspired by: https://stackoverflow.com/a/25509185/131050
 void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids) {
+    if(posting_lists.empty()) {
+        return;
+    }
+
+    if(posting_lists.size() == 1) {
+        auto it = posting_lists[0]->new_iterator();
+        while(it.valid()) {
+            result_ids.push_back(it.id());
+            it.next();
+        }
+
+        return ;
+    }
+
     auto its = std::vector<posting_list_t::iterator_t>();
     its.reserve(posting_lists.size());
 
@@ -650,6 +664,11 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
 bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting_lists, const size_t batch_size,
                                      std::vector<posting_list_t::iterator_t>& its,
                                      result_iter_state_t& iter_state) {
+
+    if(posting_lists.empty()) {
+        return false;
+    }
+
     if(its.empty()) {
         its.reserve(posting_lists.size());
 
@@ -666,6 +685,16 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
     size_t num_lists = its.size();
 
     switch (num_lists) {
+        case 1:
+            while(its[0].valid()) {
+                iter_state.ids.push_back(its[0].id());
+                its[0].next();
+
+                if(iter_state.ids.size() == batch_size) {
+                    return its[0].valid();
+                }
+            }
+            break;
         case 2:
             while(!at_end2(its)) {
                 if(equals2(its)) {

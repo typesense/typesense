@@ -633,6 +633,38 @@ TEST(PostingListTest, IntersectionBasics) {
     ASSERT_FALSE(has_more);
     ASSERT_EQ(1, iter_state2.ids.size());
     ASSERT_EQ(20, iter_state2.ids[0]);
+
+    // single item itersection
+    std::vector<posting_list_t*> single_item_list = {&p1};
+    result_ids.clear();
+    posting_list_t::intersect(single_item_list, result_ids);
+    std::vector<uint32_t> expected_ids = {0, 2, 3, 20};
+    ASSERT_EQ(expected_ids.size(), result_ids.size());
+
+    for(size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_EQ(expected_ids[i], result_ids[i]);
+    }
+
+    std::vector<posting_list_t::iterator_t> its3;
+    posting_list_t::result_iter_state_t iter_state3;
+    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
+    ASSERT_TRUE(has_more);
+    ASSERT_EQ(2, iter_state3.ids.size());
+    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
+    ASSERT_FALSE(has_more);
+    ASSERT_EQ(2, iter_state3.ids.size());
+
+    // empty intersection list
+    std::vector<posting_list_t*> empty_list;
+    result_ids.clear();
+    posting_list_t::intersect(empty_list, result_ids);
+    ASSERT_EQ(0, result_ids.size());
+
+    std::vector<posting_list_t::iterator_t> its4;
+    posting_list_t::result_iter_state_t iter_state4;
+    has_more = posting_list_t::block_intersect(empty_list, 1, its4, iter_state4);
+    ASSERT_FALSE(has_more);
+    ASSERT_EQ(0, iter_state4.ids.size());
 }
 
 TEST(PostingListTest, ResultsAndOffsetsBasics) {
