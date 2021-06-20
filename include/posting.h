@@ -65,6 +65,8 @@ public:
             for(const auto& posting_list: plists) {
                 its.push_back(posting_list->new_iterator());
             }
+
+            iter_state.num_lists = plists.size();
         }
 
         ~block_intersector_t() {

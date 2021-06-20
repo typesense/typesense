@@ -675,6 +675,8 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
         for(const auto& posting_list: posting_lists) {
             its.push_back(posting_list->new_iterator());
         }
+
+        iter_state.num_lists = posting_lists.size();
     } else {
         // already in the middle of iteration: prepare for next batch
         iter_state.ids.clear();
@@ -692,11 +694,8 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                 std::vector<block_t*> block_vec(1);
                 std::vector<uint32_t> index_vec(1);
 
-                block_vec[0] = its[0].block();
-                index_vec[0] = its[0].index();
-
-                iter_state.blocks.emplace_back(block_vec);
-                iter_state.indices.emplace_back(index_vec);
+                iter_state.blocks.push_back(its[0].block());
+                iter_state.indices.push_back(its[0].index());
 
                 its[0].next();
 
@@ -711,16 +710,11 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                     // still need to ensure that the ID exists in inclusion list but NOT in exclusion list
                     iter_state.ids.push_back(its[0].id());
 
-                    std::vector<block_t*> block_vec(2);
-                    std::vector<uint32_t> index_vec(2);
-                    block_vec[0] = its[0].block();
-                    block_vec[1] = its[1].block();
+                    iter_state.blocks.push_back(its[0].block());
+                    iter_state.blocks.push_back(its[1].block());
 
-                    index_vec[0] = its[0].index();
-                    index_vec[1] = its[1].index();
-
-                    iter_state.blocks.emplace_back(block_vec);
-                    iter_state.indices.emplace_back(index_vec);
+                    iter_state.indices.push_back(its[0].index());
+                    iter_state.indices.push_back(its[1].index());
 
                     advance_all2(its);
                 } else {
@@ -738,16 +732,10 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                     //LOG(INFO) << its[0].id();
                     iter_state.ids.push_back(its[0].id());
 
-                    std::vector<block_t*> block_vec(its.size());
-                    std::vector<uint32_t> index_vec(its.size());
-
                     for(size_t i = 0; i < its.size(); i++) {
-                        block_vec[i] = its[i].block();
-                        index_vec[i] = its[i].index();
+                        iter_state.blocks.push_back(its[i].block());
+                        iter_state.indices.push_back(its[i].index());
                     }
-
-                    iter_state.blocks.emplace_back(block_vec);
-                    iter_state.indices.emplace_back(index_vec);
 
                     advance_all(its);
                 } else {
@@ -775,14 +763,16 @@ bool posting_list_t::get_offsets(posting_list_t::result_iter_state_t& iter_state
 
     // For each result ID and for each block it is contained in, calculate offsets
 
+    size_t id_block_index = 0;
+
     for(size_t i = 0; i < iter_state.ids.size(); i++) {
         uint32_t id = iter_state.ids[i];
         array_token_positions_vec.emplace_back();
         std::unordered_map<size_t, std::vector<token_positions_t>>& array_tok_pos = array_token_positions_vec.back();
 
-        for(size_t j = 0; j < iter_state.blocks[i].size(); j++) {
-            block_t* curr_block = iter_state.blocks[i][j];
-            uint32_t curr_index = iter_state.indices[i][j];
+        for(size_t j = 0; j < iter_state.num_lists; j++) {
+            block_t* curr_block = iter_state.blocks[id_block_index];
+            uint32_t curr_index = iter_state.indices[id_block_index++];
 
             if(curr_block == nullptr || curr_index == UINT32_MAX) {
                 continue;

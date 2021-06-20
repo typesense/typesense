@@ -614,11 +614,8 @@ TEST(PostingListTest, IntersectionBasics) {
     ASSERT_EQ(3, iter_state.ids[0]);
     ASSERT_EQ(20, iter_state.ids[1]);
 
-    ASSERT_EQ(2, iter_state.blocks.size());
-    ASSERT_EQ(3, iter_state.blocks[0].size());
-    ASSERT_EQ(3, iter_state.blocks[1].size());
-
-    ASSERT_EQ(2, iter_state.indices.size());
+    ASSERT_EQ(6, iter_state.blocks.size());
+    ASSERT_EQ(6, iter_state.indices.size());
 
     // try with smaller batch size
 
@@ -653,22 +650,17 @@ TEST(PostingListTest, IntersectionBasics) {
     ASSERT_EQ(0, iter_state3.ids[0]);
     ASSERT_EQ(2, iter_state3.ids[1]);
     ASSERT_EQ(2, iter_state3.blocks.size());
-    ASSERT_EQ(1, iter_state3.blocks[0].size());
-    ASSERT_EQ(1, iter_state3.blocks[1].size());
     ASSERT_EQ(2, iter_state3.indices.size());
-    ASSERT_EQ(1, iter_state3.indices[0].size());
-    ASSERT_EQ(0, iter_state3.indices[0][0]);
-    ASSERT_EQ(1, iter_state3.indices[1][0]);
+    ASSERT_EQ(0, iter_state3.indices[0]);
+    ASSERT_EQ(1, iter_state3.indices[1]);
 
     has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
     ASSERT_FALSE(has_more);
     ASSERT_EQ(2, iter_state3.ids.size());
     ASSERT_EQ(2, iter_state3.blocks.size());
-    ASSERT_EQ(1, iter_state3.blocks[0].size());
-    ASSERT_EQ(1, iter_state3.blocks[1].size());
     ASSERT_EQ(2, iter_state3.indices.size());
-    ASSERT_EQ(1, iter_state3.indices[0].size());
-    ASSERT_EQ(1, iter_state3.indices[1].size());
+    ASSERT_EQ(0, iter_state3.indices[0]);
+    ASSERT_EQ(1, iter_state3.indices[1]);
 
     // empty intersection list
     std::vector<posting_list_t*> empty_list;
