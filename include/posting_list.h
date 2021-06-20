@@ -64,8 +64,9 @@ public:
     };
 
     struct result_iter_state_t {
-        std::vector<std::vector<block_t*>> blocks;
-        std::vector<std::vector<uint32_t>> indices;
+        size_t num_lists;
+        std::vector<block_t*> blocks;
+        std::vector<uint32_t> indices;
         std::vector<uint32_t> ids;
     };
 

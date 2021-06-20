@@ -156,7 +156,7 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const u
 }
 
 posting_list_t* compact_posting_list_t::to_full_posting_list() {
-    posting_list_t* pl = new posting_list_t(512);
+    posting_list_t* pl = new posting_list_t(256);
 
     size_t i = 0;
     while(i < length) {
@@ -426,12 +426,10 @@ void posting_t::get_array_token_positions(uint32_t id, const std::vector<void*>&
 
     posting_list_t::result_iter_state_t iter_state;
     iter_state.ids.push_back(id);
+    iter_state.num_lists = plists.size();
 
-    iter_state.indices.emplace_back();
-    iter_state.blocks.emplace_back();
-
-    std::vector<posting_list_t::block_t*>& block_vec = iter_state.blocks.back();
-    std::vector<uint32_t>& index_vec = iter_state.indices.back();
+    std::vector<posting_list_t::block_t*>& block_vec = iter_state.blocks;
+    std::vector<uint32_t>& index_vec = iter_state.indices;
 
     for(posting_list_t* pl: plists) {
         posting_list_t::block_t* block = pl->block_of(id);
