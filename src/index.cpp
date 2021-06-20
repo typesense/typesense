@@ -945,6 +945,7 @@ void Index::search_candidates(const uint8_t & field_id,
         while(has_more) {
             has_more = intersector.intersect();
             posting_list_t::result_iter_state_t updated_iter_state;
+            size_t id_block_index = 0;
 
             for(size_t i = 0; i < iter_state.ids.size(); i++) {
                 uint32_t id = iter_state.ids[i];
@@ -984,9 +985,13 @@ void Index::search_candidates(const uint8_t & field_id,
                 if(id_found_in_filter) {
                     result_id_vec.push_back(id);
 
+                    updated_iter_state.num_lists = iter_state.num_lists;
                     updated_iter_state.ids.push_back(id);
-                    updated_iter_state.blocks.push_back(iter_state.blocks[i]);
-                    updated_iter_state.indices.push_back(iter_state.indices[i]);
+
+                    for(size_t k = 0; k < iter_state.num_lists; k++) {
+                        updated_iter_state.blocks.push_back(iter_state.blocks[id_block_index]);
+                        updated_iter_state.indices.push_back(iter_state.indices[id_block_index++]);
+                    }
                 }
             }
 
