@@ -677,6 +677,8 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
         }
 
         iter_state.num_lists = posting_lists.size();
+        iter_state.blocks.reserve(100);
+        iter_state.indices.reserve(100);
     } else {
         // already in the middle of iteration: prepare for next batch
         iter_state.ids.clear();
@@ -690,10 +692,6 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
         case 1:
             while(its[0].valid()) {
                 iter_state.ids.push_back(its[0].id());
-
-                std::vector<block_t*> block_vec(1);
-                std::vector<uint32_t> index_vec(1);
-
                 iter_state.blocks.push_back(its[0].block());
                 iter_state.indices.push_back(its[0].index());
 
