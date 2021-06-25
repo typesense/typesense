@@ -58,6 +58,8 @@ private:
     mutable std::shared_mutex mutex;
 
     rocksdb::Status init_db() {
+        LOG(INFO) << "Initializing DB by opening state dir: " << state_dir_path;
+
         rocksdb::Status s = rocksdb::DB::Open(options, state_dir_path, &db);
         if(!s.ok()) {
             LOG(ERROR) << "Error while initializing store: " << s.ToString();
