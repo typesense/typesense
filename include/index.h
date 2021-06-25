@@ -255,8 +255,8 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                                nlohmann::json &new_doc, nlohmann::json &del_doc);
+    static void get_doc_changes(const index_operation_t op, const nlohmann::json &update_doc,
+                                const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
 
     static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
                                           const field& a_field, nlohmann::json &document,
@@ -330,7 +330,7 @@ public:
                              const std::vector<art_leaf *> &query_suggestion,
                              uint32_t *exact_strt_ids, size_t& exact_strt_size) const;
 
-    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
+    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
 
     static void tokenize_string_field(const nlohmann::json& document,
                                       const field& search_field, std::vector<std::string>& tokens,
@@ -365,7 +365,7 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
                                      const std::string & default_sorting_field,
-                                     const bool is_update);
+                                     const index_operation_t op);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record> & iter_batch,
@@ -400,7 +400,7 @@ public:
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema,
-                                                     bool is_update,
+                                                     const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 
