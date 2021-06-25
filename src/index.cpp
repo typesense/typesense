@@ -115,7 +115,7 @@ int64_t Index::float_to_in64_t(float f) {
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                         const std::string & default_sorting_field,
-                                        const bool is_update) {
+                                        const index_operation_t op) {
 
     std::unique_lock lock(mutex);
 
@@ -131,7 +131,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         points = get_points_from_doc(document, default_sorting_field);
     }
 
-    if(!is_update) {
+    if(op != UPDATE && op != UPSERT) {
         // for updates, the seq_id will already exist
         seq_ids.append(seq_id);
     }
@@ -283,13 +283,13 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
                                                  const std::map<std::string, field> & facet_schema,
-                                                 bool is_update,
+                                                 const index_operation_t op,
                                                  const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
-    if(!is_update && missing_default_sort_field) {
+    if(op != UPDATE && missing_default_sort_field) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
@@ -298,7 +298,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
         const std::string& field_name = field_pair.first;
         const field& a_field = field_pair.second;
 
-        if((a_field.optional || is_update) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -408,37 +408,6 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
     return Option<>(200);
 }
 
-void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
-    std::vector<std::string> del_keys;
-
-    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
-        const std::string& field_name = it.key();
-
-        std::shared_lock lock(mutex);
-
-        const auto& search_field_it = search_schema.find(field_name);
-        if(search_field_it == search_schema.end()) {
-            continue;
-        }
-
-        const auto search_field = search_field_it->second;  // copy, don't use reference!
-
-        lock.unlock();
-
-        // compare values between old and update docs:
-        // if they match, we will remove them from both del and update docs
-
-        if(update_doc[search_field.name] == old_doc[search_field.name]) {
-            del_keys.push_back(field_name);
-        }
-    }
-
-    for(const auto& del_key: del_keys) {
-        del_doc.erase(del_key);
-        update_doc.erase(del_key);
-    }
-}
-
 size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
@@ -457,7 +426,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
                                                                       search_schema, facet_schema,
-                                                                      index_rec.is_update,
+                                                                      index_rec.operation,
                                                                       fallback_field_type,
                                                                       index_rec.dirty_values);
 
@@ -468,7 +437,8 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
+                get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
+                                index_rec.del_doc);
                 index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
             }
@@ -476,7 +446,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             Option<uint32_t> index_mem_op(0);
 
             try {
-                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
+                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.operation);
             } catch(const std::exception& e) {
                 const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
                 LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
@@ -484,7 +454,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             }
 
             if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, true);
+                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, index_rec.operation);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
@@ -1255,7 +1225,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     // field being a facet is already enforced upstream
                     uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
                     size_t exact_strt_size = 0;
-                    
+
                     for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
                         uint32_t seq_id = strt_ids[strt_ids_index];
                         const auto& fvalues = facet_index_v3.at(f.name)->at(seq_id);
@@ -2909,23 +2879,59 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
     return Option<uint32_t>(200);
 }
 
-void Index::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc, nlohmann::json &new_doc,
-                            nlohmann::json &del_doc) {
+void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& update_doc,
+                            const nlohmann::json& old_doc, nlohmann::json& new_doc, nlohmann::json& del_doc) {
+
     for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
-        new_doc[it.key()] = it.value();
+        if(op == UPSERT && !update_doc.contains(it.key())) {
+            del_doc[it.key()] = it.value();
+        } else {
+            new_doc[it.key()] = it.value();
+        }
     }
 
-    for(auto it = document.begin(); it != document.end(); ++it) {
+    for(auto it = update_doc.begin(); it != update_doc.end(); ++it) {
         // adds new key or overrides existing key from `old_doc`
         new_doc[it.key()] = it.value();
 
-        // if the update document contains a field that exists in old, we record that (for delete + reindex)
+        // if the update update_doc contains a field that exists in old, we record that (for delete + reindex)
         bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
         if(field_exists_in_old_doc) {
             // key exists in the stored doc, so it must be reindexed
             // we need to check for this because a field can be optional
             del_doc[it.key()] = old_doc[it.key()];
         }
+    }
+}
+
+void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc) {
+    std::vector<std::string> del_keys;
+
+    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
+        const std::string& field_name = it.key();
+
+        std::shared_lock lock(mutex);
+
+        const auto& search_field_it = search_schema.find(field_name);
+        if(search_field_it == search_schema.end()) {
+            continue;
+        }
+
+        const auto search_field = search_field_it->second;  // copy, don't use reference!
+
+        lock.unlock();
+
+        // compare values between old and update docs:
+        // if they match, we will remove them from both del and update docs
+
+        if(update_doc.contains(search_field.name) && update_doc[search_field.name] == old_doc[search_field.name]) {
+            del_keys.push_back(field_name);
+        }
+    }
+
+    for(const auto& del_key: del_keys) {
+        del_doc.erase(del_key);
+        update_doc.erase(del_key);
     }
 }
 

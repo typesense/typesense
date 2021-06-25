@@ -298,8 +298,9 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
                     if(!write_ok) {
                         // we will attempt to reindex the old doc on a best-effort basis
+                        LOG(ERROR) << "Update to disk failed. Will restore old document";
                         remove_document(index_record.new_doc, index_record.seq_id, false);
-                        index_in_memory(index_record.old_doc, index_record.seq_id, false, index_record.dirty_values);
+                        index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
                         num_indexed++;
@@ -318,6 +319,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
                     if(!write_ok) {
                         // remove from in-memory store to keep the state synced
+                        LOG(ERROR) << "Write to disk failed. Will restore old document";
                         remove_document(index_record.doc, index_record.seq_id, false);
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
@@ -345,11 +347,11 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 }
 
 Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
-                                             bool is_update, const DIRTY_VALUES& dirty_values) {
+                                             const index_operation_t op, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, facet_schema, is_update,
+                                                                     search_schema, facet_schema, op,
                                                                      fallback_field_type, dirty_values);
 
     if(!validation_op.ok()) {
@@ -357,7 +359,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     Index* index = indices[seq_id % num_memory_shards];
-    index->index_in_memory(document, seq_id, default_sorting_field, is_update);
+    index->index_in_memory(document, seq_id, default_sorting_field, op);
 
     num_documents += 1;
     return Option<>(200);
