@@ -365,7 +365,7 @@ public:
 
     Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
                                      const std::string & default_sorting_field,
-                                     const index_operation_t op);
+                                     const bool is_update);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record> & iter_batch,

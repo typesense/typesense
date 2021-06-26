@@ -115,7 +115,7 @@ int64_t Index::float_to_in64_t(float f) {
 
 Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
                                         const std::string & default_sorting_field,
-                                        const index_operation_t op) {
+                                        const bool is_update) {
 
     std::unique_lock lock(mutex);
 
@@ -131,7 +131,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         points = get_points_from_doc(document, default_sorting_field);
     }
 
-    if(op != UPDATE && op != UPSERT) {
+    if(!is_update) {
         // for updates, the seq_id will already exist
         seq_ids.append(seq_id);
     }
@@ -446,7 +446,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             Option<uint32_t> index_mem_op(0);
 
             try {
-                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.operation);
+                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
             } catch(const std::exception& e) {
                 const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
                 LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
@@ -454,7 +454,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             }
 
             if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, index_rec.operation);
+                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
@@ -1558,24 +1558,10 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string& field = search_fields[0].name;
 
-        // if a filter is not specified, use the sorting index to generate the list of all document ids
+        // if a filter is not specified, use the seq_ids index to generate the list of all document ids
         if(filters.empty()) {
-            if(default_sorting_field.empty()) {
-                filter_ids_length = seq_ids.getLength();
-                filter_ids = seq_ids.uncompress();
-            } else {
-                const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index.at(default_sorting_field);
-                filter_ids_length = kvs->size();
-                filter_ids = new uint32_t[filter_ids_length];
-
-                size_t i = 0;
-                for(const auto& kv: *kvs) {
-                    filter_ids[i++] = kv.first;
-                }
-
-                // ids populated from hash map will not be sorted, but sorting is required for intersection & other ops
-                std::sort(filter_ids, filter_ids+filter_ids_length);
-            }
+            filter_ids_length = seq_ids.getLength();
+            filter_ids = seq_ids.uncompress();
         }
 
         if(!curated_ids.empty()) {
