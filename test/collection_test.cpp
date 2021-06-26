@@ -1079,7 +1079,6 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     results = coll_mul_fields->search("*", query_fields, "", {"starring"}, sort_fields, {0}, 30, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(19, results["hits"].size());
-
     ASSERT_EQ(19, coll_mul_fields->get_num_documents());
 
     results = coll_mul_fields->search("back again forest", query_fields, "", {"starring"}, sort_fields, {0}, 30, 1, FREQUENCY, {false}).get();
