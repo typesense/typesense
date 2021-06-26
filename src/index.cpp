@@ -30,6 +30,9 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
                 art_tree_init(t);
                 search_index.emplace(fname_field.first, t);
             }
+        } else if(fname_field.second.is_geopoint()) {
+            auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
+            geopoint_index.emplace(fname_field.first, field_geo_index);
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
@@ -65,12 +68,21 @@ Index::~Index() {
         name_tree.second = nullptr;
     }
 
+    search_index.clear();
+
+    for(auto & name_index: geopoint_index) {
+        delete name_index.second;
+        name_index.second = nullptr;
+    }
+
+    geopoint_index.clear();
+
     for(auto & name_tree: numerical_index) {
         delete name_tree.second;
         name_tree.second = nullptr;
     }
 
-    search_index.clear();
+    numerical_index.clear();
 
     for(auto & name_map: sort_index) {
         delete name_map.second;
@@ -218,7 +230,8 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             const std::vector<double>& latlong = document[field_name];
             S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
             for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                geopoint_index[term].push_back(seq_id);
+                auto geo_index = geopoint_index.at(field_name);
+                (*geo_index)[term].push_back(seq_id);
             }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             art_tree *t = search_index.at(field_name);
@@ -1006,7 +1019,8 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
         bool has_search_index = search_index.count(a_filter.field_name) != 0 ||
-                                numerical_index.count(a_filter.field_name) != 0;
+                                numerical_index.count(a_filter.field_name) != 0 ||
+                                geopoint_index.count(a_filter.field_name) != 0;
 
         if(!has_search_index) {
             continue;
@@ -1132,8 +1146,9 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 S2RegionTermIndexer indexer(options);
 
                 for (const auto& term : indexer.GetQueryTerms(*query_region, "")) {
-                    const auto& ids_it = geopoint_index.find(term);
-                    if(ids_it != geopoint_index.end()) {
+                    auto geo_index = geopoint_index.at(a_filter.field_name);
+                    const auto& ids_it = geo_index->find(term);
+                    if(ids_it != geo_index->end()) {
                         geo_result_ids.insert(ids_it->second.begin(), ids_it->second.end());
                     }
                 }
@@ -2474,6 +2489,21 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 int64_t bool_int64 = value ? 1 : 0;
                 num_tree->remove(bool_int64, seq_id);
             }
+        } else if(search_field.is_geopoint()) {
+            auto geo_index = geopoint_index[field_name];
+            S2RegionTermIndexer::Options options;
+            options.set_index_contains_points_only(true);
+            S2RegionTermIndexer indexer(options);
+
+            const std::vector<double>& latlong = document[field_name];
+            S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+            for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                std::vector<uint32_t>& ids = (*geo_index)[term];
+                ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
+                if(ids.empty()) {
+                    geo_index->erase(term);
+                }
+            }
         }
 
         // remove facets
@@ -2540,6 +2570,9 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
                 art_tree *t = new art_tree;
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);
+            } else if(new_field.is_geopoint()) {
+                auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
+                geopoint_index.emplace(new_field.name, field_geo_index);
             } else {
                 num_tree_t* num_tree = new num_tree_t;
                 numerical_index.emplace(new_field.name, num_tree);
