@@ -675,30 +675,33 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // parse facet query
-    std::vector<std::string> facet_query_vec;
     facet_query_t facet_query = {"", ""};
 
-    if(!simple_facet_query.empty() && simple_facet_query.find(':') == std::string::npos) {
-        std::string error = "Facet query must be in the `facet_field: value` format.";
-        return Option<nlohmann::json>(400, error);
-    }
+    if(!simple_facet_query.empty()) {
+        size_t found_colon_index = simple_facet_query.find(':');
 
-    StringUtils::split(simple_facet_query, facet_query_vec, ":");
-    if(!facet_query_vec.empty()) {
+        if(found_colon_index == std::string::npos) {
+            std::string error = "Facet query must be in the `facet_field: value` format.";
+            return Option<nlohmann::json>(400, error);
+        }
+
         if(facet_fields.empty()) {
             std::string error = "The `facet_query` parameter is supplied without a `facet_by` parameter.";
             return Option<nlohmann::json>(400, error);
         }
 
-        if(facet_query_vec.size() == 1) {
+        std::string&& facet_query_fname = simple_facet_query.substr(0, found_colon_index);
+        StringUtils::trim(facet_query_fname);
+
+        std::string&& facet_query_value = simple_facet_query.substr(found_colon_index+1, std::string::npos);
+        StringUtils::trim(facet_query_value);
+
+        if(facet_query_value.empty()) {
             // empty facet value, we will treat it as no facet query
             facet_query = {"", ""};
-        } else if(facet_query_vec.size() > 2) {
-            std::string error = "Facet query must be in the `facet_field: value` format.";
-            return Option<nlohmann::json>(400, error);
         } else {
             // facet query field must be part of facet fields requested
-            facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
+            facet_query = { StringUtils::trim(facet_query_fname), facet_query_value };
             if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
                 std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
                                     "that is not part of `facet_by` parameter.";
