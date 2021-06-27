@@ -43,3 +43,62 @@ Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch
 
     return Option<bool>(removed);
 }
+
+Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_size, bool& done) {
+    size_t batch_count = 0;
+
+    for(size_t i = 0; i < export_state->index_ids.size(); i++) {
+        std::pair<size_t, uint32_t*>& size_ids = export_state->index_ids[i];
+        size_t ids_len = size_ids.first;
+        uint32_t* ids = size_ids.second;
+
+        size_t start_index = export_state->offsets[i];
+        size_t batched_len = std::min(ids_len, (start_index+batch_size));
+
+        for(size_t j = start_index; j < batched_len; j++) {
+            auto seq_id = ids[j];
+            nlohmann::json doc;
+            Option<bool> get_op = export_state->collection->get_document_from_store(seq_id, doc);
+
+            if(get_op.ok()) {
+                if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
+                    export_state->res_body->append(doc.dump());
+                } else {
+                    nlohmann::json filtered_doc;
+                    for(const auto& kv: doc.items()) {
+                        bool must_include = export_state->include_fields.empty() ||
+                                            (export_state->include_fields.count(kv.key()) != 0);
+
+                        bool must_exclude = !export_state->exclude_fields.empty() &&
+                                            (export_state->exclude_fields.count(kv.key()) != 0);
+
+                        if(must_include && !must_exclude) {
+                            filtered_doc[kv.key()] = kv.value();
+                        }
+                    }
+
+                    export_state->res_body->append(filtered_doc.dump());
+                }
+
+                export_state->res_body->append("\n");
+            }
+
+            export_state->offsets[i]++;
+            batch_count++;
+
+            if(batch_count == batch_size) {
+                goto END;
+            }
+        }
+    }
+
+    END:
+
+    done = true;
+    for(size_t i=0; i<export_state->index_ids.size(); i++) {
+        size_t current_offset = export_state->offsets[i];
+        done = done && (current_offset == export_state->index_ids[i].first);
+    }
+
+    return Option<bool>(true);
+}
