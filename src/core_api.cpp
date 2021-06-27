@@ -793,7 +793,12 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    stream_response(req, res);
+    if(res->final) {
+        stream_response(req, res);
+    } else {
+        defer_processing(req, res, 0);
+    }
+
     return true;
 }
 
