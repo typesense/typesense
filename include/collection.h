@@ -472,6 +472,8 @@ public:
 
     Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document) const;
 
+    Option<bool> get_document_from_store(const uint32_t& seq_id, nlohmann::json & document) const;
+
     Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 

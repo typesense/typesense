@@ -1977,6 +1977,23 @@ std::string Collection::get_default_sorting_field() {
     return default_sorting_field;
 }
 
+Option<bool> Collection::get_document_from_store(const uint32_t& seq_id, nlohmann::json& document) const {
+    std::string json_doc_str;
+    StoreStatus json_doc_status = store->get(get_seq_id_key(seq_id), json_doc_str);
+
+    if(json_doc_status != StoreStatus::FOUND) {
+        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + std::to_string(seq_id));
+    }
+
+    try {
+        document = nlohmann::json::parse(json_doc_str);
+    } catch(...) {
+        return Option<bool>(500, "Error while parsing stored document with sequence ID: " + std::to_string(seq_id));
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, nlohmann::json & document) const {
     std::string json_doc_str;
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
