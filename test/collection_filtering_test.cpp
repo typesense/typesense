@@ -1033,6 +1033,44 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFilteringTest, GeoPointRemoval) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc1", field_types::GEOPOINT, false),
+                                 field("loc2", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Palais Garnier";
+    doc["loc1"] = {48.872576479306765, 2.332291112241466};
+    doc["loc2"] = {48.84620987789056, 2.345152755563131};
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*",
+                                 {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    // remove the document, index another document and try querying again
+    coll1->remove("0");
+    doc["id"] = "1";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    results = coll1->search("*",
+                            {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+}
+
 TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
     Collection *coll1;
 

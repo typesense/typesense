@@ -31,6 +31,9 @@ Index::Index(const std::string name, const std::unordered_map<std::string, field
                 art_tree_init(t);
                 search_index.emplace(fname_field.first, t);
             }
+        } else if(fname_field.second.is_geopoint()) {
+            auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
+            geopoint_index.emplace(fname_field.first, field_geo_index);
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
@@ -66,12 +69,21 @@ Index::~Index() {
         name_tree.second = nullptr;
     }
 
+    search_index.clear();
+
+    for(auto & name_index: geopoint_index) {
+        delete name_index.second;
+        name_index.second = nullptr;
+    }
+
+    geopoint_index.clear();
+
     for(auto & name_tree: numerical_index) {
         delete name_tree.second;
         name_tree.second = nullptr;
     }
 
-    search_index.clear();
+    numerical_index.clear();
 
     for(auto & name_map: sort_index) {
         delete name_map.second;
@@ -219,7 +231,8 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             const std::vector<double>& latlong = document[field_name];
             S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
             for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                geopoint_index[term].push_back(seq_id);
+                auto geo_index = geopoint_index.at(field_name);
+                (*geo_index)[term].push_back(seq_id);
             }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             art_tree *t = search_index.at(field_name);
@@ -284,13 +297,13 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
                                                  const std::map<std::string, field> & facet_schema,
-                                                 bool is_update,
+                                                 const index_operation_t op,
                                                  const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
-    if(!is_update && missing_default_sort_field) {
+    if(op != UPDATE && missing_default_sort_field) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
@@ -299,7 +312,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
         const std::string& field_name = field_pair.first;
         const field& a_field = field_pair.second;
 
-        if((a_field.optional || is_update) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -409,37 +422,6 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
     return Option<>(200);
 }
 
-void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc) {
-    std::vector<std::string> del_keys;
-
-    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
-        const std::string& field_name = it.key();
-
-        std::shared_lock lock(mutex);
-
-        const auto& search_field_it = search_schema.find(field_name);
-        if(search_field_it == search_schema.end()) {
-            continue;
-        }
-
-        const auto search_field = search_field_it->second;  // copy, don't use reference!
-
-        lock.unlock();
-
-        // compare values between old and update docs:
-        // if they match, we will remove them from both del and update docs
-
-        if(update_doc[search_field.name] == old_doc[search_field.name]) {
-            del_keys.push_back(field_name);
-        }
-    }
-
-    for(const auto& del_key: del_keys) {
-        del_doc.erase(del_key);
-        update_doc.erase(del_key);
-    }
-}
-
 size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
@@ -458,7 +440,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
                                                                       search_schema, facet_schema,
-                                                                      index_rec.is_update,
+                                                                      index_rec.operation,
                                                                       fallback_field_type,
                                                                       index_rec.dirty_values);
 
@@ -469,7 +451,8 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
 
             if(index_rec.is_update) {
                 // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.doc, index_rec.old_doc, index_rec.new_doc, index_rec.del_doc);
+                get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
+                                index_rec.del_doc);
                 index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
                 index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
             }
@@ -485,7 +468,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_
             }
 
             if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, true);
+                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
                 index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
                 continue;
             }
@@ -1039,7 +1022,8 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
         bool has_search_index = search_index.count(a_filter.field_name) != 0 ||
-                                numerical_index.count(a_filter.field_name) != 0;
+                                numerical_index.count(a_filter.field_name) != 0 ||
+                                geopoint_index.count(a_filter.field_name) != 0;
 
         if(!has_search_index) {
             continue;
@@ -1165,8 +1149,9 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                 S2RegionTermIndexer indexer(options);
 
                 for (const auto& term : indexer.GetQueryTerms(*query_region, "")) {
-                    const auto& ids_it = geopoint_index.find(term);
-                    if(ids_it != geopoint_index.end()) {
+                    auto geo_index = geopoint_index.at(a_filter.field_name);
+                    const auto& ids_it = geo_index->find(term);
+                    if(ids_it != geo_index->end()) {
                         geo_result_ids.insert(ids_it->second.begin(), ids_it->second.end());
                     }
                 }
@@ -1250,7 +1235,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                     // field being a facet is already enforced upstream
                     uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
                     size_t exact_strt_size = 0;
-                    
+
                     for(size_t strt_ids_index = 0; strt_ids_index < strt_ids_size; strt_ids_index++) {
                         uint32_t seq_id = strt_ids[strt_ids_index];
                         const auto& fvalues = facet_index_v3.at(f.name)->at(seq_id);
@@ -1538,24 +1523,10 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string& field = search_fields[0].name;
 
-        // if a filter is not specified, use the sorting index to generate the list of all document ids
+        // if a filter is not specified, use the seq_ids index to generate the list of all document ids
         if(filters.empty()) {
-            if(default_sorting_field.empty()) {
-                filter_ids_length = seq_ids.getLength();
-                filter_ids = seq_ids.uncompress();
-            } else {
-                const spp::sparse_hash_map<uint32_t, int64_t> *kvs = sort_index.at(default_sorting_field);
-                filter_ids_length = kvs->size();
-                filter_ids = new uint32_t[filter_ids_length];
-
-                size_t i = 0;
-                for(const auto& kv: *kvs) {
-                    filter_ids[i++] = kv.first;
-                }
-
-                // ids populated from hash map will not be sorted, but sorting is required for intersection & other ops
-                std::sort(filter_ids, filter_ids+filter_ids_length);
-            }
+            filter_ids_length = seq_ids.getLength();
+            filter_ids = seq_ids.uncompress();
         }
 
         if(!curated_ids.empty()) {
@@ -2338,6 +2309,21 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                 int64_t bool_int64 = value ? 1 : 0;
                 num_tree->remove(bool_int64, seq_id);
             }
+        } else if(search_field.is_geopoint()) {
+            auto geo_index = geopoint_index[field_name];
+            S2RegionTermIndexer::Options options;
+            options.set_index_contains_points_only(true);
+            S2RegionTermIndexer indexer(options);
+
+            const std::vector<double>& latlong = document[field_name];
+            S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+            for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                std::vector<uint32_t>& ids = (*geo_index)[term];
+                ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
+                if(ids.empty()) {
+                    geo_index->erase(term);
+                }
+            }
         }
 
         // remove facets
@@ -2404,6 +2390,9 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
                 art_tree *t = new art_tree;
                 art_tree_init(t);
                 search_index.emplace(new_field.name, t);
+            } else if(new_field.is_geopoint()) {
+                auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
+                geopoint_index.emplace(new_field.name, field_geo_index);
             } else {
                 num_tree_t* num_tree = new num_tree_t;
                 numerical_index.emplace(new_field.name, num_tree);
@@ -2729,23 +2718,59 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
     return Option<uint32_t>(200);
 }
 
-void Index::get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc, nlohmann::json &new_doc,
-                            nlohmann::json &del_doc) {
+void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& update_doc,
+                            const nlohmann::json& old_doc, nlohmann::json& new_doc, nlohmann::json& del_doc) {
+
     for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
-        new_doc[it.key()] = it.value();
+        if(op == UPSERT && !update_doc.contains(it.key())) {
+            del_doc[it.key()] = it.value();
+        } else {
+            new_doc[it.key()] = it.value();
+        }
     }
 
-    for(auto it = document.begin(); it != document.end(); ++it) {
+    for(auto it = update_doc.begin(); it != update_doc.end(); ++it) {
         // adds new key or overrides existing key from `old_doc`
         new_doc[it.key()] = it.value();
 
-        // if the update document contains a field that exists in old, we record that (for delete + reindex)
+        // if the update update_doc contains a field that exists in old, we record that (for delete + reindex)
         bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
         if(field_exists_in_old_doc) {
             // key exists in the stored doc, so it must be reindexed
             // we need to check for this because a field can be optional
             del_doc[it.key()] = old_doc[it.key()];
         }
+    }
+}
+
+void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc) {
+    std::vector<std::string> del_keys;
+
+    for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
+        const std::string& field_name = it.key();
+
+        std::shared_lock lock(mutex);
+
+        const auto& search_field_it = search_schema.find(field_name);
+        if(search_field_it == search_schema.end()) {
+            continue;
+        }
+
+        const auto search_field = search_field_it->second;  // copy, don't use reference!
+
+        lock.unlock();
+
+        // compare values between old and update docs:
+        // if they match, we will remove them from both del and update docs
+
+        if(update_doc.contains(search_field.name) && update_doc[search_field.name] == old_doc[search_field.name]) {
+            del_keys.push_back(field_name);
+        }
+    }
+
+    for(const auto& del_key: del_keys) {
+        del_doc.erase(del_key);
+        update_doc.erase(del_key);
     }
 }
 

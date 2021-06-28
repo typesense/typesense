@@ -1055,10 +1055,10 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
     // update + upsert records
-    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry", "starring": "Will Ferrell"})",
-                                            R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"]})",
+    std::vector<std::string> more_records = {R"({"id": "0", "title": "The Fifth Harry", "starring": "Will Ferrell", "points":62, "cast":["Adam McKay","Steve Carell","Paul Rudd"]})",
+                                            R"({"id": "2", "cast": ["Chris Fisher", "Rand Alan"], "points":81, "starring":"Daniel Day-Lewis","title":"There Will Be Blood"})",
                                             R"({"id": "18", "title": "Back Again Forest", "points": 45, "starring": "Ronald Wells", "cast": ["Dant Saren"]})",
-                                            R"({"id": "6", "points": 77})"};
+                                            R"({"id": "6", "points": 77, "cast":["Chris Evans","Scarlett Johansson"], "starring":"Samuel L. Jackson","title":"Captain America: The Winter Soldier"})"};
 
     import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
 
@@ -1079,7 +1079,6 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
 
     results = coll_mul_fields->search("*", query_fields, "", {"starring"}, sort_fields, {0}, 30, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(19, results["hits"].size());
-
     ASSERT_EQ(19, coll_mul_fields->get_num_documents());
 
     results = coll_mul_fields->search("back again forest", query_fields, "", {"starring"}, sort_fields, {0}, 30, 1, FREQUENCY, {false}).get();
@@ -1104,9 +1103,9 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(77, results["hits"][0]["document"]["points"].get<size_t>());
 
     // upserting with some bad docs
-    more_records = {R"({"id": "1", "title": "Wake up, Harry"})",
+    more_records = {R"({"id": "1", "title": "Wake up, Harry", "cast":["Josh Lawson","Chris Parnell"],"points":63,"starring":"Will Ferrell"})",
                     R"({"id": "90", "cast": ["Kim Werrel", "Random Wake"]})",                     // missing fields
-                    R"({"id": "5", "points": 60})",
+                    R"({"id": "5", "points": 60, "cast":["Logan Lerman","Alexandra Daddario"],"starring":"Ron Perlman","starring_facet":"Ron Perlman","title":"Percy Jackson: Sea of Monsters"})",
                     R"({"id": "24", "starring": "John", "cast": ["John Kim"], "points": 11})"};   // missing fields
 
     import_response = coll_mul_fields->add_many(more_records, document, UPSERT);
@@ -1264,6 +1263,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     for(size_t i=0; i<NUM_RECORDS; i++) {
         nlohmann::json updoc;
         updoc["id"] = std::to_string(i);
+        updoc["points"] = i;
         updoc["title"] = {
             get_text(10),
             get_text(10),
@@ -1290,6 +1290,7 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
     for(size_t i=0; i<NUM_RECORDS; i++) {
         nlohmann::json updoc;
         updoc["id"] = std::to_string(i);
+        updoc["points"] = i;
         updoc["title"] = {
             get_text(10),
             get_text(10),
@@ -1306,6 +1307,27 @@ TEST_F(CollectionTest, ImportDocumentsUpsertOptional) {
 
     //LOG(INFO) << "Time taken for second upsert: " << time_micros;
 
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1000, import_response["num_imported"].get<int>());
+
+    // update records (can contain partial fields)
+
+    records.clear();
+
+    for(size_t i=0; i<NUM_RECORDS; i++) {
+        nlohmann::json updoc;
+        updoc["id"] = std::to_string(i);
+        // no points field
+        updoc["title"] = {
+            get_text(10),
+            get_text(10),
+            get_text(10),
+            get_text(10),
+        };
+        records.push_back(updoc.dump());
+    }
+
+    import_response = coll1->add_many(records, document, UPDATE);
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(1000, import_response["num_imported"].get<int>());
 }
@@ -2143,7 +2165,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, true),
-                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("tags", field_types::STRING_ARRAY, true, true),
                                  field("points", field_types::INT32, false)};
 
     std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
@@ -2188,6 +2210,27 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][1]["count"]);
+
+    // upsert only part of the document -- document should be REPLACED
+    nlohmann::json partial_doc = doc;
+    partial_doc.erase("tags");
+    add_op = coll1->add(partial_doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("lazy", {"title"}, "", {}, sort_fields, {0}, 10, 1,
+                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title").get();
+
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_FALSE(res["hits"][0].contains("tags"));
+
+    // upserting without a mandatory field should be an error
+    partial_doc = doc;
+    partial_doc.erase("title");
+    LOG(INFO) << partial_doc.dump();
+    add_op = coll1->add(partial_doc.dump(), UPSERT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `title` has been declared in the schema, but is not found in the document.", add_op.error());
 
     // try changing the title and searching for an older token
     doc["title"] = "The quick brown fox.";
@@ -2255,7 +2298,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     nlohmann::json doc4;
     doc4["points"] = 105;
 
-    add_op = coll1->add(doc4.dump(), UPSERT, "100");
+    add_op = coll1->add(doc4.dump(), UPDATE, "100");
     ASSERT_TRUE(add_op.ok());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {"tags"}, sort_fields, {0}, 10, 1,
@@ -2267,8 +2310,9 @@ TEST_F(CollectionTest, UpdateDocument) {
 
     // try to change a field with bad value and verify that old document is put back
     doc4["points"] = "abc";
-    add_op = coll1->add(doc4.dump(), UPSERT, "100");
+    add_op = coll1->add(doc4.dump(), UPDATE, "100");
     ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `points` must be an int32.", add_op.error());
 
     res = coll1->search("*", {"tags"}, "points: > 101", {"tags"}, sort_fields, {0}, 10, 1,
                         token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),

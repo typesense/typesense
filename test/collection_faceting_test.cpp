@@ -337,14 +337,13 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FALSE(res_op.ok());
     ASSERT_STREQ("Facet query refers to a facet field `name_facet` that is not part of `facet_by` parameter.", res_op.error().c_str());
 
-    // facet query with multiple colons
+    // facet query with multiple colons should be fine (only first colon will be treate as separator)
     res_op = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
                                        {false}, Index::DROP_TOKENS_THRESHOLD,
                                        spp::sparse_hash_set<std::string>(),
                                        spp::sparse_hash_set<std::string>(), 10, "tags:foo:bar");
 
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Facet query must be in the `facet_field: value` format.", res_op.error().c_str());
+    ASSERT_TRUE(res_op.ok());
 
     collectionManager.drop_collection("coll_array_fields");
 }
@@ -676,6 +675,51 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
 
     ASSERT_STREQ("India in England", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("England in India", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, FacetQueryOnStringWithColon) {
+    ;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "100";
+    doc["title"] = "foo:bar";
+    doc["points"] = 25;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {}, "", {"title"}, sort_fields, {0}, 10, 1,
+                                           token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "title: foo:ba");
+
+    ASSERT_TRUE(res_op.ok());
+
+    auto results = res_op.get();
+
+    ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>foo:ba</mark>r", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    results = coll1->search("*", {}, "", {"title"}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "title: ").get();
+
+    ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    results = coll1->search("*", {}, "", {"title"}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "").get();
+
+    ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

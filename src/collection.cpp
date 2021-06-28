@@ -299,8 +299,9 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
                     if(!write_ok) {
                         // we will attempt to reindex the old doc on a best-effort basis
+                        LOG(ERROR) << "Update to disk failed. Will restore old document";
                         remove_document(index_record.new_doc, index_record.seq_id, false);
-                        index_in_memory(index_record.old_doc, index_record.seq_id, false, index_record.dirty_values);
+                        index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
                         num_indexed++;
@@ -319,6 +320,7 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 
                     if(!write_ok) {
                         // remove from in-memory store to keep the state synced
+                        LOG(ERROR) << "Write to disk failed. Will restore old document";
                         remove_document(index_record.doc, index_record.seq_id, false);
                         index_record.index_failure(500, "Could not write to on-disk storage.");
                     } else {
@@ -346,11 +348,11 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
 }
 
 Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t seq_id,
-                                             bool is_update, const DIRTY_VALUES& dirty_values) {
+                                             const index_operation_t op, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, facet_schema, is_update,
+                                                                     search_schema, facet_schema, op,
                                                                      fallback_field_type, dirty_values);
 
     if(!validation_op.ok()) {
@@ -358,7 +360,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     Index* index = indices[seq_id % num_memory_shards];
-    index->index_in_memory(document, seq_id, default_sorting_field, is_update);
+    index->index_in_memory(document, seq_id, default_sorting_field, op);
 
     num_documents += 1;
     return Option<>(200);
@@ -674,30 +676,33 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // parse facet query
-    std::vector<std::string> facet_query_vec;
     facet_query_t facet_query = {"", ""};
 
-    if(!simple_facet_query.empty() && simple_facet_query.find(':') == std::string::npos) {
-        std::string error = "Facet query must be in the `facet_field: value` format.";
-        return Option<nlohmann::json>(400, error);
-    }
+    if(!simple_facet_query.empty()) {
+        size_t found_colon_index = simple_facet_query.find(':');
 
-    StringUtils::split(simple_facet_query, facet_query_vec, ":");
-    if(!facet_query_vec.empty()) {
+        if(found_colon_index == std::string::npos) {
+            std::string error = "Facet query must be in the `facet_field: value` format.";
+            return Option<nlohmann::json>(400, error);
+        }
+
         if(facet_fields.empty()) {
             std::string error = "The `facet_query` parameter is supplied without a `facet_by` parameter.";
             return Option<nlohmann::json>(400, error);
         }
 
-        if(facet_query_vec.size() == 1) {
+        std::string&& facet_query_fname = simple_facet_query.substr(0, found_colon_index);
+        StringUtils::trim(facet_query_fname);
+
+        std::string&& facet_query_value = simple_facet_query.substr(found_colon_index+1, std::string::npos);
+        StringUtils::trim(facet_query_value);
+
+        if(facet_query_value.empty()) {
             // empty facet value, we will treat it as no facet query
             facet_query = {"", ""};
-        } else if(facet_query_vec.size() > 2) {
-            std::string error = "Facet query must be in the `facet_field: value` format.";
-            return Option<nlohmann::json>(400, error);
         } else {
             // facet query field must be part of facet fields requested
-            facet_query = { StringUtils::trim(facet_query_vec[0]), StringUtils::trim(facet_query_vec[1]) };
+            facet_query = { StringUtils::trim(facet_query_fname), facet_query_value };
             if(std::find(facet_fields.begin(), facet_fields.end(), facet_query.field_name) == facet_fields.end()) {
                 std::string error = "Facet query refers to a facet field `" + facet_query.field_name + "` " +
                                     "that is not part of `facet_by` parameter.";
@@ -1963,6 +1968,23 @@ std::string Collection::get_seq_id_collection_prefix() const {
 std::string Collection::get_default_sorting_field() {
     std::shared_lock lock(mutex);
     return default_sorting_field;
+}
+
+Option<bool> Collection::get_document_from_store(const uint32_t& seq_id, nlohmann::json& document) const {
+    std::string json_doc_str;
+    StoreStatus json_doc_status = store->get(get_seq_id_key(seq_id), json_doc_str);
+
+    if(json_doc_status != StoreStatus::FOUND) {
+        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + std::to_string(seq_id));
+    }
+
+    try {
+        document = nlohmann::json::parse(json_doc_str);
+    } catch(...) {
+        return Option<bool>(500, "Error while parsing stored document with sequence ID: " + std::to_string(seq_id));
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, nlohmann::json & document) const {
