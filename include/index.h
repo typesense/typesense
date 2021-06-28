@@ -173,7 +173,7 @@ private:
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
 
-    spp::sparse_hash_map<std::string, std::vector<uint32_t>> geopoint_index;
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::vector<uint32_t>>*> geopoint_index;
 
     // facet_field => (seq_id => values)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>*> facet_index_v3;
@@ -256,8 +256,8 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static void get_doc_changes(const nlohmann::json &document, nlohmann::json &old_doc,
-                                nlohmann::json &new_doc, nlohmann::json &del_doc);
+    static void get_doc_changes(const index_operation_t op, const nlohmann::json &update_doc,
+                                const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
 
     static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
                                           const field& a_field, nlohmann::json &document,
@@ -329,7 +329,7 @@ public:
 
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 
-    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, nlohmann::json& old_doc);
+    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
 
     static void tokenize_string_field(const nlohmann::json& document,
                                       const field& search_field, std::vector<std::string>& tokens,
@@ -389,7 +389,7 @@ public:
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
                                                      const std::map<std::string, field> & facet_schema,
-                                                     bool is_update,
+                                                     const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 

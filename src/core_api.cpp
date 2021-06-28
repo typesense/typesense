@@ -391,30 +391,111 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         return false;
     }
 
+    const char* FILTER_BY = "filter_by";
+    const char* INCLUDE_FIELDS = "include_fields";
+    const char* EXCLUDE_FIELDS = "exclude_fields";
+
+    export_state_t* export_state = nullptr;
+
     const std::string seq_id_prefix = collection->get_seq_id_collection_prefix();
-    rocksdb::Iterator* it = nullptr;
 
     if(req->data == nullptr) {
-        it = collectionManager.get_store()->get_iterator();
-        it->Seek(seq_id_prefix);
-        req->data = it;
+        export_state = new export_state_t();
+
+        std::string simple_filter_query;
+
+        if(req->params.count(FILTER_BY) != 0) {
+            simple_filter_query = req->params[FILTER_BY];
+        }
+
+        if(req->params.count(INCLUDE_FIELDS) != 0) {
+            std::vector<std::string> include_fields_vec;
+            StringUtils::split(req->params[INCLUDE_FIELDS], include_fields_vec, ",");
+            export_state->include_fields = std::set<std::string>(include_fields_vec.begin(), include_fields_vec.end());
+        }
+
+        if(req->params.count(EXCLUDE_FIELDS) != 0) {
+            std::vector<std::string> exclude_fields_vec;
+            StringUtils::split(req->params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
+            export_state->exclude_fields = std::set<std::string>(exclude_fields_vec.begin(), exclude_fields_vec.end());
+        }
+
+        if(simple_filter_query.empty()) {
+            export_state->it = collectionManager.get_store()->get_iterator();
+            export_state->it->Seek(seq_id_prefix);
+        } else {
+            auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
+
+            if(!filter_ids_op.ok()) {
+                res->set(filter_ids_op.code(), filter_ids_op.error());
+                req->last_chunk_aggregate = true;
+                res->final = true;
+                stream_response(req, res);
+                delete export_state;
+                return false;
+            }
+
+            for(size_t i=0; i<export_state->index_ids.size(); i++) {
+                export_state->offsets.push_back(0);
+            }
+            export_state->res_body = &res->body;
+            export_state->collection = collection.get();
+        }
     } else {
-        it = static_cast<rocksdb::Iterator*>(req->data);
+        export_state = static_cast<export_state_t*>(req->data);
     }
 
-    if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
-        res->body = it->value().ToString();
-        it->Next();
+    req->data = export_state;
 
-        // append a new line character if there is going to be one more record to send
+    if(export_state->it != nullptr) {
+        rocksdb::Iterator* it = export_state->it;
+
         if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
-            res->body += "\n";
+            if(export_state->include_fields.empty() && export_state->exclude_fields.empty()) {
+                res->body = it->value().ToString();
+            } else {
+                nlohmann::json doc = nlohmann::json::parse(it->value().ToString());
+                nlohmann::json filtered_doc;
+                for(const auto& kv: doc.items()) {
+                    bool must_include = export_state->include_fields.empty() ||
+                                        (export_state->include_fields.count(kv.key()) != 0);
+
+                    bool must_exclude = !export_state->exclude_fields.empty() &&
+                                        (export_state->exclude_fields.count(kv.key()) != 0);
+
+                    if(must_include && !must_exclude) {
+                        filtered_doc[kv.key()] = kv.value();
+                    }
+                }
+
+                res->body = filtered_doc.dump();
+            }
+
+            it->Next();
+
+            // append a new line character if there is going to be one more record to send
+            if(it->Valid() && it->key().ToString().compare(0, seq_id_prefix.size(), seq_id_prefix) == 0) {
+                res->body += "\n";
+                req->last_chunk_aggregate = false;
+                res->final = false;
+            } else {
+                req->last_chunk_aggregate = true;
+                res->final = true;
+                delete export_state;
+                req->data = nullptr;
+            }
+        }
+    } else {
+        bool done;
+        stateful_export_docs(export_state, 100, done);
+
+        if(!done) {
             req->last_chunk_aggregate = false;
             res->final = false;
         } else {
             req->last_chunk_aggregate = true;
             res->final = true;
-            delete it;
+            delete export_state;
             req->data = nullptr;
         }
     }
@@ -757,6 +838,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             req->last_chunk_aggregate = true;
             res->final = true;
             stream_response(req, res);
+            delete deletion_state;
             return false;
         }
 
@@ -793,7 +875,12 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
     }
 
-    stream_response(req, res);
+    if(res->final) {
+        stream_response(req, res);
+    } else {
+        defer_processing(req, res, 0);
+    }
+
     return true;
 }
 
