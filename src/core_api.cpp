@@ -117,7 +117,7 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"]);
+    Option<nlohmann::json> drop_op = collectionManager.drop_collection(req->params["collection"], true);
 
     if(!drop_op.ok()) {
         res->set(drop_op.code(), drop_op.error());
