@@ -143,3 +143,35 @@ TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, CreateManyCollectionsAndDeleteOneOfThem) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    for(size_t i = 0; i <= 10; i++) {
+        const std::string& coll_name = "coll" + std::to_string(i);
+        collectionManager.drop_collection(coll_name);
+        ASSERT_TRUE(collectionManager.create_collection(coll_name, 1, fields, "points").ok());
+    }
+
+    auto coll1 = collectionManager.get_collection_unsafe("coll1");
+    auto coll10 = collectionManager.get_collection_unsafe("coll10");
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The quick brown fox was too fast.";
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_TRUE(coll10->add(doc.dump()).ok());
+
+    collectionManager.drop_collection("coll1", true);
+
+    // Record with id "0" should exist in coll10
+    ASSERT_TRUE(coll10->get("0").ok());
+
+    for(size_t i = 0; i <= 10; i++) {
+        const std::string& coll_name = "coll" + std::to_string(i);
+        collectionManager.drop_collection(coll_name);
+    }
+}

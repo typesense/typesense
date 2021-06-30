@@ -1999,7 +1999,8 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
     if(json_doc_status != StoreStatus::FOUND) {
-        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + seq_id_key);
+        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
+        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + seq_id);
     }
 
     try {
