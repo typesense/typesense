@@ -342,11 +342,10 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
-        const std::string &collection_id_str = std::to_string(collection->get_collection_id());
+        const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
 
-        // Note: The order of dropping documents first before dropping collection meta is important for replication
-        rocksdb::Iterator* iter = store->scan(collection_id_str);
-        while(iter->Valid() && iter->key().starts_with(collection_id_str)) {
+        rocksdb::Iterator* iter = store->scan(del_key_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_key_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
         }
