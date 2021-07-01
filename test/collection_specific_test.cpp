@@ -15,7 +15,7 @@ protected:
     std::vector<sort_by> sort_fields;
 
     void setupCollection() {
-        std::string state_dir_path = "/tmp/typesense_test/collection_filtering";
+        std::string state_dir_path = "/tmp/typesense_test/collection_specific";
         LOG(INFO) << "Truncating and creating: " << state_dir_path;
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
@@ -174,4 +174,52 @@ TEST_F(CollectionSpecificTest, CreateManyCollectionsAndDeleteOneOfThem) {
         const std::string& coll_name = "coll" + std::to_string(i);
         collectionManager.drop_collection(coll_name);
     }
+}
+
+TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    for (size_t i = 0; i <= 10; i++) {
+        const std::string& coll_name = "coll" + std::to_string(i);
+        collectionManager.drop_collection(coll_name);
+        ASSERT_TRUE(collectionManager.create_collection(coll_name, 1, fields, "points").ok());
+    }
+
+    auto coll1 = collectionManager.get_collection_unsafe("coll1");
+
+    nlohmann::json override_json = {
+        {"id",   "exclude-rule"},
+        {
+            "rule", {
+                 {"query", "of"},
+                 {"match", override_t::MATCH_EXACT}
+             }
+        }
+    };
+    override_json["excludes"] = nlohmann::json::array();
+    override_json["excludes"][0] = nlohmann::json::object();
+    override_json["excludes"][0]["id"] = "4";
+
+    override_json["excludes"][1] = nlohmann::json::object();
+    override_json["excludes"][1]["id"] = "11";
+
+    override_t override;
+    override_t::parse(override_json, "", override);
+    coll1->add_override(override);
+
+    // add synonym
+    synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}} };
+    coll1->add_synonym(synonym1);
+
+    collectionManager.drop_collection("coll1");
+
+    // overrides should have been deleted from the store
+    std::vector<std::string> stored_values;
+    store->scan_fill(Collection::COLLECTION_OVERRIDE_PREFIX, stored_values);
+    ASSERT_TRUE(stored_values.empty());
+
+    // synonyms should also have been deleted from the store
+    store->scan_fill(Collection::COLLECTION_SYNONYM_PREFIX, stored_values);
+    ASSERT_TRUE(stored_values.empty());
 }
