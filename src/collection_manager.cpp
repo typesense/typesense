@@ -351,6 +351,26 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
         }
         delete iter;
 
+        // delete overrides
+        const std::string& del_override_prefix =
+                std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
+        iter = store->scan(del_override_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
+            store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
+        // delete synonyms
+        const std::string& del_synonym_prefix =
+                std::string(Collection::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
+        iter = store->scan(del_synonym_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
+            store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
         store->remove(Collection::get_next_seq_id_key(actual_coll_name));
         store->remove(Collection::get_meta_key(actual_coll_name));
     }
