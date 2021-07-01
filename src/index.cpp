@@ -366,6 +366,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             if(!coerce_op.ok()) {
                 return coerce_op;
             }
+        } else if(a_field.type == field_types::GEOPOINT) {
+            if(!document[field_name].is_array() || document[field_name].size() != 2) {
+                return Option<>(400, "Field `" + field_name  + "` must be a 2 element array: [lat, lng].");
+            }
+
+            if(!(document[field_name][0].is_number() && document[field_name][1].is_number())) {
+                // one or more elements is not an number, try to coerce
+                Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+                if(!coerce_op.ok()) {
+                    return coerce_op;
+                }
+            }
         } else if(a_field.is_array()) {
             if(!document[field_name].is_array()) {
                 if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP ||
@@ -2837,6 +2849,65 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+        }
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
+                                        const std::string &field_name,
+                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "a array of" : "a";
+    auto& item = is_array ? array_iter.value() : document[field_name];
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+        }
+
+        if(!is_array) {
+            document.erase(field_name);
+        } else {
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into a geopoint
+
+    if(!document[field_name][0].is_number() && document[field_name][0].is_string()) {
+        if(StringUtils::is_float(document[field_name][0])) {
+            document[field_name][0] = std::stof(document[field_name][0].get<std::string>());
+        }
+    }
+
+    if(!document[field_name][1].is_number() && document[field_name][1].is_string()) {
+        if(StringUtils::is_float(document[field_name][1])) {
+            document[field_name][1] = std::stof(document[field_name][1].get<std::string>());
+        }
+    }
+
+    if(!document[field_name][0].is_number() || !document[field_name][1].is_number()) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+            }
+
+            if(!is_array) {
+                document.erase(field_name);
+            } else {
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
+            }
+        } else {
+            // COERCE_OR_REJECT / non-optional + DROP
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
         }
     }
 
