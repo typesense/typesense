@@ -161,10 +161,6 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::optional] = coll_field.optional;
         field_json[fields::index] = coll_field.index;
 
-        if(coll_field.is_geopoint()) {
-            field_json[fields::geo_resolution] = size_t(coll_field.geo_resolution);
-        }
-
         fields_arr.push_back(field_json);
     }
 
