@@ -24,11 +24,11 @@ protected:
         collectionManager.load(8, 1000);
 
         search_fields = {
-            field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "en"),
+            field("title", field_types::STRING, false, false, true, "en"),
             field("starring", field_types::STRING, false),
             field("cast", field_types::STRING_ARRAY, true, true),
             field(".*_year", field_types::INT32, true, true),
-            field("location", field_types::GEOPOINT, false, true, true, 14),
+            field("location", field_types::GEOPOINT, false, true, true),
             field("points", field_types::INT32, false)
         };
 
@@ -92,7 +92,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
               "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
               "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"geo_resolution\":14,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4}",
               collection_meta_json);
@@ -545,7 +545,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
             field("starring", field_types::STRING, false),
             field("cast", field_types::STRING_ARRAY, true, true),
             field(".*_year", field_types::INT32, true, true),
-            field("location", field_types::GEOPOINT, false, true, true, 14),
+            field("location", field_types::GEOPOINT, false, true, true),
             field("points", field_types::INT32, false)
         };
 

@@ -33,7 +33,7 @@ protected:
 TEST_F(CollectionLocaleTest, SearchAgainstJapaneseText) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ja"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "ja"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -70,7 +70,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstJapaneseText) {
 TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "zh"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "zh"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -134,7 +134,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
 TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "th"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -189,7 +189,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
 TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "th"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -219,7 +219,7 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
                                  {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
                                  10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {1}, 1000, true, {true}).get();
+                                 "<mark>", "</mark>", {1}, 1000, true, true).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -228,7 +228,7 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
 TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
     Collection* coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "th"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -271,7 +271,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "ko"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -316,7 +316,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {
 TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "ko"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -375,7 +375,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 TEST_F(CollectionLocaleTest, KoreanTextPrefixVowel) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "ko"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "ko"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
@@ -417,7 +417,7 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixVowel) {
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanTextContainingEnglishChars) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, DEFAULT_GEO_RESOLUTION, "th"),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "th"),
                                  field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 

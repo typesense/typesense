@@ -583,14 +583,6 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     fields_json = nlohmann::json::array();
     fields_json.emplace_back(all_field);
 
-    // reject when you try to set geo property on * field
-    fields_json[0][fields::geo_resolution] = 10;
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
-
-    ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("Field `.*` cannot contain a geo resolution.", parse_op.error());
-    fields_json[0].erase(fields::geo_resolution);
-
     // reject when you try to set optional to false or facet to true
     fields_json[0][fields::optional] = false;
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
@@ -648,22 +640,6 @@ TEST_F(CollectionAllFieldsTest, JsonFieldsToFieldsConversion) {
     parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
     ASSERT_TRUE(parse_op.ok());
     ASSERT_EQ("ko", fields[0].locale);
-
-    fields_json.clear();
-    all_field[fields::name] = "loc";
-    all_field[fields::type] = "geopoint";
-    all_field[fields::geo_resolution] = "blah";
-    fields_json.emplace_back(all_field);
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
-    ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("The `geo_resolution` property of the field `loc` should be an integer.", parse_op.error());
-
-    fields_json.clear();
-    all_field[fields::geo_resolution] = 24;
-    fields_json.emplace_back(all_field);
-    parse_op = field::json_fields_to_fields(fields_json, fallback_field_type, fields);
-    ASSERT_FALSE(parse_op.ok());
-    ASSERT_EQ("The `geo_resolution` property of the field `loc` should be between 0 and 15.", parse_op.error());
 }
 
 TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsOnAutoSchema) {
