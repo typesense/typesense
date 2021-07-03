@@ -585,9 +585,13 @@ TEST_F(CollectionSortingTest, GeoPointSorting) {
         ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
     }
 
+    ASSERT_EQ(348, results["hits"][0]["geo_distance_meters"]["loc"].get<int>());
+    ASSERT_EQ(900, results["hits"][1]["geo_distance_meters"]["loc"].get<int>());
+    ASSERT_EQ(1973, results["hits"][2]["geo_distance_meters"]["loc"].get<int>());
+
     // desc, without filter
     geo_sort_fields = {
-            sort_by("loc(48.84442912268208, 2.3490714964332353)", "DESC")
+        sort_by("loc(48.84442912268208, 2.3490714964332353)", "DESC")
     };
 
     results = coll1->search("*",

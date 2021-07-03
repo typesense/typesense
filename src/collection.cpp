@@ -1173,6 +1173,17 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
             }
 
+            nlohmann::json geo_distances;
+
+            for(size_t sort_field_index = 0; sort_field_index < sort_fields_std.size(); sort_field_index++) {
+                const auto& sort_field = sort_fields_std[sort_field_index];
+                if(sort_field.geopoint != 0) {
+                    geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
+                }
+            }
+
+            wrapper_doc["geo_distance_meters"] = geo_distances;
+
             hits_array.push_back(wrapper_doc);
         }
 
