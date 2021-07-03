@@ -1061,7 +1061,7 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `loc` must be a geopoint.", add_op.error());
 
-    // under corcion mode, it should work
+    // under coercion mode, it should work
     bad_doc["loc"] = {"48.91", "2.33"};
     add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
     ASSERT_TRUE(add_op.ok());
