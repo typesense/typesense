@@ -144,6 +144,58 @@ TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, PrefixWithTypos1) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "PRÍNCIPE - Restaurante e Snack Bar";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("maria", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("maria", {"title"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, PrefixWithTypos2) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Av. Mal. Humberto Delgado 206, 4760-012 Vila Nova de Famalicão, Portugal";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("maria", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("maria", {"title"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, CreateManyCollectionsAndDeleteOneOfThem) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};

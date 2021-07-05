@@ -1182,7 +1182,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 }
             }
 
-            wrapper_doc["geo_distance_meters"] = geo_distances;
+            if(!geo_distances.empty()) {
+                wrapper_doc["geo_distance_meters"] = geo_distances;
+            }
 
             hits_array.push_back(wrapper_doc);
         }

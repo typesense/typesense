@@ -1271,7 +1271,8 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
     // a) because key's null character will appear first
     if(last_key_char) {
 
-        if(term_len > key_len && (term_len - key_len) <= max_cost) {
+        if(key_len > 5 && term_len > key_len && (term_len - key_len) <= max_cost) {
+            // used to handle some trailing edge cases, but limit to larger keys to prevent eager matches
             cost = std::min(cost_row[key_len], cost_row[term_len]);
         } else {
             cost = cost_row[term_len];
