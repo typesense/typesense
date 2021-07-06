@@ -144,7 +144,105 @@ TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, PrefixWithTypos1) {
+TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Fast Electric Charger";
+    doc1["description"] = "A product you should buy.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Omega Chargex";
+    doc2["description"] = "Chargex is a great product.";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true, true}).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Moto Insta Share";
+    doc1["description"] = "Share information with this device.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Portable USB Store";
+    doc2["description"] = "Use it to charge your phone.";
+    doc2["points"] = 50;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true, true}).get();
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, FieldWeighting) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "The Quick Brown Fox";
+    doc1["description"] = "Share information with this device.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Random Title";
+    doc2["description"] = "The Quick Brown Fox";
+    doc2["points"] = 50;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("brown fox", {"title", "description"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true, true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 4}).get();
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, PrefixWithTypos) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
