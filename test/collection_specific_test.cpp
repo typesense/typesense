@@ -294,6 +294,24 @@ TEST_F(CollectionSpecificTest, PrefixWithTypos2) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, ImportDocumentWithIntegerID) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = 100;
+    doc1["title"] = "East India House on Wednesday evening";
+    doc1["points"] = 100;
+
+    auto add_op = coll1->add(doc1.dump());
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Document's `id` field should be a string.", add_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, CreateManyCollectionsAndDeleteOneOfThem) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
