@@ -311,6 +311,10 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
         const std::string& field_name = field_pair.first;
         const field& a_field = field_pair.second;
 
+        if(field_name == "id") {
+            continue;
+        }
+
         if((a_field.optional || op == UPDATE) && document.count(field_name) == 0) {
             continue;
         }
