@@ -1687,6 +1687,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                                  drop_tokens_threshold, typo_tokens_threshold);
                 }
 
+                // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
                 concat_topster_ids(ftopster, topster_ids);
                 collate_included_ids(field_query_tokens[i].q_include_tokens, field_name, field_id, included_ids_map, curated_topster, searched_queries);
                 //LOG(INFO) << "topster_ids.size: " << topster_ids.size();
@@ -1944,11 +1945,12 @@ void Index::search_field(const uint8_t & field_id,
             std::vector<art_leaf*> leaves;
             //LOG(INFO) << "Searching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
 
+            const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
+
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 // prefix should apply only for last token
-                const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 // need less candidates for filtered searches since we already only pick tokens with results
@@ -1964,7 +1966,8 @@ void Index::search_field(const uint8_t & field_id,
 
             if(!leaves.empty()) {
                 //log_leaves(costs[token_index], token, leaves);
-                token_candidates_vec.push_back(token_candidates{search_tokens[token_index], costs[token_index], leaves});
+                token_candidates_vec.push_back(
+                        token_candidates{search_tokens[token_index], costs[token_index], prefix_search, leaves});
             } else {
                 // No result at `cost = costs[token_index]`. Remove `cost` for token and re-do combinations
                 auto it = std::find(token_to_costs[token_index].begin(), token_to_costs[token_index].end(), costs[token_index]);
@@ -2179,6 +2182,13 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 (uint64_t(100 - total_distance) << 8) |
                 (uint64_t(total_verbatim) << 1)
             );
+
+            /*LOG(INFO) << "Match score: " << match_score << ", for seq_id: " << seq_id
+                      << " - total_tokens_found: " << total_tokens_found
+                      << " - total_num_typos: " << total_num_typos
+                      << " - total_distance: " << total_distance
+                      << " - total_verbatim: " << total_verbatim
+                      << " - total_cost: " << total_cost;*/
         }
 
         const int64_t default_score = INT64_MIN;  // to handle field that doesn't exist in document (e.g. optional)
@@ -2394,13 +2404,19 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         actual_query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
-        total_cost += token_candidates_vec[i].cost;
+
+        bool exact_match = token_candidates_vec[i].cost == 0 && token_size == actual_query_suggestion[i]->key_len-1;
+        bool incr_for_prefix_search = token_candidates_vec[i].prefix_search && !exact_match;
+
+        size_t actual_cost = (2 * token_candidates_vec[i].cost) + uint32_t(incr_for_prefix_search);
+
+        total_cost += actual_cost;
 
         token_bits |= 1UL << token_candidates_vec[i].token.position; // sets n-th bit
 
-        if(actual_query_suggestion[i]->key_len != token_size+1) {
-            total_cost++;
-        }
+        /*LOG(INFO) << "suggestion key: " << actual_query_suggestion[i]->key << ", token: "
+                  << token_candidates_vec[i].token.value << ", actual_cost: " << actual_cost;
+        LOG(INFO) << ".";*/
     }
 
     // Sort ascending based on matched documents for each token for faster intersection.

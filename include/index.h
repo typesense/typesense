@@ -29,6 +29,7 @@ struct token_t {
 struct token_candidates {
     token_t token;
     size_t cost;
+    bool prefix_search;
     std::vector<art_leaf*> candidates;
 };
 
