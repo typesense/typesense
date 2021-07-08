@@ -254,7 +254,7 @@ public:
         }
 
         if(!get_env("TYPESENSE_PEERING_ADDRESS").empty()) {
-            this->api_address = get_env("TYPESENSE_PEERING_ADDRESS");
+            this->peering_address = get_env("TYPESENSE_PEERING_ADDRESS");
         }
 
         if(!get_env("TYPESENSE_PEERING_PORT").empty()) {
