@@ -268,6 +268,48 @@ TEST_F(CollectionSpecificTest, PrefixWithTypos) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, PrefixVsExactMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Equivalent Ratios"},
+        {"Simplifying Ratios 1"},
+        {"Rational and Irrational Numbers"},
+        {"Simplifying Ratios 2"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("ration",
+                                 {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, PrefixWithTypos2) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
