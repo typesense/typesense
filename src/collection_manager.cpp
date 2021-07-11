@@ -31,18 +31,12 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::index] = true;
         }
 
-        // handle older records indexed before geo_resolution field introduction
-        if(field_obj.count(fields::geo_resolution) == 0) {
-            field_obj[fields::geo_resolution] = size_t(DEFAULT_GEO_RESOLUTION);
-        }
-
         if(field_obj.count(fields::locale) == 0) {
             field_obj[fields::locale] = "";
         }
 
         fields.push_back({field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
-                          field_obj[fields::optional], field_obj[fields::index],
-                          field_obj[fields::geo_resolution], field_obj[fields::locale]});
+                          field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale]});
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
@@ -342,11 +336,30 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
     nlohmann::json collection_json = collection->get_summary_json();
 
     if(remove_from_store) {
-        const std::string &collection_id_str = std::to_string(collection->get_collection_id());
+        const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
 
-        // Note: The order of dropping documents first before dropping collection meta is important for replication
-        rocksdb::Iterator* iter = store->scan(collection_id_str);
-        while(iter->Valid() && iter->key().starts_with(collection_id_str)) {
+        rocksdb::Iterator* iter = store->scan(del_key_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_key_prefix)) {
+            store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
+        // delete overrides
+        const std::string& del_override_prefix =
+                std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
+        iter = store->scan(del_override_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
+            store->remove(iter->key().ToString());
+            iter->Next();
+        }
+        delete iter;
+
+        // delete synonyms
+        const std::string& del_synonym_prefix =
+                std::string(Collection::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
+        iter = store->scan(del_synonym_prefix);
+        while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
         }

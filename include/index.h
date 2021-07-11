@@ -30,6 +30,7 @@ struct token_t {
 struct token_candidates {
     token_t token;
     size_t cost;
+    bool prefix_search;
     std::vector<art_leaf*> candidates;
 };
 
@@ -281,6 +282,10 @@ private:
     static Option<uint32_t> coerce_bool(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                         const std::string &field_name,
                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
+
+    static Option<uint32_t> coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
+                                            const std::string &field_name,
+                                            nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
 public:
     // for limiting number of results on multiple candidates / query rewrites

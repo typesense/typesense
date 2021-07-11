@@ -34,12 +34,8 @@ namespace fields {
     static const std::string facet = "facet";
     static const std::string optional = "optional";
     static const std::string index = "index";
-    static const std::string geo_resolution = "geo_resolution";
     static const std::string locale = "locale";
 }
-
-static const uint8_t DEFAULT_GEO_RESOLUTION = 7;
-static const uint8_t FINEST_GEO_RESOLUTION = 15;
 
 struct field {
     std::string name;
@@ -48,15 +44,11 @@ struct field {
     bool optional;
     bool index;
 
-    uint8_t geo_resolution;
-
     std::string locale;
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, const uint8_t geo_resolution = DEFAULT_GEO_RESOLUTION,
-          std::string locale = "") :
-            name(name), type(type), facet(facet), optional(optional), index(index),
-            geo_resolution(geo_resolution), locale(locale) {
+          bool index = true, std::string locale = "") :
+            name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
 
     }
 
@@ -205,9 +197,6 @@ struct field {
             field_val[fields::type] = field.type;
             field_val[fields::facet] = field.facet;
             field_val[fields::optional] = field.optional;
-            if(field.is_geopoint()) {
-                field_val[fields::geo_resolution] = field.geo_resolution;
-            }
 
             field_val[fields::locale] = field.locale;
 
@@ -306,19 +295,6 @@ struct field {
                 }
             }
 
-            if(field_json.count(fields::geo_resolution) != 0) {
-                if(!field_json.at(fields::geo_resolution).is_number_integer()) {
-                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
-                                             field_json[fields::name].get<std::string>() + std::string("` should be an integer."));
-                }
-
-                int field_geo_res = field_json.at(fields::geo_resolution).get<int>();
-                if(field_geo_res < 0 || field_geo_res > 15) {
-                    return Option<bool>(400, std::string("The `geo_resolution` property of the field `") +
-                           field_json[fields::name].get<std::string>() + std::string("` should be between 0 and 15."));
-                }
-            }
-
             if(field_json.count(fields::locale) != 0){
                 if(!field_json.at(fields::locale).is_string()) {
                     return Option<bool>(400, std::string("The `locale` property of the field `") +
@@ -350,10 +326,6 @@ struct field {
                     field_json[fields::locale] = "";
                 }
 
-                if(field_json.count(fields::geo_resolution) != 0) {
-                    return Option<bool>(400, "Field `.*` cannot contain a geo resolution.");
-                }
-
                 if(field_json[fields::optional] == false) {
                     return Option<bool>(400, "Field `.*` must be an optional field.");
                 }
@@ -367,8 +339,7 @@ struct field {
                 }
 
                 field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
-                                     field_json["optional"], field_json[fields::index],
-                                     DEFAULT_GEO_RESOLUTION, field_json[fields::locale]);
+                                     field_json["optional"], field_json[fields::index], field_json[fields::locale]);
 
                 if(fallback_field.has_valid_type()) {
                     fallback_field_type = fallback_field.type;
@@ -399,14 +370,9 @@ struct field {
                 field_json[fields::optional] = is_dynamic;
             }
 
-            if(field_json.count(fields::geo_resolution) == 0) {
-                field_json[fields::geo_resolution] = DEFAULT_GEO_RESOLUTION;
-            }
-
             fields.emplace_back(
                 field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
-                      field_json[fields::optional], field_json[fields::index],
-                      field_json[fields::geo_resolution], field_json[fields::locale])
+                      field_json[fields::optional], field_json[fields::index], field_json[fields::locale])
             );
         }
 

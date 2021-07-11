@@ -1030,6 +1030,42 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_STREQ("5", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("3", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    // when geo field is formatted as string, show meaningful error
+    nlohmann::json bad_doc;
+    bad_doc["id"] = "1000";
+    bad_doc["title"] = "Test record";
+    bad_doc["loc"] = {"48.91", "2.33"};
+    bad_doc["points"] = 1000;
+
+    auto add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a geopoint.", add_op.error());
+
+    bad_doc["loc"] = "foobar";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a 2 element array: [lat, lng].", add_op.error());
+
+    bad_doc["loc"] = {"foo", "bar"};
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a geopoint.", add_op.error());
+
+    bad_doc["loc"] = {"2.33", "bar"};
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a geopoint.", add_op.error());
+
+    bad_doc["loc"] = {"foo", "2.33"};
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a geopoint.", add_op.error());
+
+    // under coercion mode, it should work
+    bad_doc["loc"] = {"48.91", "2.33"};
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
     collectionManager.drop_collection("coll1");
 }
 

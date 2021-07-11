@@ -162,10 +162,6 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::optional] = coll_field.optional;
         field_json[fields::index] = coll_field.index;
 
-        if(coll_field.is_geopoint()) {
-            field_json[fields::geo_resolution] = size_t(coll_field.geo_resolution);
-        }
-
         fields_arr.push_back(field_json);
     }
 
@@ -1178,6 +1174,19 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                 wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
             }
 
+            nlohmann::json geo_distances;
+
+            for(size_t sort_field_index = 0; sort_field_index < sort_fields_std.size(); sort_field_index++) {
+                const auto& sort_field = sort_fields_std[sort_field_index];
+                if(sort_field.geopoint != 0) {
+                    geo_distances[sort_field.name] = std::abs(field_order_kv->scores[sort_field_index]);
+                }
+            }
+
+            if(!geo_distances.empty()) {
+                wrapper_doc["geo_distance_meters"] = geo_distances;
+            }
+
             hits_array.push_back(wrapper_doc);
         }
 
@@ -1992,7 +2001,8 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
     if(json_doc_status != StoreStatus::FOUND) {
-        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + seq_id_key);
+        const std::string& seq_id = std::to_string(get_seq_id_from_key(seq_id_key));
+        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + seq_id);
     }
 
     try {
