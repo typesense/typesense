@@ -71,10 +71,15 @@ public:
     void get(const std::string& count_key, const std::string& latency_key, nlohmann::json &result) const {
         std::shared_lock lock(mutex);
 
+        uint64_t total_counts = 0;
+
         result[count_key] = nlohmann::json::object();
         for(const auto& kv: *counts) {
             result[count_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
+            total_counts += kv.second;
         }
+
+        result["total_"+count_key] = double(total_counts) / (METRICS_REFRESH_INTERVAL_MS / 1000);
 
         result[latency_key] = nlohmann::json::object();
         for(const auto& kv: *durations) {

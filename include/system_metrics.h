@@ -38,18 +38,26 @@ private:
     static uint64_t non_proc_mem_last_access;
     static uint64_t non_proc_mem_bytes;
 
-    size_t get_idle_time(const cpu_data_t &e) {
+    size_t _get_idle_time(const cpu_data_t &e) {
+        // we will consider iowait as cpu being idle
         return e.times[S_IDLE] +
                e.times[S_IOWAIT];
     }
 
-    size_t get_active_time(const cpu_data_t &e) {
+    size_t get_total_time(const cpu_data_t &e) {
         return e.times[S_USER] +
                e.times[S_NICE] +
                e.times[S_SYSTEM] +
+               e.times[S_IDLE] +
+               e.times[S_IOWAIT] +
                e.times[S_IRQ] +
                e.times[S_SOFTIRQ] +
                e.times[S_STEAL];
+    }
+
+    // https://stackoverflow.com/a/52173118/131050
+    size_t get_active_time(const cpu_data_t &e) {
+        return get_total_time(e) - _get_idle_time(e);
     }
 
     std::vector<cpu_stat_t> compute_cpu_stats(const std::vector<cpu_data_t>& cpu_data_prev,
@@ -61,18 +69,14 @@ private:
             const cpu_data_t &prev = cpu_data_prev[i];
             const cpu_data_t &now = cpu_data_now[i];
 
-            auto prev_idle = get_idle_time(prev);
-            auto now_idle = get_idle_time(now);
-
             auto prev_active = get_active_time(prev);
             auto now_active = get_active_time(now);
 
-            auto prev_total = prev_idle + prev_active;
-            auto now_total = now_idle + now_active;
+            auto prev_total = get_total_time(prev);
+            auto now_total = get_total_time(now);
 
-            float total_diff = float(now_total - prev_total);
-            float idle_diff = float(now_idle - prev_idle);
-            float active_diff = total_diff - idle_diff;
+            auto total_diff = float(now_total - prev_total);
+            auto active_diff = float(now_active - prev_active);
 
             // take care to avoid division by zero!
             float active_percentage = (now_total == prev_total) ? 0 : ((active_diff / total_diff) * 100);

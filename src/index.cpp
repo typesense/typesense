@@ -312,6 +312,10 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
         const std::string& field_name = field_pair.first;
         const field& a_field = field_pair.second;
 
+        if(field_name == "id") {
+            continue;
+        }
+
         if((a_field.optional || op == UPDATE) && document.count(field_name) == 0) {
             continue;
         }
@@ -366,6 +370,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
                 return coerce_op;
+            }
+        } else if(a_field.type == field_types::GEOPOINT) {
+            if(!document[field_name].is_array() || document[field_name].size() != 2) {
+                return Option<>(400, "Field `" + field_name  + "` must be a 2 element array: [lat, lng].");
+            }
+
+            if(!(document[field_name][0].is_number() && document[field_name][1].is_number())) {
+                // one or more elements is not an number, try to coerce
+                Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
+                if(!coerce_op.ok()) {
+                    return coerce_op;
+                }
             }
         } else if(a_field.is_array()) {
             if(!document[field_name].is_array()) {
@@ -952,6 +968,11 @@ void Index::search_candidates(const uint8_t & field_id,
                 // decide if this result be matched with filter results
                 if(filter_ids_length != 0) {
                     id_found_in_filter = false;
+
+                    /*if(result_size != 0) {
+                        LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size
+                                  << ", popcount: " << (__builtin_popcount(token_bits) - 1);
+                    }*/
 
                     // e.g. [1, 3] vs [2, 3]
 
@@ -1620,6 +1641,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                                  drop_tokens_threshold, typo_tokens_threshold);
                 }
 
+                // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
                 concat_topster_ids(ftopster, topster_ids);
                 collate_included_ids(field_query_tokens[i].q_include_tokens, field_name, field_id, included_ids_map, curated_topster, searched_queries);
                 //LOG(INFO) << "topster_ids.size: " << topster_ids.size();
@@ -1640,17 +1662,17 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                 existing_field_kvs.emplace(kv->field_id, kv);
             }
 
-            uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
-            uint64_t total_typos = 0, total_distances = 0;
+            uint32_t token_bits = (uint32_t(1) << 31);      // top most bit set to guarantee atleast 1 bit set
+            uint64_t total_typos = 0, total_distances = 0, min_typos = 1000;
 
-            uint64_t verbatim_matches = 0;      // query matching field verbatim
-            uint64_t query_matches = 0;         // field containing query tokens
-            uint64_t cross_field_matches = 0;   // total matches across fields (including fuzzy ones)
+            uint64_t verbatim_match_fields = 0;    // query matching field verbatim
+            uint64_t exact_match_fields = 0;       // number of fields that contains all of query tokens
+            uint64_t total_token_matches = 0;      // total matches across fields (including fuzzy ones)
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
             for(size_t i = 0; i < num_search_fields; i++) {
-                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
+                const auto field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
                 size_t weight = search_fields[i].weight;
 
                 //LOG(INFO) << "--- field index: " << i << ", weight: " << weight;
@@ -1663,16 +1685,20 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     int64_t match_score = existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index];
 
                     uint64_t tokens_found = ((match_score >> 24) & 0xFF);
-                    int64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
+                    uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
                     total_typos += (field_typos + 1) * weight;
                     total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
-                    verbatim_matches += (((match_score & 0xFF)) + 1) * weight;
+                    verbatim_match_fields += (((match_score & 0xFF)) + 1);
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        query_matches++;
+                        exact_match_fields++;
                     }
 
-                    cross_field_matches += tokens_found;
+                    if(field_typos < min_typos) {
+                        min_typos = field_typos;
+                    }
+
+                    total_token_matches += tokens_found;
 
                     /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
                                   << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * weight
@@ -1724,30 +1750,45 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     total_typos += (field_typos + 1) * weight;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                        query_matches++;
-                        verbatim_matches++;
+                        exact_match_fields++;
+                        verbatim_match_fields++;  // this is only an approximate
                     }
 
-                    cross_field_matches += tokens_found;
+                    if(field_typos < min_typos) {
+                        min_typos = field_typos;
+                    }
+
+                    total_token_matches += tokens_found;
                     //LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << ((match_score >> 8) & 0xFF);
                 }
             }
 
-            int64_t tokens_present = int64_t(__builtin_popcount(token_bits)) - 1;
+            // num tokens present across fields including those containing typos
+            int64_t uniq_tokens_found = int64_t(__builtin_popcount(token_bits)) - 1;
+
             total_typos = std::min<uint64_t>(255, total_typos);
             total_distances = std::min<uint64_t>(100, total_distances);
 
             uint64_t aggregated_score = (
-                (query_matches << 40) |
-                (tokens_present << 32) |
-                (cross_field_matches << 24) |
-                ((255 - total_typos) << 16) |
-                ((100 - total_distances) << 8) |
-                (verbatim_matches)
+                (exact_match_fields << 48)  |     // number of fields that contain *all tokens* in the query
+                (uniq_tokens_found << 40)   |     // number of unique tokens found across fields including typos
+                ((255 - min_typos) << 32)   |     // minimum typo cost across all fields
+                (total_token_matches << 24) |     // total matches across fields including typos
+                ((255 - total_typos) << 16) |     // total typos across fields (weighted)
+                ((100 - total_distances) << 8) |  // total distances across fields (weighted)
+                (verbatim_match_fields)           // field value *exactly* same as query tokens
             );
 
-            /*LOG(INFO) << "seq id: " << seq_id << ", tokens_present: " << tokens_present
-                      << ", total_distances: " << total_distances << ", total_typos: " << total_typos
+            //LOG(INFO) << "seq id: " << seq_id << ", aggregated_score: " << aggregated_score;
+
+            /*LOG(INFO) << "seq id: " << seq_id
+                      << ", exact_match_fields: " << exact_match_fields
+                      << ", uniq_tokens_found: " << uniq_tokens_found
+                      << ", min typo score: " << (255 - min_typos)
+                      << ", total_token_matches: " << total_token_matches
+                      << ", typo score: " << (255 - total_typos)
+                      << ", distance score: " << (100 - total_distances)
+                      << ", verbatim_match_fields: " << verbatim_match_fields
                       << ", aggregated_score: " << aggregated_score << ", token_bits: " << token_bits;*/
 
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
@@ -1857,11 +1898,12 @@ void Index::search_field(const uint8_t & field_id,
             std::vector<art_leaf*> leaves;
             //LOG(INFO) << "Searching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
 
+            const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
+
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
                 // prefix should apply only for last token
-                const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 // need less candidates for filtered searches since we already only pick tokens with results
@@ -1877,7 +1919,8 @@ void Index::search_field(const uint8_t & field_id,
 
             if(!leaves.empty()) {
                 //log_leaves(costs[token_index], token, leaves);
-                token_candidates_vec.push_back(token_candidates{search_tokens[token_index], costs[token_index], leaves});
+                token_candidates_vec.push_back(
+                        token_candidates{search_tokens[token_index], costs[token_index], prefix_search, leaves});
             } else {
                 // No result at `cost = costs[token_index]`. Remove `cost` for token and re-do combinations
                 auto it = std::find(token_to_costs[token_index].begin(), token_to_costs[token_index].end(), costs[token_index]);
@@ -2056,6 +2099,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             const std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions =
                     array_token_positions_vec[i];
 
+            uint64_t total_tokens_found = 0, total_num_typos = 0, total_distance = 0, total_verbatim = 0;
+
             for (const auto& kv: array_token_positions) {
                 const std::vector<token_positions_t>& token_positions = kv.second;
                 if (token_positions.empty()) {
@@ -2064,7 +2109,10 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                 const Match &match = Match(seq_id, token_positions, false, prioritize_exact_match);
                 uint64_t this_match_score = match.get_match_score(total_cost);
 
-                match_score += this_match_score;
+                total_tokens_found += ((this_match_score >> 24) & 0xFF);
+                total_num_typos += 255 - ((this_match_score >> 16) & 0xFF);
+                total_distance += 100 - ((this_match_score >> 8) & 0xFF);
+                total_verbatim += (this_match_score & 0xFF);
 
                 /*std::ostringstream os;
                 os << name << ", total_cost: " << (255 - total_cost)
@@ -2074,6 +2122,20 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                    << ", seq_id: " << seq_id << std::endl;
                 LOG(INFO) << os.str();*/
             }
+
+            match_score = (
+                (uint64_t(total_tokens_found) << 24) |
+                (uint64_t(255 - total_num_typos) << 16) |
+                (uint64_t(100 - total_distance) << 8) |
+                (uint64_t(total_verbatim) << 1)
+            );
+
+            /*LOG(INFO) << "Match score: " << match_score << ", for seq_id: " << seq_id
+                      << " - total_tokens_found: " << total_tokens_found
+                      << " - total_num_typos: " << total_num_typos
+                      << " - total_distance: " << total_distance
+                      << " - total_verbatim: " << total_verbatim
+                      << " - total_cost: " << total_cost;*/
         }
 
         const int64_t default_score = INT64_MIN;  // to handle field that doesn't exist in document (e.g. optional)
@@ -2188,13 +2250,19 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
         q = ldiv(q.quot, token_candidates_vec[i].candidates.size());
         actual_query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
         query_suggestion[i] = token_candidates_vec[i].candidates[q.rem];
-        total_cost += token_candidates_vec[i].cost;
+
+        bool exact_match = token_candidates_vec[i].cost == 0 && token_size == actual_query_suggestion[i]->key_len-1;
+        bool incr_for_prefix_search = token_candidates_vec[i].prefix_search && !exact_match;
+
+        size_t actual_cost = (2 * token_candidates_vec[i].cost) + uint32_t(incr_for_prefix_search);
+
+        total_cost += actual_cost;
 
         token_bits |= 1UL << token_candidates_vec[i].token.position; // sets n-th bit
 
-        if(actual_query_suggestion[i]->key_len != token_size+1) {
-            total_cost++;
-        }
+        /*LOG(INFO) << "suggestion key: " << actual_query_suggestion[i]->key << ", token: "
+                  << token_candidates_vec[i].token.value << ", actual_cost: " << actual_cost;
+        LOG(INFO) << ".";*/
     }
 
     // Sort ascending based on matched documents for each token for faster intersection.
@@ -2657,6 +2725,65 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " bool.");
+        }
+    }
+
+    return Option<uint32_t>(200);
+}
+
+Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
+                                        const std::string &field_name,
+                                        nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
+    std::string suffix = is_array ? "a array of" : "a";
+    auto& item = is_array ? array_iter.value() : document[field_name];
+
+    if(dirty_values == DIRTY_VALUES::REJECT) {
+        return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+    }
+
+    if(dirty_values == DIRTY_VALUES::DROP) {
+        if(!a_field.optional) {
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+        }
+
+        if(!is_array) {
+            document.erase(field_name);
+        } else {
+            array_iter = document[field_name].erase(array_iter);
+            array_ele_erased = true;
+        }
+        return Option<uint32_t>(200);
+    }
+
+    // try to value coerce into a geopoint
+
+    if(!document[field_name][0].is_number() && document[field_name][0].is_string()) {
+        if(StringUtils::is_float(document[field_name][0])) {
+            document[field_name][0] = std::stof(document[field_name][0].get<std::string>());
+        }
+    }
+
+    if(!document[field_name][1].is_number() && document[field_name][1].is_string()) {
+        if(StringUtils::is_float(document[field_name][1])) {
+            document[field_name][1] = std::stof(document[field_name][1].get<std::string>());
+        }
+    }
+
+    if(!document[field_name][0].is_number() || !document[field_name][1].is_number()) {
+        if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
+            if(!a_field.optional) {
+                return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
+            }
+
+            if(!is_array) {
+                document.erase(field_name);
+            } else {
+                array_iter = document[field_name].erase(array_iter);
+                array_ele_erased = true;
+            }
+        } else {
+            // COERCE_OR_REJECT / non-optional + DROP
+            return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
         }
     }
 

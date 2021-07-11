@@ -415,7 +415,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(13, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"19", "6", "21", "8"};
+    std::vector<std::string> ids = {"8", "19", "6", "21"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -429,7 +429,7 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     ASSERT_EQ(8, results["hits"].size());
     ASSERT_EQ(8, results["found"].get<uint32_t>());
 
-    ids = {"20", "19", "6", "3", "21", "4", "10", "8", "21"};
+    ids = {"20", "19", "6", "4", "3", "10", "8", "21"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
