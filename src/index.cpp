@@ -1736,7 +1736,10 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
                     verbatim_match_fields += (((match_score & 0xFF)) + 1);
 
-                    if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
+                    uint64_t unique_tokens_found =
+                            int64_t(__builtin_popcount(existing_field_kvs[field_id]->token_bits)) - 1;
+
+                    if(field_typos == 0 && unique_tokens_found == field_query_tokens[i].q_include_tokens.size()) {
                         exact_match_fields++;
                     }
 
