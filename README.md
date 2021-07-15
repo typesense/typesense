@@ -256,8 +256,7 @@ With Typesense, these settings can be configured at search time via query parame
 and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
 This helps reduce memory consumption.
 
-Algolia offers the following features that Typesense does not have currently: 
-geo spatial searches, personalization & server-based search analytics.
+Algolia offers the following features that Typesense does not have currently: personalization & server-based search analytics.
 With Typesense, we intend to bridge this gap, but in the meantime, please let us know
 if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
 
