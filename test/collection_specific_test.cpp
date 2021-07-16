@@ -309,6 +309,31 @@ TEST_F(CollectionSpecificTest, ExactMatchOnPrefix) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, TypoPrefixSearchWithoutPrefixEnabled) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Cisco SG25026HP Gigabit Smart Switch";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("SG25026H", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, PrefixWithTypos) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};

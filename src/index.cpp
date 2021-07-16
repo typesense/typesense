@@ -1984,6 +1984,12 @@ void Index::search_field(const uint8_t & field_id,
                     // when no more costs are left for this token
                     if(token_to_costs[token_index].empty()) {
                         // we can try to drop the token and search with remaining tokens
+
+                        if(field_num_results >= drop_tokens_threshold) {
+                            // but if drop_tokens_threshold is breached, we are done
+                            return ;
+                        }
+
                         token_to_costs.erase(token_to_costs.begin()+token_index);
                         search_tokens.erase(search_tokens.begin()+token_index);
                         query_tokens.erase(query_tokens.begin()+token_index);
@@ -2010,8 +2016,8 @@ void Index::search_field(const uint8_t & field_id,
 
         resume_typo_loop:
 
-        if(field_num_results >= drop_tokens_threshold || field_num_results >= typo_tokens_threshold) {
-            // if either threshold is breached, we are done
+        if(field_num_results >= typo_tokens_threshold) {
+            // if typo threshold is breached, we are done
             return ;
         }
 
@@ -2021,6 +2027,11 @@ void Index::search_field(const uint8_t & field_id,
     // When atleast one token from the query is available
     if(!query_tokens.empty() && num_tokens_dropped < query_tokens.size()) {
         // Drop tokens from right until (len/2 + 1), and then from left until (len/2 + 1)
+
+        if(field_num_results >= drop_tokens_threshold) {
+            // if drop_tokens_threshold is breached, we are done
+            return ;
+        }
 
         std::vector<token_t> truncated_tokens;
         num_tokens_dropped++;

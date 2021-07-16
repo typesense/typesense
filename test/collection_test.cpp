@@ -292,7 +292,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     results.clear();
-    results = collection->search("the a DoesNotExist", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    results = collection->search("the a insurance", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // with no indexed word
