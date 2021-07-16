@@ -9,6 +9,7 @@ Please add to this file and send us a PR:
 | [Recipe Search](https://recipe-search.typesense.org/) | A site that showcases Typesense in action on a 2 Million recipe database, with the ability to filter by ingredients.|
 | [Linux Commit History Search](https://linux-commits-search.typesense.org/) | A site that indexes 1M linux commit messages in Typesense and lets you browse, search and filter through the commits.|
 | [Grafikart](https://www.grafikart.fr/) | Learning resources library |
+| [BetaSeries](https://www.betaseries.com/) | TV shows and movies recommandation, using Typesense to search into 4M+ international records |
 | [New York University Databrary](https://nyu.databrary.org/) | Video documentation library |
 | [ElbiseBul](https://www.elbisebul.com/) | E-commerce |
 | [datarequests.org](https://www.datarequests.org/) | Search backend for the [company database](https://www.datarequests.org/company) that allows users to easily find the contact details for privacy-related requests |
