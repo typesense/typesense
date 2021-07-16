@@ -910,6 +910,8 @@ void Index::search_candidates(const uint8_t & field_id,
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
 
+    size_t last_cost = 0;
+
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf*> query_suggestion(token_candidates_vec.size());
@@ -920,6 +922,13 @@ void Index::search_candidates(const uint8_t & field_id,
         uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
         uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion,
                                               query_suggestion, token_bits);
+
+        //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
+        if(total_cost != last_cost  && field_num_results >= typo_tokens_threshold) {
+            //break;
+        }
+
+        last_cost = total_cost;
 
         /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < actual_query_suggestion.size(); i++) {
@@ -1019,11 +1028,6 @@ void Index::search_candidates(const uint8_t & field_id,
         }
 
         searched_queries.push_back(actual_query_suggestion);
-
-        //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
-        if(field_num_results >= typo_tokens_threshold) {
-            break;
-        }
     }
 }
 
