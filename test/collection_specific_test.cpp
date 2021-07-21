@@ -525,3 +525,34 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     store->scan_fill(Collection::COLLECTION_SYNONYM_PREFIX, stored_values);
     ASSERT_TRUE(stored_values.empty());
 }
+
+TEST_F(CollectionSpecificTest, SingleCharMatchFullFieldHighlight) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Which of the following is a probable sign of infection?";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("a 3-month", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "title", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("Which of the following is <mark>a</mark> probable sign of infection?",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("Which of the following is <mark>a</mark> probable sign of infection?",
+                 results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
