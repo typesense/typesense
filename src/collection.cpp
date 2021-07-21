@@ -1704,7 +1704,9 @@ void Collection::highlight_result(const field &search_field,
                 if(offset_it != token_offsets.end()) {
                     if (i == offset_it->first) {
                         value_stream << highlight_start_tag;
-                    } else if (i == offset_it->second) {
+                    }
+
+                    if (i == offset_it->second) {
                         value_stream << text[i];
                         value_stream << highlight_end_tag;
                         offset_it++;
