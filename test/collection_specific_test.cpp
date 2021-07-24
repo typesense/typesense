@@ -169,8 +169,6 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
     auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
                                  1, FREQUENCY, {true, true}).get();
 
-    LOG(INFO) << results;
-
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
@@ -200,10 +198,33 @@ TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
     auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
-                                 1, FREQUENCY, {true, true}).get();
+                                 1, FREQUENCY, {true, true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1}).get();
 
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true, true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {2, 1}).get();
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // use extreme weights to push title matching ahead
+
+    results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true, true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {10, 1}).get();
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -238,6 +259,98 @@ TEST_F(CollectionSpecificTest, FieldWeighting) {
 
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, MultiFieldArrayRepeatingTokens) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("attrs", field_types::STRING_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "E182-72/4";
+    doc1["description"] = "Nexsan Technologies 18 SAN Array - 18 x HDD Supported - 18 x HDD Installed";
+    doc1["attrs"] = {"Hard Drives Supported > 18", "Hard Drives Installed > 18", "SSD Supported > 18"};
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "RV345-K9-NA";
+    doc2["description"] = "Cisco RV345P Router - 18 Ports";
+    doc2["attrs"] = {"Number of Ports > 18", "Product Type > Router"};
+    doc2["points"] = 50;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("rv345 cisco 18", {"title", "description", "attrs"}, "", {}, {}, {1}, 10,
+                                 1, FREQUENCY, {true, true, true}).get();
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, ExactMatchOnPrefix) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Yeshivah Gedolah High School";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "GED";
+    doc2["points"] = 50;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("ged", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 1).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, TypoPrefixSearchWithoutPrefixEnabled) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Cisco SG25026HP Gigabit Smart Switch";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("SG25026H", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false}, 0,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -432,4 +545,71 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     // synonyms should also have been deleted from the store
     store->scan_fill(Collection::COLLECTION_SYNONYM_PREFIX, stored_values);
     ASSERT_TRUE(stored_values.empty());
+}
+
+TEST_F(CollectionSpecificTest, SingleCharMatchFullFieldHighlight) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Which of the following is a probable sign of infection?";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("a 3-month", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false}, 1,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "title", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("Which of the following is <mark>a</mark> probable sign of infection?",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("Which of the following is <mark>a</mark> probable sign of infection?",
+                 results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, TokensSpreadAcrossFields) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Foo bar baz";
+    doc1["description"] = "Share information with this device.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Foo Random";
+    doc2["description"] = "The Bar Fox";
+    doc2["points"] = 250;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("foo bar", {"title", "description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false, false},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {4, 1}).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
 }

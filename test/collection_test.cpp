@@ -292,7 +292,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     }
 
     results.clear();
-    results = collection->search("the a DoesNotExist", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    results = collection->search("the a insurance", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // with no indexed word
@@ -859,7 +859,10 @@ TEST_F(CollectionTest, MultipleFields) {
     // when "starring" takes higher priority than "title"
 
     query_fields = {"starring", "title"};
-    results = coll_mul_fields->search("thomas", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    results = coll_mul_fields->search("thomas", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false},
+                                      10, spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                      "<mark>", "</mark>", {2, 1}).get();
     ASSERT_EQ(4, results["hits"].size());
 
     ids = {"15", "12", "13", "14"};
@@ -2968,6 +2971,17 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             {true}, 10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                             "<mark>", "</mark>", {1, 4}).get();
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // use same weights
+
+    results = coll1->search("on a jetplane",
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1}).get();
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
