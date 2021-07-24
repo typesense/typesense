@@ -600,21 +600,22 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     // process weights for search fields
     std::vector<search_field_t> weighted_search_fields;
+    size_t max_weight = 100;
 
     if(query_by_weights.empty()) {
+        max_weight = search_fields.size();
         for(size_t i=1; i <= search_fields.size(); i++) {
-            query_by_weights.push_back(i);
+            query_by_weights.push_back((max_weight - i) + 1);
         }
     } else {
-        auto max_weight = *std::max_element(query_by_weights.begin(), query_by_weights.end());
-        for(size_t i=0; i < query_by_weights.size(); i++) {
-            query_by_weights[i] = (max_weight - query_by_weights[i]) + 1;
-        }
+        max_weight = *std::max_element(query_by_weights.begin(), query_by_weights.end());
     }
 
     for(size_t i=0; i < search_fields.size(); i++) {
         const auto& search_field = search_fields[i];
-        weighted_search_fields.push_back({search_field, query_by_weights[i]});
+        const auto priority = (max_weight - query_by_weights[i]) + 1;
+        const auto weight = query_by_weights[i] + 1;
+        weighted_search_fields.push_back({search_field, priority, weight});
     }
 
     std::vector<facet> facets;
