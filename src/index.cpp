@@ -908,6 +908,7 @@ void Index::search_candidates(const uint8_t & field_id,
         uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion,
                                               query_suggestion, token_bits);
 
+        //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
         /*LOG(INFO) << "n: " << n;
         for(size_t i=0; i < actual_query_suggestion.size(); i++) {
             LOG(INFO) << "i: " << i << " - " << actual_query_suggestion[i]->key << ", ids: "
@@ -1026,11 +1027,6 @@ void Index::search_candidates(const uint8_t & field_id,
         delete [] excluded_result_ids;
 
         searched_queries.push_back(actual_query_suggestion);
-
-        //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
-        if(field_num_results >= typo_tokens_threshold) {
-            break;
-        }
     }
 }
 
@@ -1667,15 +1663,21 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
             uint64_t verbatim_match_fields = 0;    // query matching field verbatim
             uint64_t exact_match_fields = 0;       // number of fields that contains all of query tokens
+            uint64_t max_weighted_tokens_match = 0;    // weighted max number of tokens matched in a field
             uint64_t total_token_matches = 0;      // total matches across fields (including fuzzy ones)
 
             //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
             for(size_t i = 0; i < num_search_fields; i++) {
                 const auto field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-                size_t weight = search_fields[i].weight;
+                const size_t priority = search_fields[i].priority;
+                const size_t weight = search_fields[i].weight;
 
-                //LOG(INFO) << "--- field index: " << i << ", weight: " << weight;
+                //LOG(INFO) << "--- field index: " << i << ", priority: " << priority;
+                // using `5` here because typo + prefix combo score range is: 0 - 5
+                // 0    1    2
+                // 0,1  2,3  4,5
+                int64_t MAX_SUM_TYPOS = 5 * field_query_tokens[i].q_include_tokens.size();
 
                 if(existing_field_kvs.count(field_id) != 0) {
                     // for existing field, we will simply sum field-wise weighted scores
@@ -1686,12 +1688,20 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
                     uint64_t tokens_found = ((match_score >> 24) & 0xFF);
                     uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
-                    total_typos += (field_typos + 1) * weight;
-                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
+                    total_typos += (field_typos + 1) * priority;
+                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * priority;
                     verbatim_match_fields += (((match_score & 0xFF)) + 1);
 
-                    if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
+                    uint64_t unique_tokens_found =
+                            int64_t(__builtin_popcount(existing_field_kvs[field_id]->token_bits)) - 1;
+
+                    if(field_typos == 0 && unique_tokens_found == field_query_tokens[i].q_include_tokens.size()) {
                         exact_match_fields++;
+                    }
+
+                    auto weighted_tokens_match = (tokens_found * weight) + (MAX_SUM_TYPOS - field_typos + 1);
+                    if(weighted_tokens_match > max_weighted_tokens_match) {
+                        max_weighted_tokens_match = weighted_tokens_match;
                     }
 
                     if(field_typos < min_typos) {
@@ -1701,9 +1711,9 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                     total_token_matches += tokens_found;
 
                     /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
-                                  << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * weight
+                                  << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * priority
                                   << ", total dist: " << (((match_score & 0xFF)))
-                                  << ", weighted dist: " << std::max<uint64_t>((100 - (match_score & 0xFF)), 1) * weight;*/
+                                  << ", weighted dist: " << std::max<uint64_t>((100 - (match_score & 0xFF)), 1) * priority;*/
                     continue;
                 }
 
@@ -1746,12 +1756,18 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
                     uint64_t tokens_found = ((match_score >> 24) & 0xFF);
                     uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
-                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * weight;
-                    total_typos += (field_typos + 1) * weight;
+                    total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * priority;
+                    total_typos += (field_typos + 1) * priority;
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
                         exact_match_fields++;
                         verbatim_match_fields++;  // this is only an approximate
+                    }
+
+                    auto weighted_tokens_match = (tokens_found * weight) + (MAX_SUM_TYPOS - field_typos + 1);
+
+                    if(weighted_tokens_match > max_weighted_tokens_match) {
+                        max_weighted_tokens_match = weighted_tokens_match;
                     }
 
                     if(field_typos < min_typos) {
@@ -1768,9 +1784,11 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
             total_typos = std::min<uint64_t>(255, total_typos);
             total_distances = std::min<uint64_t>(100, total_distances);
+            max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
 
             uint64_t aggregated_score = (
-                (exact_match_fields << 48)  |     // number of fields that contain *all tokens* in the query
+                //(exact_match_fields << 48)  |       // number of fields that contain *all tokens* in the query
+                (max_weighted_tokens_match << 48) |   // weighted max number of tokens matched in a field
                 (uniq_tokens_found << 40)   |     // number of unique tokens found across fields including typos
                 ((255 - min_typos) << 32)   |     // minimum typo cost across all fields
                 (total_token_matches << 24) |     // total matches across fields including typos
@@ -1783,6 +1801,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
             /*LOG(INFO) << "seq id: " << seq_id
                       << ", exact_match_fields: " << exact_match_fields
+                      << ", max_weighted_tokens_match: " << max_weighted_tokens_match
                       << ", uniq_tokens_found: " << uniq_tokens_found
                       << ", min typo score: " << (255 - min_typos)
                       << ", total_token_matches: " << total_token_matches
@@ -1930,6 +1949,12 @@ void Index::search_field(const uint8_t & field_id,
                     // when no more costs are left for this token
                     if(token_to_costs[token_index].empty()) {
                         // we can try to drop the token and search with remaining tokens
+
+                        if(field_num_results >= drop_tokens_threshold) {
+                            // but if drop_tokens_threshold is breached, we are done
+                            return ;
+                        }
+
                         token_to_costs.erase(token_to_costs.begin()+token_index);
                         search_tokens.erase(search_tokens.begin()+token_index);
                         query_tokens.erase(query_tokens.begin()+token_index);
@@ -1956,8 +1981,8 @@ void Index::search_field(const uint8_t & field_id,
 
         resume_typo_loop:
 
-        if(field_num_results >= drop_tokens_threshold || field_num_results >= typo_tokens_threshold) {
-            // if either threshold is breached, we are done
+        if(field_num_results >= typo_tokens_threshold) {
+            // if typo threshold is breached, we are done
             return ;
         }
 
@@ -1967,6 +1992,11 @@ void Index::search_field(const uint8_t & field_id,
     // When atleast one token from the query is available
     if(!query_tokens.empty() && num_tokens_dropped < query_tokens.size()) {
         // Drop tokens from right until (len/2 + 1), and then from left until (len/2 + 1)
+
+        if(field_num_results >= drop_tokens_threshold) {
+            // if drop_tokens_threshold is breached, we are done
+            return ;
+        }
 
         std::vector<token_t> truncated_tokens;
         num_tokens_dropped++;

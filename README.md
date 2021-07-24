@@ -6,6 +6,11 @@
 </p>
 
 <p align="center">
+  An Open Source Algolia Alternative & <br>
+  An Easier-to-Use ElasticSearch Alternative
+</p>
+
+<p align="center">
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
   <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
@@ -25,7 +30,9 @@
 - Search a 32M songs dataset from MusicBrainz: [songs-search.typesense.org](https://songs-search.typesense.org/)
 - Search a 28M books dataset from OpenLibrary: [books-search.typesense.org](https://books-search.typesense.org/)
 - Search a 2M recipe dataset from RecipeNLG: [recipe-search.typesense.org](https://recipe-search.typesense.org/)
+- Search 1M Git commit messages from the Linux Kernel: [linux-commits-search.typesense.org](https://linux-commits-search.typesense.org/)
 - Spellchecker with type-ahead, with 333K English words: [spellcheck.typesense.org](https://spellcheck.typesense.org/)
+- An E-Commerce Store Browsing experience: [ecommerce-store.typesense.org](https://ecommerce-store.typesense.org/)
 
 🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
 
@@ -56,11 +63,13 @@
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety.
 - **Federated Search:** Search across multiple collections (indices) in a single HTTP request.
+- **Geo Search:** Search and sort by results around a geographic location - [in beta](https://github.com/typesense/typesense/issues/78#issuecomment-842308057).
 - **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant applications.
 - **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
 - **Raft-based Clustering:** Setup a distributed cluster that is highly available.
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
+- **No Runtime Dependencies:** Typesense is a single binary that you can run locally or in production with a single command.
 
 **Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
 
@@ -102,7 +111,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.20.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.21.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -204,7 +213,7 @@ We welcome community contributions to add more official client libraries and int
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.20.0/guide/#search-ui](https://typesense.org/docs/0.20.0/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/0.21.0/guide/#search-ui](https://typesense.org/docs/0.21.0/guide/#search-ui) 
 
 ## FAQ
 

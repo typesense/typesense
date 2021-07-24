@@ -36,6 +36,7 @@ struct token_candidates {
 
 struct search_field_t {
     std::string name;
+    size_t priority;
     size_t weight;
 };
 
