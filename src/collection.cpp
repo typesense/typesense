@@ -337,7 +337,8 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                 res["code"] = index_record.indexed.code();
             }
 
-            json_out[index_record.position] = res.dump();
+            json_out[index_record.position] = res.dump(-1, ' ', false,
+                                                       nlohmann::detail::error_handler_t::ignore);
         }
     }
 }

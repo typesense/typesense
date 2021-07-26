@@ -676,3 +676,16 @@ TEST_F(CollectionSpecificTest, GuardAgainstIdFieldInSchema) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, HandleBadCharactersInStringGracefully) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    std::string doc_str = "不推荐。\",\"price\":10.12,\"ratings\":5}";
+
+    auto add_op = coll1->add(doc_str);
+    ASSERT_FALSE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
