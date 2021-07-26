@@ -1501,11 +1501,12 @@ void Collection::highlight_result(const field &search_field,
         // Must search for the token string fresh on that field for the given document since `token_leaf`
         // is from the best matched field and need not be present in other fields of a document.
         Index* index = indices[field_order_kv->key % num_memory_shards];
-        art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
 
-        //LOG(INFO) << "field: " << search_field.name << ", key: " << token_leaf->key;
+        std::vector<art_leaf*> leaves;
+        index->get_token_leaves(search_field.name, &token_leaf->key[0], token_leaf->key_len, leaves);
 
-        if(actual_leaf != nullptr) {
+        for(const auto actual_leaf: leaves) {
+            //LOG(INFO) << "field: " << search_field.name << ", key: " << token_leaf->key;
             query_suggestion.push_back(actual_leaf);
             std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len-1);
             query_suggestion_tokens.insert(token);
@@ -1525,10 +1526,11 @@ void Collection::highlight_result(const field &search_field,
             }
 
             Index* index = indices[field_order_kv->key % num_memory_shards];
-            art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
-                                                          reinterpret_cast<const unsigned char *>(q_token.c_str()),
-                                                          q_token.size() + 1);
-            if(actual_leaf != nullptr) {
+            std::vector<art_leaf*> leaves;
+            index->get_token_leaves(search_field.name, reinterpret_cast<const unsigned char*>(q_token.c_str()),
+                                    q_token.size() + 1, leaves);
+
+            for(const auto actual_leaf: leaves) {
                 std::vector<uint16_t> positions;
                 uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
                 if(doc_index != actual_leaf->values->ids.getLength()) {
