@@ -5,6 +5,7 @@
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
+#include "logger.h"
 #include "json.hpp"
 
 namespace field_types {
@@ -192,6 +193,10 @@ struct field {
         bool found_default_sorting_field = false;
 
         for(const field & field: fields) {
+            if(field.name == "id") {
+                continue;
+            }
+
             nlohmann::json field_val;
             field_val[fields::name] = field.name;
             field_val[fields::type] = field.type;
@@ -263,6 +268,13 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+            if(field_json["name"] == "id") {
+                // No field should exist with the name "id" as it is reserved for internal use
+                // We cannot throw an error here anymore since that will break backward compatibility!
+                LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+                continue;
+            }
+
             if(!field_json.is_object() ||
                field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
                !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {

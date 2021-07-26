@@ -652,3 +652,27 @@ TEST_F(CollectionSpecificTest, HighlightSecondaryFieldWithPrefixMatch) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, GuardAgainstIdFieldInSchema) {
+    // The "id" field, if defined in the schema should be ignored
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("id", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    nlohmann::json schema;
+    schema["name"] = "books";
+    schema["fields"] = nlohmann::json::array();
+    schema["fields"][0]["name"] = "title";
+    schema["fields"][0]["type"] = "string";
+    schema["fields"][1]["name"] = "id";
+    schema["fields"][1]["type"] = "string";
+    schema["fields"][2]["name"] = "points";
+    schema["fields"][2]["type"] = "int32";
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    ASSERT_EQ(0, coll1->get_schema().count("id"));
+
+    collectionManager.drop_collection("coll1");
+}
