@@ -606,10 +606,49 @@ TEST_F(CollectionSpecificTest, TokensSpreadAcrossFields) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {4, 1}).get();
 
-    LOG(INFO) << results;
-
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HighlightSecondaryFieldWithPrefixMatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Functions and Equations";
+    doc1["description"] = "Use a function to solve an equation.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Function of effort";
+    doc2["description"] = "Learn all about it.";
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("function", {"title", "description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true, true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+
+    ASSERT_EQ("<mark>Functions</mark> and Equations",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("Use a <mark>function</mark> to solve an equation.",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
