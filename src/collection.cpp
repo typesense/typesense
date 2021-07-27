@@ -753,35 +753,53 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
             if(geo_parts.size() == 3) {
                 // try to parse the exclude radius option
-                if(!StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
-                    return Option<nlohmann::json>(400, error);
-                }
+                bool is_exclude_option = false;
 
-                std::vector<std::string> exclude_parts;
-                StringUtils::split(geo_parts[2], exclude_parts, ":");
-
-                if(exclude_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                std::vector<std::string> exclude_value_parts;
-                StringUtils::split(exclude_parts[1], exclude_value_parts, " ");
-
-                if(exclude_value_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                if(!StringUtils::is_float(exclude_value_parts[0])) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                if(exclude_value_parts[1] == "km") {
-                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1000;
-                } else if(exclude_value_parts[1] == "mi") {
-                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1609.34;
+                if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                    is_exclude_option = true;
+                } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
+                    is_exclude_option = false;
                 } else {
-                    return Option<nlohmann::json>(400, "Sort field's exclude radius "
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> param_parts;
+                StringUtils::split(geo_parts[2], param_parts, ":");
+
+                if(param_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> param_value_parts;
+                StringUtils::split(param_parts[1], param_value_parts, " ");
+
+                if(param_value_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                if(!StringUtils::is_float(param_value_parts[0])) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                int32_t value_meters;
+
+                if(param_value_parts[1] == "km") {
+                    value_meters = std::stof(param_value_parts[0]) * 1000;
+                } else if(param_value_parts[1] == "mi") {
+                    value_meters = std::stof(param_value_parts[0]) * 1609.34;
+                } else {
+                    return Option<nlohmann::json>(400, "Sort field's parameter "
                                                        "unit must be either `km` or `mi`.");
+                }
+
+                if(value_meters <= 0) {
+                    return Option<nlohmann::json>(400, "Sort field's parameter must be a positive number.");
+                }
+
+                if(is_exclude_option) {
+                    sort_field_std.exclude_radius = value_meters;
+                } else {
+                    sort_field_std.geo_precision = value_meters;
                 }
             }
 
