@@ -2145,6 +2145,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                     dist = 0;
                 }
 
+                if(sort_fields[i].geo_precision > 0) {
+                    dist = dist + sort_fields[i].geo_precision - 1 -
+                           (dist + sort_fields[i].geo_precision - 1) % sort_fields[i].geo_precision;
+                }
+
                 geopoint_distances[i].emplace(seq_id, dist);
             }
 

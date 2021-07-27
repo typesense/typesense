@@ -475,6 +475,7 @@ namespace sort_field_const {
     static const std::string seq_id = "_seq_id";
 
     static const std::string exclude_radius = "exclude_radius";
+    static const std::string precision = "precision";
 }
 
 struct sort_by {
@@ -484,14 +485,16 @@ struct sort_by {
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
+    uint32_t geo_precision;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), geopoint(0), exclude_radius(0) {
+        name(name), order(order), geopoint(0), exclude_radius(0), geo_precision(0) {
 
     }
 
-    sort_by(const std::string &name, const std::string &order, int64_t geopoint, uint32_t exclude_radius) :
-            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius) {
+    sort_by(const std::string &name, const std::string &order, int64_t geopoint,
+            uint32_t exclude_radius, uint32_t geo_precision) :
+            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
 
     }
 
@@ -500,6 +503,7 @@ struct sort_by {
         order = other.order;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
+        geo_precision = other.geo_precision;
         return *this;
     }
 };

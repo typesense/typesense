@@ -756,7 +756,101 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Sort field's exclude radius unit must be either `km` or `mi`.", res_op.error());
+    ASSERT_EQ("Sort field's parameter unit must be either `km` or `mi`.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: -10 km)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Tibetan Colony",     "32.24678, 77.19239"},
+        {"Civil Hospital",     "32.23959, 77.18763"},
+        {"Johnson Lodge",      "32.24751, 77.18814"},
+
+        {"Lion King Rock",     "32.24493, 77.17038"},
+        {"Jai Durga Handloom", "32.25749, 77.17583"},
+        {"Panduropa",          "32.26059, 77.21798"},
+
+        {"Police Station",     "32.23743, 77.18639"},
+        {"Panduropa Post",     "32.26263, 77.2196"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(32.24348, 77.1893, precision: 0.9 km)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*",
+                                 {}, "loc: (32.24348, 77.1893, 20 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(8, results["found"].get<size_t>());
+
+    std::vector<std::string> expected_ids = {
+        "6", "2", "1", "0", "3", "4", "7", "5"
+    };
+
+    for (size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
+    }
+
+    // badly formatted precision
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision 1 km)", "ASC") };
+    auto res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                                {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: 1 meter)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter unit must be either `km` or `mi`.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: -10 km)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
