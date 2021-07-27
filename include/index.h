@@ -396,8 +396,7 @@ public:
 
     static void transform_for_180th_meridian(GeoCoord& point, double offset);
 
-    void get_token_leaves(const std::string & field_name, const unsigned char* token, uint32_t token_len,
-                          std::vector<art_leaf*>& leaves);
+    art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
     // the following methods are not synchronized because their parent calls are synchronized
 

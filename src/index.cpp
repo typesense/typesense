@@ -2639,13 +2639,10 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     }
 }
 
-void Index::get_token_leaves(const std::string & field_name, const unsigned char* token, uint32_t token_len,
-                             std::vector<art_leaf*>& leaves) {
+art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     std::shared_lock lock(mutex);
-    art_tree *t = search_index.at(field_name);
-    token_len = (token_len == 0) ? 0 : token_len-1;
-    art_fuzzy_search(t, token, token_len, 0, 0, 2, token_ordering::MAX_SCORE,
-                     true, nullptr, 0, leaves);
+    const art_tree *t = search_index.at(field_name);
+    return (art_leaf*) art_search(t, token, (int) token_len);
 }
 
 const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() const {

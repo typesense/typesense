@@ -3317,7 +3317,7 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    ASSERT_EQ(3, results["hits"][0]["highlights"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
     ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("Best Wireless Vehicle <mark>Charger</mark>",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
@@ -3325,10 +3325,6 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
     ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
     ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
-
-    ASSERT_EQ("categories", results["hits"][0]["highlights"][2]["field"].get<std::string>());
-    ASSERT_EQ("Car <mark>Chargers</mark>",
-              results["hits"][0]["highlights"][2]["snippets"][0].get<std::string>());
 
     results = coll1->search("John With Denver",
                             {"description"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
