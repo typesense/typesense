@@ -22,10 +22,10 @@ if [[ "$@" == *"--depclean"* ]]; then
 fi
 
 echo "Building Typesense $TYPESENSE_VERSION..."
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:05-FEBRUARY-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:26-JULY-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
 
-docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:05-FEBRUARY-2021-1 make typesense-server -C/typesense/$BUILD_DIR
+docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:26-JULY-2021-1 make typesense-server -C/typesense/$BUILD_DIR
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
@@ -45,7 +45,7 @@ fi
 
 #
 #if [[ "$@" == *"--create-deb-upload"* ]]; then
-#    docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:05-FEBRUARY-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
+#    docker run -it -v $PROJECT_DIR:/typesense typesense/typesense-development:26-JULY-2021-1 cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
 #    -DCMAKE_BUILD_TYPE=Debug -H/typesense -B/typesense/$BUILD_DIR
 #fi
 
