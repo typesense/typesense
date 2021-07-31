@@ -746,23 +746,23 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_EQ(4, results["hits"][0]["highlights"][0].size());
-    ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["snippets"].size());
-    ASSERT_STREQ("<mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>().c_str());
-    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][1].get<std::string>().c_str());
-    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][0]["matched_tokens"][0][0].get<std::string>().c_str());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][0]["matched_tokens"][1][0].get<std::string>().c_str());
-    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["indices"][0]);
-    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"][1]);
+    ASSERT_EQ(3, results["hits"][0]["highlights"][0].size());
+    ASSERT_STREQ("title", results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str());
+    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("Truth", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
 
-    ASSERT_EQ(3, results["hits"][0]["highlights"][1].size());
-    ASSERT_STREQ("title", results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str());
-    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][0]["highlights"][1]["snippet"].get<std::string>().c_str());
-    ASSERT_EQ(1, results["hits"][0]["highlights"][1]["matched_tokens"].size());
-    ASSERT_STREQ("Truth", results["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_EQ(4, results["hits"][0]["highlights"][1].size());
+    ASSERT_STREQ(results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str(), "tags");
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["snippets"].size());
+    ASSERT_STREQ("<mark>truth</mark>", results["hits"][0]["highlights"][1]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][0]["highlights"][1]["snippets"][1].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["matched_tokens"].size());
+    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][0][0].get<std::string>().c_str());
+    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][1][0].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"][1]["indices"][0]);
+    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"][1]);
 
     ASSERT_EQ(3, results["hits"][1]["highlights"][0].size());
     ASSERT_STREQ("title", results["hits"][1]["highlights"][0]["field"].get<std::string>().c_str());
@@ -2456,15 +2456,15 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"].size());
-    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["values"][0].get<std::string>());
     ASSERT_EQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
-                 res["hits"][0]["highlights"][1]["value"].get<std::string>());
+              res["hits"][0]["highlights"][0]["value"].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
 
-    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["matched_tokens"].size());
-    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
-
-    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["values"][0].size());
-    ASSERT_STREQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["values"][0].get<std::string>().c_str());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["values"].size());
+    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["values"][0].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["snippets"].size());
+    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["snippets"][0].get<std::string>());
 
     // excluded fields should not be returned in highlights section
     spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
@@ -3146,13 +3146,17 @@ TEST_F(CollectionTest, MultiFieldRelevance5) {
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
-    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
-    ASSERT_EQ("country", results["hits"][0]["highlights"][0]["field"].get<std::string>());
-    ASSERT_EQ("<mark>Canada</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("field_a", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canadia</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("country", results["hits"][0]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canada</mark>", results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
-    ASSERT_EQ(1, results["hits"][1]["highlights"].size());
-    ASSERT_EQ("company_name", results["hits"][1]["highlights"][0]["field"].get<std::string>());
-    ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+    ASSERT_EQ("field_a", results["hits"][1]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canadoo</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("company_name", results["hits"][1]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
 
     ASSERT_EQ(1, results["hits"][2]["highlights"].size());
     ASSERT_EQ("field_a", results["hits"][2]["highlights"][0]["field"].get<std::string>());
@@ -3317,7 +3321,7 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ(3, results["hits"][0]["highlights"].size());
     ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("Best Wireless Vehicle <mark>Charger</mark>",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
@@ -3325,6 +3329,9 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
     ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
     ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    ASSERT_EQ("categories", results["hits"][0]["highlights"][2]["field"].get<std::string>());
+    ASSERT_EQ("Car <mark>Chargers</mark>", results["hits"][0]["highlights"][2]["snippets"][0].get<std::string>());
 
     results = coll1->search("John With Denver",
                             {"description"}, "", {}, {}, {0}, 10, 1, FREQUENCY,

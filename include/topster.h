@@ -16,6 +16,9 @@ struct KV {
     uint64_t distinct_key{};
     int64_t scores[3]{};  // match score + 2 custom attributes
 
+    // to be used only in final aggregation
+    uint64_t* query_indices = nullptr;
+
     KV(uint8_t field_id, uint16_t queryIndex, uint32_t token_bits, uint64_t key, uint64_t distinct_key,
        uint8_t match_score_index, const int64_t *scores):
             field_id(field_id), match_score_index(match_score_index),
@@ -27,6 +30,69 @@ struct KV {
     }
 
     KV() = default;
+
+    KV(KV& kv) = default;
+
+    KV(KV&& kv) noexcept : field_id(kv.field_id), match_score_index(kv.match_score_index),
+                 query_index(kv.query_index), array_index(kv.array_index), token_bits(kv.token_bits),
+                 key(kv.key), distinct_key(kv.distinct_key) {
+
+        scores[0] = kv.scores[0];
+        scores[1] = kv.scores[1];
+        scores[2] = kv.scores[2];
+
+        query_indices = kv.query_indices;
+        kv.query_indices = nullptr;
+    }
+
+    KV& operator=(KV&& kv) noexcept  {
+        if (this != &kv) {
+            field_id = kv.field_id;
+            match_score_index = kv.match_score_index;
+            query_index = kv.query_index;
+            array_index = kv.array_index;
+            token_bits = kv.token_bits;
+            key = kv.key;
+            distinct_key = kv.distinct_key;
+
+            scores[0] = kv.scores[0];
+            scores[1] = kv.scores[1];
+            scores[2] = kv.scores[2];
+
+            delete[] query_indices;
+            query_indices = kv.query_indices;
+            kv.query_indices = nullptr;
+        }
+
+        return *this;
+    }
+
+    KV& operator=(KV& kv) noexcept  {
+        if (this != &kv) {
+            field_id = kv.field_id;
+            match_score_index = kv.match_score_index;
+            query_index = kv.query_index;
+            array_index = kv.array_index;
+            token_bits = kv.token_bits;
+            key = kv.key;
+            distinct_key = kv.distinct_key;
+
+            scores[0] = kv.scores[0];
+            scores[1] = kv.scores[1];
+            scores[2] = kv.scores[2];
+
+            delete[] query_indices;
+            query_indices = kv.query_indices;
+            kv.query_indices = nullptr;
+        }
+
+        return *this;
+    }
+
+    ~KV() {
+        delete [] query_indices;
+        query_indices = nullptr;
+    }
 };
 
 /*

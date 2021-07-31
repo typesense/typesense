@@ -263,7 +263,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
     ASSERT_EQ("ติดกับดัก<mark>ราย</mark><mark>ได้</mark>ปานกลาง",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
-    ASSERT_EQ("ข้อมูลรายคนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
+    ASSERT_EQ("ข้อมูล<mark>ราย</mark>คนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
               results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
 }
