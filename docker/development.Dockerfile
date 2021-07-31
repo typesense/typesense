@@ -69,7 +69,7 @@ ADD https://github.com/google/glog/archive/0a2e593.tar.gz /opt/glog-0a2e593.tar.
 RUN tar -C /opt -xf /opt/glog-0a2e593.tar.gz
 RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
     cd /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
-    cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_UNWIND=OFF .. && \
+    cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_TLS=OFF -DWITH_UNWIND=OFF .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
@@ -87,7 +87,7 @@ COPY patches/braft_cmakelists.txt /opt/braft-c649789133566dc06e39ebd0c69a824f8e9
 RUN chown root:root /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
 RUN mkdir -p /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
     cd /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
-    cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j8 && \
+    cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j4 && \
     make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld/output/bin
 
