@@ -1405,12 +1405,22 @@ void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Top
             Topster* group_topster = group_topster_entry.second;
             for(const auto& map_kv: group_topster->kv_map) {
                 map_kv.second->query_index += query_index;
+                if(map_kv.second->query_indices != nullptr) {
+                    for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
+                        map_kv.second->query_indices[i+1] += query_index;
+                    }
+                }
                 agg_topster.add(map_kv.second);
             }
         }
     } else {
         for(const auto& map_kv: index_topster->kv_map) {
             map_kv.second->query_index += query_index;
+            if(map_kv.second->query_indices != nullptr) {
+                for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
+                    map_kv.second->query_indices[i+1] += query_index;
+                }
+            }
             agg_topster.add(map_kv.second);
         }
     }
@@ -1516,25 +1526,38 @@ void Collection::highlight_result(const field &search_field,
     std::vector<art_leaf*> query_suggestion;
     std::set<std::string> query_suggestion_tokens;
 
-    for (const art_leaf *token_leaf : searched_queries[field_order_kv->query_index]) {
-        // Must search for the token string fresh on that field for the given document since `token_leaf`
-        // is from the best matched field and need not be present in other fields of a document.
-        Index* index = indices[field_order_kv->key % num_memory_shards];
-        art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+    size_t qindex = 0;
 
-        //LOG(INFO) << "field: " << search_field.name << ", key: " << token_leaf->key;
+    do {
+        auto searched_query =
+                (field_order_kv->query_indices == nullptr) ? searched_queries[field_order_kv->query_index] :
+                searched_queries[field_order_kv->query_indices[qindex + 1]];
 
-        if(actual_leaf != nullptr) {
-            query_suggestion.push_back(actual_leaf);
-            std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len-1);
-            query_suggestion_tokens.insert(token);
-            std::vector<uint16_t> positions;
+        for (art_leaf* token_leaf : searched_query) {
+            // Must search for the token string fresh on that field for the given document since `token_leaf`
+            // is from the best matched field and need not be present in other fields of a document.
+            Index* index = indices[field_order_kv->key % num_memory_shards];
+            art_leaf* actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+
+            if(actual_leaf == nullptr) {
+                continue;
+            }
+
             uint32_t doc_index = actual_leaf->values->ids.indexOf(field_order_kv->key);
-            auto doc_indices = new uint32_t[1];
-            doc_indices[0] = doc_index;
-            leaf_to_indices.push_back(doc_indices);
+            if(doc_index != actual_leaf->values->ids.getLength()) {
+                query_suggestion.push_back(actual_leaf);
+                std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len - 1);
+                //LOG(INFO) << "field: " << search_field.name << ", key: " << token;
+                query_suggestion_tokens.insert(token);
+                auto doc_indices = new uint32_t[1];
+                doc_indices[0] = doc_index;
+                leaf_to_indices.push_back(doc_indices);
+            }
         }
-    }
+
+        qindex++;
+    } while(field_order_kv->query_indices != nullptr && qindex < field_order_kv->query_indices[0]);
+
 
     if(query_suggestion.size() != q_tokens.size()) {
         // can happen for compound query matched across 2 fields when some tokens are dropped
@@ -1542,6 +1565,8 @@ void Collection::highlight_result(const field &search_field,
             if(query_suggestion_tokens.count(q_token) != 0) {
                 continue;
             }
+
+            query_suggestion_tokens.insert(q_token);
 
             Index* index = indices[field_order_kv->key % num_memory_shards];
             art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
@@ -1638,9 +1663,10 @@ void Collection::highlight_result(const field &search_field,
 
         highlight.matched_tokens.emplace_back();
         std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+        bool found_first_match = false;
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-            if(token_offsets.empty()) {
+            if(!found_first_match) {
                 if(snippet_start_window.size() == highlight_affix_num_tokens + 1) {
                     snippet_start_window.pop_front();
                 }
@@ -1648,7 +1674,10 @@ void Collection::highlight_result(const field &search_field,
                 snippet_start_window.push_back(tok_start);
             }
 
-            if (token_hits.count(raw_token) != 0 ||
+            bool token_already_found = token_hits.count(raw_token) != 0;
+
+            // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
+            if ((found_first_match && token_already_found) ||
                 (match_offset_index < match.offsets.size() &&
                  match.offsets[match_offset_index].offset == raw_token_index)) {
 
@@ -1661,9 +1690,15 @@ void Collection::highlight_result(const field &search_field,
                 } while(match_offset_index < match.offsets.size() &&
                         match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
 
-                if(token_offsets.size() == 1) {
+                if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
                 }
+
+                found_first_match = true;
+
+            } else if(query_suggestion_tokens.find(raw_token) != query_suggestion_tokens.end()) {
+                token_offsets.emplace(tok_start, tok_end);
+                token_hits.insert(raw_token);
             }
 
             if(raw_token_index == last_valid_offset + highlight_affix_num_tokens) {
@@ -1692,6 +1727,11 @@ void Collection::highlight_result(const field &search_field,
 
         auto offset_it = token_offsets.begin();
         std::stringstream highlighted_text;
+
+        // tokens from query might occur before actual snippet start offset: we skip that
+        while(offset_it != token_offsets.end() && offset_it->first < snippet_start_offset) {
+            offset_it++;
+        }
 
         for(size_t i = snippet_start_offset; i <= snippet_end_offset; i++) {
             if(offset_it != token_offsets.end()) {

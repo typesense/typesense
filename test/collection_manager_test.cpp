@@ -232,7 +232,6 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> facets;
 
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    LOG(INFO) << results;
     ASSERT_EQ(4, results["hits"].size());
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
