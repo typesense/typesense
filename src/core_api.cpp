@@ -34,6 +34,10 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    if(req->_req == nullptr) {
+        return ;
+    }
+
     auto req_res = new deferred_req_res_t(req, res, server, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 }
@@ -571,39 +575,31 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     //LOG(INFO) << "req body %: " << (float(req->body_index)/req->body.size())*100;
 
     std::vector<std::string> json_lines;
-    req->body_index = StringUtils::split(req->body, json_lines, "\n", false, req->body_index, IMPORT_BATCH_SIZE);
+    StringUtils::split(req->body, json_lines, "\n", false);
 
     //LOG(INFO) << "json_lines.size before: " << json_lines.size() << ", req->body_index: " << req->body_index;
 
-    bool stream_proceed = false;  // default state
+    if(req->last_chunk_aggregate) {
+        //LOG(INFO) << "req->last_chunk_aggregate is true";
+        req->body = "";
+    } else {
+        if(!json_lines.empty()) {
+            // check if req->body had complete last record
+            bool complete_document;
 
-    if(req->body_index == req->body.size()) {
-        // body has been consumed fully, see whether we can fetch more request body
-        req->body_index = 0;
-        stream_proceed = true;
+            try {
+                nlohmann::json document = nlohmann::json::parse(json_lines.back());
+                complete_document = document.is_object();
+            } catch(const std::exception& e) {
+                complete_document = false;
+            }
 
-        if(req->last_chunk_aggregate) {
-            //LOG(INFO) << "req->last_chunk_aggregate is true";
-            req->body = "";
-        } else {
-            if(!json_lines.empty()) {
-                // check if req->body had complete last record
-                bool complete_document;
-
-                try {
-                    nlohmann::json document = nlohmann::json::parse(json_lines.back());
-                    complete_document = document.is_object();
-                } catch(const std::exception& e) {
-                    complete_document = false;
-                }
-
-                if(!complete_document) {
-                    // eject partial record
-                    req->body = json_lines.back();
-                    json_lines.pop_back();
-                } else {
-                    req->body = "";
-                }
+            if(!complete_document) {
+                // eject partial record
+                req->body = json_lines.back();
+                json_lines.pop_back();
+            } else {
+                req->body = "";
             }
         }
     }
@@ -640,15 +636,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     res->content_type_header = "text/plain; charset=utf8";
     res->status_code = 200;
-    res->body += response_stream.str();
+    res->body = response_stream.str();
 
-    if(stream_proceed) {
-        res->final = req->last_chunk_aggregate;
-        stream_response(req, res);
-    } else {
-        // push handler back onto the event loop: we must process the next batch without blocking the event loop
-        defer_processing(req, res, 0);
-    }
+    res->final = req->last_chunk_aggregate;
+    stream_response(req, res);
 
     return true;
 }

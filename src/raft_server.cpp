@@ -366,34 +366,10 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             request_generated->deserialize(iter.data().to_string());
         }
 
-        // Now that the log has been parsed, perform the actual operation
+        // To avoid blocking the serial Raft write thread persist the log entry in local storage.
+        // Actual operations will be done in collection-sharded batch indexing threads.
 
-        bool async_res = false;
-
-        route_path* found_rpath = nullptr;
-        bool route_found = server->get_route(request_generated->route_hash, &found_rpath);
-
-        //LOG(INFO) << "Pre handler " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        if(route_found) {
-            async_res = found_rpath->async_res;
-            found_rpath->handler(request_generated, response_generated);
-        } else {
-            response_generated->set_404();
-        }
-
-        //LOG(INFO) << "Pre dispatch " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        if(!async_res) {
-            deferred_req_res_t* req_res = new deferred_req_res_t(request_generated, response_generated, server, true);
-            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
-        }
-
-        //LOG(INFO) << "Raft write pre wait " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        response_generated->wait();
-
-        //LOG(INFO) << "Raft write post wait " << request_generated.get() << ", use count: " << request_generated.use_count();
+        batched_indexer->enqueue(request_generated, response_generated);
 
         if(iter.done()) {
             pending_writes--;
@@ -644,12 +620,14 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     }
 }
 
-ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta_store, ThreadPool* thread_pool,
+ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
+                                   Store *store, Store* meta_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
                                    bool api_uses_ssl,
                                    int64_t healthy_read_lag, int64_t healthy_write_lag,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
-        node(nullptr), leader_term(-1), server(server), store(store), meta_store(meta_store),
+        node(nullptr), leader_term(-1), server(server), batched_indexer(batched_indexer),
+        store(store), meta_store(meta_store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
         healthy_read_lag(healthy_read_lag), healthy_write_lag(healthy_write_lag),
         num_collections_parallel_load(num_collections_parallel_load),

@@ -391,22 +391,37 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
+    BatchedIndexer batch_indexer(server, &store, num_threads);
+
     // first we start the peering service
 
-    ReplicationState replication_state(server, &store, &meta_store, &app_thread_pool, server->get_message_dispatcher(),
+    ReplicationState replication_state(server, &batch_indexer, &store, &meta_store,
+                                       &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        config.get_healthy_read_lag(),
                                        config.get_healthy_write_lag(),
                                        num_collections_parallel_load,
                                        config.get_num_documents_parallel_load());
 
-    std::thread raft_thread([&replication_state, &config, &state_dir, &app_thread_pool, &server_thread_pool]() {
+    std::thread raft_thread([&replication_state, &config, &state_dir,
+                             &app_thread_pool, &server_thread_pool, &batch_indexer]() {
+
+        std::thread batch_indexing_thread([&batch_indexer]() {
+            batch_indexer.run();
+        });
+
         std::string path_to_nodes = config.get_nodes();
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds());
+
+        LOG(INFO) << "Shutting down batch indexer...";
+        batch_indexer.stop();
+
+        LOG(INFO) << "Waiting for batch indexing thread to be done...";
+        batch_indexing_thread.join();
 
         LOG(INFO) << "Shutting down server_thread_pool";
 

@@ -243,7 +243,7 @@ struct http_req {
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
                 chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false) {
 
-        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
     }
@@ -254,7 +254,7 @@ struct http_req {
             params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false) {
 
-        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
     }
 
@@ -263,10 +263,10 @@ struct http_req {
         //LOG(INFO) << "~http_req " << this;
 
         if(!deserialized_request) {
-            uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
 
-            uint64_t ms_since_start = (now - start_ts);
+            uint64_t ms_since_start = (now - start_ts) / 1000;
             std::string metric_identifier = http_method + " " + path_without_query;
 
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
@@ -309,7 +309,7 @@ struct http_req {
     void deserialize(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
-        body = content["body"];
+        body += content["body"];
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
@@ -318,6 +318,7 @@ struct http_req {
         metadata = content.count("metadata") != 0 ? content["metadata"] : "";
         first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
         last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
+        start_ts = content.count("start_ts") != 0 ? content["start_ts"].get<uint64_t>() : 0;
         _req = nullptr;
 
         deserialized_request = true;
@@ -331,6 +332,7 @@ struct http_req {
         content["last_chunk_aggregate"] = last_chunk_aggregate;
         content["body"] = body;
         content["metadata"] = metadata;
+        content["start_ts"] = start_ts;
 
         return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
     }
