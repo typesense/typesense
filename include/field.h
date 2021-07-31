@@ -5,6 +5,7 @@
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
+#include "logger.h"
 #include "json.hpp"
 
 namespace field_types {
@@ -192,6 +193,10 @@ struct field {
         bool found_default_sorting_field = false;
 
         for(const field & field: fields) {
+            if(field.name == "id") {
+                continue;
+            }
+
             nlohmann::json field_val;
             field_val[fields::name] = field.name;
             field_val[fields::type] = field.type;
@@ -263,6 +268,13 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+            if(field_json["name"] == "id") {
+                // No field should exist with the name "id" as it is reserved for internal use
+                // We cannot throw an error here anymore since that will break backward compatibility!
+                LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+                continue;
+            }
+
             if(!field_json.is_object() ||
                field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
                !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
@@ -463,6 +475,7 @@ namespace sort_field_const {
     static const std::string seq_id = "_seq_id";
 
     static const std::string exclude_radius = "exclude_radius";
+    static const std::string precision = "precision";
 }
 
 struct sort_by {
@@ -472,14 +485,16 @@ struct sort_by {
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
+    uint32_t geo_precision;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), geopoint(0), exclude_radius(0) {
+        name(name), order(order), geopoint(0), exclude_radius(0), geo_precision(0) {
 
     }
 
-    sort_by(const std::string &name, const std::string &order, int64_t geopoint, uint32_t exclude_radius) :
-            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius) {
+    sort_by(const std::string &name, const std::string &order, int64_t geopoint,
+            uint32_t exclude_radius, uint32_t geo_precision) :
+            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
 
     }
 
@@ -488,6 +503,7 @@ struct sort_by {
         order = other.order;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
+        geo_precision = other.geo_precision;
         return *this;
     }
 };

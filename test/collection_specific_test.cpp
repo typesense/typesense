@@ -606,10 +606,117 @@ TEST_F(CollectionSpecificTest, TokensSpreadAcrossFields) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {4, 1}).get();
 
-    LOG(INFO) << results;
-
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, GuardAgainstIdFieldInSchema) {
+    // The "id" field, if defined in the schema should be ignored
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("id", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    nlohmann::json schema;
+    schema["name"] = "books";
+    schema["fields"] = nlohmann::json::array();
+    schema["fields"][0]["name"] = "title";
+    schema["fields"][0]["type"] = "string";
+    schema["fields"][1]["name"] = "id";
+    schema["fields"][1]["type"] = "string";
+    schema["fields"][2]["name"] = "points";
+    schema["fields"][2]["type"] = "int32";
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    ASSERT_EQ(0, coll1->get_schema().count("id"));
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HandleBadCharactersInStringGracefully) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    std::string doc_str = "不推荐。\",\"price\":10.12,\"ratings\":5}";
+
+    auto add_op = coll1->add(doc_str);
+    ASSERT_FALSE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HighlightSecondaryFieldWithPrefixMatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Functions and Equations";
+    doc1["description"] = "Use a function to solve an equation.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Function of effort";
+    doc2["description"] = "Learn all about it.";
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("function", {"title", "description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true, true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1}).get();
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+
+    ASSERT_EQ("<mark>Functions</mark> and Equations",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("Use a <mark>function</mark> to solve an equation.",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HighlightWithDropTokens) {
+    std::vector<field> fields = {field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["description"] = "HPE Aruba AP-575 802.11ax Wireless Access Point - TAA Compliant - 2.40 GHz, "
+                          "5 GHz - MIMO Technology - 1 x Network (RJ-45) - Gigabit Ethernet - Bluetooth 5";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("HPE Aruba AP-575 Technology Gigabit Bluetooth 5", {"description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("<mark>HPE</mark> <mark>Aruba</mark> <mark>AP-575</mark> 802.11ax Wireless Access Point - "
+              "TAA Compliant - 2.40 GHz, <mark>5</mark> GHz - MIMO <mark>Technology</mark> - 1 x Network (RJ-45) - "
+              "<mark>Gigabit</mark> Ethernet - <mark>Bluetooth</mark> <mark>5</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
