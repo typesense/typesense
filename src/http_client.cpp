@@ -20,7 +20,7 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                      const std::shared_ptr<http_res> response, HttpServer* server) {
-    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server);
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, false);
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
     struct curl_slist* chunk = nullptr;
 
@@ -175,13 +175,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
         HttpServer *server = req_res->server;
 
-        if(req_res->req->last_chunk_aggregate) {
-            //LOG(INFO) << "Request forwarding done.";
-            server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
-        } else {
-            //LOG(INFO) << "Pausing forwarding and requesting more input.";
-            server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
+        server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
+        if(!req_res->req->last_chunk_aggregate) {
             //LOG(INFO) << "Waiting for request body to be ready";
             req_res->req->wait();
             //LOG(INFO) << "Request body is ready";

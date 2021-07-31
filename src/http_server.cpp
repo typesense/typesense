@@ -465,6 +465,11 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     request->body += chunk_str;
     request->chunk_len += chunk.len;
 
+    /*LOG(INFO) << "entity: " << std::string(request->_req->entity.base, std::min<size_t>(40, request->_req->entity.len))
+              << ", chunk len: " << std::string(chunk.base, std::min<size_t>(40, chunk.len));*/
+
+    //std::this_thread::sleep_for(std::chrono::seconds(30));
+
     //LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len << ", aggr_chunk_len=" << request->chunk_len
     //          << ", is_end_stream=" << is_end_stream;
 
@@ -478,7 +483,7 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
         `active_stream_window_size` is reached. For the first iteration, `active_stream_window_size`
         includes initial request entity size and as well as chunk sizes
 
-        On HTTP 1, though, the handler is called only once with a small chunk size and requires process_req() to
+        On HTTP 1, though, the handler is called only once with a small chunk size and requires proceed_req() to
         be called for fetching further chunks. We need to handle this difference.
     */
 
@@ -557,7 +562,6 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
             // lifecycle of non async res will be owned by stream responder
             auto req_res = new deferred_req_res_t(request, response, http_server, true);
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
-            response->wait();
         }
         //LOG(INFO) << "Response done " << response.get();
     });
@@ -680,22 +684,10 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
         return ;
     }
 
-    // if the request itself is async, we will proceed the request to fetch input content
-    if (custom_generator->rpath->async_req) {
-        auto stream_state = (custom_generator->res()->final) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
-
-        // `written` is ignored by http1.1 implementation, so meant only for http 2+
-        size_t written = custom_generator->req()->chunk_len;
-        custom_generator->req()->chunk_len = 0;
-
-        if(custom_generator->req()->_req->proceed_req) {
-            //LOG(INFO) << "response_proceed: proceeding req";
-            custom_generator->req()->_req->proceed_req(custom_generator->req()->_req, written,
-                                                             stream_state);
-        }
-    } else {
-        // otherwise, call the handler since it will be the handler that will be producing content
-        // (streaming response but not request)
+    // if the request itself is NOT async, call the handler since it will be the handler that will be producing content
+    // (streaming response but not request)
+    if (!custom_generator->rpath->async_req) {
+        // call the handler since it will be the handler that will be producing content
         custom_generator->h2o_handler->http_server->defer_processing(custom_generator->req(),
                                                                      custom_generator->res(), 1);
     }

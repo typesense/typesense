@@ -12,6 +12,7 @@
 #include "http_data.h"
 #include "threadpool.h"
 #include "http_server.h"
+#include "batched_indexer.h"
 
 class Store;
 class ReplicationState;
@@ -93,6 +94,7 @@ private:
     butil::atomic<int64_t> leader_term;
 
     HttpServer* server;
+    BatchedIndexer* batched_indexer;
 
     Store* store;
     Store* meta_store;
@@ -135,7 +137,7 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(HttpServer* server, Store* store, Store* meta_store,
+    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* meta_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
                      bool api_uses_ssl, int64_t healthy_read_lag, int64_t healthy_write_lag,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
