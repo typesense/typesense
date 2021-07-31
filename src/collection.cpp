@@ -338,7 +338,8 @@ void Collection::batch_index(std::vector<std::vector<index_record>> &index_batch
                 res["code"] = index_record.indexed.code();
             }
 
-            json_out[index_record.position] = res.dump();
+            json_out[index_record.position] = res.dump(-1, ' ', false,
+                                                       nlohmann::detail::error_handler_t::ignore);
         }
     }
 }
@@ -753,35 +754,53 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
             if(geo_parts.size() == 3) {
                 // try to parse the exclude radius option
-                if(!StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
-                    return Option<nlohmann::json>(400, error);
-                }
+                bool is_exclude_option = false;
 
-                std::vector<std::string> exclude_parts;
-                StringUtils::split(geo_parts[2], exclude_parts, ":");
-
-                if(exclude_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                std::vector<std::string> exclude_value_parts;
-                StringUtils::split(exclude_parts[1], exclude_value_parts, " ");
-
-                if(exclude_value_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                if(!StringUtils::is_float(exclude_value_parts[0])) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                if(exclude_value_parts[1] == "km") {
-                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1000;
-                } else if(exclude_value_parts[1] == "mi") {
-                    sort_field_std.exclude_radius = std::stof(exclude_value_parts[0]) * 1609.34;
+                if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                    is_exclude_option = true;
+                } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
+                    is_exclude_option = false;
                 } else {
-                    return Option<nlohmann::json>(400, "Sort field's exclude radius "
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> param_parts;
+                StringUtils::split(geo_parts[2], param_parts, ":");
+
+                if(param_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                std::vector<std::string> param_value_parts;
+                StringUtils::split(param_parts[1], param_value_parts, " ");
+
+                if(param_value_parts.size() != 2) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                if(!StringUtils::is_float(param_value_parts[0])) {
+                    return Option<nlohmann::json>(400, error);
+                }
+
+                int32_t value_meters;
+
+                if(param_value_parts[1] == "km") {
+                    value_meters = std::stof(param_value_parts[0]) * 1000;
+                } else if(param_value_parts[1] == "mi") {
+                    value_meters = std::stof(param_value_parts[0]) * 1609.34;
+                } else {
+                    return Option<nlohmann::json>(400, "Sort field's parameter "
                                                        "unit must be either `km` or `mi`.");
+                }
+
+                if(value_meters <= 0) {
+                    return Option<nlohmann::json>(400, "Sort field's parameter must be a positive number.");
+                }
+
+                if(is_exclude_option) {
+                    sort_field_std.exclude_radius = value_meters;
+                } else {
+                    sort_field_std.geo_precision = value_meters;
                 }
             }
 
@@ -1387,12 +1406,22 @@ void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Top
             Topster* group_topster = group_topster_entry.second;
             for(const auto& map_kv: group_topster->kv_map) {
                 map_kv.second->query_index += query_index;
+                if(map_kv.second->query_indices != nullptr) {
+                    for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
+                        map_kv.second->query_indices[i+1] += query_index;
+                    }
+                }
                 agg_topster.add(map_kv.second);
             }
         }
     } else {
         for(const auto& map_kv: index_topster->kv_map) {
             map_kv.second->query_index += query_index;
+            if(map_kv.second->query_indices != nullptr) {
+                for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
+                    map_kv.second->query_indices[i+1] += query_index;
+                }
+            }
             agg_topster.add(map_kv.second);
         }
     }
@@ -1497,20 +1526,29 @@ void Collection::highlight_result(const field &search_field,
     std::vector<art_leaf*> query_suggestion;
     std::set<std::string> query_suggestion_tokens;
 
-    for (const art_leaf* token_leaf : searched_queries[field_order_kv->query_index]) {
-        // Must search for the token string fresh on that field for the given document since `token_leaf`
-        // is from the best matched field and need not be present in other fields of a document.
-        Index* index = indices[field_order_kv->key % num_memory_shards];
-        art_leaf *actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+    size_t qindex = 0;
 
-        //LOG(INFO) << "field: " << search_field.name << ", key: " << token_leaf->key;
+    do {
+        auto searched_query =
+                (field_order_kv->query_indices == nullptr) ? searched_queries[field_order_kv->query_index] :
+                searched_queries[field_order_kv->query_indices[qindex + 1]];
 
-        if(actual_leaf != nullptr) {
-            query_suggestion.push_back(actual_leaf);
-            std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len-1);
-            query_suggestion_tokens.insert(token);
+        for (art_leaf* token_leaf : searched_query) {
+            // Must search for the token string fresh on that field for the given document since `token_leaf`
+            // is from the best matched field and need not be present in other fields of a document.
+            Index* index = indices[field_order_kv->key % num_memory_shards];
+            art_leaf* actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
+
+            if(actual_leaf != nullptr) {
+                query_suggestion.push_back(actual_leaf);
+                std::string token(reinterpret_cast<char*>(actual_leaf->key), actual_leaf->key_len - 1);
+                //LOG(INFO) << "field: " << search_field.name << ", key: " << token;
+                query_suggestion_tokens.insert(token);
+            }
         }
-    }
+
+        qindex++;
+    } while(field_order_kv->query_indices != nullptr && qindex < field_order_kv->query_indices[0]);
 
     if(query_suggestion.size() != q_tokens.size()) {
         // can happen for compound query matched across 2 fields when some tokens are dropped
@@ -1525,6 +1563,7 @@ void Collection::highlight_result(const field &search_field,
                                                           q_token.size() + 1);
             if(actual_leaf != nullptr) {
                 query_suggestion.push_back(actual_leaf);
+                query_suggestion_tokens.insert(q_token);
             }
         }
     }
@@ -1614,9 +1653,10 @@ void Collection::highlight_result(const field &search_field,
 
         highlight.matched_tokens.emplace_back();
         std::vector<std::string>& matched_tokens = highlight.matched_tokens.back();
+        bool found_first_match = false;
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-            if(token_offsets.empty()) {
+            if(!found_first_match) {
                 if(snippet_start_window.size() == highlight_affix_num_tokens + 1) {
                     snippet_start_window.pop_front();
                 }
@@ -1624,7 +1664,10 @@ void Collection::highlight_result(const field &search_field,
                 snippet_start_window.push_back(tok_start);
             }
 
-            if (token_hits.count(raw_token) != 0 ||
+            bool token_already_found = token_hits.count(raw_token) != 0;
+
+            // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
+            if ((found_first_match && token_already_found) ||
                 (match_offset_index < match.offsets.size() &&
                  match.offsets[match_offset_index].offset == raw_token_index)) {
 
@@ -1637,9 +1680,15 @@ void Collection::highlight_result(const field &search_field,
                 } while(match_offset_index < match.offsets.size() &&
                         match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
 
-                if(token_offsets.size() == 1) {
+                if(!found_first_match) {
                     snippet_start_offset = snippet_start_window.front();
                 }
+
+                found_first_match = true;
+
+            } else if(query_suggestion_tokens.find(raw_token) != query_suggestion_tokens.end()) {
+                token_offsets.emplace(tok_start, tok_end);
+                token_hits.insert(raw_token);
             }
 
             if(raw_token_index == last_valid_offset + highlight_affix_num_tokens) {
@@ -1668,6 +1717,11 @@ void Collection::highlight_result(const field &search_field,
 
         auto offset_it = token_offsets.begin();
         std::stringstream highlighted_text;
+
+        // tokens from query might occur before actual snippet start offset: we skip that
+        while(offset_it != token_offsets.end() && offset_it->first < snippet_start_offset) {
+            offset_it++;
+        }
 
         for(size_t i = snippet_start_offset; i <= snippet_end_offset; i++) {
             if(offset_it != token_offsets.end()) {

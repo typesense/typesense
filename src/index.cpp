@@ -1649,13 +1649,18 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
 
             std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
+            kvs[0]->query_indices = new uint64_t[kvs.size() + 1];
+            kvs[0]->query_indices[0] = kvs.size();
 
-            // LOG(INFO) << "DOC ID: " << seq_id << ", score: " << kvs[0]->scores[kvs[0]->match_score_index];
+            //LOG(INFO) << "DOC ID: " << seq_id << ", score: " << kvs[0]->scores[kvs[0]->match_score_index];
 
             // to calculate existing aggregate scores across best matching fields
             spp::sparse_hash_map<uint8_t, KV*> existing_field_kvs;
-            for(const auto kv: kvs) {
-                existing_field_kvs.emplace(kv->field_id, kv);
+            for(size_t kv_i = 0; kv_i < kvs.size(); kv_i++) {
+                existing_field_kvs.emplace(kvs[kv_i]->field_id, kvs[kv_i]);
+                kvs[0]->query_indices[kv_i+1] = kvs[kv_i]->query_index;
+                /*LOG(INFO) << "kv_i: " << kv_i << ", kvs[kv_i]->query_index: " << kvs[kv_i]->query_index << ", "
+                          << "searched_query: " << searched_queries[kvs[kv_i]->query_index][0];*/
             }
 
             uint32_t token_bits = (uint32_t(1) << 31);      // top most bit set to guarantee atleast 1 bit set
@@ -2096,6 +2101,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
                 if(dist < sort_fields[i].exclude_radius) {
                     dist = 0;
+                }
+
+                if(sort_fields[i].geo_precision > 0) {
+                    dist = dist + sort_fields[i].geo_precision - 1 -
+                           (dist + sort_fields[i].geo_precision - 1) % sort_fields[i].geo_precision;
                 }
 
                 geopoint_distances[i].emplace(seq_id, dist);
