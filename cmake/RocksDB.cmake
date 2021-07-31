@@ -1,6 +1,6 @@
 # Download and build RocksDB
 
-set(ROCKSDB_VERSION 5.13.1)
+set(ROCKSDB_VERSION 6.20.3)
 set(ROCKSDB_NAME rocksdb-${ROCKSDB_VERSION})
 set(ROCKSDB_TAR_PATH ${DEP_ROOT_DIR}/${ROCKSDB_NAME}.tar.gz)
 
@@ -31,7 +31,6 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/librocksdb.a AND BUILD_DEPS STREQU
     set(ENV{ROCKSDB_DISABLE_TCMALLOC} 1)
     set(ENV{ROCKSDB_DISABLE_BACKTRACE} 1)
     set(ENV{ROCKSDB_DISABLE_PG} 1)
-    set(ENV{CXXFLAGS} "-Wno-error=deprecated-copy -Wno-error=pessimizing-move -Wno-error=class-memaccess")
 
     message(STATUS "Cleaning...")
     execute_process(COMMAND make "clean" WORKING_DIRECTORY ${DEP_ROOT_DIR}/${ROCKSDB_NAME}/)
