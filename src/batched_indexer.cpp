@@ -23,7 +23,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     const std::string& req_key_prefix = get_req_prefix_key(req->start_ts);
     const std::string& request_chunk_key = req_key_prefix + StringUtils::serialize_uint32_t(chunk_sequence);
 
-    LOG(INFO) << "req_id: " << req->start_ts << ", chunk_sequence: " << chunk_sequence;
+    //LOG(INFO) << "req_id: " << req->start_ts << ", chunk_sequence: " << chunk_sequence;
 
     store->insert(request_chunk_key, req->serialize());
     req->body = "";
@@ -45,6 +45,8 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     }
 
     if(req->last_chunk_aggregate) {
+        //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
+
         {
             std::unique_lock lk(qmutuxes[queue_id]);
             req_res_t req_res(req, res, batch_begin_ts);
@@ -118,7 +120,7 @@ void BatchedIndexer::run() {
                         iter->Next();
                     }
 
-                    LOG(INFO) << "Erasing request data from disk and memory for request " << req_res.req->start_ts;
+                    //LOG(INFO) << "Erasing request data from disk and memory for request " << req_res.req->start_ts;
 
                     // we can delete the buffered request content
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
