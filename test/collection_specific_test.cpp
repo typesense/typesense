@@ -720,3 +720,83 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokens) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, HighlightLongFieldWithDropTokens) {
+    std::vector<field> fields = {field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["description"] = "Tripp Lite USB C to VGA Multiport Video Adapter Converter w/ USB-A Hub, USB-C PD Charging "
+                          "Port & Gigabit Ethernet Port, Thunderbolt 3 Compatible, USB Type C to VGA, USB-C, USB "
+                          "Type-C - for Notebook/Tablet PC - 2 x USB Ports - 2 x USB 3.0 - "
+                          "Network (RJ-45) - VGA - Wired";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("wired charging gigabit port", {"description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("Tripp Lite USB C to VGA Multiport Video Adapter Converter w/ USB-A Hub, "
+              "USB-C PD <mark>Charging</mark> <mark>Port</mark> & <mark>Gigabit</mark> Ethernet "
+              "<mark>Port,</mark> Thunderbolt 3 Compatible, USB Type C to VGA, USB-C, USB Type-C - for "
+              "Notebook/Tablet PC - 2 x USB <mark>Ports</mark> - 2 x USB 3.0 - Network (RJ-45) - "
+              "VGA - <mark>Wired</mark>",
+              results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
+    std::vector<field> fields = {field("username", field_types::STRING, false),
+                                 field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["username"] = "Pandaabear";
+    doc1["name"] = "Panda's Basement";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["username"] = "Pandaabear";
+    doc2["name"] = "Pandaabear Basic";
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("pandaabear bas", {"username", "name"},
+                                 "", {}, {}, {2, 2}, 10,
+                                 1, FREQUENCY, {true, true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("Panda's <mark>Basement</mark>",
+              results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+

@@ -746,23 +746,23 @@ TEST_F(CollectionTest, ArrayStringFieldHighlight) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    ASSERT_EQ(3, results["hits"][0]["highlights"][0].size());
-    ASSERT_STREQ("title", results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str());
-    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("Truth", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
+    ASSERT_EQ(4, results["hits"][0]["highlights"][0].size());
+    ASSERT_STREQ(results["hits"][0]["highlights"][0]["field"].get<std::string>().c_str(), "tags");
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["snippets"].size());
+    ASSERT_STREQ("<mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>().c_str());
+    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][0]["highlights"][0]["snippets"][1].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
+    ASSERT_STREQ("truth", results["hits"][0]["highlights"][0]["matched_tokens"][0][0].get<std::string>().c_str());
+    ASSERT_STREQ("truth", results["hits"][0]["highlights"][0]["matched_tokens"][1][0].get<std::string>().c_str());
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"][0]["indices"][0]);
+    ASSERT_EQ(2, results["hits"][0]["highlights"][0]["indices"][1]);
 
-    ASSERT_EQ(4, results["hits"][0]["highlights"][1].size());
-    ASSERT_STREQ(results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str(), "tags");
-    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["snippets"].size());
-    ASSERT_STREQ("<mark>truth</mark>", results["hits"][0]["highlights"][1]["snippets"][0].get<std::string>().c_str());
-    ASSERT_STREQ("plain <mark>truth</mark>", results["hits"][0]["highlights"][1]["snippets"][1].get<std::string>().c_str());
-    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["matched_tokens"].size());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][0][0].get<std::string>().c_str());
-    ASSERT_STREQ("truth", results["hits"][0]["highlights"][1]["matched_tokens"][1][0].get<std::string>().c_str());
-    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlights"][1]["indices"][0]);
-    ASSERT_EQ(2, results["hits"][0]["highlights"][1]["indices"][1]);
+    ASSERT_EQ(3, results["hits"][0]["highlights"][1].size());
+    ASSERT_STREQ("title", results["hits"][0]["highlights"][1]["field"].get<std::string>().c_str());
+    ASSERT_STREQ("Plain <mark>Truth</mark>", results["hits"][0]["highlights"][1]["snippet"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["hits"][0]["highlights"][1]["matched_tokens"].size());
+    ASSERT_STREQ("Truth", results["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
 
     ASSERT_EQ(3, results["hits"][1]["highlights"][0].size());
     ASSERT_STREQ("title", results["hits"][1]["highlights"][0]["field"].get<std::string>().c_str());
@@ -2500,15 +2500,18 @@ TEST_F(CollectionTest, SearchHighlightFieldFully) {
                         spp::sparse_hash_set<std::string>(), 10, "", 5, 5, "title, tags").get();
 
     ASSERT_EQ(2, res["hits"][0]["highlights"].size());
-    ASSERT_EQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
-              res["hits"][0]["highlights"][0]["value"].get<std::string>());
-    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["matched_tokens"].size());
-    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
 
-    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["values"].size());
-    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["values"][0].get<std::string>());
-    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["snippets"].size());
-    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][1]["snippets"][0].get<std::string>());
+    ASSERT_EQ("tags", res["hits"][0]["highlights"][0]["field"]);
+    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["values"].size());
+    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["values"][0].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["highlights"][0]["snippets"].size());
+    ASSERT_EQ("<mark>LAZY</mark>", res["hits"][0]["highlights"][0]["snippets"][0].get<std::string>());
+
+    ASSERT_EQ("The quick brown fox jumped over the <mark>lazy</mark> dog and ran straight to the forest to sleep.",
+              res["hits"][0]["highlights"][1]["value"].get<std::string>());
+    ASSERT_EQ("title", res["hits"][0]["highlights"][1]["field"]);
+    ASSERT_EQ(1, res["hits"][0]["highlights"][1]["matched_tokens"].size());
+    ASSERT_STREQ("lazy", res["hits"][0]["highlights"][1]["matched_tokens"][0].get<std::string>().c_str());
 
     // excluded fields should not be returned in highlights section
     spp::sparse_hash_set<std::string> excluded_fields = {"tags"};
