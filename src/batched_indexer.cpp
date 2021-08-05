@@ -4,7 +4,7 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t nu
                                server(server), store(store), num_threads(num_threads),
                                last_gc_run(std::chrono::high_resolution_clock::now()), exit(false) {
     thread_pool = new ThreadPool(num_threads);
-    queues.reserve(num_threads);
+    queues.resize(num_threads);
     qmutuxes = new std::mutex[num_threads];
 }
 
@@ -70,13 +70,14 @@ void BatchedIndexer::run() {
         std::deque<req_res_t>& queue = queues[i];
         std::mutex& queue_mutex = qmutuxes[i];
 
-        thread_pool->enqueue([&queue, &queue_mutex, this]() {
+        thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
             while(!exit) {
                 std::unique_lock<std::mutex> qlk(queue_mutex);
 
                 if(queue.empty()) {
                     qlk.unlock();
                 } else {
+                    size_t qs = queue.size();
                     req_res_t req_res = queue.front();
                     queue.pop_front();
                     qlk.unlock();
