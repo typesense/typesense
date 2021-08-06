@@ -33,7 +33,7 @@ private:
     ThreadPool* thread_pool;
     const size_t num_threads;
 
-    std::vector<std::deque<req_res_t>> queues;
+    std::vector<std::deque<uint64_t>> queues;
     std::mutex* qmutuxes;
 
     std::mutex mutex;
