@@ -899,6 +899,10 @@ bool HttpServer::on_request_proceed_message(void *data) {
         req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
     }
 
+    if(req_res->destroy_after_stream_response) {
+        delete req_res;
+    }
+
     return true;
 }
 
