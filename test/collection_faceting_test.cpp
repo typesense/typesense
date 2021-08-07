@@ -546,11 +546,10 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
                             spp::sparse_hash_set<std::string>(), 10, "categories:cell ph").get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
-    ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"].size());
 
     ASSERT_STREQ("Cell Phones", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("Cellophanes", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Cell Phone Accessories", results["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
     // facet query longer than a token is correctly matched with typo tolerance
     // also ensure that setting per_page = 0 works fine

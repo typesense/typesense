@@ -636,6 +636,28 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    const char* key = "spz005";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
+
+    std::string term = "spz";
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size()+1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
+    ASSERT_EQ(0, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size(), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
+    ASSERT_EQ(1, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_art_fuzzy_search) {
     art_tree t;
     int res = art_tree_init(&t);

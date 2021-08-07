@@ -1251,8 +1251,8 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
         return -1;
     }
 
-    if(key_len >= term_len) {
-        // b) we might iterate past term_len to catch trailing typos
+    // b) we might iterate past term_len to catch trailing typos
+    if(key_len >= term_len && prefix) {
         cost = cost_row[term_len];
         if(cost >= min_cost && cost <= max_cost) {
             return 1;

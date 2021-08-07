@@ -970,11 +970,6 @@ void Index::search_candidates(const uint8_t & field_id,
                 if(filter_ids_length != 0) {
                     id_found_in_filter = false;
 
-                    /*if(result_size != 0) {
-                        LOG(INFO) << size_t(field_id) << " - " << log_query.str() << ", result_size: " << result_size
-                                  << ", popcount: " << (__builtin_popcount(token_bits) - 1);
-                    }*/
-
                     // e.g. [1, 3] vs [2, 3]
 
                     while(filter_ids_index < filter_ids_length && filter_ids[filter_ids_index] < id) {
