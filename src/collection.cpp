@@ -1650,7 +1650,7 @@ void Collection::highlight_result(const field &search_field,
 
         size_t match_offset_index = 0;
         std::string raw_token;
-        spp::sparse_hash_set<std::string> token_hits;  // used to identify repeating tokens
+        std::set<std::string> token_hits;  // used to identify repeating tokens
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
 
         // based on `highlight_affix_num_tokens`

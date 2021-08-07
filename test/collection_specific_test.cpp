@@ -800,3 +800,28 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, PrefixSearchOnlyOnLastToken) {
+    std::vector<field> fields = {field("concat", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["concat"] = "SPZ005 SPACEPOLE Spz005 Space Pole Updated!!! Accessories Stands & Equipment Cabinets POS "
+                     "Terminal Stand Spacepole 0 SPZ005";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("spz space", {"concat"},
+                                 "", {}, {}, {1}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    collectionManager.drop_collection("coll1");
+}
