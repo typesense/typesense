@@ -510,7 +510,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   bool prioritize_exact_match,
                                   bool pre_segmented_query,
                                   bool enable_overrides,
-                                  const std::string& highlight_fields) const {
+                                  const std::string& highlight_fields,
+                                  const size_t combination_limit) const {
 
     std::shared_lock lock(mutex);
 
@@ -936,7 +937,8 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                    sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                    per_page, page, token_order, prefixes,
                                    drop_tokens_threshold, typo_tokens_threshold,
-                                   group_by_fields, group_limit, default_sorting_field, prioritize_exact_match);
+                                   group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
+                                   combination_limit);
 
         search_args_vec.push_back(search_params);
 

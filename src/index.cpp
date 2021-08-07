@@ -890,9 +890,8 @@ void Index::search_candidates(const uint8_t & field_id,
                               const size_t group_limit,
                               const std::vector<std::string>& group_by_fields,
                               const std::vector<token_t>& query_tokens,
-                              bool prioritize_exact_match) const {
-
-    const long long combination_limit = 10;
+                              bool prioritize_exact_match,
+                              const size_t combination_limit) const {
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
@@ -909,11 +908,14 @@ void Index::search_candidates(const uint8_t & field_id,
                                               query_suggestion, token_bits);
 
         //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
-        /*LOG(INFO) << "n: " << n;
-        for(size_t i=0; i < actual_query_suggestion.size(); i++) {
-            LOG(INFO) << "i: " << i << " - " << actual_query_suggestion[i]->key << ", ids: "
-                      << actual_query_suggestion[i]->values->ids.getLength() << ", total_cost: " << total_cost;
-        }*/
+        //LOG(INFO) << "n: " << n;
+
+        /*std::stringstream fullq;
+        for(const auto& qleaf : actual_query_suggestion) {
+            std::string qtok(reinterpret_cast<char*>(qleaf->key),qleaf->key_len - 1);
+            fullq << qtok << " ";
+        }
+        LOG(INFO) << fullq.str();*/
 
         // initialize results with the starting element (for further intersection)
         size_t result_size = posting_t::num_ids(query_suggestion[0]->values);
@@ -1372,7 +1374,8 @@ void Index::run_search(search_args* search_params) {
            search_params->typo_tokens_threshold,
            search_params->group_limit, search_params->group_by_fields,
            search_params->default_sorting_field,
-           search_params->prioritize_exact_match);
+           search_params->prioritize_exact_match,
+           search_params->combination_limit);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1464,7 +1467,8 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    const size_t group_limit,
                    const std::vector<std::string>& group_by_fields,
                    const std::string& default_sorting_field,
-                   bool prioritize_exact_match) const {
+                   bool prioritize_exact_match,
+                   const size_t combination_limit) const {
 
     std::shared_lock lock(mutex);
 
@@ -1617,7 +1621,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                              field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                              field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                              field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, field_prefix,
-                             drop_tokens_threshold, typo_tokens_threshold);
+                             drop_tokens_threshold, typo_tokens_threshold, combination_limit);
 
                 // do synonym based searches
                 for(const auto& syn_tokens: q_pos_synonyms) {
@@ -1629,7 +1633,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                                  field_name, filter_ids, filter_ids_length, curated_ids_sorted, facets, sort_fields_std,
                                  field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                                  field_num_results, group_limit, group_by_fields, prioritize_exact_match, token_order, field_prefix,
-                                 drop_tokens_threshold, typo_tokens_threshold);
+                                 drop_tokens_threshold, typo_tokens_threshold, combination_limit);
                 }
 
                 // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
@@ -1861,7 +1865,9 @@ void Index::search_field(const uint8_t & field_id,
                          const size_t group_limit, const std::vector<std::string>& group_by_fields,
                          bool prioritize_exact_match,
                          const token_ordering token_order, const bool prefix,
-                         const size_t drop_tokens_threshold, const size_t typo_tokens_threshold) const {
+                         const size_t drop_tokens_threshold,
+                         const size_t typo_tokens_threshold,
+                         const size_t combination_limit) const {
 
     size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
     if(search_schema.at(field).locale != "" && search_schema.at(field).locale != "en") {
@@ -1891,7 +1897,6 @@ void Index::search_field(const uint8_t & field_id,
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
     std::vector<token_candidates> token_candidates_vec;
 
-    const long long combination_limit = 10;
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
@@ -1926,9 +1931,8 @@ void Index::search_field(const uint8_t & field_id,
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 // need less candidates for filtered searches since we already only pick tokens with results
-                const int max_candidates = (filter_ids_length == 0) ? 10 : 3;
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
+                                 costs[token_index], costs[token_index], combination_limit, token_order, prefix_search,
                                  filter_ids, filter_ids_length, leaves);
 
                 if(!leaves.empty()) {
@@ -1976,7 +1980,8 @@ void Index::search_field(const uint8_t & field_id,
             search_candidates(field_id, filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
-                              typo_tokens_threshold, group_limit, group_by_fields, query_tokens, prioritize_exact_match);
+                              typo_tokens_threshold, group_limit, group_by_fields, query_tokens,
+                              prioritize_exact_match, combination_limit);
         }
 
         resume_typo_loop:
@@ -2020,7 +2025,7 @@ void Index::search_field(const uint8_t & field_id,
                             num_tokens_dropped, field, filter_ids, filter_ids_length, curated_ids,facets,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
                             all_result_ids_len, field_num_results, group_limit, group_by_fields, prioritize_exact_match,
-                            token_order, prefix);
+                            token_order, prefix, combination_limit);
     }
 }
 
@@ -2307,39 +2312,6 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
     });
 
     return total_cost;
-}
-
-void Index::remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
-                                         const uint32_t indices_length) {
-    uint32_t *curr_array = offset_index.uncompress();
-    uint32_t *new_array = new uint32_t[offset_index.getLength()];
-
-    new_array[0] = 0;
-    uint32_t new_index = 0;
-    uint32_t curr_index = 0;
-    uint32_t indices_counter = 0;
-    uint32_t shift_value = 0;
-
-    while(curr_index < offset_index.getLength()) {
-        if(indices_counter < indices_length && curr_index >= indices_sorted[indices_counter]) {
-            // skip copying
-            if(curr_index == indices_sorted[indices_counter]) {
-                curr_index++;
-                const uint32_t diff = curr_index == offset_index.getLength() ?
-                                0 : (offset_index.at(curr_index) - offset_index.at(curr_index-1));
-
-                shift_value += diff;
-            }
-            indices_counter++;
-        } else {
-            new_array[new_index++] = curr_array[curr_index++] - shift_value;
-        }
-    }
-
-    offset_index.load(new_array, new_index);
-
-    delete[] curr_array;
-    delete[] new_array;
 }
 
 Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update) {

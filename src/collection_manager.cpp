@@ -516,6 +516,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
     const char *PRE_SEGMENTED_QUERY = "pre_segmented_query";
 
+    const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
+
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
     }
@@ -613,6 +615,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[PRE_SEGMENTED_QUERY] = "false";
     }
 
+    if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
+        req_params[EXHAUSTIVE_SEARCH] = "false";
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -684,6 +690,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
     bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
+    bool exhaustive_search = (req_params[EXHAUSTIVE_SEARCH] == "true");
 
     std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
 
@@ -764,6 +771,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
+    const size_t combination_limit = exhaustive_search ? 10000 : 10;
+
     Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
                                                           sort_fields, num_typos,
                                                           static_cast<size_t>(std::stol(req_params[PER_PAGE])),
@@ -787,7 +796,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           prioritize_exact_match,
                                                           pre_segmented_query,
                                                           enable_overrides,
-                                                          req_params[HIGHLIGHT_FIELDS]
+                                                          req_params[HIGHLIGHT_FIELDS],
+                                                          combination_limit
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
