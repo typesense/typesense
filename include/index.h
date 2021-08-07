@@ -68,6 +68,7 @@ struct search_args {
     std::string default_sorting_field;
     bool prioritize_exact_match;
     size_t all_result_ids_len;
+    size_t combination_limit;
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Topster* topster;
@@ -88,7 +89,8 @@ struct search_args {
                 size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const std::string& default_sorting_field,
-                bool prioritize_exact_match):
+                bool prioritize_exact_match,
+                size_t combination_limit):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -96,7 +98,8 @@ struct search_args {
             page(page), token_order(token_order), prefixes(prefixes),
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
-            prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0) {
+            prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
+            combination_limit(combination_limit) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -220,7 +223,8 @@ private:
                       bool prioritize_exact_match,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD) const;
+                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
+                      const size_t combination_limit = Index::COMBINATION_LIMIT) const;
 
     void search_candidates(const uint8_t & field_id,
                            uint32_t* filter_ids, size_t filter_ids_length,
@@ -235,7 +239,8 @@ private:
                            const size_t typo_tokens_threshold,
                            const size_t group_limit, const std::vector<std::string>& group_by_fields,
                            const std::vector<token_t>& query_tokens,
-                           bool prioritize_exact_match) const;
+                           bool prioritize_exact_match,
+                           size_t combination_limit) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -245,9 +250,6 @@ private:
 
     void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
                                   uint32_t seq_id, bool is_facet, const field & a_field);
-
-    static void remove_and_shift_offset_index(sorted_array& offset_index, const uint32_t* indices_sorted,
-                                              const uint32_t indices_length);
 
     void collate_included_ids(const std::vector<std::string>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
@@ -294,6 +296,8 @@ public:
 
     // for limiting number of fields that can be searched on
     enum {FIELD_LIMIT_NUM = 100};
+
+    enum {COMBINATION_LIMIT = 10};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
@@ -364,7 +368,8 @@ public:
                 const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
                 const std::string& default_sorting_field,
-                bool prioritize_exact_match) const;
+                bool prioritize_exact_match,
+                const size_t combination_limit) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
