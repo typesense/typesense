@@ -268,7 +268,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             // reset peer configuration periodically to identify change in cluster membership
             const Option<std::string> & refreshed_nodes_op = fetch_nodes_config(path_to_nodes);
             if(!refreshed_nodes_op.ok()) {
-                LOG(ERROR) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
+                LOG(WARNING) << "Error while refreshing peer configuration: " << refreshed_nodes_op.error();
                 continue;
             }
             const std::string& nodes_config = ReplicationState::to_nodes_config(peering_endpoint, api_port,
