@@ -146,7 +146,7 @@ if (APPLE)
     FIND_PACKAGE(ngHTTP2 REQUIRED)
     set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
     set(SYSTEM_LIBS "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreData"
-            "-framework CoreText" "-framework Security" "-framework Foundation"
+            "-framework SystemConfiguration" "-framework CoreText" "-framework Security" "-framework Foundation"
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
