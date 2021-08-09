@@ -247,6 +247,9 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     // wait until final response is flushed or response object will be destroyed by caller
     req_res->res->wait();
 
+    // Close the socket as we've overridden the close socket handler!
+    close(item);
+
     return 0;
 }
 
