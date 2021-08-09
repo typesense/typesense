@@ -44,9 +44,9 @@ RUN make -C /opt/openssl-1.1.1d depend
 RUN make -C /opt/openssl-1.1.1d -j8
 RUN make -C /opt/openssl-1.1.1d install
 
-ADD https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz /opt/curl-7.65.3.tar.gz
-RUN tar -C /opt -xf /opt/curl-7.65.3.tar.gz
-RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
+ADD https://github.com/curl/curl/releases/download/curl-7_78_0/curl-7.78.0.tar.gz /opt/curl-7.78.0.tar.gz
+RUN tar -C /opt -xf /opt/curl-7.78.0.tar.gz
+RUN cd /opt/curl-7.78.0 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
 --without-ca-bundle --without-ca-path && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/gflags/gflags/archive/v2.2.2.tar.gz /opt/gflags-2.2.2.tar.gz
