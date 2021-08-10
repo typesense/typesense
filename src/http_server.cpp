@@ -460,6 +460,41 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     const std::shared_ptr<http_req>& request = custom_generator->req();
     const std::shared_ptr<http_res>& response = custom_generator->res();
 
+    /*
+    LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len
+              << ", request->_req->entity.len=" << request->_req->entity.len
+              << ", content_len: " << request->_req->content_length
+              << ", is_end_stream=" << is_end_stream;
+    */
+
+    // disallow specific curl clients from using import call via http2
+    // detects: https://github.com/curl/curl/issues/1410
+    if(request->_req->version >= 0x200 && request->path_without_query.find("import") != std::string::npos) {
+        ssize_t agent_header_cursor = h2o_find_header_by_str(&request->_req->headers, http_req::AGENT_HEADER, strlen(http_req::AGENT_HEADER), -1);
+        if(agent_header_cursor != -1) {
+            h2o_iovec_t & slot = request->_req->headers.entries[agent_header_cursor].value;
+            const std::string user_agent = std::string(slot.base, slot.len);
+            if(user_agent.find("curl/") != std::string::npos) {
+                std::string version_num;
+                for(size_t i = 5; i < user_agent.size(); i++) {
+                    if(std::isdigit(user_agent[i])) {
+                        version_num += user_agent[i];
+                    }
+                }
+
+                if(std::stoll(version_num) < 7710) { // allow >= v7.71.0
+                    std::string message = "{ \"message\": \"HTTP2 is not supported by your curl client. "
+                                          "You need to use atleast Curl v7.71.0.\"}";
+                    h2o_iovec_t body = h2o_strdup(&request->_req->pool, message.c_str(), SIZE_MAX);
+                    request->_req->res.status = 400;
+                    request->_req->res.reason = http_res::get_status_reason(400);
+                    h2o_send(request->_req, &body, 1, H2O_SEND_STATE_ERROR);
+                    return 0;
+                }
+            }
+        }
+    }
+
     std::string chunk_str(chunk.base, chunk.len);
 
     request->body += chunk_str;
@@ -469,9 +504,6 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
               << ", chunk len: " << std::string(chunk.base, std::min<size_t>(40, chunk.len));*/
 
     //std::this_thread::sleep_for(std::chrono::seconds(30));
-
-    //LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len << ", aggr_chunk_len=" << request->chunk_len
-    //          << ", is_end_stream=" << is_end_stream;
 
     //LOG(INFO) << "request->body.size(): " << request->body.size() << ", request->chunk_len=" << request->chunk_len;
     // LOG(INFO) << "req->entity.len: " << request->_req->entity.len << ", request->chunk_len=" << request->chunk_len;
