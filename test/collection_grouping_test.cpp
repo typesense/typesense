@@ -287,7 +287,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
                                  {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 {false}, 10,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10,

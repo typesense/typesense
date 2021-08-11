@@ -292,7 +292,7 @@ private:
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
-    enum {TYPO_TOKENS_THRESHOLD = 100};
+    enum {TYPO_TOKENS_THRESHOLD = 1};
 
     // for limiting number of fields that can be searched on
     enum {FIELD_LIMIT_NUM = 100};
@@ -301,7 +301,7 @@ public:
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
-    static const int DROP_TOKENS_THRESHOLD = 10;
+    static const int DROP_TOKENS_THRESHOLD = 1;
 
     Index() = delete;
 

@@ -410,7 +410,10 @@ TEST_F(CollectionSpecificTest, PrefixVsExactMatch) {
     }
 
     auto results = coll1->search("ration",
-                                 {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {true}).get();
+                                 {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_EQ(4, results["hits"].size());
@@ -818,7 +821,7 @@ TEST_F(CollectionSpecificTest, PrefixSearchOnlyOnLastToken) {
                                  "", {}, {}, {1}, 10,
                                  1, FREQUENCY, {true},
                                  0, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 20, {}, {}, {}, 0,
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "concat", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>").get();
 
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());

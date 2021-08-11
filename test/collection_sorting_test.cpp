@@ -438,7 +438,10 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsTextMatchLast) {
     std::vector<sort_by> sort_fields = { sort_by("popularity", "DESC"), sort_by("points", "DESC"), sort_by(sort_field_const::text_match, "DESC") };
 
     auto res = coll1->search("grant",
-                                 {"title","artist"}, "", {}, sort_fields, {1}, 10, 1, FREQUENCY).get();
+                             {"title","artist"}, "", {}, sort_fields, {1}, 10, 1, FREQUENCY, {false}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10).get();
 
     ASSERT_EQ(2, res["found"].get<size_t>());
     ASSERT_STREQ("1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -479,7 +482,10 @@ TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
 
     auto results = coll1->search("alpha",
                                  {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY,
-                                 {false}, 10).get();
+                                 {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());

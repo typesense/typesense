@@ -2025,7 +2025,7 @@ void Index::search_field(const uint8_t & field_id,
                             num_tokens_dropped, field, filter_ids, filter_ids_length, curated_ids,facets,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
                             all_result_ids_len, field_num_results, group_limit, group_by_fields, prioritize_exact_match,
-                            token_order, prefix, combination_limit);
+                            token_order, prefix, drop_tokens_threshold, typo_tokens_threshold, combination_limit);
     }
 }
 
