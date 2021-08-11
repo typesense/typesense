@@ -49,6 +49,8 @@ private:
 
     static std::string get_req_prefix_key(uint64_t req_id);
 
+    std::atomic<int64_t> queued_writes = 0;
+
 public:
 
     BatchedIndexer(HttpServer* server, Store* store, size_t num_threads);
@@ -56,6 +58,8 @@ public:
     ~BatchedIndexer();
 
     void enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+    int64_t get_queued_writes();
 
     void run();
 

@@ -26,6 +26,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     //LOG(INFO) << "req_id: " << req->start_ts << ", chunk_sequence: " << chunk_sequence;
 
     store->insert(request_chunk_key, req->serialize());
+    queued_writes++;
     req->body = "";
 
     {
@@ -116,6 +117,7 @@ void BatchedIndexer::run() {
                                                                            deferred_req_res);
                         }
 
+                        queued_writes--;
                         iter->Next();
                     }
 
@@ -189,4 +191,8 @@ BatchedIndexer::~BatchedIndexer() {
 
 void BatchedIndexer::stop() {
     exit = true;
+}
+
+int64_t BatchedIndexer::get_queued_writes() {
+    return queued_writes;
 }
