@@ -79,7 +79,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
-    node_options.catchup_margin = healthy_read_lag;
+    node_options.catchup_margin = config->get_healthy_read_lag();
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
@@ -607,6 +607,9 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
     //LOG(INFO) << "apply_lag: " << apply_lag;
 
+    int healthy_read_lag = config->get_healthy_read_lag();
+    int healthy_write_lag = config->get_healthy_write_lag();
+
     if (apply_lag > healthy_read_lag) {
         LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy read lag of " << healthy_read_lag;
         this->read_caught_up = false;
@@ -635,13 +638,12 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
 ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
                                    Store *store, Store* meta_store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl,
-                                   int64_t healthy_read_lag, int64_t healthy_write_lag,
+                                   bool api_uses_ssl, const Config* config,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
         node(nullptr), leader_term(-1), server(server), batched_indexer(batched_indexer),
         store(store), meta_store(meta_store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
-        healthy_read_lag(healthy_read_lag), healthy_write_lag(healthy_write_lag),
+        config(config),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         ready(false), shutting_down(false), pending_writes(0) {

@@ -398,8 +398,7 @@ int run_server(const Config & config, const std::string & version, void (*master
     ReplicationState replication_state(server, &batch_indexer, &store, &meta_store,
                                        &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
-                                       config.get_healthy_read_lag(),
-                                       config.get_healthy_write_lag(),
+                                       &config,
                                        num_collections_parallel_load,
                                        config.get_num_documents_parallel_load());
 
