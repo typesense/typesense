@@ -109,8 +109,7 @@ private:
 
     const bool api_uses_ssl;
 
-    const int64_t healthy_read_lag;
-    const int64_t healthy_write_lag;
+    const Config* config;
 
     const size_t num_collections_parallel_load;
     const size_t num_documents_parallel_load;
@@ -139,7 +138,7 @@ public:
 
     ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store, Store* meta_store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, int64_t healthy_read_lag, int64_t healthy_write_lag,
+                     bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
