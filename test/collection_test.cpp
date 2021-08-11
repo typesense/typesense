@@ -151,7 +151,12 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
 
 TEST_F(CollectionTest, PhraseSearch) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, {0}, 10).get();
+    nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, {0}, 10,
+                                                1, FREQUENCY,
+                                                {false}, 10,
+                                                spp::sparse_hash_set<std::string>(),
+                                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                                "", 10).get();
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
@@ -180,7 +185,12 @@ TEST_F(CollectionTest, PhraseSearch) {
 
     // Check ASC sort order
     std::vector<sort_by> sort_fields_asc = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "ASC") };
-    results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, {0}, 10).get();
+    results = collection->search("rocket launch", query_fields, "", facets, sort_fields_asc, {0}, 10,
+                                 1, FREQUENCY,
+                                 {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
@@ -194,7 +204,12 @@ TEST_F(CollectionTest, PhraseSearch) {
     }
 
     // Check pagination
-    results = collection->search("rocket launch", query_fields, "", facets, sort_fields, {0}, 3).get();
+    results = collection->search("rocket launch", query_fields, "", facets, sort_fields, {0}, 3,
+                                 1, FREQUENCY,
+                                 {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ(5, results["found"].get<uint32_t>());
 
@@ -212,7 +227,12 @@ TEST_F(CollectionTest, PhraseSearch) {
 
 TEST_F(CollectionTest, SearchWithExcludedTokens) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("how -propellants -are", query_fields, "", facets, sort_fields, {0}, 10).get();
+    nlohmann::json results = collection->search("how -propellants -are", query_fields, "", facets, sort_fields, {0}, 10,
+                                                1, FREQUENCY,
+                                                {false}, 10,
+                                                spp::sparse_hash_set<std::string>(),
+                                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                                "", 10).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<uint32_t>());
@@ -276,7 +296,10 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
 
     // should not try to drop tokens to expand query
     results.clear();
-    results = collection->search("the a", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    results = collection->search("the a", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(9, results["hits"].size());
 
     results.clear();
@@ -322,7 +345,12 @@ TEST_F(CollectionTest, PartialPhraseSearch) {
 
 TEST_F(CollectionTest, QueryWithTypo) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("kind biologcal", query_fields, "", facets, sort_fields, {2}, 3).get();
+    nlohmann::json results = collection->search("kind biologcal", query_fields, "", facets, sort_fields, {2}, 3,
+                                                1, FREQUENCY,
+                                                {false}, 10,
+                                                spp::sparse_hash_set<std::string>(),
+                                                spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                                "", 10).get();
     ASSERT_EQ(3, results["hits"].size());
 
     std::vector<std::string> ids = {"19", "3", "20"};
@@ -335,7 +363,12 @@ TEST_F(CollectionTest, QueryWithTypo) {
     }
 
     results.clear();
-    results = collection->search("fer thx", query_fields, "", facets, sort_fields, {1}, 3).get();
+    results = collection->search("fer thx", query_fields, "", facets, sort_fields, {1}, 3,
+                                 1, FREQUENCY,
+                                 {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ids = {"1", "10", "13"};
 
     ASSERT_EQ(3, results["hits"].size());
@@ -411,7 +444,9 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("ISX what", query_fields, "", facets, sort_fields, {1}, 4, 1, FREQUENCY, {false}).get();
+    nlohmann::json results = collection->search("ISX what", query_fields, "", facets, sort_fields, {1}, 4, 1, FREQUENCY, {false},
+                                               10, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                               10, "", 30, 5, "", 10).get();
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(13, results["found"].get<uint32_t>());
 
@@ -425,7 +460,10 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     }
 
     // Record containing exact token match should appear first
-    results = collection->search("ISX", query_fields, "", facets, sort_fields, {1}, 10, 1, FREQUENCY, {false}).get();
+    results = collection->search("ISX", query_fields, "", facets, sort_fields, {1}, 10, 1, FREQUENCY, {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(8, results["hits"].size());
     ASSERT_EQ(8, results["found"].get<uint32_t>());
 
@@ -547,7 +585,10 @@ TEST_F(CollectionTest, PrefixSearching) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("what ex", query_fields, "", facets, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    results = collection->search("what ex", query_fields, "", facets, sort_fields, {0}, 10, 1, MAX_SCORE, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(9, results["hits"].size());
     ids = {"6", "12", "19", "22", "13", "8", "15", "24", "21"};
 
@@ -559,7 +600,10 @@ TEST_F(CollectionTest, PrefixSearching) {
     }
 
     // restrict to only 2 results and differentiate between MAX_SCORE and FREQUENCY
-    results = collection->search("t", query_fields, "", facets, sort_fields, {0}, 2, 1, MAX_SCORE, {true}).get();
+    results = collection->search("t", query_fields, "", facets, sort_fields, {0}, 2, 1, MAX_SCORE, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(2, results["hits"].size());
     ids = {"19", "22"};
 
@@ -570,7 +614,10 @@ TEST_F(CollectionTest, PrefixSearching) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    results = collection->search("t", query_fields, "", facets, sort_fields, {0}, 2, 1, FREQUENCY, {true}).get();
+    results = collection->search("t", query_fields, "", facets, sort_fields, {0}, 2, 1, FREQUENCY, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
     ASSERT_EQ(2, results["hits"].size());
     ids = {"19", "22"};
 
