@@ -55,8 +55,8 @@ public:
         explicit iterator_t(block_t* root);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
-        [[nodiscard]] bool valid() const;
-        void next();
+        [[nodiscard]] inline bool valid() const;
+        void inline next();
         void skip_to(uint32_t id);
         [[nodiscard]] inline uint32_t id();
         [[nodiscard]] inline uint32_t index() const;
