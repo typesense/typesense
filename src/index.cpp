@@ -997,13 +997,22 @@ void Index::search_candidates(const uint8_t & field_id,
                 }
             }
 
+            // We will have to be judicious about computing full match score: only when token does not match exact query
+            bool use_single_token_score = (query_suggestion.size() == 1) &&
+                                          (query_suggestion.size() == query_tokens.size()) &&
+                                          ((std::string((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1) != query_tokens[0].value));
+
             std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
-            posting_list_t::get_offsets(updated_iter_state, array_token_positions_vec);
+
+            if(!use_single_token_score) {
+                posting_list_t::get_offsets(updated_iter_state, array_token_positions_vec);
+            }
 
             score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
                           query_suggestion, groups_processed, array_token_positions_vec,
                           &updated_iter_state.ids[0], updated_iter_state.ids.size(),
-                          group_limit, group_by_fields, token_bits, query_tokens, prioritize_exact_match);
+                          group_limit, group_by_fields, token_bits, query_tokens,
+                          use_single_token_score, prioritize_exact_match);
         }
 
         if(result_id_vec.empty()) {
@@ -1565,7 +1574,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
         uint32_t token_bits = 255;
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
                       groups_processed, {}, filter_ids, filter_ids_length, group_limit, group_by_fields, token_bits, {},
-                      prioritize_exact_match);
+                      true, prioritize_exact_match);
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
         all_result_ids_len = filter_ids_length;
@@ -2059,6 +2068,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits,
                           const std::vector<token_t>& query_tokens,
+                          bool use_single_token_score,
                           bool prioritize_exact_match) const {
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
@@ -2122,11 +2132,6 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     //auto begin = std::chrono::high_resolution_clock::now();
     //const std::string first_token((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1);
-
-    // We will have to be judicious about computing full match score: only when token does not match exact query
-    bool use_single_token_score = (query_suggestion.size() == 1) &&
-        (query_suggestion.size() == query_tokens.size()) &&
-        ((std::string((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1) != query_tokens[0].value));
 
     for (size_t i = 0; i < result_ids_size; i++) {
         const uint32_t seq_id = result_ids[i];

@@ -325,7 +325,9 @@ public:
                        const uint32_t* result_ids, size_t result_ids_size,
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
-                       const std::vector<token_t> &query_tokens, bool prioritize_exact_match) const;
+                       const std::vector<token_t> &query_tokens,
+                       bool use_single_token_score,
+                       bool prioritize_exact_match) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
