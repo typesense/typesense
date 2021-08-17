@@ -191,6 +191,11 @@ private:
 
     StringUtils string_utils;
 
+    // used as sentinels
+
+    static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> seq_id_sentinel_value;
+
     // Internal utility functions
 
     static inline uint32_t next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
@@ -321,8 +326,10 @@ public:
     void score_results(const std::vector<sort_by> &sort_fields, const uint16_t &query_index, const uint8_t &field_id,
                        const uint32_t total_cost, Topster *topster, const std::vector<art_leaf *> &query_suggestion,
                        spp::sparse_hash_set<uint64_t> &groups_processed,
-                       const std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec,
-                       const uint32_t* result_ids, size_t result_ids_size,
+                       const std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions,
+                       const uint32_t seq_id, const int sort_order[3],
+                       std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                       const std::vector<size_t>& geopoint_indices,
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        const std::vector<token_t> &query_tokens,

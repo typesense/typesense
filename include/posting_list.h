@@ -47,27 +47,41 @@ public:
         block_t* curr_block;
         uint32_t curr_index;
 
-        // uncompressed data structures for performance
-        block_t* uncompressed_block;
-        uint32_t* ids;
 
     public:
+        // uncompressed data structures for performance
+        uint32_t* ids = nullptr;
+        uint32_t* offset_index = nullptr;
+        uint32_t* offsets = nullptr;
+
         explicit iterator_t(block_t* root);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
-        [[nodiscard]] inline bool valid() const;
-        void inline next();
+        [[nodiscard]] bool valid() const;
+        void next();
         void skip_to(uint32_t id);
-        [[nodiscard]] inline uint32_t id();
+        [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
     };
 
     struct result_iter_state_t {
-        size_t num_lists;
-        std::vector<block_t*> blocks;
-        std::vector<uint32_t> indices;
-        std::vector<uint32_t> ids;
+        uint32_t* excluded_result_ids = nullptr;
+        size_t excluded_result_ids_size = 0;
+        uint32_t* filter_ids = nullptr;
+        size_t filter_ids_length = 0;
+
+        size_t excluded_result_ids_index = 0;
+        size_t filter_ids_index = 0;
+
+        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
+
+        result_iter_state_t() = default;
+
+        result_iter_state_t(uint32_t* excluded_result_ids, size_t excluded_result_ids_size, uint32_t* filter_ids,
+                            size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
+                                                        excluded_result_ids_size(excluded_result_ids_size),
+                                                        filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
     };
 
 private:
@@ -134,15 +148,83 @@ public:
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
+    template<class T>
     static bool block_intersect(
         const std::vector<posting_list_t*>& posting_lists,
-        size_t batch_size,
         std::vector<posting_list_t::iterator_t>& its,
-        result_iter_state_t& iter_state
+        result_iter_state_t& istate,
+        T func
     );
 
+    static bool take_id(result_iter_state_t& istate, uint32_t id);
+
     static bool get_offsets(
-        result_iter_state_t& iter_state,
-        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions
+        std::vector<iterator_t>& its,
+        std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
 };
+
+template<class T>
+bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting_lists,
+                                     std::vector<posting_list_t::iterator_t>& its,
+                                     result_iter_state_t& istate,
+                                     T func) {
+
+    if(posting_lists.empty()) {
+        return false;
+    }
+
+    if(its.empty()) {
+        its.reserve(posting_lists.size());
+
+        for(const auto& posting_list: posting_lists) {
+            its.push_back(posting_list->new_iterator());
+        }
+
+    } else {
+        // already in the middle of iteration: prepare for next batch
+
+    }
+
+    size_t num_lists = its.size();
+
+    switch (num_lists) {
+        case 1:
+            while(its[0].valid()) {
+                if(posting_list_t::take_id(istate, its[0].id())) {
+                    func(its[0].id(), its);
+                }
+
+                its[0].next();
+            }
+            break;
+        case 2:
+            while(!at_end2(its)) {
+                if(equals2(its)) {
+                    if(posting_list_t::take_id(istate, its[0].id())) {
+                        func(its[0].id(), its);
+                    }
+
+                    advance_all2(its);
+                } else {
+                    advance_non_largest2(its);
+                }
+            }
+            break;
+        default:
+            while(!at_end(its)) {
+                if(equals(its)) {
+                    //LOG(INFO) << its[0].id();
+                    if(posting_list_t::take_id(istate, its[0].id())) {
+                        func(its[0].id(), its);
+                    }
+
+                    advance_all(its);
+                } else {
+                    advance_non_largest(its);
+                }
+            }
+    }
+
+    return false;
+}

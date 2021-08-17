@@ -608,28 +608,13 @@ TEST(PostingListTest, IntersectionBasics) {
 
     std::vector<posting_list_t::iterator_t> its;
     posting_list_t::result_iter_state_t iter_state;
-    bool has_more = posting_list_t::block_intersect(lists, 2, its, iter_state);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(2, iter_state.ids.size());
-    ASSERT_EQ(3, iter_state.ids[0]);
-    ASSERT_EQ(20, iter_state.ids[1]);
-
-    ASSERT_EQ(6, iter_state.blocks.size());
-    ASSERT_EQ(6, iter_state.indices.size());
-
-    // try with smaller batch size
-
-    std::vector<posting_list_t::iterator_t> its2;
-    posting_list_t::result_iter_state_t iter_state2;
-    has_more = posting_list_t::block_intersect(lists, 1, its2, iter_state2);
-    ASSERT_TRUE(has_more);
-    ASSERT_EQ(1, iter_state2.ids.size());
-    ASSERT_EQ(3, iter_state2.ids[0]);
-
-    has_more = posting_list_t::block_intersect(lists, 1, its2, iter_state2);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(1, iter_state2.ids.size());
-    ASSERT_EQ(20, iter_state2.ids[0]);
+    result_ids.clear();
+    posting_list_t::block_intersect(lists, its, iter_state, [&](auto id, auto& its){
+        result_ids.push_back(id);
+    });
+    ASSERT_EQ(2, result_ids.size());
+    ASSERT_EQ(3, result_ids[0]);
+    ASSERT_EQ(20, result_ids[1]);
 
     // single item itersection
     std::vector<posting_list_t*> single_item_list = {&p1};
@@ -644,23 +629,15 @@ TEST(PostingListTest, IntersectionBasics) {
 
     std::vector<posting_list_t::iterator_t> its3;
     posting_list_t::result_iter_state_t iter_state3;
-    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
-    ASSERT_TRUE(has_more);
-    ASSERT_EQ(2, iter_state3.ids.size());
-    ASSERT_EQ(0, iter_state3.ids[0]);
-    ASSERT_EQ(2, iter_state3.ids[1]);
-    ASSERT_EQ(2, iter_state3.blocks.size());
-    ASSERT_EQ(2, iter_state3.indices.size());
-    ASSERT_EQ(0, iter_state3.indices[0]);
-    ASSERT_EQ(1, iter_state3.indices[1]);
-
-    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(2, iter_state3.ids.size());
-    ASSERT_EQ(2, iter_state3.blocks.size());
-    ASSERT_EQ(2, iter_state3.indices.size());
-    ASSERT_EQ(0, iter_state3.indices[0]);
-    ASSERT_EQ(1, iter_state3.indices[1]);
+    result_ids.clear();
+    posting_list_t::block_intersect(single_item_list, its3, iter_state3, [&](auto id, auto& its){
+        result_ids.push_back(id);
+    });
+    ASSERT_EQ(4, result_ids.size());
+    ASSERT_EQ(0, result_ids[0]);
+    ASSERT_EQ(2, result_ids[1]);
+    ASSERT_EQ(3, result_ids[2]);
+    ASSERT_EQ(20, result_ids[3]);
 
     // empty intersection list
     std::vector<posting_list_t*> empty_list;
@@ -670,11 +647,11 @@ TEST(PostingListTest, IntersectionBasics) {
 
     std::vector<posting_list_t::iterator_t> its4;
     posting_list_t::result_iter_state_t iter_state4;
-    has_more = posting_list_t::block_intersect(empty_list, 1, its4, iter_state4);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(0, iter_state4.ids.size());
-    ASSERT_EQ(0, iter_state4.blocks.size());
-    ASSERT_EQ(0, iter_state4.indices.size());
+    result_ids.clear();
+    posting_list_t::block_intersect(empty_list, its4, iter_state4, [&](auto id, auto& its){
+        result_ids.push_back(id);
+    });
+    ASSERT_EQ(0, result_ids.size());
 }
 
 TEST(PostingListTest, ResultsAndOffsetsBasics) {
@@ -729,6 +706,7 @@ TEST(PostingListTest, ResultsAndOffsetsBasics) {
     lists.push_back(&p2);
     lists.push_back(&p3);
 
+    /*
     std::vector<posting_list_t::iterator_t> its;
     posting_list_t::result_iter_state_t iter_state;
     bool has_more = posting_list_t::block_intersect(lists, 2, its, iter_state);
@@ -745,6 +723,7 @@ TEST(PostingListTest, ResultsAndOffsetsBasics) {
     ASSERT_EQ(actual_offsets_20[0].positions, array_token_positions_vec[1].at(0)[0].positions);
     ASSERT_EQ(actual_offsets_20[1].positions, array_token_positions_vec[1].at(0)[1].positions);
     ASSERT_EQ(actual_offsets_20[2].positions, array_token_positions_vec[1].at(0)[2].positions);
+    */
 }
 
 TEST(PostingListTest, IntersectionSkipBlocks) {
@@ -1269,15 +1248,15 @@ TEST(PostingListTest, BlockIntersectionOnMixedLists) {
 
     std::vector<void*> raw_posting_lists = {SET_COMPACT_POSTING(list1), &p1};
     posting_list_t::result_iter_state_t iter_state;
-    posting_t::block_intersector_t intersector(raw_posting_lists, 1, iter_state);
+    posting_t::block_intersector_t intersector(raw_posting_lists, iter_state);
 
-    ASSERT_TRUE(intersector.intersect());
-    ASSERT_EQ(1, iter_state.ids.size());
-    ASSERT_EQ(5, iter_state.ids[0]);
-
-    ASSERT_FALSE(intersector.intersect());
-    ASSERT_EQ(1, iter_state.ids.size());
-    ASSERT_EQ(8, iter_state.ids[0]);
+    std::vector<uint32_t> result_ids;
+    intersector.intersect([&](auto seq_id, auto& its) {
+        result_ids.push_back(seq_id);
+    });
+    ASSERT_EQ(2, result_ids.size());
+    ASSERT_EQ(5, result_ids[0]);
+    ASSERT_EQ(8, result_ids[1]);
 
     free(list1);
 }

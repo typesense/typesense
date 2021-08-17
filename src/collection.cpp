@@ -1150,9 +1150,14 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
                     bool highlighted_fully = (fields_highlighted_fully.find(field_name) != fields_highlighted_fully.end());
                     highlight_t highlight;
+                    //LOG(INFO) << "Highlighting: " << document;
+                    /*if(document["title"] == "Quantum Quest: A Cassini Space Odyssey") {
+                        LOG(INFO) << "here!";
+                    }*/
                     highlight_result(search_field, searched_queries, q_tokens, field_order_kv, document,
                                      string_utils, snippet_threshold, highlight_affix_num_tokens,
                                      highlighted_fully, highlight_start_tag, highlight_end_tag, highlight);
+                    //LOG(INFO) << "End";
 
                     if(!highlight.snippets.empty()) {
                         highlights.push_back(highlight);
@@ -1547,7 +1552,7 @@ void Collection::highlight_result(const field &search_field,
             Index* index = indices[field_order_kv->key % num_memory_shards];
             art_leaf* actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
 
-            if(actual_leaf != nullptr) {
+            if(actual_leaf != nullptr && posting_t::contains(actual_leaf->values, field_order_kv->key)) {
                 query_suggestion.push_back(actual_leaf);
                 query_suggestion_tokens.insert(token);
                 //LOG(INFO) << "field: " << search_field.name << ", key: " << token;
@@ -1557,7 +1562,9 @@ void Collection::highlight_result(const field &search_field,
         qindex++;
     } while(field_order_kv->query_indices != nullptr && qindex < field_order_kv->query_indices[0]);
 
-    for(const std::string& q_token: q_tokens) {
+    for(size_t i = 0; i < q_tokens.size(); i++) {
+        const std::string& q_token = q_tokens[i];
+
         if(query_suggestion_tokens.count(q_token) != 0) {
             continue;
         }
@@ -1566,32 +1573,29 @@ void Collection::highlight_result(const field &search_field,
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
                                                       reinterpret_cast<const unsigned char *>(q_token.c_str()),
                                                       q_token.size() + 1);
-        if(actual_leaf != nullptr) {
+
+        if(actual_leaf != nullptr && posting_t::contains(actual_leaf->values, field_order_kv->key)) {
             query_suggestion.push_back(actual_leaf);
+            query_suggestion_tokens.insert(q_token);
+        } else if(i == q_tokens.size()-1) {
+            // we will copy the last token for highlighting prefix matches
             query_suggestion_tokens.insert(q_token);
         }
     }
 
-    if(query_suggestion.empty()) {
+    if(query_suggestion_tokens.empty()) {
         // none of the tokens from the query were found on this field
         return ;
     }
-
-    //LOG(INFO) << "Document ID: " << document["id"];
 
     std::vector<void*> posting_lists;
     for(art_leaf* leaf: query_suggestion) {
         posting_lists.push_back(leaf->values);
     }
 
-    std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
-    posting_t::get_array_token_positions(field_order_kv->key, posting_lists, array_token_positions_vec);
+    std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
+    posting_t::get_array_token_positions(field_order_kv->key, posting_lists, array_token_positions);
 
-    if(array_token_positions_vec.empty()) {
-        return;
-    }
-
-    std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions = array_token_positions_vec[0];
     std::vector<match_index_t> match_indices;
 
     for(const auto& kv: array_token_positions) {
@@ -1638,6 +1642,14 @@ void Collection::highlight_result(const field &search_field,
                 break;
             }
         }
+
+        if(!document.contains(search_field.name)) {
+            // could be an optional field
+            continue;
+        }
+
+        /*LOG(INFO) << "field: " << document[search_field.name] << ", id: " << field_order_kv->key
+                  << ", index: " << match_index.index;*/
 
         std::string text = (search_field.type == field_types::STRING) ? document[search_field.name] :
                            document[search_field.name][match_index.index];
@@ -1791,12 +1803,6 @@ void Collection::highlight_result(const field &search_field,
 
     highlight.field = search_field.name;
     highlight.match_score = match_indices[0].match_score;
-}
-
-void Collection::free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const {
-    for(uint32_t* leaf_indices: leaf_to_indices) {
-        delete [] leaf_indices;
-    }
 }
 
 Option<nlohmann::json> Collection::get(const std::string & id) const {

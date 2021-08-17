@@ -48,25 +48,21 @@ private:
 public:
 
     struct block_intersector_t {
-        size_t batch_size;
         std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> plists;
         std::vector<uint32_t> expanded_plist_indices;
-
         posting_list_t::result_iter_state_t& iter_state;
 
         block_intersector_t(const std::vector<void*>& raw_posting_lists,
-                            size_t batch_size,
                             posting_list_t::result_iter_state_t& iter_state):
-                            batch_size(batch_size), iter_state(iter_state) {
+                            iter_state(iter_state) {
+
             to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
 
             its.reserve(plists.size());
             for(const auto& posting_list: plists) {
                 its.push_back(posting_list->new_iterator());
             }
-
-            iter_state.num_lists = plists.size();
         }
 
         ~block_intersector_t() {
@@ -75,9 +71,8 @@ public:
             }
         }
 
-        bool intersect() {
-            return posting_list_t::block_intersect(plists, batch_size, its, iter_state);;
-        }
+        template<class T>
+        bool intersect(T func);
     };
 
     static void upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets);
@@ -101,6 +96,12 @@ public:
     static void get_array_token_positions(
         uint32_t id,
         const std::vector<void*>& posting_lists,
-        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec
+        std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions
     );
 };
+
+template<class T>
+bool posting_t::block_intersector_t::intersect(T func) {
+    posting_list_t::block_intersect<T>(plists, its, iter_state, func);
+    return true;
+}
