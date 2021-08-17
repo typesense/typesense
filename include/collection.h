@@ -371,8 +371,6 @@ private:
         return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
     }
 
-    void free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const;
-
     Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters) const;
 
     static Option<bool> parse_geopoint_filter_value(std::string& raw_value,

@@ -661,96 +661,44 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
     }
 }
 
-bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting_lists, const size_t batch_size,
-                                     std::vector<posting_list_t::iterator_t>& its,
-                                     result_iter_state_t& iter_state) {
-
-    if(posting_lists.empty()) {
-        return false;
-    }
-
-    if(its.empty()) {
-        its.reserve(posting_lists.size());
-
-        for(const auto& posting_list: posting_lists) {
-            its.push_back(posting_list->new_iterator());
+bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
+    // decide if this result id should be excluded
+    if(istate.excluded_result_ids_size != 0) {
+        while(istate.excluded_result_ids_index < istate.excluded_result_ids_size &&
+              istate.excluded_result_ids[istate.excluded_result_ids_index] < id) {
+            istate.excluded_result_ids_index++;
         }
 
-        iter_state.num_lists = posting_lists.size();
-        iter_state.blocks.reserve(100);
-        iter_state.indices.reserve(100);
-    } else {
-        // already in the middle of iteration: prepare for next batch
-        iter_state.ids.clear();
-        iter_state.indices.clear();
-        iter_state.blocks.clear();
+        if(istate.excluded_result_ids_index < istate.excluded_result_ids_size &&
+           id == istate.excluded_result_ids[istate.excluded_result_ids_index]) {
+            istate.excluded_result_ids_index++;
+            return false;
+        }
     }
 
-    size_t num_lists = its.size();
+    bool id_found_in_filter = true;
 
-    switch (num_lists) {
-        case 1:
-            while(its[0].valid()) {
-                iter_state.ids.push_back(its[0].id());
-                iter_state.blocks.push_back(its[0].block());
-                iter_state.indices.push_back(its[0].index());
+    // decide if this result be matched with filter results
+    if(istate.filter_ids_length != 0) {
+        id_found_in_filter = false;
 
-                its[0].next();
+        // e.g. [1, 3] vs [2, 3]
 
-                if(iter_state.ids.size() == batch_size) {
-                    return its[0].valid();
-                }
-            }
-            break;
-        case 2:
-            while(!at_end2(its)) {
-                if(equals2(its)) {
-                    // still need to ensure that the ID exists in inclusion list but NOT in exclusion list
-                    iter_state.ids.push_back(its[0].id());
+        while(istate.filter_ids_index < istate.filter_ids_length && istate.filter_ids[istate.filter_ids_index] < id) {
+            istate.filter_ids_index++;
+        }
 
-                    iter_state.blocks.push_back(its[0].block());
-                    iter_state.blocks.push_back(its[1].block());
-
-                    iter_state.indices.push_back(its[0].index());
-                    iter_state.indices.push_back(its[1].index());
-
-                    advance_all2(its);
-                } else {
-                    advance_non_largest2(its);
-                }
-
-                if(iter_state.ids.size() == batch_size) {
-                    return !at_end2(its);
-                }
-            }
-            break;
-        default:
-            while(!at_end(its)) {
-                if(equals(its)) {
-                    //LOG(INFO) << its[0].id();
-                    iter_state.ids.push_back(its[0].id());
-
-                    for(size_t i = 0; i < its.size(); i++) {
-                        iter_state.blocks.push_back(its[i].block());
-                        iter_state.indices.push_back(its[i].index());
-                    }
-
-                    advance_all(its);
-                } else {
-                    advance_non_largest(its);
-                }
-
-                if(iter_state.ids.size() == batch_size) {
-                    return !at_end(its);
-                }
-            }
+        if(istate.filter_ids_index < istate.filter_ids_length && istate.filter_ids[istate.filter_ids_index] == id) {
+            istate.filter_ids_index++;
+            id_found_in_filter = true;
+        }
     }
 
-    return false;
+    return id_found_in_filter;
 }
 
-bool posting_list_t::get_offsets(posting_list_t::result_iter_state_t& iter_state,
-                                 std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec) {
+bool posting_list_t::get_offsets(std::vector<iterator_t>& its,
+                                 std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos) {
 
     // Plain string format:
     // offset1, offset2, ... , 0 (if token is the last offset for the document)
@@ -763,78 +711,84 @@ bool posting_list_t::get_offsets(posting_list_t::result_iter_state_t& iter_state
 
     size_t id_block_index = 0;
 
-    for(size_t i = 0; i < iter_state.ids.size(); i++) {
-        uint32_t id = iter_state.ids[i];
-        array_token_positions_vec.emplace_back();
-        std::unordered_map<size_t, std::vector<token_positions_t>>& array_tok_pos = array_token_positions_vec.back();
+    for(size_t j = 0; j < its.size(); j++) {
+        block_t* curr_block = its[j].block();
+        uint32_t curr_index = its[j].index();
 
-        for(size_t j = 0; j < iter_state.num_lists; j++) {
-            block_t* curr_block = iter_state.blocks[id_block_index];
-            uint32_t curr_index = iter_state.indices[id_block_index++];
+        if(curr_block == nullptr || curr_index == UINT32_MAX) {
+            continue;
+        }
 
-            if(curr_block == nullptr || curr_index == UINT32_MAX) {
+        /*uint32_t* offsets = curr_block->offsets.uncompress();
+
+        uint32_t start_offset = curr_block->offset_index.at(curr_index);
+        uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                              curr_block->offsets.getLength() :
+                              curr_block->offset_index.at(curr_index + 1);*/
+
+        uint32_t* offsets = its[j].offsets;
+
+        uint32_t start_offset = its[j].offset_index[curr_index];
+        uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                              curr_block->offsets.getLength() :
+                              its[j].offset_index[curr_index + 1];
+
+        std::vector<uint16_t> positions;
+        int prev_pos = -1;
+        bool is_last_token = false;
+
+        /*LOG(INFO) << "id: " << its[j].id() << ", start_offset: " << start_offset << ", end_offset: " << end_offset;
+        for(size_t x = 0; x < end_offset; x++) {
+            LOG(INFO) << "x: " << x << ", pos: " << offsets[x];
+        }*/
+
+        while(start_offset < end_offset) {
+            int pos = offsets[start_offset];
+            start_offset++;
+
+            if(pos == 0) {
+                // indicates that token is the last token on the doc
+                is_last_token = true;
+                start_offset++;
                 continue;
             }
 
-            uint32_t* offsets = curr_block->offsets.uncompress();
+            if(pos == prev_pos) {  // indicates end of array index
+                if(!positions.empty()) {
+                    size_t array_index = (size_t) offsets[start_offset];
+                    is_last_token = false;
 
-            uint32_t start_offset = curr_block->offset_index.at(curr_index);
-            uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
-                                  curr_block->offsets.getLength() :
-                                  curr_block->offset_index.at(curr_index + 1);
-
-            std::vector<uint16_t> positions;
-            int prev_pos = -1;
-            bool is_last_token = false;
-
-            while(start_offset < end_offset) {
-                int pos = offsets[start_offset];
-                start_offset++;
-
-                if(pos == 0) {
-                    // indicates that token is the last token on the doc
-                    is_last_token = true;
-                    start_offset++;
-                    continue;
-                }
-
-                if(pos == prev_pos) {  // indicates end of array index
-                    if(!positions.empty()) {
-                        size_t array_index = (size_t) offsets[start_offset];
-                        is_last_token = false;
-
-                        if(start_offset+1 < end_offset) {
-                            size_t next_offset = (size_t) offsets[start_offset + 1];
-                            if(next_offset == 0) {
-                                // indicates that token is the last token on the doc
-                                is_last_token = true;
-                                start_offset++;
-                            }
+                    if(start_offset+1 < end_offset) {
+                        size_t next_offset = (size_t) offsets[start_offset + 1];
+                        if(next_offset == 0) {
+                            // indicates that token is the last token on the doc
+                            is_last_token = true;
+                            start_offset++;
                         }
-
-                        array_tok_pos[array_index].push_back(token_positions_t{is_last_token, positions});
-                        positions.clear();
                     }
 
-                    start_offset++;  // skip current value which is the array index or flag for last index
-                    prev_pos = -1;
-                    continue;
+                    array_token_pos[array_index].push_back(token_positions_t{is_last_token, positions});
+                    positions.clear();
                 }
 
-                prev_pos = pos;
-                positions.push_back((uint16_t)pos - 1);
+                start_offset++;  // skip current value which is the array index or flag for last index
+                prev_pos = -1;
+                continue;
             }
 
-            if(!positions.empty()) {
-                // for plain string fields
-                array_tok_pos[0].push_back(token_positions_t{is_last_token, positions});
-            }
-
-            delete [] offsets;
+            prev_pos = pos;
+            positions.push_back((uint16_t)pos - 1);
         }
+
+        if(!positions.empty()) {
+            // for plain string fields
+            array_token_pos[0].push_back(token_positions_t{is_last_token, positions});
+        }
+
+        //delete [] offsets;
     }
 
-    return false;
+    return true;
 }
 
 bool posting_list_t::at_end(const std::vector<posting_list_t::iterator_t>& its) {
@@ -982,8 +936,13 @@ bool posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t tar
 /* iterator_t operations */
 
 posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root):
-        curr_block(root), curr_index(0), uncompressed_block(nullptr), ids(nullptr) {
+        curr_block(root), curr_index(0) {
 
+    if(curr_block != nullptr) {
+        ids = curr_block->ids.uncompress();
+        offset_index = curr_block->offset_index.uncompress();
+        offsets = curr_block->offsets.uncompress();
+    }
 }
 
 bool posting_list_t::iterator_t::valid() const {
@@ -995,21 +954,22 @@ void posting_list_t::iterator_t::next() {
     if(curr_index == curr_block->size()) {
         curr_index = 0;
         curr_block = curr_block->next;
-    }
-}
-
-uint32_t posting_list_t::iterator_t::id() {
-    if(uncompressed_block != curr_block) {
-        uncompressed_block = curr_block;
 
         delete [] ids;
-        ids = nullptr;
+        delete [] offset_index;
+        delete [] offsets;
+
+        ids = offset_index = offsets = nullptr;
 
         if(curr_block != nullptr) {
             ids = curr_block->ids.uncompress();
+            offset_index = curr_block->offset_index.uncompress();
+            offsets = curr_block->offsets.uncompress();
         }
     }
+}
 
+uint32_t posting_list_t::iterator_t::id() const {
     return ids[curr_index];
 }
 
@@ -1025,6 +985,20 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
     bool skipped_block = false;
     while(curr_block != nullptr && curr_block->ids.last() < id) {
         curr_block = curr_block->next;
+
+        // FIXME: remove duplication
+        delete [] ids;
+        delete [] offset_index;
+        delete [] offsets;
+
+        ids = offset_index = offsets = nullptr;
+
+        if(curr_block != nullptr) {
+            ids = curr_block->ids.uncompress();
+            offset_index = curr_block->offset_index.uncompress();
+            offsets = curr_block->offsets.uncompress();
+        }
+
         skipped_block = true;
     }
 
@@ -1045,10 +1019,12 @@ posting_list_t::iterator_t::~iterator_t() {
 posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     curr_block = rhs.curr_block;
     curr_index = rhs.curr_index;
-    uncompressed_block = rhs.uncompressed_block;
     ids = rhs.ids;
+    offset_index = rhs.offset_index;
+    offsets = rhs.offsets;
 
     rhs.curr_block = nullptr;
-    rhs.uncompressed_block = nullptr;
     rhs.ids = nullptr;
+    rhs.offset_index = nullptr;
+    rhs.offsets = nullptr;
 }
