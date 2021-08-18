@@ -1905,6 +1905,7 @@ void Index::search_field(const uint8_t & field_id,
 
     // stores candidates for each token, i.e. i-th index would have all possible tokens with a cost of "c"
     std::vector<token_candidates> token_candidates_vec;
+    std::set<art_leaf*> unique_tokens;
 
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
     long long n = 0;
@@ -1942,10 +1943,13 @@ void Index::search_field(const uint8_t & field_id,
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], combination_limit, token_order, prefix_search,
-                                 filter_ids, filter_ids_length, leaves);
+                                 filter_ids, filter_ids_length, leaves, unique_tokens);
 
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);
+                    for(auto leaf: leaves) {
+                        unique_tokens.emplace(leaf);
+                    }
                 }
             }
 
