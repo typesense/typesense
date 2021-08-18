@@ -565,6 +565,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
+        //LOG(INFO) << "collection == nullptr, for collection: " << req->params["collection"];
         res->final = true;
         res->set_404();
         stream_response(req, res);
