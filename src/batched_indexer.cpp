@@ -1,4 +1,5 @@
 #include "batched_indexer.h"
+#include "core_api.h"
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t num_threads):
                                server(server), store(store), num_threads(num_threads),
@@ -9,7 +10,23 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t nu
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const std::string& coll_name = req->params["collection"];
+    std::string& coll_name = req->params["collection"];
+
+    if(coll_name.empty()) {
+        route_path* rpath;
+        server->get_route(req->route_hash, &rpath);
+
+        // ensure that collection creation is sent to the same queue as writes to that collection
+        if(rpath->handler == post_create_collection) {
+            nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
+
+            if(obj != nlohmann::json::value_t::discarded && obj.is_object() &&
+               obj.count("name") != 0 && obj["name"].is_string()) {
+                coll_name = obj["name"];
+            }
+        }
+    }
+
     uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
 
     uint32_t chunk_sequence = 0;
@@ -42,7 +59,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     }
 
     if(req->last_chunk_aggregate) {
-        //LOG(INFO) << "Last chunk for req_id: " << req->start_ts;
+        //LOG(INFO) << "Last chunk for req_id: " << req->start_ts << ", queue_id: " << queue_id;
 
         {
             std::unique_lock lk(qmutuxes[queue_id]);
