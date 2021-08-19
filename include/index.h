@@ -232,6 +232,7 @@ private:
                       const size_t combination_limit = Index::COMBINATION_LIMIT) const;
 
     void search_candidates(const uint8_t & field_id,
+                           bool field_is_array,
                            uint32_t* filter_ids, size_t filter_ids_length,
                            const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                            const std::vector<uint32_t>& curated_ids,
@@ -324,17 +325,17 @@ public:
     static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     void score_results(const std::vector<sort_by> &sort_fields, const uint16_t &query_index, const uint8_t &field_id,
-                       const uint32_t total_cost, Topster *topster, const std::vector<art_leaf *> &query_suggestion,
+                       bool field_is_array, const uint32_t total_cost,
+                       Topster *topster, const std::vector<art_leaf *> &query_suggestion,
                        spp::sparse_hash_set<uint64_t> &groups_processed,
-                       const std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions,
                        const uint32_t seq_id, const int sort_order[3],
                        std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                        const std::vector<size_t>& geopoint_indices,
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        const std::vector<token_t> &query_tokens,
-                       bool use_single_token_score,
-                       bool prioritize_exact_match) const;
+                       bool prioritize_exact_match,
+                       std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 

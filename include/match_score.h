@@ -44,7 +44,8 @@ struct Match {
 
     }
 
-    Match(uint8_t words_present, uint8_t distance) : words_present(words_present), distance(distance), exact_match(0) {
+    Match(uint8_t words_present, uint8_t distance, uint8_t exact_match = 0) :
+            words_present(words_present), distance(distance), exact_match(exact_match) {
 
     }
 

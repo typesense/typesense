@@ -791,6 +791,49 @@ bool posting_list_t::get_offsets(std::vector<iterator_t>& its,
     return true;
 }
 
+bool posting_list_t::is_single_token_exact_match(posting_list_t::iterator_t& it, bool field_is_array) {
+    block_t* curr_block = it.block();
+    uint32_t curr_index = it.index();
+
+    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+        return false;
+    }
+
+    uint32_t* offsets = it.offsets;
+    uint32_t start_offset = it.offset_index[curr_index];
+
+    if(!field_is_array && offsets[start_offset] != 1) {
+        // allows us to skip other computes fast
+        return false;
+    }
+
+    uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                          curr_block->offsets.getLength() :
+                          it.offset_index[curr_index + 1];
+
+    if(field_is_array) {
+       int prev_pos = -1;
+
+        while(start_offset < end_offset) {
+            int pos = offsets[start_offset];
+            start_offset++;
+
+            if(pos == prev_pos && pos == 1 && start_offset+1 < end_offset && offsets[start_offset+1] == 0) {
+                return true;
+            }
+
+            prev_pos = pos;
+        }
+
+        return false;
+    } else if((end_offset - start_offset) == 2 && offsets[end_offset-1] == 0) {
+        // already checked for `offsets[start_offset] == 1` first
+        return true;
+    }
+
+    return false;
+}
+
 bool posting_list_t::at_end(const std::vector<posting_list_t::iterator_t>& its) {
     // if any one iterator is at end, we can stop
     for(const auto& it : its) {

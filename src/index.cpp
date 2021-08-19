@@ -881,7 +881,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
     }
 }
 
-void Index::search_candidates(const uint8_t & field_id,
+void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
                               uint32_t* filter_ids, size_t filter_ids_length,
                               const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                               const std::vector<uint32_t>& curated_ids,
@@ -960,26 +960,18 @@ void Index::search_candidates(const uint8_t & field_id,
             excluded_result_ids, excluded_result_ids_size, filter_ids, filter_ids_length
         );
 
-        // We will have to be judicious about computing full match score: only when token does not match exact query
-        bool use_single_token_score = (query_suggestion.size() == 1) &&
-                               (query_suggestion.size() == query_tokens.size()) &&
-                              ((std::string((const char*)query_suggestion[0]->key, query_suggestion[0]->key_len-1) != query_tokens[0].value));
+        // We fetch offset positions only for multi token query
+        bool fetch_offsets = (query_suggestion.size() > 1);
 
         std::vector<uint32_t> result_id_vec;
         posting_t::block_intersector_t intersector(posting_lists, iter_state);
 
         intersector.intersect([&](uint32_t seq_id, std::vector<posting_list_t::iterator_t>& its) {
-            std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
-
-            if(!use_single_token_score) {
-                posting_list_t::get_offsets(its, array_token_positions);
-            }
-
-            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, total_cost, topster,
-                          query_suggestion, groups_processed, array_token_positions,
+            score_results(sort_fields, (uint16_t) searched_queries.size(), field_id, field_is_array,
+                          total_cost, topster, query_suggestion, groups_processed,
                           seq_id, sort_order, field_values, geopoint_indices,
                           group_limit, group_by_fields, token_bits, query_tokens,
-                          use_single_token_score, prioritize_exact_match);
+                          prioritize_exact_match, its);
 
             result_id_vec.push_back(seq_id);
         });
@@ -1567,12 +1559,14 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
         uint32_t token_bits = 255;
 
+        std::vector<posting_list_t::iterator_t> plists;
+
         for(size_t i = 0; i < filter_ids_length; i++) {
             const uint32_t seq_id = filter_ids[i];
-            score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, 0, topster, {},
-                          groups_processed, {}, seq_id, sort_order, field_values, geopoint_indices,
+            score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 0, topster, {},
+                          groups_processed, seq_id, sort_order, field_values, geopoint_indices,
                           group_limit, group_by_fields, token_bits, {},
-                          true, prioritize_exact_match);
+                          prioritize_exact_match, plists);
         }
 
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
@@ -1879,7 +1873,9 @@ void Index::search_field(const uint8_t & field_id,
                          const size_t combination_limit) const {
 
     size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-    if(search_schema.at(field).locale != "" && search_schema.at(field).locale != "en") {
+    auto& the_field = search_schema.at(field);
+
+    if(the_field.locale != "" && the_field.locale != "en") {
         // disable fuzzy trie traversal for non-english locales
         max_cost = 0;
     }
@@ -1990,7 +1986,8 @@ void Index::search_field(const uint8_t & field_id,
 
         if(!token_candidates_vec.empty()) {
             // If atleast one token is found, go ahead and search for candidates
-            search_candidates(field_id, filter_ids, filter_ids_length, exclude_token_ids, exclude_token_ids_size,
+            search_candidates(field_id, the_field.is_array(), filter_ids, filter_ids_length,
+                              exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
                               typo_tokens_threshold, group_limit, group_by_fields, query_tokens,
@@ -2064,18 +2061,17 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 }
 
 void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
-                          const uint8_t & field_id, const uint32_t total_cost, Topster* topster,
+                          const uint8_t & field_id, bool field_is_array, const uint32_t total_cost, Topster* topster,
                           const std::vector<art_leaf *> &query_suggestion,
                           spp::sparse_hash_set<uint64_t>& groups_processed,
-                          const std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions,
                           const uint32_t seq_id, const int sort_order[3],
                           std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                           const std::vector<size_t>& geopoint_indices,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits,
                           const std::vector<token_t>& query_tokens,
-                          bool use_single_token_score,
-                          bool prioritize_exact_match) const {
+                          bool prioritize_exact_match,
+                          std::vector<posting_list_t::iterator_t>& posting_lists) const {
 
     spp::sparse_hash_map<uint32_t, int64_t>* TEXT_MATCH_SENTINEL = &text_match_sentinel_value;
     spp::sparse_hash_map<uint32_t, int64_t>* SEQ_ID_SENTINEL = &seq_id_sentinel_value;
@@ -2117,12 +2113,18 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     uint64_t match_score = 0;
 
-    if (use_single_token_score || array_token_positions.empty()) {
-        Match single_token_match = Match(1, 0);
-        const uint64_t single_token_match_score = single_token_match.get_match_score(total_cost);
-        match_score = single_token_match_score;
+    if (posting_lists.size() == 1) {
+        const uint8_t is_exact_match = uint8_t(
+            total_cost == 0 && prioritize_exact_match &&
+            posting_list_t::is_single_token_exact_match(posting_lists[0], field_is_array)
+        );
+        Match single_token_match = Match(1, 0, is_exact_match);
+        match_score = single_token_match.get_match_score(total_cost);
     } else {
         uint64_t total_tokens_found = 0, total_num_typos = 0, total_distance = 0, total_verbatim = 0;
+
+        std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
+        posting_list_t::get_offsets(posting_lists, array_token_positions);
 
         for (const auto& kv: array_token_positions) {
             const std::vector<token_positions_t>& token_positions = kv.second;
