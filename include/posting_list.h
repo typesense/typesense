@@ -162,6 +162,11 @@ public:
         std::vector<iterator_t>& its,
         std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
+
+    static bool is_single_token_exact_match(
+        posting_list_t::iterator_t& it,
+        bool field_is_array
+    );
 };
 
 template<class T>
