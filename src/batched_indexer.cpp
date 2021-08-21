@@ -1,5 +1,6 @@
 #include "batched_indexer.h"
 #include "core_api.h"
+#include "thread_local_vars.h"
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t num_threads):
                                server(server), store(store), num_threads(num_threads),
@@ -110,6 +111,9 @@ void BatchedIndexer::run() {
                         orig_req->body = prev_body;
                         orig_req->deserialize(iter->value().ToString());
                         orig_req->_req = _req;
+
+                        // update thread local for reference during a crash
+                        write_log_index = orig_req->log_index;
 
                         //LOG(INFO) << "original request: " << orig_req_res.req << ", _req: " << orig_req_res.req->_req;
 

@@ -72,17 +72,21 @@ void master_server_routes() {
     server->post("/config", post_config, false, false);
 }
 
-void (*backward::SignalHandling::_callback)(backward::StackTrace&) = nullptr;
+void (*backward::SignalHandling::_callback)(int sig, backward::StackTrace&) = nullptr;
 
-void crash_callback(backward::StackTrace& st) {
+void crash_callback(int sig, backward::StackTrace& st) {
     backward::TraceResolver tr; tr.load_stacktrace(st);
     for (size_t i = 0; i < st.size(); ++i) {
         backward::ResolvedTrace trace = tr.resolve(st[i]);
-        if(trace.object_function.find("ReplicationState::on_apply") != std::string::npos) {
+        if(trace.object_function.find("BatchedIndexer") != std::string::npos ||
+           trace.object_function.find("batch_memory_index") != std::string::npos) {
             server->persist_applying_index();
             break;
         }
     }
+
+    LOG(ERROR) << "Typesense is terminating abruptly.";
+    exit(-1);
 }
 
 int main(int argc, char **argv) {
