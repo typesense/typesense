@@ -18,6 +18,7 @@
 #include <posting.h>
 #include "topster.h"
 #include "logger.h"
+#include "thread_local_vars.h"
 
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
@@ -375,8 +376,15 @@ size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & 
 
     for(size_t index_id = 0; index_id < indices.size(); index_id++) {
         Index* index = indices[index_id];
+        auto parent_write_log_index = write_log_index;
+
         CollectionManager::get_instance().get_thread_pool()->enqueue(
-        [index, index_id, &num_indexed_vec, &iter_batch, this, &m_process, &num_processed, &cv_process]() {
+            [parent_write_log_index, index, index_id, &num_indexed_vec, &iter_batch, this,
+            &m_process, &num_processed, &cv_process]() {
+
+            // ensures that a crash can be traced back to the write log index
+            write_log_index = parent_write_log_index;
+
             size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
                                       search_schema, facet_schema, fallback_field_type);
             std::unique_lock<std::mutex> lock(m_process);

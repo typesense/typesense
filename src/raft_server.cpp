@@ -8,6 +8,7 @@
 #include <collection_manager.h>
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
+#include "thread_local_vars.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -365,6 +366,8 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
             // indicates log serialized request
             request_generated->deserialize(iter.data().to_string());
         }
+
+        request_generated->log_index = iter.index();
 
         // To avoid blocking the serial Raft write thread persist the log entry in local storage.
         // Actual operations will be done in collection-sharded batch indexing threads.
@@ -764,15 +767,12 @@ void ReplicationState::persist_applying_index() {
         return ;
     }
 
-    braft::NodeStatus node_status;
-    node->get_status(&node_status);
-
     lock.unlock();
 
-    LOG(INFO) << "Saving currently applying index: " << node_status.applying_index;
+    LOG(INFO) << "Saving currently applying index: " << write_log_index;
 
-    std::string key = SKIP_INDICES_PREFIX + std::to_string(node_status.applying_index);
-    meta_store->insert(key, std::to_string(node_status.applying_index));
+    std::string key = SKIP_INDICES_PREFIX + std::to_string(write_log_index);
+    meta_store->insert(key, std::to_string(write_log_index));
 }
 
 void OnDemandSnapshotClosure::Run() {

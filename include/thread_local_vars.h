@@ -1,0 +1,1 @@
+extern thread_local int64_t write_log_index;

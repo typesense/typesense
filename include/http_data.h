@@ -239,6 +239,7 @@ struct http_req {
     std::condition_variable cv;
     bool ready;
 
+    int64_t log_index;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
@@ -320,6 +321,7 @@ struct http_req {
         first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
         last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
         start_ts = content.count("start_ts") != 0 ? content["start_ts"].get<uint64_t>() : 0;
+        log_index = content.count("log_index") != 0 ? content["log_index"].get<int64_t>() : 0;
         _req = nullptr;
 
         deserialized_request = true;
@@ -334,6 +336,7 @@ struct http_req {
         content["body"] = body;
         content["metadata"] = metadata;
         content["start_ts"] = start_ts;
+        content["log_index"] = log_index;
 
         return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
     }
