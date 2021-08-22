@@ -333,8 +333,8 @@ public:
                        const std::vector<size_t>& geopoint_indices,
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
-                       const std::vector<token_t> &query_tokens,
                        bool prioritize_exact_match,
+                       bool exact_query_match,
                        std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);

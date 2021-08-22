@@ -55,7 +55,7 @@ struct Match {
             (int64_t(words_present) << 24) |
             (int64_t(255 - total_cost) << 16) |
             (int64_t(100 - distance) << 8) |
-            (int64_t(0) << 1)
+            (int64_t(0) << 0)
         );
 
         return match_score;
@@ -67,7 +67,7 @@ struct Match {
             (int64_t(words_present) << 24) |
             (int64_t(255 - total_cost) << 16) |
             (int64_t(100 - distance) << 8) |
-            (int64_t(exact_match) << 1)
+            (int64_t(exact_match) << 0)
         );
 
         return match_score;
