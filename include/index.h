@@ -334,7 +334,7 @@ public:
                        const size_t group_limit,
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        bool prioritize_exact_match,
-                       bool exact_query_match,
+                       bool single_exact_query_token,
                        std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);

@@ -943,7 +943,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
             std::string qtok(reinterpret_cast<char*>(qleaf->key),qleaf->key_len - 1);
             fullq << qtok << " ";
         }
-        LOG(INFO) << fullq.str();*/
+        LOG(INFO) << "field: " << size_t(field_id) << ", query: " << fullq.str();*/
 
         // Prepare excluded document IDs that we can later remove from the result set
         uint32_t* excluded_result_ids = nullptr;
@@ -962,19 +962,11 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 
         // We fetch offset positions only for multi token query
         bool fetch_offsets = (query_suggestion.size() > 1);
-        bool exact_query_match = false;
+        bool single_exact_query_token = false;
 
-        if(total_cost == 0 && query_suggestion.size() == query_tokens.size()) {
-            // does this candidate suggestion token match query exactly?
-            exact_query_match = true;
-
-            for(size_t i = 0; i < query_suggestion.size(); i++) {
-                std::string suggestion_token((const char*) query_suggestion[i]->key, query_suggestion[i]->key_len - 1);
-                if(suggestion_token != query_tokens[i].value) {
-                    exact_query_match = false;
-                    break;
-                }
-            }
+        if(total_cost == 0 && query_suggestion.size() == query_tokens.size() == 1) {
+            // does this candidate suggestion token match query token exactly?
+            single_exact_query_token = true;
         }
 
         std::vector<uint32_t> result_id_vec;
@@ -985,7 +977,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
                           total_cost, topster, query_suggestion, groups_processed,
                           seq_id, sort_order, field_values, geopoint_indices,
                           group_limit, group_by_fields, token_bits,
-                          prioritize_exact_match, exact_query_match, its);
+                          prioritize_exact_match, single_exact_query_token, its);
 
             result_id_vec.push_back(seq_id);
         });
@@ -2087,7 +2079,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           uint32_t token_bits,
                           bool prioritize_exact_match,
-                          bool exact_query_match,
+                          bool single_exact_query_token,
                           std::vector<posting_list_t::iterator_t>& posting_lists) const {
 
     spp::sparse_hash_map<uint32_t, int64_t>* TEXT_MATCH_SENTINEL = &text_match_sentinel_value;
@@ -2131,11 +2123,11 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     uint64_t match_score = 0;
 
     if (posting_lists.size() == 1) {
-        const uint8_t is_exact_match = uint8_t(
-            prioritize_exact_match && exact_query_match &&
-            posting_list_t::is_single_token_exact_match(posting_lists[0], field_is_array)
+        const uint8_t is_verbatim_match = uint8_t(
+            prioritize_exact_match && single_exact_query_token &&
+            posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
         );
-        Match single_token_match = Match(1, 0, is_exact_match);
+        Match single_token_match = Match(1, 0, is_verbatim_match);
         match_score = single_token_match.get_match_score(total_cost);
     } else {
         uint64_t total_tokens_found = 0, total_num_typos = 0, total_distance = 0, total_verbatim = 0;
@@ -2169,7 +2161,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             (uint64_t(total_tokens_found) << 24) |
             (uint64_t(255 - total_num_typos) << 16) |
             (uint64_t(100 - total_distance) << 8) |
-            (uint64_t(total_verbatim) << 1)
+            (uint64_t(total_verbatim) << 0)
         );
 
         /*LOG(INFO) << "Match score: " << match_score << ", for seq_id: " << seq_id
