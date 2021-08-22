@@ -791,7 +791,7 @@ bool posting_list_t::get_offsets(std::vector<iterator_t>& its,
     return true;
 }
 
-bool posting_list_t::is_single_token_exact_match(posting_list_t::iterator_t& it, bool field_is_array) {
+bool posting_list_t::is_single_token_verbatim_match(posting_list_t::iterator_t& it, bool field_is_array) {
     block_t* curr_block = it.block();
     uint32_t curr_index = it.index();
 
