@@ -762,6 +762,7 @@ TEST_F(CollectionSpecificTest, HighlightLongFieldWithDropTokens) {
 TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
     std::vector<field> fields = {field("username", field_types::STRING, false),
                                  field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
@@ -770,12 +771,14 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
     doc1["id"] = "0";
     doc1["username"] = "Pandaabear";
     doc1["name"] = "Panda's Basement";
+    doc1["tags"] = {"Foobar", "Panda's Basement"};
     doc1["points"] = 100;
 
     nlohmann::json doc2;
     doc2["id"] = "1";
     doc2["username"] = "Pandaabear";
     doc2["name"] = "Pandaabear Basic";
+    doc2["tags"] = {"Pandaabear Basic"};
     doc2["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
@@ -799,6 +802,19 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
 
     ASSERT_EQ("Panda's <mark>Basement</mark>",
               results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
+
+    results = coll1->search("pandaabear bas", {"username", "tags"},
+                  "", {}, {}, {2, 2}, 10,
+                  1, FREQUENCY, {true, true},
+                  1, spp::sparse_hash_set<std::string>(),
+                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                  "<mark>", "</mark>").get();
+
+
+    // NOT asserting here because given current highlighting limitations, prefixes which are not directly matched
+    // onto a token in an array is not used during highlighting
+
+    // ASSERT_EQ(2, results["hits"][1]["highlights"].size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -905,6 +921,35 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, HighlightEmptyArray) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "John";
+    doc1["tags"] = std::vector<std::string>();
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("john", {"name", "tags"},
+                                 "", {}, {}, {0, 0}, 10,
+                                 1, FREQUENCY, {true, true},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
 
     collectionManager.drop_collection("coll1");
 }
