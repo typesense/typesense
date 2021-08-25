@@ -1659,8 +1659,25 @@ void Collection::highlight_result(const field &search_field,
         /*LOG(INFO) << "field: " << document[search_field.name] << ", id: " << field_order_kv->key
                   << ", index: " << match_index.index;*/
 
-        std::string text = (search_field.type == field_types::STRING) ? document[search_field.name] :
-                           document[search_field.name][match_index.index];
+        std::string text;
+
+        if(search_field.type == field_types::STRING) {
+            text = document[search_field.name];
+        } else {
+            if(!document[search_field.name].is_array()) {
+                LOG(ERROR) << "Skipping highlight of field " << search_field.name << " because it is not an array.";
+                continue;
+            }
+
+            if(match_index.index >= document[search_field.name].size()) {
+                LOG(ERROR)  << "Skipping highlight of field " << search_field.name << " because match index "
+                            <<  match_index.index << " exceeds array size of " << document[search_field.name].size();
+                continue;
+            }
+
+            text = document[search_field.name][match_index.index];
+        }
+
         Tokenizer tokenizer(text, true, false, search_field.locale);
 
         if(search_field.locale == "ko") {
