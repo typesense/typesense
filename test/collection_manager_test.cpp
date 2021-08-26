@@ -33,7 +33,8 @@ protected:
         };
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection("collection1", 4, search_fields, "points", 12345).get();
+        collection1 = collectionManager.create_collection("collection1", 4, search_fields,
+                                                          "points", 12345, "", {"+"}, {"-"}).get();
     }
 
     virtual void SetUp() {
@@ -94,7 +95,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
               "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
-              "\"name\":\"collection1\",\"num_memory_shards\":4}",
+              "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -113,15 +114,26 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 
     delete collection;
 
-    // with created_at ts
+    // with non-default values
 
     nlohmann::json collection_meta2 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"created_at\": 12345,"
-                                  "\"default_sorting_field\": \"foo\"}");
+                                  "\"default_sorting_field\": \"foo\","
+                                  "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
+
 
     collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
     ASSERT_EQ(12345, collection->get_created_at());
+
+    std::vector<char> expected_symbols = {'+'};
+    std::vector<char> expected_separators = {'-'};
+
+    ASSERT_EQ(1, collection->get_token_separators().size());
+    ASSERT_EQ('-', collection->get_token_separators()[0]);
+
+    ASSERT_EQ(1, collection->get_symbols_to_index().size());
+    ASSERT_EQ('+', collection->get_symbols_to_index()[0]);
 
     delete collection;
 }
@@ -281,6 +293,15 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_STREQ("id3", synonyms.at("id3").id.c_str());
     ASSERT_EQ(0, synonyms.at("id3").root.size());
     ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
+
+    std::vector<char> expected_symbols = {'+'};
+    std::vector<char> expected_separators = {'-'};
+
+    ASSERT_EQ(1, collection1->get_token_separators().size());
+    ASSERT_EQ('-', collection1->get_token_separators()[0]);
+
+    ASSERT_EQ(1, collection1->get_symbols_to_index().size());
+    ASSERT_EQ('+', collection1->get_symbols_to_index()[0]);
 
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());

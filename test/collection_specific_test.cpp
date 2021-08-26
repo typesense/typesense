@@ -953,3 +953,143 @@ TEST_F(CollectionSpecificTest, HighlightEmptyArray) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, CustomSeparators) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {}, {"-"}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "alpha-beta-gamma-omega-zeta";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("gamma", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>",{}, 1000,
+                                 true, false, true, "", 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
+    ASSERT_EQ("alpha-beta-<mark>gamma</mark>-omega-zeta", results["hits"][0]["highlights"][0]["snippet"]);
+
+    // ensure that symbols are validated
+
+    nlohmann::json coll_def;
+    coll_def["fields"] = {
+        {{"name", "foo"}, {"type", "string"}, {"facet", false}}
+    };
+    coll_def["name"] = "foo";
+    coll_def["token_separators"] = {"foo"};
+
+    auto coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`token_separators` should be an array of character symbols.", coll_op.error());
+
+    coll_def["token_separators"] = "f";
+    coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`token_separators` should be an array of character symbols.", coll_op.error());
+
+    coll_def["token_separators"] = 123;
+    coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`token_separators` should be an array of character symbols.", coll_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {"+"}, {}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Yes, C++ is great!";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Yes, C is great!";
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("c++", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>",{}, 1000,
+                                 true, false, true, "", 1000).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
+    ASSERT_EQ("Yes, <mark>C++</mark> is great!", results["hits"][0]["highlights"][0]["snippet"]);
+
+    // without custom symbols, + should not be indexed, so the "C" record will show up first
+
+    Collection* coll2 = collectionManager.create_collection("coll2", 1, fields, "points", 0, "").get();
+
+    ASSERT_TRUE(coll2->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll2->add(doc2.dump()).ok());
+
+    results = coll2->search("c++", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>",{}, 1000,
+                                 true, false, true, "", 1000).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // ensure that symbols are validated
+
+    nlohmann::json coll_def;
+    coll_def["fields"] = {
+        {{"name", "foo"}, {"type", "string"}, {"facet", false}}
+    };
+    coll_def["name"] = "foo";
+    coll_def["symbols_to_index"] = {"foo"};
+
+    auto coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`symbols_to_index` should be an array of character symbols.", coll_op.error());
+
+    coll_def["symbols_to_index"] = "f";
+    coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`symbols_to_index` should be an array of character symbols.", coll_op.error());
+
+    coll_def["symbols_to_index"] = 123;
+    coll_op = collectionManager.create_collection(coll_def);
+
+    ASSERT_FALSE(coll_op.ok());
+    ASSERT_EQ("`symbols_to_index` should be an array of character symbols.", coll_op.error());
+
+    collectionManager.drop_collection("coll1");
+}

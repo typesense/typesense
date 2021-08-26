@@ -3,7 +3,8 @@
 #include "tokenizer.h"
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
-                     const std::vector<char>& symbols_to_index):
+                     const std::vector<char>& symbols_to_index,
+                     const std::vector<char>& separators):
                      i(0), normalize(normalize), no_op(no_op), locale(locale) {
 
     if(locale == "zh") {
@@ -48,6 +49,10 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
     for(char c: symbols_to_index) {
         index_symbols[uint8_t(c)] = 1;
+    }
+
+    for(char c: separators) {
+        separator_symbols[uint8_t(c)] = 1;
     }
 
     UErrorCode errcode = U_ZERO_ERROR;

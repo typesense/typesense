@@ -44,13 +44,15 @@ struct match_index_t {
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field, const size_t num_memory_shards,
-                       const float max_memory_ratio, const std::string& fallback_field_type):
+                       const float max_memory_ratio, const std::string& fallback_field_type,
+                       const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
         num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
+        symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
         indices(init_indices()) {
 
     this->num_documents = 0;
@@ -1369,7 +1371,10 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         if(already_segmented) {
             StringUtils::split(query, tokens, " ");
         } else {
-            Tokenizer(query, true, false, locale, {'-'}).tokenize(tokens);
+            std::vector<char> custom_symbols = symbols_to_index;
+            custom_symbols.push_back('-');
+
+            Tokenizer(query, true, false, locale, custom_symbols).tokenize(tokens);
         }
 
         bool exclude_operator_prior = false;
@@ -1378,17 +1383,24 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             if(token[0] == '-') {
                 exclude_operator_prior = true;
                 token = token.substr(1);
-            } else {
-                // remove hyphens (added earlier for supporting negation syntax)
-                // to maintain parity with indexing which currently removing special symbols
-                token.erase(std::remove(token.begin(), token.end(), '-'), token.end());
             }
 
-            if(exclude_operator_prior) {
-                q_exclude_tokens.push_back(token);
-                exclude_operator_prior = false;
+            // retokenize using collection config
+            std::vector<std::string> sub_tokens;
+
+            if(already_segmented) {
+                StringUtils::split(token, sub_tokens, " ");
             } else {
-                q_include_tokens.push_back(token);
+                Tokenizer(token, true, false, locale, symbols_to_index, token_separators).tokenize(sub_tokens);
+            }
+
+            for(auto& sub_token: sub_tokens) {
+                if(exclude_operator_prior) {
+                    q_exclude_tokens.push_back(sub_token);
+                    exclude_operator_prior = false;
+                } else {
+                    q_include_tokens.push_back(sub_token);
+                }
             }
         }
 
@@ -1673,7 +1685,7 @@ void Collection::highlight_result(const field &search_field,
             text = document[search_field.name][match_index.index];
         }
 
-        Tokenizer tokenizer(text, true, false, search_field.locale);
+        Tokenizer tokenizer(text, true, false, search_field.locale, symbols_to_index, token_separators);
 
         if(search_field.locale == "ko") {
             text = string_utils.unicode_nfkd(text);
@@ -2777,7 +2789,8 @@ std::vector<Index *> Collection::init_indices() {
     }
 
     for(size_t i = 0; i < num_memory_shards; i++) {
-        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema);
+        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema,
+                                 symbols_to_index, token_separators);
         index_list.push_back(index);
     }
 
@@ -2799,4 +2812,23 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     }
 
     return dirty_values_action;
+}
+
+std::vector<char> Collection::to_char_array(std::vector<std::string> strings) {
+    std::vector<char> vec;
+    for(const auto& s: strings) {
+        if(s.length() == 1) {
+            vec.push_back(s[0]);
+        }
+    }
+
+    return vec;
+}
+
+std::vector<char> Collection::get_symbols_to_index() {
+    return symbols_to_index;
+}
+
+std::vector<char> Collection::get_token_separators() {
+    return token_separators;
 }

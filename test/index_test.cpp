@@ -10,7 +10,7 @@ TEST(IndexTest, ScrubReindexDoc) {
     search_schema.emplace("cast", field("cast", field_types::STRING_ARRAY, false));
     search_schema.emplace("movie", field("movie", field_types::BOOL, false));
 
-    Index index("index", search_schema, {}, {});
+    Index index("index", search_schema, {}, {}, {}, {});
     nlohmann::json old_doc;
     old_doc["id"] = "1";
     old_doc["title"] = "One more thing.";

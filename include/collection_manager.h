@@ -134,7 +134,9 @@ public:
                                           const std::vector<field> & fields,
                                           const std::string & default_sorting_field="",
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
-                                          const std::string& fallback_field_type = "");
+                                          const std::string& fallback_field_type = "",
+                                          const std::vector<std::string>& symbols_to_index = {},
+                                          const std::vector<std::string>& token_separators = {});
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

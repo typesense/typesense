@@ -325,6 +325,10 @@ private:
 
     std::vector<field> dynamic_fields;
 
+    std::vector<char> symbols_to_index;
+
+    std::vector<char> token_separators;
+
     const std::vector<Index*> indices;
 
     // methods
@@ -389,6 +393,8 @@ private:
 
     std::vector<Index *> init_indices();
 
+    static std::vector<char> to_char_array(std::vector<std::string> strs);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -413,10 +419,8 @@ public:
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
 
-    // DON'T CHANGE THESE VALUES!
-    // this key is used as namespace key to store metadata about the document
-    static constexpr const char* DOC_META_KEY = "$TSM$_";
-    static constexpr const char* DOC_META_DIRTY_VALUES_KEY = "dirty_values";
+    static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
+    static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
     // methods
 
@@ -425,7 +429,8 @@ public:
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
                const std::string& default_sorting_field, const size_t num_memory_shards,
-               const float max_memory_ratio, const std::string& fallback_field_type);
+               const float max_memory_ratio, const std::string& fallback_field_type,
+               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators);
 
     ~Collection();
 
@@ -555,6 +560,10 @@ public:
     size_t get_num_documents() const;
 
     DIRTY_VALUES parse_dirty_values_option(std::string& dirty_values) const;
+
+    std::vector<char> get_symbols_to_index();
+
+    std::vector<char> get_token_separators();
 
     // Override operations
 
