@@ -52,6 +52,17 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
 
+    std::vector<std::string> symbols_to_index;
+    std::vector<std::string> token_separators;
+
+    if(collection_meta.count(Collection::COLLECTION_SYMBOLS_TO_INDEX) != 0) {
+        symbols_to_index = collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX].get<std::vector<std::string>>();
+    }
+
+    if(collection_meta.count(Collection::COLLECTION_SEPARATORS) != 0) {
+        token_separators = collection_meta[Collection::COLLECTION_SEPARATORS].get<std::vector<std::string>>();
+    }
+
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
@@ -63,7 +74,9 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             default_sorting_field,
                                             num_memory_shards,
                                             max_memory_ratio,
-                                            fallback_field_type);
+                                            fallback_field_type,
+                                            symbols_to_index,
+                                            token_separators);
 
     return collection;
 }
@@ -222,7 +235,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<field> & fields,
                                                          const std::string& default_sorting_field,
                                                          const uint64_t created_at,
-                                                         const std::string& fallback_field_type) {
+                                                         const std::string& fallback_field_type,
+                                                         const std::vector<std::string>& symbols_to_index,
+                                                         const std::vector<std::string>& token_separators) {
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -252,10 +267,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
     collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
     collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
+    collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
+    collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio, fallback_field_type);
+                                                this->max_memory_ratio, fallback_field_type,
+                                                symbols_to_index, token_separators);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -838,6 +856,8 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
 
 Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
+    const char* SYMBOLS_TO_INDEX = "symbols_to_index";
+    const char* TOKEN_SEPARATORS = "token_separators";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     // validate presence of mandatory fields
@@ -852,6 +872,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
         req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
+    }
+
+    if(req_json.count(SYMBOLS_TO_INDEX) == 0) {
+        req_json[SYMBOLS_TO_INDEX] = std::vector<std::string>();
+    }
+
+    if(req_json.count(TOKEN_SEPARATORS) == 0) {
+        req_json[TOKEN_SEPARATORS] = std::vector<std::string>();
     }
 
     if(req_json.count("fields") == 0) {
@@ -869,6 +897,26 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
         return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    if(!req_json[SYMBOLS_TO_INDEX].is_array()) {
+        return Option<Collection*>(400, std::string("`") + SYMBOLS_TO_INDEX + "` should be an array of character symbols.");
+    }
+
+    if(!req_json[TOKEN_SEPARATORS].is_array()) {
+        return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+    }
+
+    for (auto it = req_json[SYMBOLS_TO_INDEX].begin(); it != req_json[SYMBOLS_TO_INDEX].end(); ++it) {
+        if(!it->is_string() || it->get<std::string>().size() != 1 ) {
+            return Option<Collection*>(400, std::string("`") + SYMBOLS_TO_INDEX + "` should be an array of character symbols.");
+        }
+    }
+
+    for (auto it = req_json[TOKEN_SEPARATORS].begin(); it != req_json[TOKEN_SEPARATORS].end(); ++it) {
+        if(!it->is_string() || it->get<std::string>().size() != 1 ) {
+            return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+        }
     }
 
     size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
@@ -897,7 +945,9 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
-                                                                fallback_field_type);
+                                                                fallback_field_type,
+                                                                req_json[SYMBOLS_TO_INDEX],
+                                                                req_json[TOKEN_SEPARATORS]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,

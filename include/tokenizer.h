@@ -24,6 +24,7 @@ private:
     static const size_t SKIP = 2;
 
     uint8_t index_symbols[256] = {};
+    uint8_t separator_symbols[256] = {};
 
     std::string out;
 
@@ -42,7 +43,7 @@ private:
 
     inline size_t get_stream_mode(char c) {
         return (std::isalnum(c) || index_symbols[uint8_t(c)] == 1) ? INDEX : (
-            (c == ' ' || c == '\n') ? SEPARATE : SKIP
+            (c == ' ' || c == '\n' || separator_symbols[uint8_t(c)] == 1) ? SEPARATE : SKIP
         );
     }
 
@@ -55,7 +56,8 @@ public:
     explicit Tokenizer(const std::string& input,
                        bool normalize=true, bool no_op=false,
                        const std::string& locale = "",
-                       const std::vector<char>& symbols_to_index = {});
+                       const std::vector<char>& symbols_to_index = {},
+                       const std::vector<char>& separators = {});
 
     ~Tokenizer() {
         iconv_close(cd);

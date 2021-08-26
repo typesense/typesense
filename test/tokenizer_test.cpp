@@ -125,7 +125,7 @@ TEST(TokenizerTest, ShouldTokenizeIteratively) {
     ASSERT_STREQ("everybody", tokens[3].c_str());
     ASSERT_STREQ("welcome", tokens[4].c_str());
 
-    // check for index when separators are not kept
+    // check for index when token_separators are not kept
     Tokenizer tokenizer2(withnewline, true, false);
     size_t expected_token_index = 0;
     std::vector<std::string> expected_tokens = {"michael", "jordan", "welcome", "everybody", "welcome"};
@@ -192,7 +192,7 @@ TEST(TokenizerTest, ShouldTokenizeChineseText) {
     ASSERT_EQ("时间", tokens[4]);
     ASSERT_EQ("而", tokens[5]);
 
-    // with separators
+    // with token_separators
     tokens.clear();
     Tokenizer("很久以前，傳說在臺中北屯的一個地方", false, false, "zh").tokenize(tokens);
     ASSERT_EQ(10, tokens.size());

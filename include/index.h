@@ -189,6 +189,10 @@ private:
     // this is used for wildcard queries
     sorted_array seq_ids;
 
+    std::vector<char> symbols_to_index;
+
+    std::vector<char> token_separators;
+
     StringUtils string_utils;
 
     // used as sentinels
@@ -312,7 +316,8 @@ public:
     Index() = delete;
 
     Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
-          std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema);
+          std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema,
+          const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators);
 
     ~Index();
 

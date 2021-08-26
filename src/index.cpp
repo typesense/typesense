@@ -24,8 +24,10 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
 
 Index::Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
-             std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema):
-        name(name), search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema) {
+             std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema,
+             const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
+        name(name), search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema),
+        symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
     for(const auto & fname_field: search_schema) {
         if(fname_field.second.is_string()) {
@@ -542,7 +544,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
                                     uint32_t seq_id, bool is_facet, const field & a_field) {
     std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
 
-    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale);
+    Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
     std::string token, last_token;
     size_t token_index = 0;
 
@@ -597,7 +599,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
         const std::string& str = strings[array_index];
         std::set<std::string> token_set;  // required to deal with repeating tokens
 
-        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale);
+        Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
         std::string token, last_token;
         size_t token_index = 0;
 
