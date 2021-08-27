@@ -3014,7 +3014,7 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
-    // change weights to favor artist
+    // changing weights to favor artist still favors title because it contains all tokens of the query
 
     results = coll1->search("on a jetplane",
                             {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
@@ -3022,8 +3022,8 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                             "<mark>", "</mark>", {1, 4}).get();
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // use same weights
 
@@ -3035,6 +3035,17 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // add weights to favor artist without all tokens in a query being found in a field
+
+    results = coll1->search("on a helicopter",
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 4}).get();
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
