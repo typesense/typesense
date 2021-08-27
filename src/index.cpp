@@ -945,7 +945,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
             std::string qtok(reinterpret_cast<char*>(qleaf->key),qleaf->key_len - 1);
             fullq << qtok << " ";
         }
-        LOG(INFO) << "field: " << size_t(field_id) << ", query: " << fullq.str();*/
+        LOG(INFO) << "field: " << size_t(field_id) << ", query: " << fullq.str() << ", total_cost: " << total_cost;*/
 
         // Prepare excluded document IDs that we can later remove from the result set
         uint32_t* excluded_result_ids = nullptr;
@@ -1803,8 +1803,8 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
             max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
 
             uint64_t aggregated_score = (
-                //(exact_match_fields << 48)  |       // number of fields that contain *all tokens* in the query
-                (verbatim_match_fields << 48)  |      // field value *exactly* same as query tokens
+                (verbatim_match_fields << 56)  |      // field value *exactly* same as query tokens
+                (exact_match_fields << 48)  |         // number of fields that contain *all tokens* in the query
                 (max_weighted_tokens_match << 40) |   // weighted max number of tokens matched in a field
                 (uniq_tokens_found << 32)   |         // number of unique tokens found across fields including typos
                 ((255 - min_typos) << 24)   |         // minimum typo cost across all fields
