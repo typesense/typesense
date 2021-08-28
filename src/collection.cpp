@@ -521,7 +521,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                   bool pre_segmented_query,
                                   bool enable_overrides,
                                   const std::string& highlight_fields,
-                                  const size_t combination_limit) const {
+                                  const bool exhaustive_search) const {
 
     std::shared_lock lock(mutex);
 
@@ -948,7 +948,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                    per_page, page, token_order, prefixes,
                                    drop_tokens_threshold, typo_tokens_threshold,
                                    group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
-                                   combination_limit);
+                                   exhaustive_search);
 
         search_args_vec.push_back(search_params);
 

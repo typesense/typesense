@@ -68,7 +68,7 @@ struct search_args {
     std::string default_sorting_field;
     bool prioritize_exact_match;
     size_t all_result_ids_len;
-    size_t combination_limit;
+    bool exhaustive_search;
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Topster* topster;
@@ -90,7 +90,7 @@ struct search_args {
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
-                size_t combination_limit):
+                bool exhaustive_search):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -99,7 +99,7 @@ struct search_args {
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
-            combination_limit(combination_limit) {
+            exhaustive_search(exhaustive_search) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -233,7 +233,7 @@ private:
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                      const size_t combination_limit = Index::COMBINATION_LIMIT) const;
+                      const bool exhaustive_search = false) const;
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
@@ -307,7 +307,8 @@ public:
     // for limiting number of fields that can be searched on
     enum {FIELD_LIMIT_NUM = 100};
 
-    enum {COMBINATION_LIMIT = 10};
+    enum {COMBINATION_MAX_LIMIT = 10000};
+    enum {COMBINATION_MIN_LIMIT = 10};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
