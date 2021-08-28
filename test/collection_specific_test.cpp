@@ -975,12 +975,25 @@ TEST_F(CollectionSpecificTest, CustomSeparators) {
                                  1, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                                  "<mark>", "</mark>",{}, 1000,
-                                 true, false, true, "", 1000).get();
+                                 true, false, true, "", true).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["hits"][0]["highlights"].size());
     ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
     ASSERT_EQ("alpha-beta-<mark>gamma</mark>-omega-zeta", results["hits"][0]["highlights"][0]["snippet"]);
+
+    results = coll1->search("gamma-omega", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
+    ASSERT_EQ("alpha-beta-<mark>gamma</mark>-<mark>omega</mark>-zeta", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // ensure that symbols are validated
 
@@ -1038,7 +1051,7 @@ TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
                                  1, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                                  "<mark>", "</mark>",{}, 1000,
-                                 true, false, true, "", 1000).get();
+                                 true, false, true, "", false).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -1059,7 +1072,7 @@ TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
                                  1, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                                  "<mark>", "</mark>",{}, 1000,
-                                 true, false, true, "", 1000).get();
+                                 true, false, true, "", false).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -1090,6 +1103,108 @@ TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
 
     ASSERT_FALSE(coll_op.ok());
     ASSERT_EQ("`symbols_to_index` should be an array of character symbols.", coll_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, CustomSeparatorsHandleQueryVariations) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {}, {"-", ".", "*", "&", "/"}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "1&1 Internet Limited";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "bofrost*dienstl";
+    doc2["points"] = 100;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "just...grilled";
+    doc3["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("bofrost*dienstl", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>",{}, 1000,
+                                 true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>bofrost</mark>*<mark>dienstl</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("bofrost * dienstl", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>bofrost</mark>*<mark>dienstl</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("bofrost dienstl", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>bofrost</mark>*<mark>dienstl</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("1&1", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>1</mark>&<mark>1</mark> Internet Limited", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("1 & 1", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>1</mark>&<mark>1</mark> Internet Limited", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("just grilled", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>",{}, 1000,
+                            true, false, true, "", false).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>just</mark>...<mark>grilled</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
