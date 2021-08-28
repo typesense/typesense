@@ -1374,7 +1374,7 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
             std::vector<char> custom_symbols = symbols_to_index;
             custom_symbols.push_back('-');
 
-            Tokenizer(query, true, false, locale, custom_symbols).tokenize(tokens);
+            Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
         }
 
         bool exclude_operator_prior = false;
