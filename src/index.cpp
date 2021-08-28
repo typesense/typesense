@@ -2052,10 +2052,18 @@ void Index::search_field(const uint8_t & field_id,
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) {
     int bounded_cost = max_cost;
-    if(token_len > 0 && max_cost >= token_len && (token_len == 1 || token_len == 2)) {
-        bounded_cost = token_len - 1;
+
+    if(token_len < 4) {
+        // typo correction is disabled for small tokens
+        return 0;
     }
-    return bounded_cost;
+
+    if(token_len < 7) {
+        // 2-typos are enabled only at token length of 7 chars
+        return std::min<int>(max_cost, 1);
+    }
+
+    return std::min<int>(max_cost, 2);
 }
 
 void Index::log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const {
