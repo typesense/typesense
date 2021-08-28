@@ -789,8 +789,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
-    const size_t combination_limit = exhaustive_search ? 10000 : 10;
-
     Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
                                                           sort_fields, num_typos,
                                                           static_cast<size_t>(std::stol(req_params[PER_PAGE])),
@@ -815,7 +813,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           pre_segmented_query,
                                                           enable_overrides,
                                                           req_params[HIGHLIGHT_FIELDS],
-                                                          combination_limit
+                                                          exhaustive_search
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

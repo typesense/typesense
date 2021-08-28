@@ -1353,7 +1353,7 @@ void Index::run_search(search_args* search_params) {
            search_params->group_limit, search_params->group_by_fields,
            search_params->default_sorting_field,
            search_params->prioritize_exact_match,
-           search_params->combination_limit);
+           search_params->exhaustive_search);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1879,7 +1879,7 @@ void Index::search_field(const uint8_t & field_id,
                          const token_ordering token_order, const bool prefix,
                          const size_t drop_tokens_threshold,
                          const size_t typo_tokens_threshold,
-                         const size_t combination_limit) const {
+                         const bool exhaustive_search) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -1890,6 +1890,8 @@ void Index::search_field(const uint8_t & field_id,
         // disable fuzzy trie traversal for non-english locales
         max_cost = 0;
     }
+
+    size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
@@ -1974,7 +1976,7 @@ void Index::search_field(const uint8_t & field_id,
                     if(token_to_costs[token_index].empty()) {
                         // we can try to drop the token and search with remaining tokens
 
-                        if(field_num_results >= drop_tokens_threshold) {
+                        if(!exhaustive_search && field_num_results >= drop_tokens_threshold) {
                             // but if drop_tokens_threshold is breached, we are done
                             return ;
                         }
@@ -2007,7 +2009,7 @@ void Index::search_field(const uint8_t & field_id,
 
         resume_typo_loop:
 
-        if(field_num_results >= typo_tokens_threshold) {
+        if(!exhaustive_search && field_num_results >= typo_tokens_threshold) {
             // if typo threshold is breached, we are done
             return ;
         }
@@ -2019,7 +2021,7 @@ void Index::search_field(const uint8_t & field_id,
     if(!query_tokens.empty() && num_tokens_dropped < query_tokens.size()) {
         // Drop tokens from right until (len/2 + 1), and then from left until (len/2 + 1)
 
-        if(field_num_results >= drop_tokens_threshold) {
+        if(!exhaustive_search && field_num_results >= drop_tokens_threshold) {
             // if drop_tokens_threshold is breached, we are done
             return ;
         }
@@ -2051,8 +2053,6 @@ void Index::search_field(const uint8_t & field_id,
 }
 
 int Index::get_bounded_typo_cost(const size_t max_cost, const size_t token_len) {
-    int bounded_cost = max_cost;
-
     if(token_len < 4) {
         // typo correction is disabled for small tokens
         return 0;
