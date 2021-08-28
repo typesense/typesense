@@ -463,9 +463,9 @@ TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
     }
 
     std::vector<std::vector<std::string>> records = {
-        {"Ayxha Beta"},
-        {"Alpha Beta"},
         {"Alppha Beta"},
+        {"Alpha Beta"},
+        {"Alphas Beta"},
     };
 
     for(size_t i=0; i<records.size(); i++) {

@@ -363,13 +363,14 @@ TEST_F(CollectionTest, QueryWithTypo) {
     }
 
     results.clear();
-    results = collection->search("fer thx", query_fields, "", facets, sort_fields, {1}, 3,
+    results = collection->search("lauxnch rcket", query_fields, "", facets, sort_fields, {1}, 3,
                                  1, FREQUENCY,
                                  {false}, 10,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
-    ids = {"1", "10", "13"};
+
+    ids = {"8", "1", "17"};
 
     ASSERT_EQ(3, results["hits"].size());
 
@@ -442,15 +443,15 @@ TEST_F(CollectionTest, TypoTokenRankedByScoreAndFrequency) {
 }
 
 TEST_F(CollectionTest, TextContainingAnActualTypo) {
-    // A line contains "ISX" but not "what" - need to ensure that correction to "ISS what" happens
+    // A line contains "ISSX" but not "what" - need to ensure that correction to "ISSS what" happens
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("ISX what", query_fields, "", facets, sort_fields, {1}, 4, 1, FREQUENCY, {false},
+    nlohmann::json results = collection->search("ISSX what", query_fields, "", facets, sort_fields, {1}, 4, 1, FREQUENCY, {false},
                                                10, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                                                10, "", 30, 5, "", 10).get();
     ASSERT_EQ(4, results["hits"].size());
-    ASSERT_EQ(13, results["found"].get<uint32_t>());
+    ASSERT_EQ(11, results["found"].get<uint32_t>());
 
-    std::vector<std::string> ids = {"8", "19", "6", "21"};
+    std::vector<std::string> ids = {"19", "6", "21", "22"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -460,14 +461,15 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     }
 
     // Record containing exact token match should appear first
-    results = collection->search("ISX", query_fields, "", facets, sort_fields, {1}, 10, 1, FREQUENCY, {false}, 10,
+    results = collection->search("ISSX", query_fields, "", facets, sort_fields, {1}, 10, 1, FREQUENCY, {false}, 10,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
-    ASSERT_EQ(8, results["hits"].size());
-    ASSERT_EQ(8, results["found"].get<uint32_t>());
 
-    ids = {"20", "19", "6", "4", "3", "10", "8", "21"};
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<uint32_t>());
+
+    ids = {"20", "19", "6", "3", "21"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -3164,8 +3166,8 @@ TEST_F(CollectionTest, MultiFieldRelevance4) {
     }
 
     std::vector<std::vector<std::string>> records = {
-        {"Madras Dreams", "Chennai King"},
-        {"Madurai Express", "Madura Maddy"},
+        {"Maddras Dreams", "Chennai King"},
+        {"Maddurai Express", "Maddura Maddy"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -3179,7 +3181,7 @@ TEST_F(CollectionTest, MultiFieldRelevance4) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto results = coll1->search("madras",
+    auto results = coll1->search("maddras",
                                  {"title", "artist"}, "", {}, {}, {2}, 10, 1, FREQUENCY,
                                  {true}, 10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
