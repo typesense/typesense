@@ -218,6 +218,12 @@ struct Match {
         exact_match = 0;
 
         if(check_exact_match) {
+
+            if(distance != token_offsets.size()-1) {
+                // we can exit early and don't have to care about other requirements
+                return;
+            }
+
             int last_token_index = -1;
             size_t total_offsets = 0;
 
@@ -232,8 +238,7 @@ struct Match {
                 }
             }
 
-            if(last_token_index == int(token_offsets.size())-1 &&
-               total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
+            if(last_token_index == int(token_offsets.size())-1 && total_offsets == token_offsets.size()) {
                 exact_match = 1;
             }
         }
