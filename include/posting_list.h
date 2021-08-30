@@ -47,6 +47,7 @@ public:
         block_t* curr_block;
         uint32_t curr_index;
 
+        block_t* end_block;
 
     public:
         // uncompressed data structures for performance
@@ -54,7 +55,7 @@ public:
         uint32_t* offset_index = nullptr;
         uint32_t* offsets = nullptr;
 
-        explicit iterator_t(block_t* root);
+        explicit iterator_t(block_t* start, block_t* end);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
         [[nodiscard]] bool valid() const;
@@ -73,8 +74,7 @@ public:
 
         size_t excluded_result_ids_index = 0;
         size_t filter_ids_index = 0;
-
-        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>> array_token_positions_vec;
+        size_t index = 0;
 
         result_iter_state_t() = default;
 
@@ -130,7 +130,7 @@ public:
 
     block_t* get_root();
 
-    size_t num_blocks();
+    size_t num_blocks() const;
 
     size_t num_ids();
 
@@ -142,7 +142,7 @@ public:
 
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
-    iterator_t new_iterator();
+    iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr);
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
@@ -150,7 +150,6 @@ public:
 
     template<class T>
     static bool block_intersect(
-        const std::vector<posting_list_t*>& posting_lists,
         std::vector<posting_list_t::iterator_t>& its,
         result_iter_state_t& istate,
         T func
@@ -159,45 +158,24 @@ public:
     static bool take_id(result_iter_state_t& istate, uint32_t id);
 
     static bool get_offsets(
-        std::vector<iterator_t>& its,
+        const std::vector<iterator_t>& its,
         std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
 
-    static bool is_single_token_verbatim_match(
-        posting_list_t::iterator_t& it,
-        bool field_is_array
-    );
+    static bool is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array);
 };
 
 template<class T>
-bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting_lists,
-                                     std::vector<posting_list_t::iterator_t>& its,
-                                     result_iter_state_t& istate,
+bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& its, result_iter_state_t& istate,
                                      T func) {
 
-    if(posting_lists.empty()) {
-        return false;
-    }
-
-    if(its.empty()) {
-        its.reserve(posting_lists.size());
-
-        for(const auto& posting_list: posting_lists) {
-            its.push_back(posting_list->new_iterator());
-        }
-
-    } else {
-        // already in the middle of iteration: prepare for next batch
-
-    }
-
-    size_t num_lists = its.size();
-
-    switch (num_lists) {
+    switch (its.size()) {
+        case 0:
+            break;
         case 1:
             while(its[0].valid()) {
                 if(posting_list_t::take_id(istate, its[0].id())) {
-                    func(its[0].id(), its);
+                    func(its[0].id(), its, istate.index);
                 }
 
                 its[0].next();
@@ -207,7 +185,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
             while(!at_end2(its)) {
                 if(equals2(its)) {
                     if(posting_list_t::take_id(istate, its[0].id())) {
-                        func(its[0].id(), its);
+                        func(its[0].id(), its, istate.index);
                     }
 
                     advance_all2(its);
@@ -221,7 +199,7 @@ bool posting_list_t::block_intersect(const std::vector<posting_list_t*>& posting
                 if(equals(its)) {
                     //LOG(INFO) << its[0].id();
                     if(posting_list_t::take_id(istate, its[0].id())) {
-                        func(its[0].id(), its);
+                        func(its[0].id(), its, istate.index);
                     }
 
                     advance_all(its);

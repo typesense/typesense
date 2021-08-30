@@ -10,7 +10,9 @@ TEST(IndexTest, ScrubReindexDoc) {
     search_schema.emplace("cast", field("cast", field_types::STRING_ARRAY, false));
     search_schema.emplace("movie", field("movie", field_types::BOOL, false));
 
-    Index index("index", search_schema, {}, {}, {}, {});
+    ThreadPool pool(4);
+
+    Index index("index", &pool, search_schema, {}, {}, {}, {});
     nlohmann::json old_doc;
     old_doc["id"] = "1";
     old_doc["title"] = "One more thing.";
@@ -57,6 +59,8 @@ TEST(IndexTest, ScrubReindexDoc) {
     ASSERT_STREQ("1", del_doc3["id"].get<std::string>().c_str());
     ASSERT_STREQ("The Lawyer", del_doc3["title"].get<std::string>().c_str());
     ASSERT_STREQ("Bar", del_doc3["foo"].get<std::string>().c_str());
+
+    pool.shutdown();
 }
 
 TEST(IndexTest, PointInPolygon180thMeridian) {

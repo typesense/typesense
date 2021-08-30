@@ -317,8 +317,6 @@ private:
 
     const std::string default_sorting_field;
 
-    std::atomic<size_t> num_memory_shards;
-
     const float max_memory_ratio;
 
     const std::string fallback_field_type;
@@ -329,7 +327,7 @@ private:
 
     std::vector<char> token_separators;
 
-    const std::vector<Index*> indices;
+    Index* index;
 
     // methods
 
@@ -391,7 +389,7 @@ private:
                                     std::set<uint64_t>& processed_syn_hashes,
                                     std::vector<std::vector<std::string>>& results) const;
 
-    std::vector<Index *> init_indices();
+    Index* init_index();
 
     static std::vector<char> to_char_array(std::vector<std::string> strs);
 
@@ -428,7 +426,7 @@ public:
 
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
-               const std::string& default_sorting_field, const size_t num_memory_shards,
+               const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators);
 
@@ -483,7 +481,7 @@ public:
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
                                const spp::sparse_hash_set<std::string> & exclude_fields);
 
-    const std::vector<Index *> &_get_indexes() const;
+    const Index* _get_index() const;
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
@@ -492,8 +490,7 @@ public:
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
-    void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
-                     size_t &num_indexed);
+    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -505,7 +502,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -554,8 +551,6 @@ public:
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value);
-
-    size_t get_num_memory_shards();
 
     size_t get_num_documents() const;
 

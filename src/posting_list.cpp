@@ -531,7 +531,7 @@ posting_list_t::block_t* posting_list_t::get_root() {
     return &root_block;
 }
 
-size_t posting_list_t::num_blocks() {
+size_t posting_list_t::num_blocks() const {
     return id_block_map.size();
 }
 
@@ -697,7 +697,7 @@ bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     return id_found_in_filter;
 }
 
-bool posting_list_t::get_offsets(std::vector<iterator_t>& its,
+bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
                                  std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos) {
 
     // Plain string format:
@@ -791,7 +791,7 @@ bool posting_list_t::get_offsets(std::vector<iterator_t>& its,
     return true;
 }
 
-bool posting_list_t::is_single_token_verbatim_match(posting_list_t::iterator_t& it, bool field_is_array) {
+bool posting_list_t::is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array) {
     block_t* curr_block = it.block();
     uint32_t curr_index = it.index();
 
@@ -864,8 +864,9 @@ bool posting_list_t::equals2(std::vector<posting_list_t::iterator_t>& its) {
     return its[0].id() == its[1].id();
 }
 
-posting_list_t::iterator_t posting_list_t::new_iterator() {
-    return posting_list_t::iterator_t(&root_block);
+posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, block_t* end_block) {
+    start_block = (start_block == nullptr) ? &root_block : start_block;
+    return posting_list_t::iterator_t(start_block, end_block);
 }
 
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
@@ -978,10 +979,10 @@ bool posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t tar
 
 /* iterator_t operations */
 
-posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root):
-        curr_block(root), curr_index(0) {
+posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* start, posting_list_t::block_t* end):
+        curr_block(start), curr_index(0), end_block(end) {
 
-    if(curr_block != nullptr) {
+    if(curr_block != end_block) {
         ids = curr_block->ids.uncompress();
         offset_index = curr_block->offset_index.uncompress();
         offsets = curr_block->offsets.uncompress();
@@ -989,7 +990,7 @@ posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* root):
 }
 
 bool posting_list_t::iterator_t::valid() const {
-    return (curr_block != nullptr) && (curr_index < curr_block->size());
+    return (curr_block != end_block) && (curr_index < curr_block->size());
 }
 
 void posting_list_t::iterator_t::next() {
@@ -1004,7 +1005,7 @@ void posting_list_t::iterator_t::next() {
 
         ids = offset_index = offsets = nullptr;
 
-        if(curr_block != nullptr) {
+        if(curr_block != end_block) {
             ids = curr_block->ids.uncompress();
             offset_index = curr_block->offset_index.uncompress();
             offsets = curr_block->offsets.uncompress();
@@ -1026,7 +1027,7 @@ posting_list_t::block_t* posting_list_t::iterator_t::block() const {
 
 void posting_list_t::iterator_t::skip_to(uint32_t id) {
     bool skipped_block = false;
-    while(curr_block != nullptr && curr_block->ids.last() < id) {
+    while(curr_block != end_block && curr_block->ids.last() < id) {
         curr_block = curr_block->next;
 
         // FIXME: remove duplication
@@ -1036,7 +1037,7 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
 
         ids = offset_index = offsets = nullptr;
 
-        if(curr_block != nullptr) {
+        if(curr_block != end_block) {
             ids = curr_block->ids.uncompress();
             offset_index = curr_block->offset_index.uncompress();
             offsets = curr_block->offsets.uncompress();
@@ -1049,7 +1050,7 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
         curr_index = 0;
     }
 
-    while(curr_block != nullptr && curr_index < curr_block->size() && this->id() < id) {
+    while(curr_block != end_block && curr_index < curr_block->size() && this->id() < id) {
         curr_index++;
     }
 }
@@ -1057,16 +1058,24 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
 posting_list_t::iterator_t::~iterator_t() {
     delete [] ids;
     ids = nullptr;
+
+    delete [] offsets;
+    offsets = nullptr;
+
+    delete [] offset_index;
+    offset_index = nullptr;
 }
 
 posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     curr_block = rhs.curr_block;
     curr_index = rhs.curr_index;
+    end_block = rhs.end_block;
     ids = rhs.ids;
     offset_index = rhs.offset_index;
     offsets = rhs.offsets;
 
     rhs.curr_block = nullptr;
+    rhs.end_block = nullptr;
     rhs.ids = nullptr;
     rhs.offset_index = nullptr;
     rhs.offsets = nullptr;

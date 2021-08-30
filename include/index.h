@@ -21,6 +21,7 @@
 #include "magic_enum.hpp"
 #include "match_score.h"
 #include "posting_list.h"
+#include "threadpool.h"
 
 struct token_t {
     size_t position;
@@ -50,7 +51,7 @@ struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
     std::vector<filter> filters;
-    std::vector<facet> facets;
+    std::vector<facet>& facets;
     std::map<size_t, std::map<size_t, uint32_t>> included_ids;
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by> sort_fields_std;
@@ -69,6 +70,8 @@ struct search_args {
     bool prioritize_exact_match;
     size_t all_result_ids_len;
     bool exhaustive_search;
+    size_t concurrency;
+
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
     Topster* topster;
@@ -76,13 +79,10 @@ struct search_args {
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
-    search_args() {
-
-    }
-
     search_args(std::vector<query_tokens_t> field_query_tokens,
                 std::vector<search_field_t> search_fields, std::vector<filter> filters,
-                std::vector<facet> facets, std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
+                std::vector<facet>& facets,
+                std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
                 const std::vector<bool>& prefixes,
@@ -90,7 +90,8 @@ struct search_args {
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
-                bool exhaustive_search):
+                bool exhaustive_search,
+                size_t concurrency):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -99,7 +100,7 @@ struct search_args {
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
-            exhaustive_search(exhaustive_search) {
+            exhaustive_search(exhaustive_search), concurrency(concurrency) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -161,6 +162,8 @@ struct index_record {
 class Index {
 private:
     mutable std::shared_mutex mutex;
+
+    ThreadPool* thread_pool;
 
     const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
 
@@ -230,6 +233,7 @@ private:
                       const size_t group_limit,
                       const std::vector<std::string>& group_by_fields,
                       bool prioritize_exact_match,
+                      size_t concurrency,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
@@ -250,7 +254,8 @@ private:
                            const size_t group_limit, const std::vector<std::string>& group_by_fields,
                            const std::vector<token_t>& query_tokens,
                            bool prioritize_exact_match,
-                           size_t combination_limit) const;
+                           size_t combination_limit,
+                           size_t concurrency) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
@@ -316,8 +321,11 @@ public:
 
     Index() = delete;
 
-    Index(const std::string name, const std::unordered_map<std::string, field> & search_schema,
-          std::map<std::string, field> facet_schema, std::unordered_map<std::string, field> sort_schema,
+    Index(const std::string& name,
+          ThreadPool* thread_pool,
+          const std::unordered_map<std::string, field>& search_schema,
+          const std::map<std::string, field>& facet_schema,
+          const std::unordered_map<std::string, field>& sort_schema,
           const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators);
 
     ~Index();
@@ -341,7 +349,7 @@ public:
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        bool prioritize_exact_match,
                        bool single_exact_query_token,
-                       std::vector<posting_list_t::iterator_t>& posting_lists) const;
+                       const std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
 
@@ -385,7 +393,8 @@ public:
                 const std::vector<std::string>& group_by_fields,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
-                const size_t combination_limit) const;
+                const size_t combination_limit,
+                size_t concurrency) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 

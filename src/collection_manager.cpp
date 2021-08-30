@@ -72,7 +72,6 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             store,
                                             fields,
                                             default_sorting_field,
-                                            num_memory_shards,
                                             max_memory_ratio,
                                             fallback_field_type,
                                             symbols_to_index,
@@ -271,7 +270,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field, num_memory_shards,
+                                                default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
                                                 symbols_to_index, token_separators);
     next_collection_id++;
@@ -1032,11 +1031,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    std::vector<std::vector<index_record>> iter_batch;
-
-    for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-        iter_batch.emplace_back(std::vector<index_record>());
-    }
+    std::vector<index_record> index_records;
 
     size_t num_found_docs = 0;
     size_t num_valid_docs = 0;
@@ -1059,7 +1054,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         num_valid_docs++;
 
-        iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+        index_records.emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
 
         // Peek and check for last record right here so that we handle batched indexing correctly
         // Without doing this, the "last batch" would have to be indexed outside the loop.
@@ -1067,27 +1062,21 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
         // batch must match atleast the number of shards
-        const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
+        const size_t batch_size = 1;
 
         if((num_valid_docs % batch_size == 0) || last_record) {
-            std::vector<size_t> indexed_counts;
-            indexed_counts.reserve(iter_batch.size());
+            size_t num_records = index_records.size();
+            size_t num_indexed = collection->batch_index_in_memory(index_records);
 
-            collection->par_index_in_memory(iter_batch, indexed_counts);
-
-            for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-                size_t num_records = iter_batch[i].size();
-                size_t num_indexed = indexed_counts[i];
-
-                if(num_indexed != num_records) {
-                    const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                    if(!index_error_op.ok()) {
-                        return Option<bool>(false, index_error_op.get());
-                    }
+            if(num_indexed != num_records) {
+                const Option<std::string> & index_error_op = get_first_index_error(index_records);
+                if(!index_error_op.ok()) {
+                    return Option<bool>(false, index_error_op.get());
                 }
-                iter_batch[i].clear();
-                num_indexed_docs += num_indexed;
             }
+
+            index_records.clear();
+            num_indexed_docs += num_indexed;
         }
     }
 

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <vector>
 #include "posting_list.h"
+#include "threadpool.h"
 
 #define IS_COMPACT_POSTING(x) (((uintptr_t)x & 1))
 #define SET_COMPACT_POSTING(x) ((void*)((uintptr_t)x | 1))
@@ -48,21 +49,24 @@ private:
 public:
 
     struct block_intersector_t {
-        std::vector<posting_list_t::iterator_t> its;
         std::vector<posting_list_t*> plists;
         std::vector<uint32_t> expanded_plist_indices;
         posting_list_t::result_iter_state_t& iter_state;
+        ThreadPool* thread_pool;
+        size_t parallelize_min_ids;
 
         block_intersector_t(const std::vector<void*>& raw_posting_lists,
-                            posting_list_t::result_iter_state_t& iter_state):
-                            iter_state(iter_state) {
+                            posting_list_t::result_iter_state_t& iter_state,
+                            ThreadPool* thread_pool,
+                            size_t parallelize_min_ids = 1):
+                            iter_state(iter_state), thread_pool(thread_pool),
+                            parallelize_min_ids(parallelize_min_ids) {
 
             to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
 
-            its.reserve(plists.size());
-            for(const auto& posting_list: plists) {
-                its.push_back(posting_list->new_iterator());
-            }
+            std::sort(this->plists.begin(), this->plists.end(), [](posting_list_t* a, posting_list_t* b) {
+                return a->num_blocks() < b->num_blocks();
+            });
         }
 
         ~block_intersector_t() {
@@ -72,7 +76,9 @@ public:
         }
 
         template<class T>
-        bool intersect(T func);
+        bool intersect(T func, size_t concurrency=4);
+
+        void split_lists(size_t concurrency, std::vector<std::vector<posting_list_t::iterator_t>>& partial_its_vec);
     };
 
     static void upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets);
@@ -101,7 +107,86 @@ public:
 };
 
 template<class T>
-bool posting_t::block_intersector_t::intersect(T func) {
-    posting_list_t::block_intersect<T>(plists, its, iter_state, func);
+bool posting_t::block_intersector_t::intersect(T func, size_t concurrency) {
+    // Split posting lists into N chunks and intersect them in-parallel
+    // 1. Sort posting lists by number of blocks
+    // 2. Iterate on the posting list with least number of blocks on N-block windows
+    // 3. On each window, pick the last block's last ID and identify blocks from other lists containing that ID
+    // 4. Construct N groups of iterators this way (the last block must overlap on both sides of the window)
+
+    if(plists.empty()) {
+        return true;
+    }
+
+    if(plists[0]->num_ids() < parallelize_min_ids) {
+        std::vector<posting_list_t::iterator_t> its;
+        its.reserve(plists.size());
+
+        for(const auto& posting_list: plists) {
+            its.push_back(posting_list->new_iterator());
+        }
+
+        posting_list_t::block_intersect<T>(its, iter_state, func);
+        return true;
+    }
+
+    std::vector<std::vector<posting_list_t::iterator_t>> partial_its_vec(concurrency);
+    split_lists(concurrency, partial_its_vec);
+
+    /*for(size_t i = 0; i < partial_its_vec.size(); i++) {
+        auto& partial_its = partial_its_vec[i];
+
+        if (partial_its.empty()) {
+            continue;
+        }
+
+        LOG(INFO) << "Vec " << i;
+
+        for (auto& it: partial_its) {
+            while (it.valid()) {
+                LOG(INFO) << it.id();
+                it.next();
+            }
+
+            LOG(INFO) << "---";
+        }
+    }*/
+
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+    size_t num_non_empty = 0;
+
+    for(size_t i = 0; i < partial_its_vec.size(); i++) {
+        auto& partial_its = partial_its_vec[i];
+
+        if(partial_its.empty()) {
+            continue;
+        }
+
+        num_non_empty++;
+
+        /*for(auto& it: partial_its) {
+            while(it.valid()) {
+                LOG(INFO) << it.id();
+                it.next();
+            }
+
+            LOG(INFO) << "---";
+        }*/
+
+        thread_pool->enqueue([this, i, &func, &partial_its, &num_processed, &m_process, &cv_process]() {
+            auto iter_state_copy = iter_state;
+            iter_state_copy.index = i;
+            posting_list_t::block_intersect<T>(partial_its, iter_state_copy, func);
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
+        });
+    }
+
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == num_non_empty; });
+
     return true;
 }
