@@ -165,11 +165,11 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
     // without a default sorting field, matches should be sorted by (text_match, seq_id)
     auto results = coll1->search("rocket", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
 
-    ASSERT_EQ(5, results["found"]);
-    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(24, results["out_of"]);
 
-    std::vector<std::string> ids = {"16", "15", "7", "0", "22"};
+    std::vector<std::string> ids = {"16", "15", "7", "0"};
 
     for(size_t i=0; i < results["hits"].size(); i++) {
         ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"].get<std::string>());

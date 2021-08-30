@@ -417,10 +417,10 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
     ASSERT_STREQ("brand", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
 
     ASSERT_EQ(2, (int) res["facet_counts"][0]["counts"][0]["count"]);
-    ASSERT_STREQ("Beta", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Xorp", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
 
     ASSERT_EQ(2, (int) res["facet_counts"][0]["counts"][1]["count"]);
-    ASSERT_STREQ("Xorp", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("Beta", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
 
     ASSERT_EQ(2, (int) res["facet_counts"][0]["counts"][2]["count"]);
     ASSERT_STREQ("Omega", res["facet_counts"][0]["counts"][2]["value"].get<std::string>().c_str());

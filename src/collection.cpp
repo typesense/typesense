@@ -43,27 +43,23 @@ struct match_index_t {
 
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
-                       const std::string& default_sorting_field, const size_t num_memory_shards,
+                       const std::string& default_sorting_field,
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
         fields(fields), default_sorting_field(default_sorting_field),
-        num_memory_shards(num_memory_shards),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
-        indices(init_indices()) {
+        index(init_index()) {
 
     this->num_documents = 0;
 }
 
 Collection::~Collection() {
     std::unique_lock lock(mutex);
-
-    for(size_t i = 0; i < indices.size(); i++) {
-        delete indices[i];
-    }
+    delete index;
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -151,7 +147,6 @@ nlohmann::json Collection::get_summary_json() const {
     nlohmann::json json_response;
 
     json_response["name"] = name;
-    json_response["num_memory_shards"] = num_memory_shards.load();
     json_response["num_documents"] = num_documents.load();
     json_response["created_at"] = created_at.load();
 
@@ -200,11 +195,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                     const index_operation_t& operation, const std::string& id,
                                     const DIRTY_VALUES& dirty_values) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
-    std::vector<std::vector<index_record>> iter_batch;
-
-    for(size_t i = 0; i < num_memory_shards; i++) {
-        iter_batch.emplace_back(std::vector<index_record>());
-    }
+    std::vector<index_record> index_records;
 
     const size_t index_batch_size = 1000;
     size_t num_indexed = 0;
@@ -254,18 +245,17 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         }
         */
 
-        iter_batch[seq_id % this->get_num_memory_shards()].emplace_back(record);
+        index_records.emplace_back(record);
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
-            batch_index(iter_batch, json_lines, num_indexed);
-            for(size_t i_index = 0; i_index < get_num_memory_shards(); i_index++) {
-                // to return the document for the single doc add cases
-                if(iter_batch[i_index].size() == 1) {
-                    const auto& rec = iter_batch[i_index][0];
-                    document = rec.is_update ? rec.new_doc : rec.doc;
-                }
-                iter_batch[i_index].clear();
+            batch_index(index_records, json_lines, num_indexed);
+
+            // to return the document for the single doc add cases
+            if(index_records.size() == 1) {
+                const auto& rec = index_records[0];
+                document = rec.is_update ? rec.new_doc : rec.doc;
             }
+            index_records.clear();
         }
     }
 
@@ -280,70 +270,67 @@ bool Collection::is_exceeding_memory_threshold() const {
     return SystemMetrics::used_memory_ratio() > max_memory_ratio;
 }
 
-void Collection::batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
+void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
                              size_t &num_indexed) {
-    std::vector<size_t> indexed_counts;
-    indexed_counts.reserve(index_batches.size());
-    par_index_in_memory(index_batches, indexed_counts);
+
+    batch_index_in_memory(index_records);
 
     // store only documents that were indexed in-memory successfully
-    for(auto& index_batch: index_batches) {
-        for(auto& index_record: index_batch) {
-            nlohmann::json res;
+    for(auto& index_record: index_records) {
+        nlohmann::json res;
 
-            if(index_record.indexed.ok()) {
-                if(index_record.is_update) {
-                    const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-                    bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
+        if(index_record.indexed.ok()) {
+            if(index_record.is_update) {
+                const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+                bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
-                    if(!write_ok) {
-                        // we will attempt to reindex the old doc on a best-effort basis
-                        LOG(ERROR) << "Update to disk failed. Will restore old document";
-                        remove_document(index_record.new_doc, index_record.seq_id, false);
-                        index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
-                        index_record.index_failure(500, "Could not write to on-disk storage.");
-                    } else {
-                        num_indexed++;
-                        index_record.index_success();
-                    }
-
+                if(!write_ok) {
+                    // we will attempt to reindex the old doc on a best-effort basis
+                    LOG(ERROR) << "Update to disk failed. Will restore old document";
+                    remove_document(index_record.new_doc, index_record.seq_id, false);
+                    index_in_memory(index_record.old_doc, index_record.seq_id, index_record.operation, index_record.dirty_values);
+                    index_record.index_failure(500, "Could not write to on-disk storage.");
                 } else {
-                    const std::string& seq_id_str = std::to_string(index_record.seq_id);
-                    const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
-                                                                               nlohmann::detail::error_handler_t::ignore);
-
-                    rocksdb::WriteBatch batch;
-                    batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
-                    batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
-                    bool write_ok = store->batch_write(batch);
-
-                    if(!write_ok) {
-                        // remove from in-memory store to keep the state synced
-                        LOG(ERROR) << "Write to disk failed. Will restore old document";
-                        remove_document(index_record.doc, index_record.seq_id, false);
-                        index_record.index_failure(500, "Could not write to on-disk storage.");
-                    } else {
-                        num_indexed++;
-                        index_record.index_success();
-                    }
+                    num_indexed++;
+                    index_record.index_success();
                 }
 
-                res["success"] = index_record.indexed.ok();
-                if(!index_record.indexed.ok()) {
-                    res["document"] = json_out[index_record.position];
-                    res["error"] = index_record.indexed.error();
-                    res["code"] = index_record.indexed.code();
-                }
             } else {
-                res["success"] = false;
+                const std::string& seq_id_str = std::to_string(index_record.seq_id);
+                const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
+                                                                           nlohmann::detail::error_handler_t::ignore);
+
+                rocksdb::WriteBatch batch;
+                batch.Put(get_doc_id_key(index_record.doc["id"]), seq_id_str);
+                batch.Put(get_seq_id_key(index_record.seq_id), serialized_json);
+                bool write_ok = store->batch_write(batch);
+
+                if(!write_ok) {
+                    // remove from in-memory store to keep the state synced
+                    LOG(ERROR) << "Write to disk failed. Will restore old document";
+                    remove_document(index_record.doc, index_record.seq_id, false);
+                    index_record.index_failure(500, "Could not write to on-disk storage.");
+                } else {
+                    num_indexed++;
+                    index_record.index_success();
+                }
+            }
+
+            res["success"] = index_record.indexed.ok();
+            if(!index_record.indexed.ok()) {
                 res["document"] = json_out[index_record.position];
                 res["error"] = index_record.indexed.error();
                 res["code"] = index_record.indexed.code();
             }
-
-            json_out[index_record.position] = res.dump(-1, ' ', false,
-                                                       nlohmann::detail::error_handler_t::ignore);
+        } else {
+            res["success"] = false;
+            res["document"] = json_out[index_record.position];
+            res["error"] = index_record.indexed.error();
+            res["code"] = index_record.indexed.code();
         }
+
+        json_out[index_record.position] = res.dump(-1, ' ', false,
+                                                   nlohmann::detail::error_handler_t::ignore);
     }
 }
 
@@ -359,55 +346,17 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
         return validation_op;
     }
 
-    Index* index = indices[seq_id % num_memory_shards];
     index->index_in_memory(document, seq_id, default_sorting_field, op);
 
     num_documents += 1;
     return Option<>(200);
 }
 
-size_t Collection::par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch,
-                                       std::vector<size_t>& indexed_counts) {
+size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records) {
     std::unique_lock lock(mutex);
-
-    size_t num_processed = 0;
-    std::mutex m_process;
-    std::condition_variable cv_process;
-
-    std::vector<size_t> num_indexed_vec(indices.size());
-
-    for(size_t index_id = 0; index_id < indices.size(); index_id++) {
-        Index* index = indices[index_id];
-        auto parent_write_log_index = write_log_index;
-
-        CollectionManager::get_instance().get_thread_pool()->enqueue(
-            [parent_write_log_index, index, index_id, &num_indexed_vec, &iter_batch, this,
-            &m_process, &num_processed, &cv_process]() {
-
-            // ensures that a crash can be traced back to the write log index
-            write_log_index = parent_write_log_index;
-
-            size_t num_indexed = Index::batch_memory_index(index, std::ref(iter_batch[index_id]), default_sorting_field,
-                                      search_schema, facet_schema, fallback_field_type);
-            std::unique_lock<std::mutex> lock(m_process);
-            num_indexed_vec[index_id] = num_indexed;
-            num_processed++;
-            cv_process.notify_one();
-        });
-    }
-
-    const size_t num_indices = indices.size();
-    std::unique_lock<std::mutex> lock_process(m_process);
-    cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
-
-    size_t num_indexed = 0;
-
-    for(size_t index_id = 0; index_id < indices.size(); index_id++) {
-        num_documents += num_indexed_vec[index_id];
-        num_indexed += num_indexed_vec[index_id];
-        indexed_counts[index_id] = num_indexed_vec[index_id];
-    }
-
+    size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
+                                                   search_schema, facet_schema, fallback_field_type);
+    num_documents += num_indexed;
     return num_indexed;
 }
 
@@ -591,8 +540,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
     */
 
-    std::map<uint32_t, std::map<size_t, std::map<size_t, uint32_t>>> index_to_included_ids;
-    std::map<uint32_t, std::vector<uint32_t>> index_to_excluded_ids;
+    std::map<size_t, std::map<size_t, uint32_t>> included_ids;
 
     for(const auto& pos_ids: include_ids) {
         size_t outer_pos = pos_ids.first;
@@ -600,15 +548,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
         for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
             auto seq_id = pos_ids.second[inner_pos];
-            auto index_id = (seq_id % num_memory_shards);
-            index_to_included_ids[index_id][outer_pos][inner_pos] = seq_id;
+            included_ids[outer_pos][inner_pos] = seq_id;
             //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
         }
-    }
-
-    for(auto seq_id: excluded_ids) {
-        auto index_id = (seq_id % num_memory_shards);
-        index_to_excluded_ids[index_id].push_back(seq_id);
     }
 
     // process weights for search fields
@@ -903,7 +845,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         }
     }
 
-    std::vector<std::vector<art_leaf*>> searched_queries;  // search queries used for generating the results
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
@@ -934,95 +875,27 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // search all indices
-    std::vector<search_args*> search_args_vec;
     size_t num_processed = 0;
     std::mutex m_process;
     std::condition_variable cv_process;
 
     size_t index_id = 0;
-    for(Index* index: indices) {
-        search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                   filters, facets, index_to_included_ids[index_id],
-                                   index_to_excluded_ids[index_id],
-                                   sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
-                                   per_page, page, token_order, prefixes,
-                                   drop_tokens_threshold, typo_tokens_threshold,
-                                   group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
-                                   exhaustive_search);
+    search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
+                               filters, facets, included_ids, excluded_ids,
+                               sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
+                               per_page, page, token_order, prefixes,
+                               drop_tokens_threshold, typo_tokens_threshold,
+                               group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
+                               exhaustive_search,
+                               4);
 
-        search_args_vec.push_back(search_params);
-
-        CollectionManager::get_instance().get_thread_pool()->enqueue(
-                [index, search_params, &m_process, &num_processed, &cv_process]() {
-            index->run_search(search_params);
-            std::unique_lock<std::mutex> lock(m_process);
-            num_processed++;
-            cv_process.notify_one();
-        });
-
-        index_id++;
-    }
-
-    const size_t num_indices = indices.size();
-    std::unique_lock<std::mutex> lock_process(m_process);
-    cv_process.wait(lock_process, [&](){ return num_processed == num_indices; });
+    index->run_search(search_params);
 
     // for grouping we have to re-aggregate
 
-    const size_t topster_size = std::max((size_t)1, max_hits);
-    Topster topster(topster_size, group_limit);
-    Topster curated_topster(topster_size, group_limit);
-
-    for(const search_args* search_params: search_args_vec) {
-        aggregate_topster(searched_queries.size(), topster, search_params->topster);
-        aggregate_topster(searched_queries.size(), curated_topster, search_params->curated_topster);
-
-        searched_queries.insert(searched_queries.end(), search_params->searched_queries.begin(),
-                                search_params->searched_queries.end());
-
-        for(size_t fi = 0; fi < search_params->facets.size(); fi++) {
-            auto & this_facet = search_params->facets[fi];
-            auto & acc_facet = facets[fi];
-
-            for(auto & facet_kv: this_facet.result_map) {
-                if(search_params->group_limit) {
-                    // we have to add all group sets
-                    acc_facet.result_map[facet_kv.first].groups.insert(
-                        facet_kv.second.groups.begin(), facet_kv.second.groups.end()
-                    );
-                } else {
-                    size_t count = 0;
-                    if(acc_facet.result_map.count(facet_kv.first) == 0) {
-                        // not found, so set it
-                        count = facet_kv.second.count;
-                    } else {
-                        count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
-                    }
-                    acc_facet.result_map[facet_kv.first].count = count;
-                }
-
-                acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
-                acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
-            }
-
-            if(this_facet.stats.fvcount != 0) {
-                acc_facet.stats.fvcount += this_facet.stats.fvcount;
-                acc_facet.stats.fvsum += this_facet.stats.fvsum;
-                acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
-                acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
-            }
-        }
-
-        if(group_limit) {
-            groups_processed.insert(
-                search_params->groups_processed.begin(),
-                search_params->groups_processed.end()
-            );
-        } else {
-            total_found += search_params->all_result_ids_len;
-        }
-    }
+    Topster& topster = *search_params->topster;
+    Topster& curated_topster = *search_params->curated_topster;
+    const std::vector<std::vector<art_leaf*>>& searched_queries = search_params->searched_queries;
 
     topster.sort();
     curated_topster.sort();
@@ -1038,7 +911,9 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
             }
         }
 
-        total_found = groups_processed.size() + override_result_kvs.size();
+        total_found = search_params->groups_processed.size() + override_result_kvs.size();
+    } else {
+        total_found = search_params->all_result_ids_len;
     }
 
     // All fields are sorted descending
@@ -1344,9 +1219,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     }
 
     // free search params
-    for(auto search_params: search_args_vec) {
-        delete search_params;
-    }
+    delete search_params;
 
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["collection_name"] = name;
@@ -1465,11 +1338,9 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
         return filter_op;
     }
 
-    for(auto& index: indices) {
-        uint32_t* filter_ids = nullptr;
-        size_t filter_ids_len = index->do_filtering(&filter_ids, filters);
-        index_ids.emplace_back(filter_ids_len, filter_ids);
-    }
+    uint32_t* filter_ids = nullptr;
+    size_t filter_ids_len = index->do_filtering(&filter_ids, filters);
+    index_ids.emplace_back(filter_ids_len, filter_ids);
 
     return Option<bool>(true);
 }
@@ -1569,7 +1440,6 @@ void Collection::highlight_result(const field &search_field,
 
             // Must search for the token string fresh on that field for the given document since `token_leaf`
             // is from the best matched field and need not be present in other fields of a document.
-            Index* index = indices[field_order_kv->key % num_memory_shards];
             art_leaf* actual_leaf = index->get_token_leaf(search_field.name, &token_leaf->key[0], token_leaf->key_len);
 
             if(actual_leaf != nullptr && posting_t::contains(actual_leaf->values, field_order_kv->key)) {
@@ -1589,7 +1459,6 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        Index* index = indices[field_order_kv->key % num_memory_shards];
         art_leaf *actual_leaf = index->get_token_leaf(search_field.name,
                                                       reinterpret_cast<const unsigned char *>(q_token.c_str()),
                                                       q_token.size() + 1);
@@ -1879,7 +1748,6 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
     {
         std::unique_lock lock(mutex);
 
-        Index* index = indices[seq_id % num_memory_shards];
         index->remove(seq_id, document, false);
         num_documents -= 1;
     }
@@ -1975,10 +1843,6 @@ Option<uint32_t> Collection::remove_override(const std::string & id) {
     }
 
     return Option<uint32_t>(404, "Could not find that `id`.");
-}
-
-size_t Collection::get_num_memory_shards() {
-    return num_memory_shards.load();
 }
 
 uint32_t Collection::get_seq_id_from_key(const std::string & key) {
@@ -2127,8 +1991,8 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
     return Option<bool>(true);
 }
 
-const std::vector<Index *> &Collection::_get_indexes() const {
-    return indices;
+const Index* Collection::_get_index() const {
+    return index;
 }
 
 Option<bool> Collection::parse_geopoint_filter_value(std::string& raw_value,
@@ -2755,9 +2619,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                 return Option<bool>(500, "Could not persist collection meta to store.");
             }
 
-            for(auto index: indices) {
-                index->refresh_schemas(new_fields);
-            }
+            index->refresh_schemas(new_fields);
 
         } catch(...) {
             return Option<bool>(500, "Unable to parse collection meta.");
@@ -2767,9 +2629,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
     return Option<bool>(true);
 }
 
-std::vector<Index *> Collection::init_indices() {
-    std::vector<Index*> index_list;
-
+Index* Collection::init_index() {
     for(const field& field: fields) {
         if(field.is_dynamic()) {
             // regexp fields are treated as dynamic fields
@@ -2788,13 +2648,10 @@ std::vector<Index *> Collection::init_indices() {
         }
     }
 
-    for(size_t i = 0; i < num_memory_shards; i++) {
-        Index* index = new Index(name+std::to_string(i), search_schema, facet_schema, sort_schema,
-                                 symbols_to_index, token_separators);
-        index_list.push_back(index);
-    }
-
-    return index_list;
+    return new Index(name+std::to_string(0),
+                     CollectionManager::get_instance().get_thread_pool(),
+                     search_schema, facet_schema, sort_schema,
+                     symbols_to_index, token_separators);
 }
 
 DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) const {

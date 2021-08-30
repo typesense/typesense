@@ -564,7 +564,7 @@ struct facet {
     std::unordered_map<uint64_t, facet_count_t> result_map;
     facet_stats_t stats;
 
-    facet(const std::string & field_name): field_name(field_name) {
+    explicit facet(const std::string & field_name): field_name(field_name) {
 
     }
 };

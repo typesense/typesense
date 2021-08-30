@@ -957,7 +957,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().count("post"));
 
     auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
@@ -972,7 +972,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto update_op = coll1->add(doc.dump(), UPDATE, "0");
     ASSERT_TRUE(add_op.ok());
 
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().count("post"));
 
     auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ("Some post updated.", res["hits"][0]["document"]["post"].get<std::string>());

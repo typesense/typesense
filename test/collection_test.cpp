@@ -284,6 +284,23 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
 
     // with 2 indexed words
     results = collection->search("from DoesNotExist insTruments", query_fields, "", facets, sort_fields, {1}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ids = {"2"};
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        nlohmann::json result = results["hits"].at(i);
+        std::string id = ids.at(i);
+        std::string result_id = result["document"]["id"];
+        ASSERT_STREQ(id.c_str(), result_id.c_str());
+    }
+
+    // exhaustive search should throw more results
+    results = collection->search("from DoesNotExist insTruments", query_fields, "", facets, sort_fields, {1}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000,
+                                 true, false, true, "", true).get();
     ASSERT_EQ(2, results["hits"].size());
     ids = {"2", "17"};
 
@@ -941,9 +958,9 @@ TEST_F(CollectionTest, MultipleFields) {
 
     query_fields = {"cast"};
     results = coll_mul_fields->search("chris pine", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(1, results["hits"].size());
 
-    ids = {"7", "6", "1"};
+    ids = {"7"};
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
         std::string result_id = result["document"]["id"];
@@ -1873,7 +1890,7 @@ TEST_F(CollectionTest, DeletionOfDocumentSingularFields) {
     ASSERT_EQ(0, res["found"].get<int32_t>());
 
     // also assert against the actual index
-    Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
+    const Index *index = coll1->_get_index();  // seq id will always be zero for first document
     auto search_index = index->_get_search_index();
     auto numerical_index = index->_get_numerical_index();
 
@@ -1939,7 +1956,7 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
     ASSERT_EQ(0, res["found"].get<int32_t>());
 
     // also assert against the actual index
-    Index *index = coll1->_get_indexes()[0];  // seq id will always be zero for first document
+    const Index *index = coll1->_get_index();  // seq id will always be zero for first document
     auto search_index = index->_get_search_index();
     auto numerical_index = index->_get_numerical_index();
 
@@ -2010,7 +2027,8 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
     ASSERT_TRUE(res_op.ok());
     results = res_op.get();
-    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_EQ(1, results["hits"].size());
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
@@ -2279,7 +2297,6 @@ TEST_F(CollectionTest, UpdateDocument) {
     // upserting without a mandatory field should be an error
     partial_doc = doc;
     partial_doc.erase("title");
-    LOG(INFO) << partial_doc.dump();
     add_op = coll1->add(partial_doc.dump(), UPSERT);
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `title` has been declared in the schema, but is not found in the document.", add_op.error());
@@ -2698,9 +2715,9 @@ TEST_F(CollectionTest, OptionalFieldCanBeNull) {
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    ASSERT_EQ(2, coll1->_get_indexes()[0]->_get_search_index().at("title")->size);
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("artist")->size);
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("genres")->size);
+    ASSERT_EQ(2, coll1->_get_index()->_get_search_index().at("title")->size);
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().at("artist")->size);
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().at("genres")->size);
 
     auto results = coll1->search("beat",
                                  {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
@@ -2744,11 +2761,11 @@ TEST_F(CollectionTest, EmptyStringNotIndexed) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_EQ(2, coll1->_get_indexes()[0]->_get_search_index().at("title")->size);
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("artist")->size);
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("launch_year")->size);
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().at("genres")->size);
-    ASSERT_EQ(1, coll1->_get_indexes()[0]->_get_search_index().at("labels")->size);
+    ASSERT_EQ(2, coll1->_get_index()->_get_search_index().at("title")->size);
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().at("artist")->size);
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().at("launch_year")->size);
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().at("genres")->size);
+    ASSERT_EQ(1, coll1->_get_index()->_get_search_index().at("labels")->size);
 
     collectionManager.drop_collection("coll1");
 }
