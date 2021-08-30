@@ -1261,7 +1261,8 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
             return 1;
         }
     } else {
-        cost = cost_row[key_len];
+        // `key_len` can't exceed `term_len` since length of `cost_row` is `term_len + 1`
+        cost = cost_row[std::min(key_len, term_len)];
     }
 
     int bounded_cost = (max_cost == 0) ? max_cost : (max_cost + 1);
