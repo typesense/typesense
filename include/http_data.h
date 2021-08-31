@@ -243,7 +243,7 @@ struct http_req {
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false) {
+                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false), log_index(0) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -254,7 +254,8 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false) {
+            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false),
+            log_index(0) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
