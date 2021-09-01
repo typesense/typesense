@@ -22,6 +22,7 @@
 
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
 
 Index::Index(const std::string& name, ThreadPool* thread_pool,
              const std::unordered_map<std::string, field> & search_schema,
@@ -1607,9 +1608,9 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
         for(size_t i = 0; i < filter_ids_length; i++) {
             const uint32_t seq_id = filter_ids[i];
             score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 0, topster, {},
-                          groups_processed, seq_id, sort_order, field_values, geopoint_indices,
-                          group_limit, group_by_fields, token_bits,
-                          prioritize_exact_match, true, plists);
+                          groups_processed, seq_id, sort_order, field_values,
+                          geopoint_indices, group_limit, group_by_fields, token_bits,
+                          false, false, plists);
         }
 
         collate_included_ids(field_query_tokens[0].q_include_tokens, field, field_id, included_ids_map, curated_topster, searched_queries);
@@ -2213,7 +2214,9 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     spp::sparse_hash_map<uint32_t, int64_t>* TEXT_MATCH_SENTINEL = &text_match_sentinel_value;
     spp::sparse_hash_map<uint32_t, int64_t>* SEQ_ID_SENTINEL = &seq_id_sentinel_value;
-    spp::sparse_hash_map<uint32_t, int64_t> geopoint_distances[3];
+    spp::sparse_hash_map<uint32_t, int64_t>* GEO_SENTINEL = &geo_sentinel_value;
+
+    int64_t geopoint_distances[3];
 
     for(auto& i: geopoint_indices) {
         spp::sparse_hash_map<uint32_t, int64_t>* geopoints = field_values[i];
@@ -2240,10 +2243,10 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
                    (dist + sort_fields[i].geo_precision - 1) % sort_fields[i].geo_precision;
         }
 
-        geopoint_distances[i].emplace(seq_id, dist);
+        geopoint_distances[i] = dist;
 
         // Swap (id -> latlong) index to (id -> distance) index
-        field_values[i] = &geopoint_distances[i];
+        field_values[i] = GEO_SENTINEL;
     }
 
     //auto begin = std::chrono::high_resolution_clock::now();
@@ -2251,7 +2254,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     uint64_t match_score = 0;
 
-    if (posting_lists.size() == 1) {
+    if (posting_lists.size() <= 1) {
         const uint8_t is_verbatim_match = uint8_t(
             prioritize_exact_match && single_exact_query_token &&
             posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
@@ -2312,10 +2315,13 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             match_score_index = 0;
         } else if (field_values[0] == SEQ_ID_SENTINEL) {
             scores[0] = seq_id;
+        } else if(field_values[0] == GEO_SENTINEL) {
+            scores[0] = geopoint_distances[0];
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
         }
+
         if (sort_order[0] == -1) {
             scores[0] = -scores[0];
         }
@@ -2327,6 +2333,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             match_score_index = 1;
         } else if (field_values[1] == SEQ_ID_SENTINEL) {
             scores[1] = seq_id;
+        } else if(field_values[1] == GEO_SENTINEL) {
+            scores[1] = geopoint_distances[1];
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -2338,17 +2346,19 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
     }
 
     if(sort_fields.size() > 2) {
-        if(field_values[2] == TEXT_MATCH_SENTINEL) {
+        if (field_values[2] == TEXT_MATCH_SENTINEL) {
             scores[2] = int64_t(match_score);
             match_score_index = 2;
         } else if (field_values[2] == SEQ_ID_SENTINEL) {
             scores[2] = seq_id;
+        } else if(field_values[2] == GEO_SENTINEL) {
+            scores[2] = geopoint_distances[2];
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
         }
 
-        if(sort_order[2] == -1) {
+        if (sort_order[2] == -1) {
             scores[2] = -scores[2];
         }
     }

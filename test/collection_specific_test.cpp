@@ -1278,4 +1278,6 @@ TEST_F(CollectionSpecificTest, TypoCorrectionWithFaceting) {
                             true, false, true, "", false).get();
 
     ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
 }

@@ -202,6 +202,7 @@ private:
 
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> seq_id_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
 
     // Internal utility functions
 
