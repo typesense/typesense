@@ -886,18 +886,12 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                   const std::set<art_leaf*>& exclude_leaves, std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
-    std::priority_queue<const art_node *, std::vector<const art_node *>,
-            decltype(&compare_art_node_score_pq)> q(compare_art_node_score_pq);
-
-    if(token_order == FREQUENCY) {
-        q = std::priority_queue<const art_node *, std::vector<const art_node *>,
-                decltype(&compare_art_node_frequency_pq)>(compare_art_node_frequency_pq);
-    }
+    std::queue<const art_node *> q;
 
     q.push(root);
 
-    while(!q.empty() && results.size() < max_results) {
-        art_node *n = (art_node *) q.top();
+    while(!q.empty() && results.size() < 10000) {
+        art_node *n = (art_node *) q.front();
         q.pop();
 
         /*if (IS_LEAF(n)) {
@@ -1446,16 +1440,22 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     //long long int time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
     //!LOG(INFO) << "Time taken for fuzz: " << time_micro << "us, size of nodes: " << nodes.size();
 
-    //auto begin = std::chrono::high_resolution_clock::now();
+    auto begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
         art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, exclude_leaves, results);
     }
 
+    size_t limit_len = std::min<size_t>(max_words, results.size());
+
     if(token_order == FREQUENCY) {
-        std::sort(results.begin(), results.end(), compare_art_leaf_frequency);
+        std::partial_sort(results.begin(), results.begin() + limit_len, results.end(), compare_art_leaf_frequency);
     } else {
-        std::sort(results.begin(), results.end(), compare_art_leaf_score);
+        std::partial_sort(results.begin(), results.begin() + limit_len, results.end(), compare_art_leaf_score);
+    }
+
+    if(results.size() > max_words) {
+        results.resize(max_words);
     }
 
     /*auto time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();

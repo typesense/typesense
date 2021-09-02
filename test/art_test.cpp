@@ -683,8 +683,8 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     art_fuzzy_search(&t, (const unsigned char *) "pltinum", strlen("pltinum"), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(2, leaves.size());
-    ASSERT_STREQ("platinumsmith", (const char *)leaves.at(0)->key);
-    ASSERT_STREQ("platinum", (const char *)leaves.at(1)->key);
+    ASSERT_STREQ("platinum", (const char *)leaves.at(0)->key);
+    ASSERT_STREQ("platinumsmith", (const char *)leaves.at(1)->key);
 
     leaves.clear();
 
@@ -734,7 +734,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
-    std::vector<const char*> words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
+    std::vector<const char*> words = {"lown", "how", "shown", "howl", "howe", "mown", "town", "sown", "own", "howk"};
     for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
         ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
     }
