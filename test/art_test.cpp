@@ -734,10 +734,12 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
-    std::vector<const char*> words = {"shown", "lown", "mown", "howl", "howe", "town", "hoon", "horn", "sown", "howk"};
+    std::set<std::string> expected_words = {"shown", "lown", "mown", "howl", "howe", "town", "hoon", "horn", "sown", "howk"};
 
     for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
-        ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
+        art_leaf*& leaf = leaves.at(leaf_index);
+        std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+        ASSERT_NE(expected_words.count(tok), 0);
     }
 
     // fuzzy prefix search
