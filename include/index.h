@@ -255,7 +255,7 @@ private:
                            const size_t group_limit, const std::vector<std::string>& group_by_fields,
                            const std::vector<token_t>& query_tokens,
                            bool prioritize_exact_match,
-                           size_t combination_limit,
+                           bool exhaustive_search,
                            size_t concurrency) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
@@ -314,7 +314,7 @@ public:
     enum {FIELD_LIMIT_NUM = 100};
 
     enum {COMBINATION_MAX_LIMIT = 10000};
-    enum {COMBINATION_MIN_LIMIT = 4};
+    enum {COMBINATION_MIN_LIMIT = 10};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
@@ -394,7 +394,7 @@ public:
                 const std::vector<std::string>& group_by_fields,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
-                const size_t combination_limit,
+                bool exhaustive_search,
                 size_t concurrency) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);

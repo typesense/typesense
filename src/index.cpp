@@ -916,7 +916,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
                               const std::vector<std::string>& group_by_fields,
                               const std::vector<token_t>& query_tokens,
                               bool prioritize_exact_match,
-                              const size_t combination_limit,
+                              const bool exhaustive_search,
                               const size_t concurrency) const {
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
@@ -944,6 +944,8 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
             }
         }
     }
+
+    size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
     for(long long n=0; n<N && n<combination_limit; ++n) {
         // every element in `query_suggestion` contains a token and its associated hits
@@ -1482,7 +1484,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    const std::vector<std::string>& group_by_fields,
                    const std::string& default_sorting_field,
                    bool prioritize_exact_match,
-                   const size_t combination_limit,
+                   const bool exhaustive_search,
                    const size_t concurrency) const {
 
     std::shared_lock lock(mutex);
@@ -1669,7 +1671,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                              field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                              field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                              token_order, field_prefix,
-                             drop_tokens_threshold, typo_tokens_threshold, combination_limit);
+                             drop_tokens_threshold, typo_tokens_threshold, exhaustive_search);
 
                 // do synonym based searches
                 for(const auto& syn_tokens: q_pos_synonyms) {
@@ -1682,7 +1684,7 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                                  field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
                                  field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                                  token_order, field_prefix,
-                                 drop_tokens_threshold, typo_tokens_threshold, combination_limit);
+                                 drop_tokens_threshold, typo_tokens_threshold, exhaustive_search);
                 }
 
                 // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
@@ -2010,8 +2012,6 @@ void Index::search_field(const uint8_t & field_id,
         max_cost = 0;
     }
 
-    size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
-
     // To prevent us from doing ART search repeatedly as we iterate through possible corrections
     spp::sparse_hash_map<std::string, std::vector<art_leaf*>> token_cost_cache;
 
@@ -2038,6 +2038,9 @@ void Index::search_field(const uint8_t & field_id,
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
+
+    const size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
+    const size_t num_fuzzy_candidates = exhaustive_search ? 10000 : 4;
 
     while(n < N && n < combination_limit) {
         // Outerloop generates combinations of [cost to max_cost] for each token
@@ -2070,7 +2073,7 @@ void Index::search_field(const uint8_t & field_id,
 
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], costs[token_index], combination_limit, token_order, prefix_search,
+                                 costs[token_index], costs[token_index], num_fuzzy_candidates, token_order, prefix_search,
                                  filter_ids, filter_ids_length, leaves, unique_tokens);
 
                 if(!leaves.empty()) {

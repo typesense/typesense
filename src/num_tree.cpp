@@ -20,14 +20,21 @@ void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** i
 
     std::vector<uint32_t> consolidated_ids;
     while(it_start != int64map.end() && it_start->first <= end) {
+        uint32_t* values = it_start->second->uncompress();
+
         for(size_t i = 0; i < it_start->second->getLength(); i++) {
-            consolidated_ids.push_back(it_start->second->at(i));
+            consolidated_ids.push_back(values[i]);
         }
 
+        delete [] values;
         it_start++;
     }
 
-    std::sort(consolidated_ids.begin(), consolidated_ids.end());
+    if(consolidated_ids.size() > 50000) {
+        parasort(consolidated_ids.size(), &consolidated_ids[0], 4);
+    } else {
+        std::sort(consolidated_ids.begin(), consolidated_ids.end());
+    }
 
     uint32_t *out = nullptr;
     ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
