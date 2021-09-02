@@ -41,11 +41,22 @@ void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str,
                            NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
-    return posting_t::num_ids(a->values) > posting_t::num_ids(b->values);
+    uint32_t a_val = posting_t::num_ids(a->values);
+    uint32_t b_val = posting_t::num_ids(b->values);
+
+    if(a_val != b_val) {
+        return a_val > b_val;
+    }
+
+    return *((uint32_t *)(uintptr_t)a) > *((uint32_t *)(uintptr_t)b);
 }
 
 bool compare_art_leaf_score(const art_leaf *a, const art_leaf *b) {
-    return a->max_score > b->max_score;
+    if(a->max_score != b->max_score) {
+        return a->max_score > b->max_score;
+    }
+
+    return *((uint32_t *)(uintptr_t)a) > *((uint32_t *)(uintptr_t)b);
 }
 
 bool compare_art_node_frequency(const art_node *a, const art_node *b) {
