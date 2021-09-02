@@ -314,7 +314,7 @@ public:
     enum {FIELD_LIMIT_NUM = 100};
 
     enum {COMBINATION_MAX_LIMIT = 10000};
-    enum {COMBINATION_MIN_LIMIT = 10};
+    enum {COMBINATION_MIN_LIMIT = 4};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.

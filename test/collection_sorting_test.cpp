@@ -181,7 +181,7 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
 
     results = coll1->search("*", {}, "", {}, {}, {1}, 30, 1, FREQUENCY, {false}).get();
 
-    ASSERT_EQ(23, results["found"]);
+    ASSERT_EQ(23, results["found"].get<size_t>());
     ASSERT_EQ(23, results["hits"].size());
     ASSERT_EQ(23, results["out_of"]);
 
@@ -202,7 +202,7 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
         coll1 = collectionManager.create_collection("coll1", 1, fields).get();
     }
 
-    // since only top 10 tokens are fetched for prefixes, the "end" should not show up in the results
+    // since only top 4 tokens are fetched for prefixes, the "enyzme" should not show up in the results
     std::vector<std::string> tokens = {
         "enter", "elephant", "enamel", "ercot", "enyzme", "energy",
         "epoch", "epyc", "express", "everest", "end"
@@ -223,13 +223,13 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
 
     auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, {true}).get();
 
-    // 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2
-    ASSERT_EQ(65, results["found"]);
+    // [11 + 10 + 9 + 8] + 7 + 6 + 5 + 4 + 3 + 2
+    ASSERT_EQ(38, results["found"].get<size_t>());
 
     // we have to ensure that no result contains the word "end" since it occurs least number of times
     bool found_end = false;
     for(auto& res: results["hits"].items()) {
-        if(res.value()["document"]["title"] == "end") {
+        if(res.value()["document"]["title"] == "enyzme") {
             found_end = true;
         }
     }
