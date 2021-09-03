@@ -3609,7 +3609,10 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnFieldOrder) {
     }
 
     auto results = coll1->search("michael jackson toxic",
-                                 {"title", "artist"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+                                 {"title", "artist"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 6}).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());

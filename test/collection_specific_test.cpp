@@ -1281,3 +1281,46 @@ TEST_F(CollectionSpecificTest, TypoCorrectionWithFaceting) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, MultiFieldMatchesShouldBeWeighted) {
+    // 2 matches on low weighted fields should not overpower a single match on high weighted field
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, false),
+                                 field("label", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Twin";
+    doc1["category"] = "kids";
+    doc1["label"] = "kids";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Kids";
+    doc2["category"] = "children";
+    doc2["label"] = "children";
+    doc2["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("kids", {"name", "category", "label"},
+                                 "", {}, {}, {0, 0, 0}, 10,
+                                 1, FREQUENCY, {false, false, false},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {6, 1, 1}).get();
+
+    LOG(INFO) << results;
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+
+    collectionManager.drop_collection("coll1");
+}
