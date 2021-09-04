@@ -1326,7 +1326,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
                         }
                     }
 
-                    uint32_t* excluded_strt_ids = new uint32_t[strt_ids_size];
+                    uint32_t* excluded_strt_ids = nullptr;
                     size_t excluded_strt_size = 0;
                     excluded_strt_size = ArrayUtils::exclude_scalar(ids, ids_size, strt_ids,
                                                                     strt_ids_size, &excluded_strt_ids);
@@ -1338,7 +1338,7 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
 
                     ids = excluded_strt_ids;
                     ids_size = excluded_strt_size;
-
+                    delete[] strt_ids;
                 } else {
                     // Otherwise, we just ensure that given record contains tokens in the filter query
                     uint32_t* out = nullptr;
