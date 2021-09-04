@@ -694,6 +694,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     std::vector<void*> raw_lists = {&p1, &p2, &p3};
     std::vector<posting_list_t*> posting_lists = {&p1, &p2, &p3};
     std::vector<uint32_t> result_ids;
+    std::mutex vecm;
 
     posting_list_t::intersect(posting_lists, result_ids);
 
@@ -706,8 +707,11 @@ TEST_F(PostingListTest, IntersectionBasics) {
     result_ids.clear();
 
     posting_t::block_intersector_t(raw_lists, iter_state, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
+
+    std::sort(result_ids.begin(), result_ids.end());
 
     ASSERT_EQ(2, result_ids.size());
     ASSERT_EQ(3, result_ids[0]);
@@ -729,8 +733,11 @@ TEST_F(PostingListTest, IntersectionBasics) {
     raw_lists = {&p1};
 
     posting_t::block_intersector_t(raw_lists, iter_state2, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
+
+    std::sort(result_ids.begin(), result_ids.end());  // because of concurrent intersection order is not guaranteed
 
     ASSERT_EQ(4, result_ids.size());
     ASSERT_EQ(0, result_ids[0]);
@@ -749,6 +756,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     raw_lists.clear();
 
     posting_t::block_intersector_t(raw_lists, iter_state3, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
         result_ids.push_back(id);
     });
 
@@ -1350,11 +1358,15 @@ TEST_F(PostingListTest, BlockIntersectionOnMixedLists) {
     std::vector<void*> raw_posting_lists = {SET_COMPACT_POSTING(list1), &p1};
     posting_list_t::result_iter_state_t iter_state;
     std::vector<uint32_t> result_ids;
+    std::mutex vecm;
 
     posting_t::block_intersector_t(raw_posting_lists, iter_state, pool)
     .intersect([&](auto seq_id, auto& its, size_t index) {
+        std::unique_lock lock(vecm);
         result_ids.push_back(seq_id);
     });
+
+    std::sort(result_ids.begin(), result_ids.end());
 
     ASSERT_EQ(2, result_ids.size());
     ASSERT_EQ(5, result_ids[0]);
