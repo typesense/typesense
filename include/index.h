@@ -418,9 +418,13 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-    // the following methods are not synchronized because their parent calls are synchronized
-
     uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const;
+
+    void refresh_schemas(const std::vector<field>& new_fields);
+
+    bool field_contains_string(const std::string& field_name, const std::string& value);
+
+    // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 
     static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
@@ -429,8 +433,6 @@ public:
                                                      const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
-
-    void refresh_schemas(const std::vector<field>& new_fields);
 
 };
 

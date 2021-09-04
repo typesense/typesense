@@ -1044,6 +1044,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 
 uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const {
     //auto begin = std::chrono::high_resolution_clock::now();
+    std::shared_lock lock(mutex);
 
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = 0;
@@ -1487,14 +1488,14 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
                    const bool exhaustive_search,
                    const size_t concurrency) const {
 
-    std::shared_lock lock(mutex);
-
     //auto begin = std::chrono::high_resolution_clock::now();
 
     // process the filters
 
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_length = do_filtering(&filter_ids, filters);
+
+    std::shared_lock lock(mutex);
 
     // we will be removing all curated IDs from organic result ids before running topster
     std::set<uint32_t> curated_ids;
@@ -3099,4 +3100,17 @@ double Index::transform_for_180th_meridian(Geofence &poly) {
 
 void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
     point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
+}
+
+bool Index::field_contains_string(const std::string& field_name, const std::string& value) {
+    std::shared_lock lock(mutex);
+
+    auto field_it = search_index.find(field_name);
+    if(field_it != search_index.end()) {
+        art_tree* t = field_it->second;
+        art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char *)value.c_str(), value.size()+1);
+        return (leaf != nullptr);
+    }
+
+    return false;
 }
