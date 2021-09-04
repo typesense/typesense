@@ -1878,82 +1878,84 @@ void Index::search(const std::vector<query_tokens_t>& field_query_tokens,
 
     delete [] exclude_token_ids;
 
-    const size_t num_threads = std::min(concurrency, all_result_ids_len);
-    const size_t window_size = (num_threads == 0) ? 0 :
-            (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
-    size_t result_index = 0;
+    if(!facets.empty()) {
+        const size_t num_threads = std::min(concurrency, all_result_ids_len);
+        const size_t window_size = (num_threads == 0) ? 0 :
+                                   (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
+        size_t result_index = 0;
 
-    size_t num_processed = 0;
-    std::mutex m_process;
-    std::condition_variable cv_process;
+        size_t num_processed = 0;
+        std::mutex m_process;
+        std::condition_variable cv_process;
 
-    std::vector<std::vector<facet>> facet_batches(num_threads);
-    for(size_t i = 0; i < num_threads; i++) {
-        for(const auto& this_facet: facets) {
-            facet_batches[i].emplace_back(facet(this_facet.field_name));
-        }
-    }
-
-    size_t num_queued = 0;
-
-    for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
-        size_t batch_res_len = window_size;
-
-        if(result_index + window_size > all_result_ids_len) {
-            batch_res_len = (result_index + window_size) - all_result_ids_len;
+        std::vector<std::vector<facet>> facet_batches(num_threads);
+        for(size_t i = 0; i < num_threads; i++) {
+            for(const auto& this_facet: facets) {
+                facet_batches[i].emplace_back(facet(this_facet.field_name));
+            }
         }
 
-        uint32_t* batch_result_ids = all_result_ids + result_index;
-        num_queued++;
+        size_t num_queued = 0;
 
-        thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
-                                 batch_result_ids, batch_res_len, &num_processed, &m_process, &cv_process]() {
-            auto fq = facet_query;
-            do_facets(facet_batches[thread_id], fq, group_limit, group_by_fields,
-                      batch_result_ids, batch_res_len);
-            std::unique_lock<std::mutex> lock(m_process);
-            num_processed++;
-            cv_process.notify_one();
-        });
+        for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
+            size_t batch_res_len = window_size;
 
-        result_index += batch_res_len;
-    }
-
-    std::unique_lock<std::mutex> lock_process(m_process);
-    cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
-
-    for(const auto& facet_batch: facet_batches) {
-        for(size_t fi = 0; fi < facet_batch.size(); fi++) {
-            auto& this_facet = facet_batch[fi];
-            auto& acc_facet = facets[fi];
-
-            for(auto & facet_kv: this_facet.result_map) {
-                if(group_limit) {
-                    // we have to add all group sets
-                    acc_facet.result_map[facet_kv.first].groups.insert(
-                        facet_kv.second.groups.begin(), facet_kv.second.groups.end()
-                    );
-                } else {
-                    size_t count = 0;
-                    if(acc_facet.result_map.count(facet_kv.first) == 0) {
-                        // not found, so set it
-                        count = facet_kv.second.count;
-                    } else {
-                        count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
-                    }
-                    acc_facet.result_map[facet_kv.first].count = count;
-                }
-
-                acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
-                acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
+            if(result_index + window_size > all_result_ids_len) {
+                batch_res_len = (result_index + window_size) - all_result_ids_len;
             }
 
-            if(this_facet.stats.fvcount != 0) {
-                acc_facet.stats.fvcount += this_facet.stats.fvcount;
-                acc_facet.stats.fvsum += this_facet.stats.fvsum;
-                acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
-                acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
+            uint32_t* batch_result_ids = all_result_ids + result_index;
+            num_queued++;
+
+            thread_pool->enqueue([this, thread_id, &facet_batches, &facet_query, group_limit, group_by_fields,
+                                         batch_result_ids, batch_res_len, &num_processed, &m_process, &cv_process]() {
+                auto fq = facet_query;
+                do_facets(facet_batches[thread_id], fq, group_limit, group_by_fields,
+                          batch_result_ids, batch_res_len);
+                std::unique_lock<std::mutex> lock(m_process);
+                num_processed++;
+                cv_process.notify_one();
+            });
+
+            result_index += batch_res_len;
+        }
+
+        std::unique_lock<std::mutex> lock_process(m_process);
+        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+
+        for(const auto& facet_batch: facet_batches) {
+            for(size_t fi = 0; fi < facet_batch.size(); fi++) {
+                auto& this_facet = facet_batch[fi];
+                auto& acc_facet = facets[fi];
+
+                for(auto & facet_kv: this_facet.result_map) {
+                    if(group_limit) {
+                        // we have to add all group sets
+                        acc_facet.result_map[facet_kv.first].groups.insert(
+                                facet_kv.second.groups.begin(), facet_kv.second.groups.end()
+                        );
+                    } else {
+                        size_t count = 0;
+                        if(acc_facet.result_map.count(facet_kv.first) == 0) {
+                            // not found, so set it
+                            count = facet_kv.second.count;
+                        } else {
+                            count = acc_facet.result_map[facet_kv.first].count + facet_kv.second.count;
+                        }
+                        acc_facet.result_map[facet_kv.first].count = count;
+                    }
+
+                    acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
+                    acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
+                    acc_facet.result_map[facet_kv.first].query_token_pos = facet_kv.second.query_token_pos;
+                }
+
+                if(this_facet.stats.fvcount != 0) {
+                    acc_facet.stats.fvcount += this_facet.stats.fvcount;
+                    acc_facet.stats.fvsum += this_facet.stats.fvsum;
+                    acc_facet.stats.fvmax = std::max(acc_facet.stats.fvmax, this_facet.stats.fvmax);
+                    acc_facet.stats.fvmin = std::min(acc_facet.stats.fvmin, this_facet.stats.fvmin);
+                }
             }
         }
     }
