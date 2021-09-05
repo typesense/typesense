@@ -555,7 +555,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     // process weights for search fields
     std::vector<search_field_t> weighted_search_fields;
-    size_t max_weight = 100;
+    size_t max_weight = 20;
 
     if(query_by_weights.empty()) {
         max_weight = search_fields.size();
@@ -568,8 +568,10 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     for(size_t i=0; i < search_fields.size(); i++) {
         const auto& search_field = search_fields[i];
+        // NOTE: we support zero-weight only for weighting and not priority since priority is used for typos, where
+        // relative ordering is still useful.
+        const auto weight = query_by_weights[i];
         const auto priority = (max_weight - query_by_weights[i]) + 1;
-        const auto weight = query_by_weights[i] + 1;
         weighted_search_fields.push_back({search_field, priority, weight});
     }
 
