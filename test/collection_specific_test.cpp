@@ -1395,3 +1395,68 @@ TEST_F(CollectionSpecificTest, ZeroWeightedFieldCannotPrioritizeExactMatch) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Levis";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "0";
+    doc2["name"] = "Amazing from Levis";
+    doc2["points"] = 5;
+
+    std::vector<std::string> import_records;
+    import_records.push_back(doc1.dump());
+    import_records.push_back(doc2.dump());
+
+    nlohmann::json document;
+    nlohmann::json import_response = coll1->add_many(import_records, document);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    ASSERT_TRUE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
+    ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
+    ASSERT_EQ("Document with `id` 0 already exists in the import batch.",
+              nlohmann::json::parse(import_records[1])["error"].get<std::string>());
+
+    auto results = coll1->search("levis", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {0},
+                                 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Levis", results["hits"][0]["document"]["name"].get<std::string>());
+
+    // repeated ID is rejected even if the first ID is not indexed due to some error
+    import_records.clear();
+    doc1.erase("name");
+    doc1["id"] = "100";
+    doc2["id"] = "100";
+
+    import_records.push_back(doc1.dump());
+    import_records.push_back(doc2.dump());
+
+    import_response = coll1->add_many(import_records, document);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    ASSERT_FALSE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
+    ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
+    ASSERT_EQ("Document with `id` 100 already exists in the import batch.",
+              nlohmann::json::parse(import_records[1])["error"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
