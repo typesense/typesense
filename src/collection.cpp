@@ -373,13 +373,13 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
     }
 }
 
-void Collection::curate_results(std::string query,
+void Collection::curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
                                 std::map<size_t, std::vector<uint32_t>>& include_ids,
-                                std::vector<uint32_t> & excluded_ids,
-                                bool enable_overrides) const {
-    StringUtils::tolowercase(query);
+                                std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& dynamic_overrides,
+                                std::vector<filter>& filters) const {
+
     std::set<uint32_t> excluded_set;
 
     // If pinned or hidden hits are provided, they take precedence over overrides
@@ -395,9 +395,19 @@ void Collection::curate_results(std::string query,
         }
     }
 
-    if(enable_overrides) {
-        for(const auto & override_kv: overrides) {
-            const auto & override = override_kv.second;
+    std::string query = actual_query;
+
+    if(enable_overrides && !overrides.empty()) {
+        StringUtils::tolowercase(query);
+
+        for(const auto& override_kv: overrides) {
+            const auto& override = override_kv.second;
+
+            // static overrides are applied first as they precedence over dynamic overrides
+            if(!override.dynamic_filters.empty() && override.rule.query == ".*") {
+                dynamic_overrides.push_back(&override);
+                continue;
+            }
 
             if( (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
                 (override.rule.match == override_t::MATCH_CONTAINS && query.find(override.rule.query) != std::string::npos) )  {
@@ -422,6 +432,21 @@ void Collection::curate_results(std::string query,
                         include_ids[hit.position].push_back(seq_id);
                     }
                 }
+
+                for(const auto& filter_str: override.dynamic_filters) {
+                    auto op = parse_filter_query(filter_str, filters);
+                    if(op.ok() && override.mutate_query_string) {
+                        actual_query.replace(
+                            actual_query.find(override.rule.query),
+                            override.rule.query.size(),
+                            ""
+                        );
+
+                        if(StringUtils::trim(actual_query).empty()) {
+                            actual_query = "*";
+                        }
+                    }
+                }
             }
         }
     }
@@ -444,7 +469,7 @@ void Collection::curate_results(std::string query,
     }
 }
 
-Option<nlohmann::json> Collection::search(const std::string & query, const std::vector<std::string>& search_fields,
+Option<nlohmann::json> Collection::search(const std::string & raw_query, const std::vector<std::string>& search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
@@ -474,7 +499,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     std::shared_lock lock(mutex);
 
-    if(query != "*" && search_fields.empty()) {
+    if(raw_query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
@@ -499,57 +524,6 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
         if(prefixes.size() != 1) {
             return Option<nlohmann::json>(400, "Number of prefix values in `prefix` does not match "
                                                "number of `query_by` fields.");
-        }
-    }
-
-    std::vector<uint32_t> excluded_ids;
-    std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
-    std::map<size_t, std::vector<std::string>> pinned_hits;
-
-    Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
-
-    if(!pinned_hits_op.ok()) {
-        return Option<nlohmann::json>(400, pinned_hits_op.error());
-    }
-
-    std::vector<std::string> hidden_hits;
-    StringUtils::split(hidden_hits_str, hidden_hits, ",");
-
-    curate_results(query, pinned_hits, hidden_hits, include_ids, excluded_ids, enable_overrides);
-
-    /*for(auto& kv: include_ids) {
-        LOG(INFO) << "key: " << kv.first;
-        for(auto val: kv.second) {
-            LOG(INFO) << val;
-        }
-    }
-
-    LOG(INFO) << "Excludes:";
-
-    for(auto id: excluded_ids) {
-        LOG(INFO) << id;
-    }
-
-    LOG(INFO) << "include_ids size: " << include_ids.size();
-    for(auto& group: include_ids) {
-        for(uint32_t& seq_id: group.second) {
-            LOG(INFO) << "seq_id: " << seq_id;
-        }
-
-        LOG(INFO) << "----";
-    }
-    */
-
-    std::map<size_t, std::map<size_t, uint32_t>> included_ids;
-
-    for(const auto& pos_ids: include_ids) {
-        size_t outer_pos = pos_ids.first;
-        size_t ids_per_pos = std::max(size_t(1), group_limit);
-
-        for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
-            auto seq_id = pos_ids.second[inner_pos];
-            included_ids[outer_pos][inner_pos] = seq_id;
-            //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
         }
     }
 
@@ -833,7 +807,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
     size_t max_hits = 250;
 
     // ensure that `max_hits` never exceeds number of documents in collection
-    if(search_fields.size() <= 1 || query == "*") {
+    if(search_fields.size() <= 1 || raw_query == "*") {
         max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
     } else {
         max_hits = std::min(std::max((page * per_page), max_hits), get_num_documents());
@@ -852,6 +826,60 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
 
     size_t total_found = 0;
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
+
+    std::vector<uint32_t> excluded_ids;
+    std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
+    std::map<size_t, std::vector<std::string>> pinned_hits;
+
+    Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
+
+    if(!pinned_hits_op.ok()) {
+        return Option<nlohmann::json>(400, pinned_hits_op.error());
+    }
+
+    std::vector<std::string> hidden_hits;
+    StringUtils::split(hidden_hits_str, hidden_hits, ",");
+
+    std::vector<const override_t*> dynamic_overrides;
+    std::string query = raw_query;
+    curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
+                   include_ids, excluded_ids, dynamic_overrides, filters);
+
+    /*for(auto& kv: include_ids) {
+        LOG(INFO) << "key: " << kv.first;
+        for(auto val: kv.second) {
+            LOG(INFO) << val;
+        }
+    }
+
+    LOG(INFO) << "Excludes:";
+
+    for(auto id: excluded_ids) {
+        LOG(INFO) << id;
+    }
+
+    LOG(INFO) << "include_ids size: " << include_ids.size();
+    for(auto& group: include_ids) {
+        for(uint32_t& seq_id: group.second) {
+            LOG(INFO) << "seq_id: " << seq_id;
+        }
+
+        LOG(INFO) << "----";
+    }
+    */
+
+    std::map<size_t, std::map<size_t, uint32_t>> included_ids;
+
+    for(const auto& pos_ids: include_ids) {
+        size_t outer_pos = pos_ids.first;
+        size_t ids_per_pos = std::max(size_t(1), group_limit);
+
+        for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
+            auto seq_id = pos_ids.second[inner_pos];
+            included_ids[outer_pos][inner_pos] = seq_id;
+            //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
+        }
+    }
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
@@ -888,8 +916,7 @@ Option<nlohmann::json> Collection::search(const std::string & query, const std::
                                per_page, page, token_order, prefixes,
                                drop_tokens_threshold, typo_tokens_threshold,
                                group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
-                               exhaustive_search,
-                               4);
+                               exhaustive_search, 4, dynamic_overrides);
 
     index->run_search(search_params);
 
@@ -2337,6 +2364,10 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
 
 void Collection::synonym_reduction(const std::vector<std::string>& tokens,
                                    std::vector<std::vector<std::string>>& results) const {
+    if(synonym_definitions.empty()) {
+        return;
+    }
+
     std::set<uint64_t> processed_syn_hashes;
     synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
 }

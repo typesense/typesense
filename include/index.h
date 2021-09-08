@@ -47,6 +47,181 @@ struct query_tokens_t {
     std::vector<std::vector<std::string>> q_synonyms;
 };
 
+struct override_t {
+    static const std::string MATCH_EXACT;
+    static const std::string MATCH_CONTAINS;
+
+    struct rule_t {
+        std::string query;
+        std::string match;
+    };
+
+    struct add_hit_t {
+        std::string doc_id;
+        uint32_t position;
+    };
+
+    struct drop_hit_t {
+        std::string doc_id;
+    };
+
+    std::string id;
+
+    rule_t rule;
+    std::vector<add_hit_t> add_hits;
+    std::vector<drop_hit_t> drop_hits;
+
+    std::vector<std::string> dynamic_filters;
+    bool mutate_query_string = false;
+
+    override_t() {}
+
+    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
+        if(!override_json.is_object()) {
+            return Option<bool>(400, "Bad JSON.");
+        }
+
+        if(override_json.count("rule") == 0 || !override_json["rule"].is_object()) {
+            return Option<bool>(400, "Missing `rule` definition.");
+        }
+
+        if(override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0) {
+            return Option<bool>(400, "The `rule` definition must contain a `query` and `match`.");
+        }
+
+        if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
+           override_json.count("dynamic_filters") == 0) {
+            return Option<bool>(400, "Must contain one of:`includes`, `excludes`, `dynamic_filters`.");
+        }
+
+        if(override_json.count("includes") != 0) {
+            if(!override_json["includes"].is_array()) {
+                return Option<bool>(400, "The `includes` value must be an array.");
+            }
+
+            for(const auto & include_obj: override_json["includes"]) {
+                if(!include_obj.is_object()) {
+                    return Option<bool>(400, "The `includes` value must be an array of objects.");
+                }
+
+                if(include_obj.count("id") == 0 || include_obj.count("position") == 0) {
+                    return Option<bool>(400, "Inclusion definition must define both `id` and `position` keys.");
+                }
+
+                if(!include_obj["id"].is_string()) {
+                    return Option<bool>(400, "Inclusion `id` must be a string.");
+                }
+
+                if(!include_obj["position"].is_number_integer()) {
+                    return Option<bool>(400, "Inclusion `position` must be an integer.");
+                }
+            }
+        }
+
+        if(override_json.count("excludes") != 0) {
+            if(!override_json["excludes"].is_array()) {
+                return Option<bool>(400, "The `excludes` value must be an array.");
+            }
+
+            for(const auto & exclude_obj: override_json["excludes"]) {
+                if(!exclude_obj.is_object()) {
+                    return Option<bool>(400, "The `excludes` value must be an array of objects.");
+                }
+
+                if(exclude_obj.count("id") == 0) {
+                    return Option<bool>(400, "Exclusion definition must define an `id`.");
+                }
+
+                if(!exclude_obj["id"].is_string()) {
+                    return Option<bool>(400, "Exclusion `id` must be a string.");
+                }
+            }
+
+        }
+
+        if(override_json.count("dynamic_filters") != 0) {
+            if(!override_json["dynamic_filters"].is_string()) {
+                return Option<bool>(400, "The `dynamic_filters` must be "
+                                         "a comma separated string of filter field names.");
+            }
+
+            if(override_json["dynamic_filters"].get<std::string>().empty()) {
+                return Option<bool>(400, "The `dynamic_filters` must be "
+                                         "a comma separated string of filter field names.");
+            }
+        }
+
+        if(override_json.count("mutate_query_string") != 0) {
+            if (!override_json["mutate_query_string"].is_boolean()) {
+                return Option<bool>(400, "The `mutate_query_string` must be a boolean.");
+            }
+
+            override.mutate_query_string = override_json["mutate_query_string"].get<bool>();
+        }
+
+        if(!id.empty()) {
+            override.id = id;
+        } else if(override_json.count("id") != 0) {
+            override.id = override_json["id"].get<std::string>();
+        } else {
+            return Option<bool>(400, "Override `id` not provided.");
+        }
+
+        override.rule.query = override_json["rule"]["query"].get<std::string>();
+        override.rule.match = override_json["rule"]["match"].get<std::string>();
+
+        if (override_json.count("includes") != 0) {
+            for(const auto & include: override_json["includes"]) {
+                add_hit_t add_hit;
+                add_hit.doc_id = include["id"].get<std::string>();
+                add_hit.position = include["position"].get<uint32_t>();
+                override.add_hits.push_back(add_hit);
+            }
+        }
+
+        if (override_json.count("excludes") != 0) {
+            for(const auto & exclude: override_json["excludes"]) {
+                drop_hit_t drop_hit;
+                drop_hit.doc_id = exclude["id"].get<std::string>();
+                override.drop_hits.push_back(drop_hit);
+            }
+        }
+
+        if (override_json.count("dynamic_filters") != 0) {
+            std::vector<std::string> filter_fields;
+            StringUtils::split(override_json["dynamic_filters"].get<std::string>(), filter_fields, ",");
+            override.dynamic_filters = filter_fields;
+        }
+
+        return Option<bool>(true);
+    }
+
+    nlohmann::json to_json() const {
+        nlohmann::json override;
+        override["id"] = id;
+        override["rule"]["query"] = rule.query;
+        override["rule"]["match"] = rule.match;
+
+        override["includes"] = nlohmann::json::array();
+
+        for(const auto & add_hit: add_hits) {
+            nlohmann::json include;
+            include["id"] = add_hit.doc_id;
+            include["position"] = add_hit.position;
+            override["includes"].push_back(include);
+        }
+
+        override["excludes"] = nlohmann::json::array();
+        for(const auto & drop_hit: drop_hits) {
+            nlohmann::json exclude;
+            exclude["id"] = drop_hit.doc_id;
+            override["excludes"].push_back(exclude);
+        }
+
+        return override;
+    }
+};
+
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
@@ -71,6 +246,7 @@ struct search_args {
     size_t all_result_ids_len;
     bool exhaustive_search;
     size_t concurrency;
+    const std::vector<const override_t*>& dynamic_overrides;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -91,7 +267,8 @@ struct search_args {
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
                 bool exhaustive_search,
-                size_t concurrency):
+                size_t concurrency,
+                const std::vector<const override_t*>& dynamic_overrides):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -100,7 +277,8 @@ struct search_args {
             drop_tokens_threshold(drop_tokens_threshold), typo_tokens_threshold(typo_tokens_threshold),
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
-            exhaustive_search(exhaustive_search), concurrency(concurrency) {
+            exhaustive_search(exhaustive_search), concurrency(concurrency),
+            dynamic_overrides(dynamic_overrides) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -217,6 +395,12 @@ private:
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size) const;
+
+    void process_dynamic_overrides(const std::vector<const override_t*>& dynamic_overrides,
+                                   std::vector<query_tokens_t>& field_query_tokens,
+                                   const token_ordering token_order,
+                                   uint32_t** filter_ids,
+                                   uint32_t& filter_ids_length) const;
 
     void search_field(const uint8_t & field_id,
                       std::vector<token_t>& query_tokens,
@@ -374,7 +558,7 @@ public:
 
     void run_search(search_args* search_params);
 
-    void search(const std::vector<query_tokens_t>& field_query_tokens,
+    void search(std::vector<query_tokens_t>& field_query_tokens,
                 const std::vector<search_field_t> & search_fields,
                 const std::vector<filter> & filters, std::vector<facet> & facets,
                 facet_query_t & facet_query,
@@ -392,6 +576,7 @@ public:
                 const size_t typo_tokens_threshold,
                 const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
+                const std::vector<const override_t*>& dynamic_overrides,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
                 bool exhaustive_search,
@@ -434,5 +619,23 @@ public:
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 
+    void check_for_overrides(const token_ordering& token_order, const string& field_name, bool mutate_query_string,
+                             uint32_t*& field_override_ids,
+                             size_t& field_override_ids_len, std::vector<std::string>& tokens) const;
+
+    void search_wildcard(const std::vector<std::string>& qtokens, const std::vector<filter>& filters,
+                         const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                         const std::vector<sort_by>& sort_fields_std, Topster* topster, Topster* curated_topster,
+                         spp::sparse_hash_set<uint64_t>& groups_processed,
+                         std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                         const std::vector<std::string>& group_by_fields,
+                         const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
+                         const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, const uint8_t field_id,
+                         const string& field, uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                         const uint32_t* filter_ids, uint32_t filter_ids_length) const;
+
+    void curate_filtered_ids(const std::vector<filter>& filters, const std::set<uint32_t>& curated_ids,
+                             const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
+                             uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 };
 

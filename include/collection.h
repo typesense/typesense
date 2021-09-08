@@ -19,151 +19,6 @@
 #include <option.h>
 #include "tokenizer.h"
 
-
-struct override_t {
-    static const std::string MATCH_EXACT;
-    static const std::string MATCH_CONTAINS;
-
-    struct rule_t {
-        std::string query;
-        std::string match;
-    };
-
-    struct add_hit_t {
-        std::string doc_id;
-        uint32_t position;
-    };
-
-    struct drop_hit_t {
-        std::string doc_id;
-    };
-
-    std::string id;
-    rule_t rule;
-    std::vector<add_hit_t> add_hits;
-    std::vector<drop_hit_t> drop_hits;
-
-    override_t() {}
-
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
-        if(!override_json.is_object()) {
-            return Option<bool>(400, "Bad JSON.");
-        }
-
-        if(override_json.count("rule") == 0 || !override_json["rule"].is_object()) {
-            return Option<bool>(400, "Missing `rule` definition.");
-        }
-
-        if(override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0) {
-            return Option<bool>(400, "The `rule` definition must contain a `query` or `match`.");
-        }
-
-        if(override_json.count("includes") == 0 && override_json.count("excludes") == 0) {
-            return Option<bool>(400, "Must contain either `includes` or `excludes`.");
-        }
-
-        if(override_json.count("includes") != 0) {
-            if(!override_json["includes"].is_array()) {
-                return Option<bool>(400, "The `includes` value must be an array.");
-            }
-
-            for(const auto & include_obj: override_json["includes"]) {
-                if(!include_obj.is_object()) {
-                    return Option<bool>(400, "The `includes` value must be an array of objects.");
-                }
-
-                if(include_obj.count("id") == 0 || include_obj.count("position") == 0) {
-                    return Option<bool>(400, "Inclusion definition must define both `id` and `position` keys.");
-                }
-
-                if(!include_obj["id"].is_string()) {
-                    return Option<bool>(400, "Inclusion `id` must be a string.");
-                }
-
-                if(!include_obj["position"].is_number_integer()) {
-                    return Option<bool>(400, "Inclusion `position` must be an integer.");
-                }
-            }
-        }
-
-        if(override_json.count("excludes") != 0) {
-            if(!override_json["excludes"].is_array()) {
-                return Option<bool>(400, "The `excludes` value must be an array.");
-            }
-
-            for(const auto & exclude_obj: override_json["excludes"]) {
-                if(!exclude_obj.is_object()) {
-                    return Option<bool>(400, "The `excludes` value must be an array of objects.");
-                }
-
-                if(exclude_obj.count("id") == 0) {
-                    return Option<bool>(400, "Exclusion definition must define an `id`.");
-                }
-
-                if(!exclude_obj["id"].is_string()) {
-                    return Option<bool>(400, "Exclusion `id` must be a string.");
-                }
-            }
-
-        }
-
-        if(!id.empty()) {
-            override.id = id;
-        } else if(override_json.count("id") != 0) {
-            override.id = override_json["id"].get<std::string>();
-        } else {
-            return Option<bool>(400, "Override `id` not provided.");
-        }
-
-        override.rule.query = override_json["rule"]["query"].get<std::string>();
-        override.rule.match = override_json["rule"]["match"].get<std::string>();
-
-        if (override_json.count("includes") != 0) {
-            for(const auto & include: override_json["includes"]) {
-                add_hit_t add_hit;
-                add_hit.doc_id = include["id"].get<std::string>();
-                add_hit.position = include["position"].get<uint32_t>();
-                override.add_hits.push_back(add_hit);
-            }
-        }
-
-        if (override_json.count("excludes") != 0) {
-            for(const auto & exclude: override_json["excludes"]) {
-                drop_hit_t drop_hit;
-                drop_hit.doc_id = exclude["id"].get<std::string>();
-                override.drop_hits.push_back(drop_hit);
-            }
-        }
-
-        return Option<bool>(true);
-    }
-
-    nlohmann::json to_json() const {
-        nlohmann::json override;
-        override["id"] = id;
-        override["rule"]["query"] = rule.query;
-        override["rule"]["match"] = rule.match;
-
-        override["includes"] = nlohmann::json::array();
-
-        for(const auto & add_hit: add_hits) {
-            nlohmann::json include;
-            include["id"] = add_hit.doc_id;
-            include["position"] = add_hit.position;
-            override["includes"].push_back(include);
-        }
-
-        override["excludes"] = nlohmann::json::array();
-        for(const auto & drop_hit: drop_hits) {
-            nlohmann::json exclude;
-            exclude["id"] = drop_hit.doc_id;
-            override["excludes"].push_back(exclude);
-        }
-
-        return override;
-    }
-};
-
 struct doc_seq_id_t {
     uint32_t seq_id;
     bool is_new;
@@ -348,12 +203,12 @@ private:
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void curate_results(std::string query,
+    void curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::map<size_t, std::vector<uint32_t>>& include_ids,
-                        std::vector<uint32_t> & excluded_ids,
-                        bool enable_overrides) const;
+                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& dynamic_overrides,
+                        std::vector<filter>& filters) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
