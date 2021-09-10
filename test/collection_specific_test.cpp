@@ -1460,3 +1460,36 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, FacetParallelizationVerification) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    // choose a number that's not a multiple of 4
+
+    for(size_t i = 0; i < 18; i++) {
+        nlohmann::json doc1;
+        doc1["id"] = std::to_string(i);
+        doc1["name"] = "Levis";
+        doc1["category"] = "jeans";
+        doc1["points"] = 3;
+
+        ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    }
+
+    auto results = coll1->search("levis", {"name"},
+                                 "", {"category"}, {}, {0}, 10,
+                                 1, FREQUENCY, {false},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {0},
+                                 1000, true).get();
+
+    ASSERT_STREQ("category", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+    ASSERT_EQ(18, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    collectionManager.drop_collection("coll1");
+}

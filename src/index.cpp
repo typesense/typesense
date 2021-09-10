@@ -2007,8 +2007,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         const size_t num_threads = std::min(concurrency, all_result_ids_len);
         const size_t window_size = (num_threads == 0) ? 0 :
                                    (all_result_ids_len + num_threads - 1) / num_threads;  // rounds up
-        size_t result_index = 0;
-
         size_t num_processed = 0;
         std::mutex m_process;
         std::condition_variable cv_process;
@@ -2021,12 +2019,13 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         }
 
         size_t num_queued = 0;
+        size_t result_index = 0;
 
         for(size_t thread_id = 0; thread_id < num_threads && result_index < all_result_ids_len; thread_id++) {
             size_t batch_res_len = window_size;
 
             if(result_index + window_size > all_result_ids_len) {
-                batch_res_len = (result_index + window_size) - all_result_ids_len;
+                batch_res_len = all_result_ids_len - result_index;
             }
 
             uint32_t* batch_result_ids = all_result_ids + result_index;
