@@ -1244,6 +1244,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             facet_result["stats"]["avg"] = (a_facet.stats.fvsum / a_facet.stats.fvcount);
         }
 
+        facet_result["stats"]["total_values"] = facet_hash_counts.size();
         result["facet_counts"].push_back(facet_result);
     }
 
