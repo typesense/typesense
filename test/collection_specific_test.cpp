@@ -1282,8 +1282,8 @@ TEST_F(CollectionSpecificTest, TypoCorrectionWithFaceting) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, MultiFieldMatchesShouldBeWeighted) {
-    // 2 matches on low weighted fields should not overpower a single match on high weighted field
+TEST_F(CollectionSpecificTest, MultiFieldVerbatimMatchesShouldBeWeighted) {
+    // 2 exact matches on low weighted fields should not overpower a single exact match on high weighted field
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("category", field_types::STRING, false),
                                  field("label", field_types::STRING, false),
@@ -1490,6 +1490,72 @@ TEST_F(CollectionSpecificTest, FacetParallelizationVerification) {
 
     ASSERT_STREQ("category", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(18, (int) results["facet_counts"][0]["counts"][0]["count"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAllFields) {
+    // dropped tokens on a single field cannot be deemed as verbatim match
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Hamburger";
+    doc1["brand"] = "Burger King";
+    doc1["points"] = 10;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Hamburger Bun";
+    doc2["brand"] = "Trader Joe’s";
+    doc2["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("hamburger trader", {"name", "brand"},
+                                 "", {}, {}, {0, 0}, 10,
+                                 1, FREQUENCY, {false, false},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1, 1},
+                                 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Potato Wedges";
+    doc3["brand"] = "McDonalds";
+    doc3["points"] = 10;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = "Hot Potato Wedges";
+    doc4["brand"] = "KFC Inc.";
+    doc4["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    results = coll1->search("potato wedges kfc", {"name", "brand"},
+                            "", {}, {}, {0, 0}, 10,
+                            1, FREQUENCY, {false, false},
+                            2, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1, 1},
+                            1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

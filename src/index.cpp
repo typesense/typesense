@@ -1964,6 +1964,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             // num tokens present across fields including those containing typos
             int64_t uniq_tokens_found = int64_t(__builtin_popcount(token_bits)) - 1;
 
+            // verbtaim match should not consider dropped-token cases
+            if(uniq_tokens_found != field_query_tokens[0].q_include_tokens.size()) {
+                verbatim_match_fields = 0;
+            }
+
             verbatim_match_fields = std::min<uint64_t>(255, verbatim_match_fields);
             exact_match_fields = std::min<uint64_t>(255, exact_match_fields);
             max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
