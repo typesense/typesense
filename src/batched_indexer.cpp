@@ -44,7 +44,6 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     //LOG(INFO) << "req_id: " << req->start_ts << ", chunk_sequence: " << chunk_sequence;
 
     store->insert(request_chunk_key, req->serialize());
-    queued_writes++;
     req->body = "";
 
     {
@@ -61,6 +60,8 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
     if(req->last_chunk_aggregate) {
         //LOG(INFO) << "Last chunk for req_id: " << req->start_ts << ", queue_id: " << queue_id;
+
+        queued_writes += (chunk_sequence + 1);
 
         {
             std::unique_lock lk(qmutuxes[queue_id]);
