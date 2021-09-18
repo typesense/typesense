@@ -388,7 +388,8 @@ private:
                                        long long int n,
                                        std::vector<art_leaf *>& actual_query_suggestion,
                                        std::vector<art_leaf *>& query_suggestion,
-                                       uint32_t& token_bits);
+                                       uint32_t& token_bits,
+                                       uint64& qhash);
 
     void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
@@ -419,6 +420,7 @@ private:
                       const std::vector<std::string>& group_by_fields,
                       bool prioritize_exact_match,
                       size_t concurrency,
+                      std::set<uint64>& query_hashes,
                       const token_ordering token_order = FREQUENCY, const bool prefix = false,
                       const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                       const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
@@ -440,7 +442,8 @@ private:
                            const std::vector<token_t>& query_tokens,
                            bool prioritize_exact_match,
                            bool exhaustive_search,
-                           size_t concurrency) const;
+                           size_t concurrency,
+                           std::set<uint64>& query_hashes) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
