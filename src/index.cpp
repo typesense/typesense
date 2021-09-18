@@ -2269,6 +2269,7 @@ void Index::search_field(const uint8_t & field_id,
             costs[i] = token_to_costs[i][q.rem];
         }
 
+        unique_tokens.clear();
         token_candidates_vec.clear();
         size_t token_index = 0;
 
@@ -2388,7 +2389,7 @@ void Index::search_field(const uint8_t & field_id,
                             sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
                             all_result_ids_len, field_num_results, group_limit, group_by_fields,
                             prioritize_exact_match, concurrency,
-                            token_order, prefix, drop_tokens_threshold, typo_tokens_threshold, combination_limit);
+                            token_order, prefix, drop_tokens_threshold, typo_tokens_threshold, exhaustive_search);
     }
 }
 
