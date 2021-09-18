@@ -317,7 +317,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
-    ASSERT_EQ(9, results["hits"].size());
+    ASSERT_EQ(7, results["hits"].size());
 
     results.clear();
     results = collection->search("the a", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
@@ -347,10 +347,11 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
 
 TEST_F(CollectionTest, PartialPhraseSearch) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("rocket research", query_fields, "", facets, sort_fields, {0}, 10).get();
-    ASSERT_EQ(6, results["hits"].size());
+    nlohmann::json results = collection->search("rocket research", query_fields, "", facets,
+                                                sort_fields, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(4, results["hits"].size());
 
-    std::vector<std::string> ids = {"19", "1", "10", "8", "16", "17"};
+    std::vector<std::string> ids = {"1", "8", "16", "17"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -648,7 +649,7 @@ TEST_F(CollectionTest, PrefixSearching) {
     }
 
     // only the last token in the query should be used for prefix search - so, "math" should not match "mathematics"
-    results = collection->search("math fx", query_fields, "", facets, sort_fields, {0}, 1, 1, FREQUENCY, {true}).get();
+    results = collection->search("math fx", query_fields, "", facets, sort_fields, {0}, 1, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // single and double char prefixes should set a ceiling on the num_typos possible
