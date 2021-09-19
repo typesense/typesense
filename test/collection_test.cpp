@@ -1036,7 +1036,7 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
                                                 FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     // cannot fetch more than in-built limit of 250
     auto res_op = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 251, 1,
@@ -1058,13 +1058,13 @@ TEST_F(CollectionTest, KeywordQueryReturnsResultsBasedOnPerPageParam) {
                                  FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     results = coll_mul_fields->search("w", query_fields, "", facets, sort_fields, {0}, 3, 2,
                                  FREQUENCY, {true}, 1000, empty, empty, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ(7, results["found"].get<int>());
+    ASSERT_EQ(6, results["found"].get<int>());
 
     collectionManager.drop_collection("coll_mul_fields");
 }
