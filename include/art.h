@@ -117,7 +117,7 @@ typedef struct {
  * `offsets` refer to the index locations where a token appeared in the document
  */
 typedef struct {
-    int32_t score;
+    int64_t score;
     uint32_t id;
     std::vector<uint32_t> offsets;
 } art_document;
