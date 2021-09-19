@@ -111,6 +111,45 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     ASSERT_EQ(9, deletion_state.num_removed);
     ASSERT_TRUE(done);
 
+    // fetch raw document IDs
+    for(size_t i=0; i<100; i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+
+        coll1->add(doc.dump());
+    }
+
+    deletion_state.index_ids.clear();
+    deletion_state.offsets.clear();
+    deletion_state.num_removed = 0;
+
+    coll1->get_filter_ids("id:[0, 1, 2]", deletion_state.index_ids);
+    for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
+        deletion_state.offsets.push_back(0);
+    }
+
+    stateful_remove_docs(&deletion_state, 5, done);
+    ASSERT_EQ(3, deletion_state.num_removed);
+    ASSERT_TRUE(done);
+
+    // delete single doc
+
+    deletion_state.index_ids.clear();
+    deletion_state.offsets.clear();
+    deletion_state.num_removed = 0;
+
+    coll1->get_filter_ids("id: 10", deletion_state.index_ids);
+    for(size_t i=0; i<deletion_state.index_ids.size(); i++) {
+        deletion_state.offsets.push_back(0);
+    }
+
+    stateful_remove_docs(&deletion_state, 5, done);
+    ASSERT_EQ(1, deletion_state.num_removed);
+    ASSERT_TRUE(done);
+
     // bad filter query
     auto op = coll1->get_filter_ids("bad filter", deletion_state.index_ids);
     ASSERT_FALSE(op.ok());

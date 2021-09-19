@@ -2104,6 +2104,44 @@ Option<bool> Collection::parse_filter_query(const std::string& simple_filter_que
         std::string&& field_name = filter_block.substr(0, found_index);
         StringUtils::trim(field_name);
 
+        if(field_name == "id") {
+            filter id_filter;
+            std::string&& raw_value = filter_block.substr(found_index+1, std::string::npos);
+            StringUtils::trim(raw_value);
+            id_filter = {field_name, {}, {}};
+
+            if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
+                std::vector<std::string> doc_ids;
+                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), doc_ids, ",");
+
+                for(std::string& doc_id: doc_ids) {
+                    // we have to convert the doc_id to seq id
+                    std::string seq_id_str;
+                    StoreStatus seq_id_status = store->get(get_doc_id_key(doc_id), seq_id_str);
+
+                    if(seq_id_status != StoreStatus::FOUND) {
+                        continue;
+                    }
+
+                    id_filter.values.push_back(seq_id_str);
+                    id_filter.comparators.push_back(EQUALS);
+                }
+            } else {
+                std::string seq_id_str;
+                StoreStatus seq_id_status = store->get(get_doc_id_key(raw_value), seq_id_str);
+                if(seq_id_status == StoreStatus::FOUND) {
+                    id_filter.values.push_back(seq_id_str);
+                    id_filter.comparators.push_back(EQUALS);
+                }
+            }
+
+            if(!id_filter.values.empty()) {
+                filters.push_back(id_filter);
+            }
+
+            continue;
+        }
+
         if(search_schema.count(field_name) == 0) {
             return Option<bool>(404, "Could not find a filter field named `" + field_name + "` in the schema.");
         }
