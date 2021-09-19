@@ -1080,6 +1080,29 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
 
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
+
+        if(a_filter.field_name == "id") {
+            // we handle `ids` separately
+            std::vector<uint32> result_ids;
+            for(const auto& id_str: a_filter.values) {
+                result_ids.push_back(std::stoul(id_str));
+            }
+
+            if(i == 0) {
+                filter_ids = new uint32[result_ids.size()];
+                std::copy(result_ids.begin(), result_ids.end(), filter_ids);
+                filter_ids_length = result_ids.size();
+            } else {
+                uint32_t* filtered_results = nullptr;
+                filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, &result_ids[0],
+                                                           result_ids.size(), &filtered_results);
+                delete [] filter_ids;
+                filter_ids = filtered_results;
+            }
+
+            continue;
+        }
+
         bool has_search_index = search_index.count(a_filter.field_name) != 0 ||
                                 numerical_index.count(a_filter.field_name) != 0 ||
                                 geopoint_index.count(a_filter.field_name) != 0;
