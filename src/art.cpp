@@ -642,8 +642,6 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         n->max_score = MAX(n->max_score, document->score);
     }
 
-    path.push_back(n);
-
     // Check if given node has a prefix
     if (n->partial_len) {
         // Determine if the prefixes differ, since we need to split

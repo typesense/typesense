@@ -72,6 +72,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     ASSERT_TRUE(done);
 
     // match 12 documents (multiple batches)
+    for(auto& kv: deletion_state.index_ids) {
+        delete [] kv.second;
+    }
     deletion_state.index_ids.clear();
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
@@ -94,6 +97,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     ASSERT_TRUE(done);
 
     // match 9 documents (multiple batches)
+    for(auto& kv: deletion_state.index_ids) {
+        delete [] kv.second;
+    }
     deletion_state.index_ids.clear();
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
@@ -122,6 +128,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
         coll1->add(doc.dump());
     }
 
+    for(auto& kv: deletion_state.index_ids) {
+        delete [] kv.second;
+    }
     deletion_state.index_ids.clear();
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
@@ -137,6 +146,9 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
     // delete single doc
 
+    for(auto& kv: deletion_state.index_ids) {
+        delete [] kv.second;
+    }
     deletion_state.index_ids.clear();
     deletion_state.offsets.clear();
     deletion_state.num_removed = 0;
@@ -149,6 +161,13 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     stateful_remove_docs(&deletion_state, 5, done);
     ASSERT_EQ(1, deletion_state.num_removed);
     ASSERT_TRUE(done);
+
+    for(auto& kv: deletion_state.index_ids) {
+        delete [] kv.second;
+    }
+    deletion_state.index_ids.clear();
+    deletion_state.offsets.clear();
+    deletion_state.num_removed = 0;
 
     // bad filter query
     auto op = coll1->get_filter_ids("bad filter", deletion_state.index_ids);
