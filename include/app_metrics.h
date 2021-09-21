@@ -10,6 +10,8 @@ class AppMetrics {
 private:
     mutable std::shared_mutex mutex;
 
+    static inline const std::string SEARCH_LABEL = "search";
+
     // stores last complete window
     spp::sparse_hash_map<std::string, uint64_t>* counts;
     spp::sparse_hash_map<std::string, uint64_t>* durations;
@@ -51,9 +53,19 @@ public:
         (*current_counts)[identifier] += count;
     }
 
+    void increment_search_count(uint64_t count) {
+        std::unique_lock lock(mutex);
+        (*current_counts)[SEARCH_LABEL] += count;
+    }
+
     void increment_duration(const std::string& identifier, uint64_t duration) {
         std::unique_lock lock(mutex);
         (*current_durations)[identifier] += duration;
+    }
+
+    void increment_search_duration(uint64_t duration) {
+        std::unique_lock lock(mutex);
+        (*current_durations)[SEARCH_LABEL] += duration;
     }
 
     void window_reset() {
@@ -68,24 +80,33 @@ public:
         current_durations = new spp::sparse_hash_map<std::string, uint64_t>();
     }
 
-    void get(const std::string& count_key, const std::string& latency_key, nlohmann::json &result) const {
+    void get(const std::string& rps_key, const std::string& latency_key, nlohmann::json &result) const {
         std::shared_lock lock(mutex);
 
         uint64_t total_counts = 0;
 
-        result[count_key] = nlohmann::json::object();
+        result[rps_key] = nlohmann::json::object();
         for(const auto& kv: *counts) {
-            result[count_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
-            total_counts += kv.second;
+            if(kv.first == SEARCH_LABEL) {
+                result[SEARCH_LABEL + "_" + rps_key] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
+            } else {
+                result[rps_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
+                total_counts += kv.second;
+            }
         }
 
-        result["total_"+count_key] = double(total_counts) / (METRICS_REFRESH_INTERVAL_MS / 1000);
+        result["total_" + rps_key] = double(total_counts) / (METRICS_REFRESH_INTERVAL_MS / 1000);
 
         result[latency_key] = nlohmann::json::object();
+
         for(const auto& kv: *durations) {
             auto counter_it = counts->find(kv.first);
             if(counter_it != counts->end() && counter_it->second != 0) {
-                result[latency_key][kv.first] = (double(kv.second) / counter_it->second);
+                if(kv.first == SEARCH_LABEL) {
+                    result[SEARCH_LABEL + "_" + latency_key] = (double(kv.second) / counter_it->second);
+                } else {
+                    result[latency_key][kv.first] = (double(kv.second) / counter_it->second);
+                }
             }
         }
     }
