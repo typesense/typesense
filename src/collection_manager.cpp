@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <json.hpp>
+#include <app_metrics.h>
 #include "collection_manager.h"
 #include "logger.h"
 
@@ -818,6 +819,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
 
+    AppMetrics::get_instance().increment_search_count(1);
+    AppMetrics::get_instance().increment_search_duration(timeMillis);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());
