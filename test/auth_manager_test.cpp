@@ -223,6 +223,13 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:create", {"collection1"}, sparams));
     ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:delete", {"collection1", "collection2"}, sparams));
     ASSERT_FALSE(auth_manager.authenticate(wildcard_action_coll_key.value, "documents:create", {"collection1"}, sparams));
+
+    // create action on a specific collection
+    api_key_t create_action_coll_key = api_key_t("abcd11", "create action+coll key", {"collections:create"}, {"collection1"}, FUTURE_TS);
+    auth_manager.create_key(create_action_coll_key);
+
+    ASSERT_TRUE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection1"}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection2"}, sparams));
 }
 
 TEST_F(AuthManagerTest, HandleAuthentication) {

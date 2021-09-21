@@ -68,6 +68,16 @@ void get_collections_for_auth(std::map<std::string, std::string> &req_params, co
                 }
             }
         }
+    } else if(rpath.handler == post_create_collection) {
+        nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+
+        if(obj == nlohmann::json::value_t::discarded) {
+            LOG(ERROR) << "Create collection request body is malformed.";
+        }
+
+        if(obj != nlohmann::json::value_t::discarded && obj.count("name") != 0 && obj["name"].is_string()) {
+            collections.emplace_back(obj["name"].get<std::string>());
+        }
     }
 
     if(collections.empty()) {
