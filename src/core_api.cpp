@@ -80,7 +80,7 @@ void get_collections_for_auth(std::map<std::string, std::string> &req_params, co
         }
     }
 
-    if(collections.empty()) {
+    else if(collections.empty()) {
         collections.emplace_back("");
     }
 }
