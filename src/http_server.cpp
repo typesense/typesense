@@ -1021,3 +1021,6 @@ void HttpServer::persist_applying_index() {
     return replication_state->persist_applying_index();
 }
 
+int64_t HttpServer::get_num_queued_writes() {
+    return replication_state->get_num_queued_writes();
+}

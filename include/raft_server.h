@@ -210,6 +210,8 @@ public:
 
     static std::string resolve_node_hosts(const std::string& nodes_config);
 
+    int64_t get_num_queued_writes();
+
 private:
 
     friend class ReplicationClosure;
