@@ -775,6 +775,10 @@ void ReplicationState::persist_applying_index() {
     meta_store->insert(key, std::to_string(write_log_index));
 }
 
+int64_t ReplicationState::get_num_queued_writes() {
+    return batched_indexer->get_queued_writes();
+}
+
 void OnDemandSnapshotClosure::Run() {
     // Auto delete this after Done()
     std::unique_ptr<OnDemandSnapshotClosure> self_guard(this);

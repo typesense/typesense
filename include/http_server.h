@@ -224,4 +224,6 @@ public:
     bool trigger_vote();
 
     void persist_applying_index();
+
+    int64_t get_num_queued_writes();
 };
