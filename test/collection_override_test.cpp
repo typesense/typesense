@@ -262,7 +262,7 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of:`includes`, `excludes`, `dynamic_filters`.", parse_op.error().c_str());
+    ASSERT_STREQ("Must contain one of:`includes`, `excludes`, `filter_by`.", parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
@@ -817,36 +817,60 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     doc2["brand"] = "Adidas";
     doc2["points"] = 5;
 
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoes";
+    doc3["category"] = "sports";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
 
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
 
     auto results = coll1->search("shoes", {"name", "category", "brand"}, "",
                                  {}, sort_fields, {2, 2, 2}, 10).get();
 
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     // with override, results will be different
 
     nlohmann::json override_json = {
-            {"id",   "dynamic-filters"},
+            {"id",   "dynamic-cat-filter"},
             {
              "rule", {
-                             {"query", ".*"},
+                         {"query", "{category}"},
+                         {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"mutate_query_string", true},
+            {"filter_by", "category: {category}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    override_json = {
+            {"id",   "dynamic-brand-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{brand} {category}"},
                              {"match", override_t::MATCH_EXACT}
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", "category,brand"}
+            {"filter_by", "category: {category} && brand: {brand}"}
     };
 
-    override_t override;
-    auto op = override_t::parse(override_json, "dynamic-filters", override);
+    op = override_t::parse(override_json, "dynamic-brand-cat-filter", override);
     ASSERT_TRUE(op.ok());
-
     coll1->add_override(override);
 
     results = coll1->search("shoes", {"name", "category", "brand"}, "",
@@ -855,6 +879,12 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // should not apply filter for non-exact case
+    results = coll1->search("running shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
 
     results = coll1->search("adidas shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10).get();
@@ -868,35 +898,185 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
             {"id",   "dynamic-filters-bad1"},
             {
              "rule", {
-                             {"query", ".*"},
-                             {"match", override_t::MATCH_EXACT}
+                         {"query", "{brand}"},
+                         {"match", override_t::MATCH_EXACT}
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", ""}
+            {"filter_by", ""}
     };
 
     override_t override_bad1;
     op = override_t::parse(override_json_bad1, "dynamic-filters-bad1", override_bad1);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("The `dynamic_filters` must be a comma separated string of filter field names.", op.error());
+    ASSERT_EQ("The `filter_by` must be a non-empty string.", op.error());
 
     nlohmann::json override_json_bad2 = {
             {"id",   "dynamic-filters-bad2"},
             {
              "rule", {
-                             {"query", ".*"},
+                             {"query", "{brand}"},
                              {"match", override_t::MATCH_EXACT}
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", {"foo", "bar"}}
+            {"filter_by", {"foo", "bar"}}
     };
 
     override_t override_bad2;
     op = override_t::parse(override_json_bad2, "dynamic-filters-bad2", override_bad2);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("The `dynamic_filters` must be a comma separated string of filter field names.", op.error());
+    ASSERT_EQ("The `filter_by` must be a string.", op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("brand", field_types::STRING, true),
+                                 field("color", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Retro Shoes";
+    doc1["category"] = "shoes";
+    doc1["color"] = "yellow";
+    doc1["brand"] = "Nike Air Jordan";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Baseball";
+    doc2["category"] = "shoes";
+    doc2["color"] = "white";
+    doc2["brand"] = "Adidas";
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoes";
+    doc3["category"] = "sports";
+    doc3["color"] = "grey";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC"), sort_by("points", "DESC")};
+
+    nlohmann::json override_json = {
+            {"id",                  "dynamic-cat-filter"},
+            {
+             "rule",                {
+                                            {"query", "{brand} {color} shoes"},
+                                            {"match", override_t::MATCH_CONTAINS}
+                                    }
+            },
+            {"mutate_query_string", true},
+            {"filter_by",           "brand: {brand} && color: {color}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    // not an exact match of rule (because of "light") so all results will be fetched, not just Air Jordan brand
+    auto results = coll1->search("Nike Air Jordan light yellow shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // query with tokens at the start that preceding the placeholders in the rule
+    results = coll1->search("New Nike Air Jordan yellow shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, DynamicFilteringTokensBetweenPlaceholders) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("brand", field_types::STRING, true),
+                                 field("color", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Retro Shoes";
+    doc1["category"] = "shoes";
+    doc1["color"] = "yellow";
+    doc1["brand"] = "Nike Air Jordan";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Baseball";
+    doc2["category"] = "shoes";
+    doc2["color"] = "white";
+    doc2["brand"] = "Adidas";
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoes";
+    doc3["category"] = "sports";
+    doc3["color"] = "grey";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC"), sort_by("points", "DESC")};
+
+    nlohmann::json override_json = {
+            {"id",                  "dynamic-cat-filter"},
+            {
+             "rule",                {
+                                            {"query", "{brand} shoes {color}"},
+                                            {"match", override_t::MATCH_CONTAINS}
+                                    }
+            },
+            {"mutate_query_string", true},
+            {"filter_by",           "brand: {brand} && color: {color}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    auto results = coll1->search("Nike Air Jordan shoes yellow", {"name", "category", "brand"}, "",
+                                 {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -952,12 +1132,12 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
             {"id",   "dynamic-filters"},
             {
              "rule", {
-                             {"query", ".*"},
+                             {"query", "{category}"},
                              {"match", override_t::MATCH_EXACT}
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", "category,brand"}
+            {"filter_by", "category: {category}"}
     };
 
     override_t override;
@@ -1025,7 +1205,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", "price:> 100"}
+            {"filter_by", "price:> 100"}
     };
 
     override_t override_contains;
@@ -1043,7 +1223,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", "price:< 100"}
+            {"filter_by", "price:< 100"}
     };
 
     override_t override_exact;
@@ -1127,7 +1307,7 @@ TEST_F(CollectionOverrideTest, FilteringWithAndWithoutQueryStringMutation) {
                      }
             },
             {"mutate_query_string", false},
-            {"dynamic_filters", "price:> 200"}
+            {"filter_by", "price:> 200"}
     };
 
     override_t override_contains;
@@ -1155,7 +1335,7 @@ TEST_F(CollectionOverrideTest, FilteringWithAndWithoutQueryStringMutation) {
                      }
             },
             {"mutate_query_string", true},
-            {"dynamic_filters", "price:> 200"}
+            {"filter_by", "price:> 200"}
     };
 
     op = override_t::parse(override_json_contains, "static-filters", override_contains);

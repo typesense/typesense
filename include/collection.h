@@ -207,7 +207,7 @@ private:
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::map<size_t, std::vector<uint32_t>>& include_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& dynamic_overrides,
+                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         std::vector<filter>& filters) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
@@ -227,13 +227,6 @@ private:
 
         return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
     }
-
-    Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters) const;
-
-    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
-                                                    const std::string& format_err_msg,
-                                                    std::string& processed_filter_val,
-                                                    NUM_COMPARATOR& num_comparator);
 
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);

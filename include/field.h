@@ -6,6 +6,7 @@
 #include "option.h"
 #include "string_utils.h"
 #include "logger.h"
+#include <sparsepp.h>
 #include "json.hpp"
 
 namespace field_types {
@@ -463,6 +464,17 @@ struct filter {
 
         return Option<NUM_COMPARATOR>(num_comparator);
     }
+
+    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
+                                                    const std::string& format_err_msg,
+                                                    std::string& processed_filter_val,
+                                                    NUM_COMPARATOR& num_comparator);
+
+    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
+                                           const std::unordered_map<std::string, field>& search_schema,
+                                           Store* store,
+                                           const std::string& doc_id_prefix,
+                                           std::vector<filter>& filters);
 };
 
 namespace sort_field_const {
