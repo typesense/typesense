@@ -54,6 +54,7 @@ struct override_t {
     struct rule_t {
         std::string query;
         std::string match;
+        bool dynamic_query = false;
     };
 
     struct add_hit_t {
@@ -71,7 +72,7 @@ struct override_t {
     std::vector<add_hit_t> add_hits;
     std::vector<drop_hit_t> drop_hits;
 
-    std::vector<std::string> dynamic_filters;
+    std::string filter_by;
     bool mutate_query_string = false;
 
     override_t() {}
@@ -90,8 +91,8 @@ struct override_t {
         }
 
         if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
-           override_json.count("dynamic_filters") == 0) {
-            return Option<bool>(400, "Must contain one of:`includes`, `excludes`, `dynamic_filters`.");
+           override_json.count("filter_by") == 0) {
+            return Option<bool>(400, "Must contain one of:`includes`, `excludes`, `filter_by`.");
         }
 
         if(override_json.count("includes") != 0) {
@@ -139,15 +140,13 @@ struct override_t {
 
         }
 
-        if(override_json.count("dynamic_filters") != 0) {
-            if(!override_json["dynamic_filters"].is_string()) {
-                return Option<bool>(400, "The `dynamic_filters` must be "
-                                         "a comma separated string of filter field names.");
+        if(override_json.count("filter_by") != 0) {
+            if(!override_json["filter_by"].is_string()) {
+                return Option<bool>(400, "The `filter_by` must be a string.");
             }
 
-            if(override_json["dynamic_filters"].get<std::string>().empty()) {
-                return Option<bool>(400, "The `dynamic_filters` must be "
-                                         "a comma separated string of filter field names.");
+            if(override_json["filter_by"].get<std::string>().empty()) {
+                return Option<bool>(400, "The `filter_by` must be a non-empty string.");
             }
         }
 
@@ -187,10 +186,25 @@ struct override_t {
             }
         }
 
-        if (override_json.count("dynamic_filters") != 0) {
-            std::vector<std::string> filter_fields;
-            StringUtils::split(override_json["dynamic_filters"].get<std::string>(), filter_fields, ",");
-            override.dynamic_filters = filter_fields;
+        if (override_json.count("filter_by") != 0) {
+            override.filter_by = override_json["filter_by"].get<std::string>();
+        }
+
+        // we have to also detect if it is a dynamic query rule
+        size_t i = 0;
+        while(i < override.rule.query.size()) {
+            if(override.rule.query[i] == '{') {
+                // look for closing curly
+                i++;
+                while(i < override.rule.query.size()) {
+                    if(override.rule.query[i] == '}') {
+                        override.rule.dynamic_query = true;
+                        break;
+                    }
+                    i++;
+                }
+            }
+            i++;
         }
 
         return Option<bool>(true);
@@ -246,7 +260,7 @@ struct search_args {
     size_t all_result_ids_len;
     bool exhaustive_search;
     size_t concurrency;
-    const std::vector<const override_t*>& dynamic_overrides;
+    const std::vector<const override_t*>& filter_overrides;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -278,7 +292,7 @@ struct search_args {
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
             exhaustive_search(exhaustive_search), concurrency(concurrency),
-            dynamic_overrides(dynamic_overrides) {
+            filter_overrides(dynamic_overrides) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -347,6 +361,10 @@ private:
 
     std::string name;
 
+    const uint32_t collection_id;
+
+    Store* store;
+
     size_t num_documents;
 
     std::unordered_map<std::string, field> search_schema;
@@ -397,11 +415,25 @@ private:
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size) const;
 
-    void process_dynamic_overrides(const std::vector<const override_t*>& dynamic_overrides,
+    void static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
+                                  std::vector<filter>& filters) const;
+
+    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                    std::vector<query_tokens_t>& field_query_tokens,
-                                   const token_ordering token_order,
+                                   token_ordering token_order,
+                                   std::vector<filter>& filters,
                                    uint32_t** filter_ids,
                                    uint32_t& filter_ids_length) const;
+
+    bool resolve_override(const std::vector<std::string>& rule_parts, const bool exact_rule_match,
+                          const std::vector<std::string>& query_tokens,
+                          token_ordering token_order, std::set<std::string>& absorbed_tokens,
+                          uint32_t*& override_ids, size_t& override_ids_len) const;
+
+    bool check_for_overrides2(const token_ordering& token_order, const string& field_name, const bool slide_window,
+                              uint32_t*& field_override_ids, size_t& field_override_ids_len,
+                              bool exact_rule_match, std::vector<std::string>& tokens,
+                              std::set<std::string>& absorbed_tokens) const;
 
     void search_field(const uint8_t & field_id,
                       std::vector<token_t>& query_tokens,
@@ -510,6 +542,8 @@ public:
     Index() = delete;
 
     Index(const std::string& name,
+          const uint32_t collection_id,
+          const Store* store,
           ThreadPool* thread_pool,
           const std::unordered_map<std::string, field>& search_schema,
           const std::map<std::string, field>& facet_schema,
@@ -563,7 +597,7 @@ public:
 
     void search(std::vector<query_tokens_t>& field_query_tokens,
                 const std::vector<search_field_t> & search_fields,
-                const std::vector<filter> & filters, std::vector<facet> & facets,
+                std::vector<filter> & filters, std::vector<facet> & facets,
                 facet_query_t & facet_query,
                 const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                 const std::vector<uint32_t> & excluded_ids,
@@ -579,7 +613,7 @@ public:
                 const size_t typo_tokens_threshold,
                 const size_t group_limit,
                 const std::vector<std::string>& group_by_fields,
-                const std::vector<const override_t*>& dynamic_overrides,
+                const std::vector<const override_t*>& filter_overrides,
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
                 bool exhaustive_search,
@@ -606,7 +640,7 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-    uint32_t do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const;
+    void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters) const;
 
     void refresh_schemas(const std::vector<field>& new_fields);
 
@@ -621,10 +655,6 @@ public:
                                                      const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
-
-    void check_for_overrides(const token_ordering& token_order, const string& field_name, bool mutate_query_string,
-                             uint32_t*& field_override_ids,
-                             size_t& field_override_ids_len, std::vector<std::string>& tokens) const;
 
     void search_wildcard(const std::vector<std::string>& qtokens, const std::vector<filter>& filters,
                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,

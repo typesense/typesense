@@ -24,11 +24,11 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
 
-Index::Index(const std::string& name, ThreadPool* thread_pool,
+Index::Index(const std::string& name, const uint32_t collection_id, const Store* store, ThreadPool* thread_pool,
              const std::unordered_map<std::string, field> & search_schema,
              const std::map<std::string, field>& facet_schema, const std::unordered_map<std::string, field>& sort_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
-        name(name), thread_pool(thread_pool),
+        name(name), collection_id(collection_id), thread_pool(thread_pool),
         search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema),
         symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
@@ -1071,12 +1071,10 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     }
 }
 
-uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter> & filters) const {
+void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
+                         const std::vector<filter>& filters) const {
     //auto begin = std::chrono::high_resolution_clock::now();
     std::shared_lock lock(mutex);
-
-    uint32_t* filter_ids = nullptr;
-    uint32_t filter_ids_length = 0;
 
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
@@ -1422,9 +1420,6 @@ uint32_t Index::do_filtering(uint32_t** filter_ids_out, const std::vector<filter
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
     LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
-
-    *filter_ids_out = filter_ids;
-    return filter_ids_length;
 }
 
 void Index::run_search(search_args* search_params) {
@@ -1441,7 +1436,7 @@ void Index::run_search(search_args* search_params) {
            search_params->raw_result_kvs, search_params->override_result_kvs,
            search_params->typo_tokens_threshold,
            search_params->group_limit, search_params->group_by_fields,
-           search_params->dynamic_overrides,
+           search_params->filter_overrides,
            search_params->default_sorting_field,
            search_params->prioritize_exact_match,
            search_params->exhaustive_search,
@@ -1521,48 +1516,192 @@ void Index::concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, 
     }
 }
 
-void Index::process_dynamic_overrides(const std::vector<const override_t*>& dynamic_overrides,
-                                      std::vector<query_tokens_t>& field_query_tokens,
-                                      token_ordering token_order,
-                                      uint32_t** filter_ids,
-                                      uint32_t& filter_ids_length) const {
+void Index::static_filter_query_eval(const override_t* override,
+                                     std::vector<std::string>& tokens,
+                                     std::vector<filter>& filters) const {
 
-    // compute dynamic filters if any
-    for(auto& override: dynamic_overrides) {
-        // will do an AND across different fields
-        uint32_t* field_override_ids = nullptr;
-        size_t field_override_ids_len = 0;
+    std::string query = StringUtils::join(tokens, " ");
 
-        // check for dynamic filter
-        for(auto& field_name: override->dynamic_filters) {
-            // check if query matches a filter field
-            std::vector<std::string> tokens = field_query_tokens[0].q_include_tokens;
-            check_for_overrides(token_order, field_name, override->mutate_query_string,
-                                field_override_ids, field_override_ids_len, tokens);
+    if( (override->rule.match == override_t::MATCH_EXACT && override->rule.query == query) ||
+        (override->rule.match == override_t::MATCH_CONTAINS && query.find(override->rule.query) != std::string::npos) )  {
 
-            for(size_t i=0; i < field_query_tokens.size(); i++) {
-                if(tokens.empty()) {
-                    field_query_tokens[i].q_include_tokens = {"*"};
-                } else {
-                    field_query_tokens[i].q_include_tokens = tokens;
+        Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
+                                                            store, "", filters);
+        if(!filter_op.ok()) {
+            return ;
+        }
+
+        if(override->mutate_query_string) {
+            query.replace(query.find(override->rule.query), override->rule.query.size(), "");
+            if(StringUtils::trim(query).empty()) {
+                tokens = {"*"};
+            } else {
+                tokens.clear();
+                StringUtils::split(query, tokens, " ");
+            }
+        }
+    }
+}
+
+bool Index::resolve_override(const std::vector<std::string>& rule_parts, const bool exact_rule_match,
+                             const std::vector<std::string>& query_tokens,
+                             token_ordering token_order, std::set<std::string>& absorbed_tokens,
+                             uint32_t*& override_ids, size_t& override_ids_len) const {
+
+    bool resolved_override = false;
+    size_t i = 0, j = 0;
+
+    while(i < rule_parts.size()) {
+        if(rule_parts[i].front() == '{' && rule_parts[i].back() == '}') {
+            // found a field placeholder
+            std::vector<std::string> field_names;
+            std::string rule_part = rule_parts[i];
+            field_names.emplace_back(rule_part.erase(0, 1).erase(rule_part.size() - 1));
+
+            // skip until we find a non-placeholder token
+            i++;
+
+            while(i < rule_parts.size() && (rule_parts[i].front() == '{' && rule_parts[i].back() == '}')) {
+                rule_part = rule_parts[i];
+                field_names.emplace_back(rule_part.erase(0, 1).erase(rule_part.size() - 1));
+                i++;
+            }
+
+            // `i` now points to either end of array or at a non-placeholder rule token
+            // we will skip query tokens until it matches the rule token
+
+            std::vector<std::string> matched_tokens;
+
+            while(j < query_tokens.size() && (i == rule_parts.size() || rule_parts[i] != query_tokens[j])) {
+                matched_tokens.emplace_back(query_tokens[j]);
+                j++;
+            }
+
+            if(i < rule_parts.size() && j < query_tokens.size() && rule_parts[i] != query_tokens[j]) {
+                // if last token does not match, it means that the query does not match the rule
+                resolved_override = false;
+                goto RETURN_EARLY;
+            }
+
+            if(field_names.empty()) {
+                resolved_override = false;
+                goto RETURN_EARLY;
+            }
+
+            resolved_override = true;
+
+            // we try to map `field_names` against `matched_tokens` now
+            for(size_t findex = 0; findex < field_names.size(); findex++) {
+                const auto& field_name = field_names[findex];
+                bool slide_window = (findex == 0);  // fields following another field should match exactly
+                resolved_override &= check_for_overrides2(token_order, field_name, slide_window,
+                                                          override_ids, override_ids_len,
+                                                          exact_rule_match, matched_tokens, absorbed_tokens);
+                if(!resolved_override) {
+                    goto RETURN_EARLY;
                 }
             }
+        } else {
+            i++;
+            j++;
+        }
+    }
+
+    RETURN_EARLY:
+
+    if(!resolved_override || (exact_rule_match && query_tokens.size() != absorbed_tokens.size())) {
+        delete [] override_ids;
+        override_ids_len = 0;
+        return false;
+    }
+
+    return resolved_override;
+}
+
+void Index::process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+                                     std::vector<query_tokens_t>& field_query_tokens,
+                                     token_ordering token_order,
+                                     std::vector<filter>& filters,
+                                     uint32_t** filter_ids,
+                                     uint32_t& filter_ids_length) const {
+
+    for(auto& override: filter_overrides) {
+        if(!override->rule.dynamic_query) {
+            // simple static filtering: add to filter_by and rewrite query if needed
+            // we will cover both the original query and the synonym variants
+            size_t orig_filters_size = filters.size();
+
+            static_filter_query_eval(override, field_query_tokens[0].q_include_tokens, filters);
+            for(auto& syn_tokens: field_query_tokens[0].q_synonyms) {
+                static_filter_query_eval(override, syn_tokens, filters);
+            }
+
+            if(orig_filters_size != filters.size()) {
+                // means that we have been able to resolve an override
+                return ;
+            }
+        } else {
+            // need to extract placeholder field names from the search query, filter on them and rewrite query
+            // we will again cover both original query and synonyms
+
+            std::vector<std::string> rule_parts;
+            StringUtils::split(override->rule.query, rule_parts, " ");
+
+            std::vector<std::string>& query_tokens = field_query_tokens[0].q_include_tokens;
+
+            uint32_t* field_override_ids = nullptr;
+            size_t field_override_ids_len = 0;
+            bool exact_rule_match = override->rule.match == override_t::MATCH_EXACT;
+
+            std::set<std::string> absorbed_tokens;
+            bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens, token_order,
+                                                      absorbed_tokens, field_override_ids, field_override_ids_len);
+
+            if(resolved_override && override->mutate_query_string) {
+                std::vector<std::string> new_tokens;
+                for(auto& token: query_tokens) {
+                    if(absorbed_tokens.count(token) == 0) {
+                        new_tokens.emplace_back(token);
+                    }
+                }
+
+                for(size_t j=0; j < field_query_tokens.size(); j++) {
+                    if(new_tokens.empty()) {
+                        field_query_tokens[j].q_include_tokens = {"*"};
+                    } else {
+                        field_query_tokens[j].q_include_tokens = new_tokens;
+                    }
+                }
+            }
+
+            // now resolve synonyms
 
             for(size_t i = 0; i < field_query_tokens[0].q_synonyms.size(); i++) {
                 uint32_t* synonym_override_ids = nullptr;
                 size_t synonym_override_ids_len = 0;
+                absorbed_tokens.clear();
 
-                std::vector<std::string> syn_tokens = field_query_tokens[0].q_synonyms[i];
-                check_for_overrides(token_order, field_name, override->mutate_query_string,
-                                    synonym_override_ids, synonym_override_ids_len,syn_tokens);
+                std::vector<std::string>& syn_tokens = field_query_tokens[0].q_synonyms[i];
+                resolved_override = resolve_override(rule_parts, exact_rule_match, syn_tokens, token_order, absorbed_tokens,
+                                                     synonym_override_ids, synonym_override_ids_len);
 
-                for(size_t j=0; j < field_query_tokens.size(); j++) {
-                    if(syn_tokens.empty()) {
-                        field_query_tokens[j].q_synonyms[i] = {"*"};
-                    } else {
-                        field_query_tokens[j].q_synonyms[i] = syn_tokens;
+                if(resolved_override && override->mutate_query_string) {
+                    std::vector<std::string> new_tokens;
+                    for (auto& token: syn_tokens) {
+                        if (absorbed_tokens.count(token) == 0) {
+                            new_tokens.emplace_back(token);
+                        }
+                    }
+
+                    for(size_t j=0; j < field_query_tokens.size(); j++) {
+                        if(new_tokens.empty()) {
+                            field_query_tokens[j].q_synonyms[i] = {"*"};
+                        } else {
+                            field_query_tokens[j].q_synonyms[i] = new_tokens;
+                        }
                     }
                 }
+
 
                 // result ids of synonyms will be ORed
 
@@ -1575,31 +1714,31 @@ void Index::process_dynamic_overrides(const std::vector<const override_t*>& dyna
                 delete [] field_override_ids;
                 field_override_ids = syn_field_override_ids;
             }
-        }
 
-        if(filter_ids_length != 0) {
-            uint32_t* filtered_results = nullptr;
-            filter_ids_length = ArrayUtils::and_scalar(field_override_ids, field_override_ids_len, *filter_ids,
-                                                       filter_ids_length, &filtered_results);
-            delete [] *filter_ids;
-            delete [] field_override_ids;
-            *filter_ids = filtered_results;
-        } else {
-            *filter_ids = field_override_ids;
-            filter_ids_length = field_override_ids_len;
+            if(field_override_ids_len != 0) {
+                if(filter_ids_length != 0) {
+                    uint32_t* filtered_results = nullptr;
+                    filter_ids_length = ArrayUtils::and_scalar(field_override_ids, field_override_ids_len, *filter_ids,
+                                                               filter_ids_length, &filtered_results);
+                    delete [] *filter_ids;
+                    delete [] field_override_ids;
+                    *filter_ids = filtered_results;
+                } else {
+                    *filter_ids = field_override_ids;
+                    filter_ids_length = field_override_ids_len;
+                }
+
+                return ;
+            }
         }
     }
 }
 
-void
-Index::check_for_overrides(const token_ordering& token_order, const string& field_name, bool mutate_query_string,
-                           uint32_t*& field_override_ids,
-                           size_t& field_override_ids_len, std::vector<std::string>& actual_tokens) const {
+bool Index::check_for_overrides2(const token_ordering& token_order, const string& field_name, const bool slide_window,
+                                 uint32_t*& field_override_ids, size_t& field_override_ids_len,
+                                 bool exact_rule_match, std::vector<std::string>& tokens,
+                                 std::set<std::string>& absorbed_tokens) const {
 
-    std::vector<std::string> local_tokens = actual_tokens;
-    std::vector<std::string>& tokens = mutate_query_string ? actual_tokens : local_tokens;
-
-    DO_WINDOWING:
     for(size_t window_len = tokens.size(); window_len > 0; window_len--) {
         for(size_t start_index = 0; start_index+window_len-1 < tokens.size(); start_index++) {
             std::vector<token_t> window_tokens;
@@ -1640,24 +1779,33 @@ Index::check_for_overrides(const token_ordering& token_order, const string& fiel
                     field_override_ids_len = result_ids_len;
                 }
 
-                // remove window_tokens from `tokens` and repeat search
+                // remove window_tokens from `tokens`
                 std::vector<std::string> new_tokens;
-                for(const auto& token: tokens) {
+                for(size_t new_i = start_index; new_i < tokens.size(); new_i++) {
+                    const auto& token = tokens[new_i];
                     if(window_tokens_set.count(token) == 0) {
                         new_tokens.emplace_back(token);
+                    } else {
+                        absorbed_tokens.insert(token);
                     }
                 }
 
                 tokens = new_tokens;
-                goto DO_WINDOWING;
+                return true;
+            }
+
+            if(!slide_window) {
+                break;
             }
         }
     }
+
+    return false;
 }
 
 void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const std::vector<search_field_t>& search_fields,
-                   const std::vector<filter>& filters,
+                   std::vector<filter>& filters,
                    std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                    const std::vector<uint32_t> & excluded_ids,
@@ -1674,7 +1822,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const size_t typo_tokens_threshold,
                    const size_t group_limit,
                    const std::vector<std::string>& group_by_fields,
-                   const std::vector<const override_t*>& dynamic_overrides,
+                   const std::vector<const override_t*>& filter_overrides,
                    const std::string& default_sorting_field,
                    bool prioritize_exact_match,
                    const bool exhaustive_search,
@@ -1685,7 +1833,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     // process the filters
 
     uint32_t* filter_ids = nullptr;
-    uint32_t filter_ids_length = do_filtering(&filter_ids, filters);
+    uint32_t filter_ids_length = 0;
 
     std::shared_lock lock(mutex);
 
@@ -1705,7 +1853,14 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
 
-    process_dynamic_overrides(dynamic_overrides, field_query_tokens, token_order, &filter_ids, filter_ids_length);
+    process_filter_overrides(filter_overrides, field_query_tokens, token_order, filters,
+                             &filter_ids, filter_ids_length);
+
+    lock.unlock();
+
+    do_filtering(filter_ids, filter_ids_length, filters);
+
+    lock.lock();
 
     // Order of `fields` are used to sort results
     //auto begin = std::chrono::high_resolution_clock::now();
