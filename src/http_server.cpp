@@ -377,7 +377,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     for(size_t i = 0; i < rpath->path_parts.size(); i++) {
         const std::string & path_part = rpath->path_parts[i];
         if(path_part[0] == ':') {
-            query_map.emplace(path_part.substr(1), path_parts[i]);
+            std::string& value = path_parts[i];
+            if(path_part == ":collection") {
+                value = StringUtils::url_decode(value);
+            }
+            query_map.emplace(path_part.substr(1), value);
         }
     }
 
