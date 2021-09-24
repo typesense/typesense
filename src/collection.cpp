@@ -12,7 +12,6 @@
 #include <system_metrics.h>
 #include <tokenizer.h>
 #include <collection_manager.h>
-#include <h3api.h>
 #include <regex>
 #include <list>
 #include <posting.h>

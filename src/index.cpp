@@ -9,7 +9,6 @@
 #include <string_utils.h>
 #include <art.h>
 #include <tokenizer.h>
-#include <h3api.h>
 #include <s2/s2point.h>
 #include <s2/s2latlng.h>
 #include <s2/s2region_term_indexer.h>
@@ -42,6 +41,11 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         } else if(fname_field.second.is_geopoint()) {
             auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
             geopoint_index.emplace(fname_field.first, field_geo_index);
+
+            if(!fname_field.second.is_single_geopoint()) {
+                spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
+                geo_array_index.emplace(fname_field.first, doc_to_geos);
+            }
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
@@ -56,8 +60,10 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
     }
 
     for(const auto & pair: sort_schema) {
-        spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
-        sort_index.emplace(pair.first, doc_to_score);
+        if(pair.second.type != field_types::GEOPOINT_ARRAY) {
+            spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+            sort_index.emplace(pair.first, doc_to_score);
+        }
     }
 
     for(const auto& pair: facet_schema) {
@@ -85,6 +91,17 @@ Index::~Index() {
     }
 
     geopoint_index.clear();
+
+    for(auto& name_index: geo_array_index) {
+        for(auto& kv: *name_index.second) {
+            delete [] kv.second;
+        }
+
+        delete name_index.second;
+        name_index.second = nullptr;
+    }
+
+    geo_array_index.clear();
 
     for(auto & name_tree: numerical_index) {
         delete name_tree.second;
@@ -168,7 +185,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         bool is_facet = (facet_schema.count(field_name) != 0);
 
         // non-string, non-geo faceted field should be indexed as faceted string field as well
-        if(field_pair.second.facet && !field_pair.second.is_string() && field_pair.second.type != field_types::GEOPOINT) {
+        if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
             art_tree *t = search_index.at(field_pair.second.faceted_name());
 
             if(field_pair.second.is_array()) {
@@ -233,18 +250,47 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             bool value = document[field_name];
             num_tree->insert(value, seq_id);
         } else if(field_pair.second.type == field_types::GEOPOINT) {
+            const std::vector<double>& latlong = document[field_name];
+            auto geo_index = geopoint_index.at(field_name);
+
             S2RegionTermIndexer::Options options;
             options.set_index_contains_points_only(true);
             S2RegionTermIndexer indexer(options);
-            const std::vector<double>& latlong = document[field_name];
             S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+
             for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                auto geo_index = geopoint_index.at(field_name);
                 (*geo_index)[term].push_back(seq_id);
             }
         } else if(field_pair.second.type == field_types::STRING_ARRAY) {
             art_tree *t = search_index.at(field_name);
             index_string_array_field(document[field_name], points, t, seq_id, is_facet, field_pair.second);
+        } else if(field_pair.second.type == field_types::GEOPOINT_ARRAY) {
+            const std::vector<std::vector<double>>& latlongs = document[field_name];
+            auto geo_index = geopoint_index.at(field_name);
+            S2RegionTermIndexer::Options options;
+            options.set_index_contains_points_only(true);
+            S2RegionTermIndexer indexer(options);
+
+            int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
+            packed_latlongs[0] = latlongs.size();
+
+            for(size_t li = 0; li < latlongs.size(); li++) {
+                auto& latlong = latlongs[li];
+                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                std::set<std::string> terms;
+                for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                    terms.insert(term);
+                }
+
+                for(const auto& term: terms) {
+                    (*geo_index)[term].push_back(seq_id);
+                }
+
+                int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                packed_latlongs[li + 1] = packed_latlong;
+            }
+
+            geo_array_index.at(field_name)->emplace(seq_id, packed_latlongs);
         }
 
         else if(field_pair.second.is_array()) {
@@ -432,6 +478,18 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                     Option<uint32_t> coerce_op = coerce_bool(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
                     if (!coerce_op.ok()) {
                         return coerce_op;
+                    }
+                } else if (a_field.type == field_types::GEOPOINT_ARRAY) {
+                    if(!item.is_array() || item.size() != 2) {
+                        return Option<>(400, "Field `" + field_name  + "` must contain 2 element arrays: [ [lat, lng],... ].");
+                    }
+
+                    if(!(item[0].is_number() && item[1].is_number())) {
+                        // one or more elements is not an number, try to coerce
+                        Option<uint32_t> coerce_op = coerce_geopoint(dirty_values, a_field, document, field_name, it, true, array_ele_erased);
+                        if(!coerce_op.ok()) {
+                            return coerce_op;
+                        }
                     }
                 }
 
@@ -938,24 +996,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
 
-    for (size_t i = 0; i < sort_fields.size(); i++) {
-        sort_order[i] = 1;
-        if (sort_fields[i].order == sort_field_const::asc) {
-            sort_order[i] = -1;
-        }
-
-        if (sort_fields[i].name == sort_field_const::text_match) {
-            field_values[i] = &text_match_sentinel_value;
-        } else if (sort_fields[i].name == sort_field_const::seq_id) {
-            field_values[i] = &seq_id_sentinel_value;
-        } else if (sort_index.count(sort_fields[i].name) != 0) {
-            field_values[i] = sort_index.at(sort_fields[i].name);
-
-            if (sort_schema.at(sort_fields[i].name).is_geopoint()) {
-                geopoint_indices.push_back(i);
-            }
-        }
-    }
+    populate_sort_mapping(sort_order, geopoint_indices, sort_fields, field_values);
 
     size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
@@ -1241,14 +1282,37 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
 
                 std::vector<uint32_t> exact_geo_result_ids;
 
-                for(auto result_id: geo_result_ids) {
-                    int64_t lat_lng = sort_index.at(f.name)->at(result_id);
-                    S2LatLng s2_lat_lng;
-                    GeoPoint::unpack_lat_lng(lat_lng, s2_lat_lng);
-                    if (!query_region->Contains(s2_lat_lng.ToPoint())) {
-                        continue;
+                if(f.is_single_geopoint()) {
+                    for(auto result_id: geo_result_ids) {
+                        // no need to check for existence of `result_id` because of indexer based pre-filtering above
+                        int64_t lat_lng = sort_index.at(f.name)->at(result_id);
+                        S2LatLng s2_lat_lng;
+                        GeoPoint::unpack_lat_lng(lat_lng, s2_lat_lng);
+                        if (query_region->Contains(s2_lat_lng.ToPoint())) {
+                            exact_geo_result_ids.push_back(result_id);
+                        }
                     }
-                    exact_geo_result_ids.push_back(result_id);
+                } else {
+                    for(auto result_id: geo_result_ids) {
+                        int64_t* lat_lngs = geo_array_index.at(f.name)->at(result_id);
+
+                        bool point_found = false;
+
+                        // any one point should exist
+                        for(size_t li = 0; li < lat_lngs[0]; li++) {
+                            int64_t lat_lng = lat_lngs[li + 1];
+                            S2LatLng s2_lat_lng;
+                            GeoPoint::unpack_lat_lng(lat_lng, s2_lat_lng);
+                            if (query_region->Contains(s2_lat_lng.ToPoint())) {
+                                point_found = true;
+                                break;
+                            }
+                        }
+
+                        if(point_found) {
+                            exact_geo_result_ids.push_back(result_id);
+                        }
+                    }
                 }
 
                 std::sort(exact_geo_result_ids.begin(), exact_geo_result_ids.end());
@@ -2335,29 +2399,11 @@ void Index::search_wildcard(const std::vector<std::string>& qtokens, const std::
                             const string& field, uint32_t*& all_result_ids, size_t& all_result_ids_len,
                             const uint32_t* filter_ids, uint32_t filter_ids_length) const {
 
-    // FIXME: duplicated
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
 
-    for (size_t i = 0; i < sort_fields_std.size(); i++) {
-        sort_order[i] = 1;
-        if (sort_fields_std[i].order == sort_field_const::asc) {
-            sort_order[i] = -1;
-        }
-
-        if (sort_fields_std[i].name == sort_field_const::text_match) {
-            field_values[i] = &text_match_sentinel_value;
-        } else if (sort_fields_std[i].name == sort_field_const::seq_id) {
-            field_values[i] = &seq_id_sentinel_value;
-        } else if (sort_index.count(sort_fields_std[i].name) != 0) {
-            field_values[i] = sort_index.at(sort_fields_std[i].name);
-
-            if (sort_schema.at(sort_fields_std[i].name).is_geopoint()) {
-                geopoint_indices.push_back(i);
-            }
-        }
-    }
+    populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 
     uint32_t token_bits = 255;
     std::vector<posting_list_t::iterator_t> plists;
@@ -2377,6 +2423,34 @@ void Index::search_wildcard(const std::vector<std::string>& qtokens, const std::
                                                filter_ids_length, &new_all_result_ids);
     delete [] all_result_ids;
     all_result_ids = new_all_result_ids;
+}
+
+void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                                  const std::vector<sort_by>& sort_fields_std,
+                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const {
+    for (size_t i = 0; i < sort_fields_std.size(); i++) {
+        sort_order[i] = 1;
+        if (sort_fields_std[i].order == sort_field_const::asc) {
+            sort_order[i] = -1;
+        }
+
+        if (sort_fields_std[i].name == sort_field_const::text_match) {
+            field_values[i] = &text_match_sentinel_value;
+        } else if (sort_fields_std[i].name == sort_field_const::seq_id) {
+            field_values[i] = &seq_id_sentinel_value;
+        } else if (sort_schema.count(sort_fields_std[i].name) != 0) {
+            if (sort_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
+                geopoint_indices.push_back(i);
+                field_values[i] = nullptr; // GEOPOINT_ARRAY uses a multi-valued index
+            } else {
+                field_values[i] = sort_index.at(sort_fields_std[i].name);
+
+                if (sort_schema.at(sort_fields_std[i].name).is_geopoint()) {
+                    geopoint_indices.push_back(i);
+                }
+            }
+        }
+    }
 }
 
 /*
@@ -2633,18 +2707,37 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
 
     for(auto& i: geopoint_indices) {
         spp::sparse_hash_map<uint32_t, int64_t>* geopoints = field_values[i];
+        int64_t dist = INT32_MAX;
 
         S2LatLng reference_lat_lng;
         GeoPoint::unpack_lat_lng(sort_fields[i].geopoint, reference_lat_lng);
 
-        auto it = geopoints->find(seq_id);
-        int64_t dist = INT32_MAX;
+        if(geopoints != nullptr) {
+            auto it = geopoints->find(seq_id);
 
-        if(it != geopoints->end()) {
-            int64_t packed_latlng = it->second;
-            S2LatLng s2_lat_lng;
-            GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
-            dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
+            if(it != geopoints->end()) {
+                int64_t packed_latlng = it->second;
+                S2LatLng s2_lat_lng;
+                GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
+                dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
+            }
+        } else {
+            // indicates geo point array
+            auto field_it = geo_array_index.at(sort_fields[i].name);
+            auto it = field_it->find(seq_id);
+
+            if(it != field_it->end()) {
+                int64_t* latlngs = it->second;
+                for(size_t li = 0; li < latlngs[0]; li++) {
+                    S2LatLng s2_lat_lng;
+                    int64_t packed_latlng = latlngs[li + 1];
+                    GeoPoint::unpack_lat_lng(packed_latlng, s2_lat_lng);
+                    int64_t this_dist = GeoPoint::distance(s2_lat_lng, reference_lat_lng);
+                    if(this_dist < dist) {
+                        dist = this_dist;
+                    }
+                }
+            }
         }
 
         if(dist < sort_fields[i].exclude_radius) {
@@ -2939,13 +3032,31 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
             options.set_index_contains_points_only(true);
             S2RegionTermIndexer indexer(options);
 
-            const std::vector<double>& latlong = document[field_name];
-            S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-            for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                std::vector<uint32_t>& ids = (*geo_index)[term];
-                ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
-                if(ids.empty()) {
-                    geo_index->erase(term);
+            const std::vector<std::vector<double>>& latlongs = search_field.is_single_geopoint() ?
+                                  std::vector<std::vector<double>>{document[field_name].get<std::vector<double>>()} :
+                                  document[field_name].get<std::vector<std::vector<double>>>();
+
+            for(const std::vector<double>& latlong: latlongs) {
+                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                    auto term_it = geo_index->find(term);
+                    if(term_it == geo_index->end()) {
+                        continue;
+                    }
+                    std::vector<uint32_t>& ids = term_it->second;
+                    ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
+                    if(ids.empty()) {
+                        geo_index->erase(term);
+                    }
+                }
+            }
+
+            if(!search_field.is_single_geopoint()) {
+                spp::sparse_hash_map<uint32_t, int64_t*>*& field_geo_array_map = geo_array_index.at(field_name);
+                auto geo_array_it = field_geo_array_map->find(seq_id);
+                if(geo_array_it != field_geo_array_map->end()) {
+                    delete [] geo_array_it->second;
+                    field_geo_array_map->erase(seq_id);
                 }
             }
         }
@@ -3017,6 +3128,10 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
             } else if(new_field.is_geopoint()) {
                 auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
                 geopoint_index.emplace(new_field.name, field_geo_index);
+                if(!new_field.is_single_geopoint()) {
+                    auto geo_array_map = new spp::sparse_hash_map<uint32_t, int64_t*>();
+                    geo_array_index.emplace(new_field.name, geo_array_map);
+                }
             } else {
                 num_tree_t* num_tree = new num_tree_t;
                 numerical_index.emplace(new_field.name, num_tree);
@@ -3290,7 +3405,7 @@ Option<uint32_t> Index::coerce_bool(const DIRTY_VALUES& dirty_values, const fiel
 Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const field& a_field, nlohmann::json &document,
                                         const std::string &field_name,
                                         nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased) {
-    std::string suffix = is_array ? "a array of" : "a";
+    std::string suffix = is_array ? "an array of" : "a";
     auto& item = is_array ? array_iter.value() : document[field_name];
 
     if(dirty_values == DIRTY_VALUES::REJECT) {
@@ -3313,19 +3428,19 @@ Option<uint32_t> Index::coerce_geopoint(const DIRTY_VALUES& dirty_values, const 
 
     // try to value coerce into a geopoint
 
-    if(!document[field_name][0].is_number() && document[field_name][0].is_string()) {
-        if(StringUtils::is_float(document[field_name][0])) {
-            document[field_name][0] = std::stof(document[field_name][0].get<std::string>());
+    if(!item[0].is_number() && item[0].is_string()) {
+        if(StringUtils::is_float(item[0])) {
+            item[0] = std::stof(item[0].get<std::string>());
         }
     }
 
-    if(!document[field_name][1].is_number() && document[field_name][1].is_string()) {
-        if(StringUtils::is_float(document[field_name][1])) {
-            document[field_name][1] = std::stof(document[field_name][1].get<std::string>());
+    if(!item[1].is_number() && item[1].is_string()) {
+        if(StringUtils::is_float(item[1])) {
+            item[1] = std::stof(item[1].get<std::string>());
         }
     }
 
-    if(!document[field_name][0].is_number() || !document[field_name][1].is_number()) {
+    if(!item[0].is_number() || !item[1].is_number()) {
         if(dirty_values == DIRTY_VALUES::COERCE_OR_DROP) {
             if(!a_field.optional) {
                 return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " geopoint.");
@@ -3457,6 +3572,7 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
     }
 }
 
+/*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`
 bool Index::is_point_in_polygon(const Geofence& poly, const GeoCoord &point) {
@@ -3511,16 +3627,4 @@ double Index::transform_for_180th_meridian(Geofence &poly) {
 void Index::transform_for_180th_meridian(GeoCoord &point, double offset) {
     point.lon = point.lon < 0.0 ? point.lon + offset : point.lon;
 }
-
-bool Index::field_contains_string(const std::string& field_name, const std::string& value) {
-    std::shared_lock lock(mutex);
-
-    auto field_it = search_index.find(field_name);
-    if(field_it != search_index.end()) {
-        art_tree* t = field_it->second;
-        art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char *)value.c_str(), value.size()+1);
-        return (leaf != nullptr);
-    }
-
-    return false;
-}
+*/
