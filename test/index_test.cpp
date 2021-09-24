@@ -63,7 +63,7 @@ TEST(IndexTest, ScrubReindexDoc) {
     pool.shutdown();
 }
 
-TEST(IndexTest, PointInPolygon180thMeridian) {
+/*TEST(IndexTest, PointInPolygon180thMeridian) {
     // somewhere in far eastern russia
     GeoCoord verts[3] = {
         {67.63378886620751, 179.87924212491276},
@@ -72,13 +72,13 @@ TEST(IndexTest, PointInPolygon180thMeridian) {
     };
 
 
-    /*std::vector<S2Point> vertices;
+    *//*std::vector<S2Point> vertices;
     for(size_t point_index = 0; point_index < 4; point_index++) {
         S2Point vertex = S2LatLng::FromDegrees(verts[point_index].lat, verts[point_index].lon).ToPoint();
         vertices.emplace_back(vertex);
     }
 
-    S2Loop region(vertices);*/
+    S2Loop region(vertices);*//*
 
     Geofence poly1{3, verts};
     double offset = Index::transform_for_180th_meridian(poly1);
@@ -96,19 +96,19 @@ TEST(IndexTest, PointInPolygon180thMeridian) {
     Index::transform_for_180th_meridian(point4, offset);
     Index::transform_for_180th_meridian(point5, offset);
 
-    /*ASSERT_TRUE(region.Contains(S2LatLng::FromDegrees(point1.lat, point1.lon).ToPoint()));
+    *//*ASSERT_TRUE(region.Contains(S2LatLng::FromDegrees(point1.lat, point1.lon).ToPoint()));
     ASSERT_TRUE(region.Contains(S2LatLng::FromDegrees(point2.lat, point2.lon).ToPoint()));
     ASSERT_TRUE(region.Contains(S2LatLng::FromDegrees(point3.lat, point3.lon).ToPoint()));
     ASSERT_FALSE(region.Contains(S2LatLng::FromDegrees(point4.lat, point4.lon).ToPoint()));
     ASSERT_FALSE(region.Contains(S2LatLng::FromDegrees(point5.lat, point5.lon).ToPoint()));
-*/
+*//*
     ASSERT_TRUE(Index::is_point_in_polygon(poly1, point1));
     ASSERT_TRUE(Index::is_point_in_polygon(poly1, point2));
     ASSERT_TRUE(Index::is_point_in_polygon(poly1, point3));
 
     ASSERT_FALSE(Index::is_point_in_polygon(poly1, point4));
     ASSERT_FALSE(Index::is_point_in_polygon(poly1, point5));
-}
+}*/
 
 TEST(IndexTest, GeoPointPackUnpack) {
     std::vector<std::pair<double, double>> latlngs = {

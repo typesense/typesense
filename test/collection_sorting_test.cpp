@@ -4,7 +4,6 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
-#include <h3api.h>
 #include "collection.h"
 
 class CollectionSortingTest : public ::testing::Test {
@@ -857,6 +856,160 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointAsOptionalField) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Tibetan Colony",     "32.24678, 77.19239"},
+        {"Civil Hospital",     "32.23959, 77.18763"},
+        {"Johnson Lodge",      "32.24751, 77.18814"},
+
+        {"Lion King Rock",     "32.24493, 77.17038"},
+        {"Jai Durga Handloom", "32.25749, 77.17583"},
+        {"Panduropa",          "32.26059, 77.21798"},
+
+        {"Police Station",     "32.23743, 77.18639"},
+        {"Panduropa Post",     "32.26263, 77.2196"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+
+        if(i != 2) {
+            doc["loc"] = {lat, lng};
+        }
+
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(32.24348, 77.1893, precision: 0.9 km)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*",
+                                 {}, "loc: (32.24348, 77.1893, 20 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(7, results["found"].get<size_t>());
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointArraySorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::vector<std::string>>> records = {
+        {   {"Alpha Inc", "Ennore", "13.22112, 80.30511"},
+            {"Alpha Inc", "Velachery", "12.98973, 80.23095"}
+        },
+
+        {
+            {"Veera Inc", "Thiruvallur", "13.12752, 79.90136"},
+        },
+
+        {
+            {"B1 Inc", "Bengaluru", "12.98246, 77.5847"},
+            {"B1 Inc", "Hosur", "12.74147, 77.82915"},
+            {"B1 Inc", "Vellore", "12.91866, 79.13075"},
+        },
+
+        {
+            {"M Inc", "Nashik", "20.11282, 73.79458"},
+            {"M Inc", "Pune", "18.56309, 73.855"},
+        }
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0][0];
+        doc["points"] = i;
+
+        std::vector<std::vector<double>> lat_lngs;
+        for(size_t k = 0; k < records[i].size(); k++) {
+            std::vector<std::string> lat_lng_str;
+            StringUtils::split(records[i][k][2], lat_lng_str, ", ");
+
+            std::vector<double> lat_lng = {
+                    std::stod(lat_lng_str[0]),
+                    std::stod(lat_lng_str[1])
+            };
+
+            lat_lngs.push_back(lat_lng);
+        }
+
+        doc["loc"] = lat_lngs;
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(13.12631, 80.20252)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    // pick a location close to Chennai
+    auto results = coll1->search("*",
+                                 {}, "loc: (13.12631, 80.20252, 100 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // pick a large radius covering all points
+
+    geo_sort_fields = {
+        sort_by("loc(13.03388, 79.25868)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*",
+                            {}, "loc: (13.03388, 79.25868, 1000 km)",
+                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

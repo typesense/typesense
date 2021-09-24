@@ -24,6 +24,7 @@ namespace field_types {
     static const std::string INT64_ARRAY = "int64[]";
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
+    static const std::string GEOPOINT_ARRAY = "geopoint[]";
 
     static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
@@ -70,6 +71,10 @@ struct field {
         return (type == field_types::BOOL);
     }
 
+    bool is_single_geopoint() const {
+        return (type == field_types::GEOPOINT);
+    }
+
     bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
                type == field_types::INT64 || type == field_types::INT64_ARRAY);
@@ -92,7 +97,7 @@ struct field {
     }
 
     bool is_geopoint() const {
-        return (type == field_types::GEOPOINT);
+        return (type == field_types::GEOPOINT || type == field_types::GEOPOINT_ARRAY);
     }
 
     bool is_string() const {
@@ -106,7 +111,8 @@ struct field {
     bool is_array() const {
         return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
                 type == field_types::FLOAT_ARRAY ||
-                type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
+                type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY ||
+                type == field_types::GEOPOINT_ARRAY);
     }
 
     bool is_singular() const {

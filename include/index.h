@@ -15,7 +15,6 @@
 #include <field.h>
 #include <option.h>
 #include <set>
-#include <h3api.h>
 #include "string_utils.h"
 #include "num_tree.h"
 #include "magic_enum.hpp"
@@ -385,6 +384,9 @@ private:
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
+    // geo_array_field => (seq_id => values) used for exact filtering of geo array records
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
+
     // this is used for wildcard queries
     sorted_array seq_ids;
 
@@ -632,19 +634,17 @@ public:
                                      const std::map<std::string, field> & facet_schema,
                                      const std::string& fallback_field_type);
 
-    static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
+    //static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
 
-    static double transform_for_180th_meridian(Geofence& poly);
+    //static double transform_for_180th_meridian(Geofence& poly);
 
-    static void transform_for_180th_meridian(GeoCoord& point, double offset);
+    //static void transform_for_180th_meridian(GeoCoord& point, double offset);
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
     void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters) const;
 
     void refresh_schemas(const std::vector<field>& new_fields);
-
-    bool field_contains_string(const std::string& field_name, const std::string& value);
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 
@@ -670,5 +670,9 @@ public:
     void curate_filtered_ids(const std::vector<filter>& filters, const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
+
+    void populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
+                               const std::vector<sort_by>& sort_fields_std,
+                               std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
 };
 

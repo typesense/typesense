@@ -4,7 +4,6 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
-#include <h3api.h>
 #include "collection.h"
 
 class CollectionFilteringTest : public ::testing::Test {
@@ -1069,10 +1068,151 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFilteringTest, GeoPointArrayFiltering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::vector<std::string>>> records = {
+        {   {"Alpha Inc", "Ennore", "13.22112, 80.30511"},
+            {"Alpha Inc", "Velachery", "12.98973, 80.23095"}
+        },
+
+        {
+            {"Veera Inc", "Thiruvallur", "13.12752, 79.90136"},
+        },
+
+        {
+            {"B1 Inc", "Bengaluru", "12.98246, 77.5847"},
+            {"B1 Inc", "Hosur", "12.74147, 77.82915"},
+            {"B1 Inc", "Vellore", "12.91866, 79.13075"},
+        },
+
+        {
+            {"M Inc", "Nashik", "20.11282, 73.79458"},
+            {"M Inc", "Pune", "18.56309, 73.855"},
+        }
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0][0];
+        doc["points"] = i;
+
+        std::vector<std::vector<double>> lat_lngs;
+        for(size_t k = 0; k < records[i].size(); k++) {
+            std::vector<std::string> lat_lng_str;
+            StringUtils::split(records[i][k][2], lat_lng_str, ", ");
+
+            std::vector<double> lat_lng = {
+                std::stod(lat_lng_str[0]),
+                std::stod(lat_lng_str[1])
+            };
+
+            lat_lngs.push_back(lat_lng);
+        }
+
+        doc["loc"] = lat_lngs;
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // pick a location close to Chennai
+    auto results = coll1->search("*",
+                                 {}, "loc: (13.12631, 80.20252, 100 km)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // pick location close to none of the spots
+    results = coll1->search("*",
+                            {}, "loc: (13.62601, 79.39559, 10 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // pick a large radius covering all points
+
+    results = coll1->search("*",
+                            {}, "loc: (21.20714729927276, 78.99153966917213, 1000 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    // 1 mile radius
+
+    results = coll1->search("*",
+                            {}, "loc: (12.98941, 80.23073, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // when geo field is formatted badly, show meaningful error
+    nlohmann::json bad_doc;
+    bad_doc["id"] = "1000";
+    bad_doc["title"] = "Test record";
+    bad_doc["loc"] = {"48.91", "2.33"};
+    bad_doc["points"] = 1000;
+
+    auto add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must contain 2 element arrays: [ [lat, lng],... ].", add_op.error());
+
+    bad_doc["loc"] = "foobar";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array.", add_op.error());
+
+    bad_doc["loc"] = nlohmann::json::array();
+    nlohmann::json points = nlohmann::json::array();
+    points.push_back("foo");
+    points.push_back("bar");
+    bad_doc["loc"].push_back(points);
+
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    bad_doc["loc"][0][0] = "2.33";
+    bad_doc["loc"][0][1] = "bar";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    bad_doc["loc"][0][0] = "foo";
+    bad_doc["loc"][0][1] = "2.33";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    // under coercion mode, it should work
+    bad_doc["loc"][0][0] = "48.91";
+    bad_doc["loc"][0][1] = "2.33";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("loc1", field_types::GEOPOINT, false),
-                                 field("loc2", field_types::GEOPOINT, false),
+                                 field("loc2", field_types::GEOPOINT_ARRAY, false),
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
@@ -1081,7 +1221,8 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     doc["id"] = "0";
     doc["title"] = "Palais Garnier";
     doc["loc1"] = {48.872576479306765, 2.332291112241466};
-    doc["loc2"] = {48.84620987789056, 2.345152755563131};
+    doc["loc2"] = nlohmann::json::array();
+    doc["loc2"][0] = {48.84620987789056, 2.345152755563131};
     doc["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -1089,6 +1230,13 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     auto results = coll1->search("*",
                                  {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
                                  {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "loc2: (48.87491151802846, 2.343945883701618, 10 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -1101,6 +1249,13 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
 
     results = coll1->search("*",
                             {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "loc2: (48.87491151802846, 2.343945883701618, 10 km)",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
