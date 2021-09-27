@@ -26,7 +26,7 @@ TEST(IndexTest, ScrubReindexDoc) {
     update_doc1 = old_doc;
     del_doc1 = old_doc;
 
-    index.scrub_reindex_doc(update_doc1, del_doc1, old_doc);
+    index.scrub_reindex_doc(search_schema, update_doc1, del_doc1, old_doc);
     ASSERT_EQ(1, del_doc1.size());
     ASSERT_STREQ("1", del_doc1["id"].get<std::string>().c_str());
 
@@ -39,7 +39,7 @@ TEST(IndexTest, ScrubReindexDoc) {
 
     del_doc2 = update_doc2;
 
-    index.scrub_reindex_doc(update_doc2, del_doc2, old_doc);
+    index.scrub_reindex_doc(search_schema, update_doc2, del_doc2, old_doc);
     ASSERT_EQ(2, del_doc2.size());
     ASSERT_STREQ("1", del_doc2["id"].get<std::string>().c_str());
     std::vector<std::string> cast = del_doc2["cast"].get<std::vector<std::string>>();
@@ -54,7 +54,7 @@ TEST(IndexTest, ScrubReindexDoc) {
     update_doc3["foo"] = "Bar";
 
     del_doc3 = update_doc3;
-    index.scrub_reindex_doc(update_doc3, del_doc3, old_doc);
+    index.scrub_reindex_doc(search_schema, update_doc3, del_doc3, old_doc);
     ASSERT_EQ(3, del_doc3.size());
     ASSERT_STREQ("1", del_doc3["id"].get<std::string>().c_str());
     ASSERT_STREQ("The Lawyer", del_doc3["title"].get<std::string>().c_str());

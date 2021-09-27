@@ -318,6 +318,11 @@ enum class DIRTY_VALUES {
     COERCE_OR_DROP = 4,
 };
 
+struct offsets_facet_hashes_t {
+    std::unordered_map<std::string, std::vector<uint32_t>> offsets;
+    std::vector<uint64_t> facet_hashes;
+};
+
 struct index_record {
     size_t position;                    // position of record in the original request
     uint32_t seq_id;
@@ -330,9 +335,12 @@ struct index_record {
     index_operation_t operation;
     bool is_update;
 
+    // pre-processed data primed for indexing
+    std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
+
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
-    const DIRTY_VALUES dirty_values;
+    DIRTY_VALUES dirty_values;
 
     index_record(size_t record_pos, uint32_t seq_id, const nlohmann::json& doc, index_operation_t operation,
                  const DIRTY_VALUES& dirty_values):
@@ -340,6 +348,10 @@ struct index_record {
             indexed(false), dirty_values(dirty_values) {
 
     }
+
+    index_record(index_record&& rhs) = default;
+
+    index_record& operator=(index_record&& mE) = default;
 
     void index_failure(const uint32_t err_code, const std::string & err_msg) {
         indexed = Option<bool>(err_code, err_msg);
@@ -356,7 +368,7 @@ private:
 
     ThreadPool* thread_pool;
 
-    const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
+    static constexpr const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
 
     std::string name;
 
@@ -482,11 +494,23 @@ private:
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
-    void index_string_field(const std::string & text, const int64_t score, art_tree *t, uint32_t seq_id,
-                            bool is_facet, const field & a_field);
+    static void tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
+                                            const std::vector<char>& symbols_to_index,
+                                            const std::vector<char>& token_separators,
+                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                            std::vector<uint64_t>& facet_hashes);
 
-    void index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
-                                  uint32_t seq_id, bool is_facet, const field & a_field);
+    void index_strings_field(const int64_t score, art_tree *t,
+                            uint32_t seq_id, bool is_facet, const field & a_field,
+                            const std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                            const std::vector<uint64_t>& facet_hashes);
+
+    static void tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
+                                           const field& a_field,
+                                           const std::vector<char>& symbols_to_index,
+                                           const std::vector<char>& token_separators,
+                                           std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                           std::vector<uint64_t>& facet_hashes);
 
     void collate_included_ids(const std::vector<std::string>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
@@ -587,7 +611,14 @@ public:
 
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 
-    void scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
+    static void compute_token_offsets_facets(index_record& record,
+                                             const std::unordered_map<std::string, field>& search_schema,
+                                             const std::map<std::string, field>& facet_schema,
+                                             const std::vector<char>& local_token_separators,
+                                             const std::vector<char>& local_symbols_to_index);
+
+    static void scrub_reindex_doc(const std::unordered_map<std::string, field>& search_schema,
+                                  nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
 
     static void tokenize_string_field(const nlohmann::json& document,
                                       const field& search_field, std::vector<std::string>& tokens,
@@ -623,16 +654,27 @@ public:
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
-    Option<uint32_t> index_in_memory(const nlohmann::json & document, uint32_t seq_id,
-                                     const std::string & default_sorting_field,
+    Option<uint32_t> index_in_memory(const index_record& record, uint32_t seq_id,
+                                     const std::string& default_sorting_field,
                                      const bool is_update);
+
+    static void validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
+                                          const size_t batch_start_index, const size_t batch_size,
+                                          const std::string & default_sorting_field,
+                                          const std::unordered_map<std::string, field> & search_schema,
+                                          const std::map<std::string, field> & facet_schema,
+                                          const std::string& fallback_field_type,
+                                          const std::vector<char>& token_separators,
+                                          const std::vector<char>& symbols_to_index);
 
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record> & iter_batch,
                                      const std::string & default_sorting_field,
                                      const std::unordered_map<std::string, field> & search_schema,
                                      const std::map<std::string, field> & facet_schema,
-                                     const std::string& fallback_field_type);
+                                     const std::string& fallback_field_type,
+                                     const std::vector<char>& token_separators,
+                                     const std::vector<char>& symbols_to_index);
 
     //static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
 
