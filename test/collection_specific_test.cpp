@@ -1424,7 +1424,7 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
 
     ASSERT_TRUE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
     ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
-    ASSERT_EQ("Document with `id` 0 already exists in the import batch.",
+    ASSERT_EQ("Document with `id` 0 already exists in the batch.",
               nlohmann::json::parse(import_records[1])["error"].get<std::string>());
 
     auto results = coll1->search("levis", {"name"},
@@ -1438,6 +1438,24 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("Levis", results["hits"][0]["document"]["name"].get<std::string>());
+
+    // should allow updates though
+    import_records.clear();
+    import_records.push_back(doc1.dump());
+    import_records.push_back(doc2.dump());
+    import_response = coll1->add_many(import_records, document, index_operation_t::UPDATE);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    // should allow upserts also
+    import_records.clear();
+    import_records.push_back(doc1.dump());
+    import_records.push_back(doc2.dump());
+    import_response = coll1->add_many(import_records, document, index_operation_t::UPSERT);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
     // repeated ID is rejected even if the first ID is not indexed due to some error
     import_records.clear();
@@ -1455,7 +1473,7 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
 
     ASSERT_FALSE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
     ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
-    ASSERT_EQ("Document with `id` 100 already exists in the import batch.",
+    ASSERT_EQ("Document with `id` 100 already exists in the batch.",
               nlohmann::json::parse(import_records[1])["error"].get<std::string>());
 
     collectionManager.drop_collection("coll1");

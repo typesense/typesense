@@ -200,6 +200,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
     size_t num_indexed = 0;
     //bool exceeds_memory_limit = false;
 
+    // ensures that document IDs are not repeated within the same batch
+    std::set<std::string> batch_doc_ids;
+
     for(size_t i=0; i < json_lines.size(); i++) {
         const std::string & json_line = json_lines[i];
         Option<doc_seq_id_t> doc_seq_id_op = to_doc(json_line, document, operation, dirty_values, id);
@@ -217,6 +220,13 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             record.is_update = !doc_seq_id_op.get().is_new;
             if(record.is_update) {
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
+            } else {
+                const std::string& doc_id = record.doc["id"].get<std::string>();
+                if(batch_doc_ids.find(doc_id) != batch_doc_ids.end()) {
+                    record.index_failure(400, "Document with `id` " + doc_id + " already exists in the batch.");
+                } else {
+                    batch_doc_ids.emplace(doc_id);
+                }
             }
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
@@ -244,7 +254,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         }
         */
 
-        index_records.emplace_back(record);
+        index_records.emplace_back(std::move(record));
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
             batch_index(index_records, json_lines, num_indexed);
@@ -255,6 +265,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                 document = rec.is_update ? rec.new_doc : rec.doc;
             }
             index_records.clear();
+            batch_doc_ids.clear();
         }
     }
 
@@ -345,7 +356,9 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
         return validation_op;
     }
 
-    index->index_in_memory(document, seq_id, default_sorting_field, op);
+    index_record rec(0, seq_id, document, op, dirty_values);
+    Index::compute_token_offsets_facets(rec, search_schema, facet_schema, token_separators, symbols_to_index);
+    index->index_in_memory(rec, seq_id, default_sorting_field, op);
 
     num_documents += 1;
     return Option<>(200);
@@ -354,7 +367,8 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records) {
     std::unique_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
-                                                   search_schema, facet_schema, fallback_field_type);
+                                                   search_schema, facet_schema, fallback_field_type,
+                                                   token_separators, symbols_to_index);
     num_documents += num_indexed;
     return num_indexed;
 }

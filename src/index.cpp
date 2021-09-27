@@ -151,17 +151,105 @@ int64_t Index::float_to_in64_t(float f) {
     return i;
 }
 
-Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t seq_id,
+void Index::compute_token_offsets_facets(index_record& record,
+                                          const std::unordered_map<std::string, field>& search_schema,
+                                          const std::map<std::string, field>& facet_schema,
+                                          const std::vector<char>& local_token_separators,
+                                          const std::vector<char>& local_symbols_to_index) {
+
+    const auto& document = record.doc;
+
+    for(const auto& field_pair: search_schema) {
+        const std::string& field_name = field_pair.first;
+        if(document.count(field_name) == 0 || !field_pair.second.index) {
+            continue;
+        }
+
+        offsets_facet_hashes_t offset_facet_hashes;
+
+        bool is_facet = (facet_schema.count(field_name) != 0);
+
+        // non-string, non-geo faceted field should be indexed as faceted string field as well
+        if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
+            if(field_pair.second.is_array()) {
+                std::vector<std::string> strings;
+
+                if(field_pair.second.type == field_types::INT32_ARRAY) {
+                    for(int32_t value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+                    for(int64_t value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
+                    for(float value: document[field_name]){
+                        strings.push_back(StringUtils::float_to_str(value));
+                    }
+                } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+                    for(bool value: document[field_name]){
+                        strings.push_back(std::to_string(value));
+                    }
+                }
+
+                tokenize_string_array_with_facets(strings, is_facet, field_pair.second,
+                                                  local_symbols_to_index, local_token_separators,
+                                                  offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
+            } else {
+                std::string text;
+
+                if(field_pair.second.type == field_types::INT32) {
+                    text = std::to_string(document[field_name].get<int32_t>());
+                } else if(field_pair.second.type == field_types::INT64) {
+                    text = std::to_string(document[field_name].get<int64_t>());
+                } else if(field_pair.second.type == field_types::FLOAT) {
+                    text = StringUtils::float_to_str(document[field_name].get<float>());
+                } else if(field_pair.second.type == field_types::BOOL) {
+                    text = std::to_string(document[field_name].get<bool>());
+                }
+
+                tokenize_string_with_facets(text, is_facet, field_pair.second,
+                                            local_symbols_to_index, local_token_separators,
+                                            offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
+            }
+        }
+
+        if(field_pair.second.is_string()) {
+
+            if(field_pair.second.type == field_types::STRING) {
+                tokenize_string_with_facets(document[field_name], is_facet, field_pair.second,
+                                            local_symbols_to_index, local_token_separators,
+                                            offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
+            } else {
+                tokenize_string_array_with_facets(document[field_name], is_facet, field_pair.second,
+                                                  local_symbols_to_index, local_token_separators,
+                                                  offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
+            }
+        }
+
+        if(!offset_facet_hashes.offsets.empty() || !offset_facet_hashes.facet_hashes.empty()) {
+            record.field_index.emplace(field_name, std::move(offset_facet_hashes));
+        }
+    }
+}
+
+Option<uint32_t> Index::index_in_memory(const index_record& record, uint32_t seq_id,
                                         const std::string & default_sorting_field,
                                         const bool is_update) {
-
     std::unique_lock lock(mutex);
 
     int64_t points = 0;
+    auto& document = record.doc;
 
     if(document.count(default_sorting_field) == 0) {
-        if(sort_index.count(default_sorting_field) != 0 && sort_index[default_sorting_field]->count(seq_id)) {
-            points = sort_index[default_sorting_field]->at(seq_id);
+        auto default_sorting_field_it = sort_index.find(default_sorting_field);
+        if(default_sorting_field_it != sort_index.end()) {
+            auto seq_id_it = default_sorting_field_it->second->find(seq_id);
+            if(seq_id_it != default_sorting_field_it->second->end()) {
+                points = seq_id_it->second;
+            } else {
+                points = INT64_MIN;
+            }
         } else {
             points = INT64_MIN;
         }
@@ -186,53 +274,35 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
 
         // non-string, non-geo faceted field should be indexed as faceted string field as well
         if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
+            auto field_index_it = record.field_index.find(field_name);
+            if(field_index_it == record.field_index.end()) {
+                continue;
+            }
+
             art_tree *t = search_index.at(field_pair.second.faceted_name());
 
             if(field_pair.second.is_array()) {
-                std::vector<std::string> strings;
-
-                if(field_pair.second.type == field_types::INT32_ARRAY) {
-                    for(int32_t value: document[field_name]){
-                        strings.push_back(std::to_string(value));
-                    }
-                } else if(field_pair.second.type == field_types::INT64_ARRAY) {
-                    for(int64_t value: document[field_name]){
-                        strings.push_back(std::to_string(value));
-                    }
-                } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
-                    for(float value: document[field_name]){
-                        strings.push_back(StringUtils::float_to_str(value));
-                    }
-                } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
-                    for(bool value: document[field_name]){
-                        strings.push_back(std::to_string(value));
-                    }
-                }
-                index_string_array_field(strings, points, t, seq_id, is_facet, field_pair.second);
+                index_strings_field(points, t, seq_id, is_facet, field_pair.second,
+                                    field_index_it->second.offsets,
+                                    field_index_it->second.facet_hashes);
             } else {
-                std::string text;
-
-                if(field_pair.second.type == field_types::INT32) {
-                    text = std::to_string(document[field_name].get<int32_t>());
-                } else if(field_pair.second.type == field_types::INT64) {
-                    text = std::to_string(document[field_name].get<int64_t>());
-                } else if(field_pair.second.type == field_types::FLOAT) {
-                    text = StringUtils::float_to_str(document[field_name].get<float>());
-                } else if(field_pair.second.type == field_types::BOOL) {
-                    text = std::to_string(document[field_name].get<bool>());
-                }
-
-                index_string_field(text, points, t, seq_id, is_facet, field_pair.second);
+                index_strings_field(points, t, seq_id, is_facet, field_pair.second,
+                                    field_index_it->second.offsets,
+                                    field_index_it->second.facet_hashes);
             }
         }
 
-        if(field_pair.second.type == field_types::STRING) {
-            art_tree *t = search_index.at(field_name);
-            const std::string & text = document[field_name];
-            index_string_field(text, points, t, seq_id, is_facet, field_pair.second);
-        }
+        if(field_pair.second.is_string()) {
+            auto field_index_it = record.field_index.find(field_name);
+            if(field_index_it == record.field_index.end()) {
+                continue;
+            }
 
-        else if(field_pair.second.type == field_types::INT32) {
+            art_tree *t = search_index.at(field_name);
+            index_strings_field(points, t, seq_id, is_facet, field_pair.second,
+                                field_index_it->second.offsets,
+                                field_index_it->second.facet_hashes);
+        } else if(field_pair.second.type == field_types::INT32) {
             auto num_tree = numerical_index.at(field_name);
             int32_t value = document[field_name].get<int32_t>();
             num_tree->insert(value, seq_id);
@@ -261,9 +331,6 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
             for(const auto& term: indexer.GetIndexTerms(point, "")) {
                 (*geo_index)[term].push_back(seq_id);
             }
-        } else if(field_pair.second.type == field_types::STRING_ARRAY) {
-            art_tree *t = search_index.at(field_name);
-            index_string_array_field(document[field_name], points, t, seq_id, is_facet, field_pair.second);
         } else if(field_pair.second.type == field_types::GEOPOINT_ARRAY) {
             const std::vector<std::vector<double>>& latlongs = document[field_name];
             auto geo_index = geopoint_index.at(field_name);
@@ -294,6 +361,7 @@ Option<uint32_t> Index::index_in_memory(const nlohmann::json &document, uint32_t
         }
 
         else if(field_pair.second.is_array()) {
+            // all other numerical arrays
             auto num_tree = numerical_index.at(field_name);
 
             for(size_t arr_i = 0; arr_i < document[field_name].size(); arr_i++) {
@@ -504,73 +572,126 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
     return Option<>(200);
 }
 
-size_t Index::batch_memory_index(Index *index, std::vector<index_record> & iter_batch,
-                                 const std::string & default_sorting_field,
-                                 const std::unordered_map<std::string, field> & search_schema,
-                                 const std::map<std::string, field> & facet_schema,
-                                 const std::string& fallback_field_type) {
+void Index::validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
+                                      const size_t batch_start_index, const size_t batch_size,
+                                      const std::string& default_sorting_field,
+                                      const std::unordered_map<std::string, field>& search_schema,
+                                      const std::map<std::string, field>& facet_schema,
+                                      const std::string& fallback_field_type,
+                                      const std::vector<char>& token_separators,
+                                      const std::vector<char>& symbols_to_index) {
 
-    size_t num_indexed = 0;
+    // runs in a partitioned thread
 
-    // ensures that document IDs are not repeated within the same batch
-    std::set<std::string> batch_doc_ids;
+    for(size_t i = 0; i < batch_size; i++) {
+        index_record& index_rec = iter_batch[batch_start_index + i];
 
-    for(auto & index_rec: iter_batch) {
         if(!index_rec.indexed.ok()) {
             // some records could have been invalidated upstream
             continue;
         }
 
-        if(index_rec.operation != DELETE) {
-            const std::string& doc_id = index_rec.doc["id"].get<std::string>();
-            if(batch_doc_ids.find(doc_id) != batch_doc_ids.end()) {
-                index_rec.index_failure(400, "Document with `id` " + doc_id + " already exists in the import batch.");
-                continue;
-            }
+        if(index_rec.operation == DELETE) {
+            continue;
+        }
 
-            batch_doc_ids.emplace(doc_id);
+        Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
+                                                                  default_sorting_field,
+                                                                  search_schema, facet_schema,
+                                                                  index_rec.operation,
+                                                                  fallback_field_type,
+                                                                  index_rec.dirty_values);
 
-            Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
-                                                                      default_sorting_field,
-                                                                      search_schema, facet_schema,
-                                                                      index_rec.operation,
-                                                                      fallback_field_type,
-                                                                      index_rec.dirty_values);
+        if(!validation_op.ok()) {
+            index_rec.index_failure(validation_op.code(), validation_op.error());
+            continue;
+        }
 
-            if(!validation_op.ok()) {
-                index_rec.index_failure(validation_op.code(), validation_op.error());
-                continue;
-            }
+        if(index_rec.is_update) {
+            // scrub string fields to reduce delete ops
+            get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
+                            index_rec.del_doc);
+            scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
+        }
 
-            if(index_rec.is_update) {
-                // scrub string fields to reduce delete ops
-                get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
-                                index_rec.del_doc);
-                index->scrub_reindex_doc(index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-                index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
-            }
+        compute_token_offsets_facets(index_rec, search_schema, facet_schema, token_separators, symbols_to_index);
+    }
+}
 
-            Option<uint32_t> index_mem_op(0);
+size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_batch,
+                                 const std::string & default_sorting_field,
+                                 const std::unordered_map<std::string, field> & search_schema,
+                                 const std::map<std::string, field> & facet_schema,
+                                 const std::string& fallback_field_type,
+                                 const std::vector<char>& token_separators,
+                                 const std::vector<char>& symbols_to_index) {
 
-            try {
-                index_mem_op = index->index_in_memory(index_rec.doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
-            } catch(const std::exception& e) {
-                const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
-                LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
-                index_mem_op = Option<uint32_t>(500, error_msg);
-            }
+    const size_t concurrency = 4;
+    const size_t num_threads = std::min(concurrency, iter_batch.size());
+    const size_t window_size = (num_threads == 0) ? 0 :
+                               (iter_batch.size() + num_threads - 1) / num_threads;  // rounds up
 
-            if(!index_mem_op.ok()) {
-                index->index_in_memory(index_rec.del_doc, index_rec.seq_id, default_sorting_field, index_rec.is_update);
-                index_rec.index_failure(index_mem_op.code(), index_mem_op.error());
-                continue;
-            }
+    size_t num_indexed = 0;
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
 
-            index_rec.index_success();
+    size_t num_queued = 0;
+    size_t batch_index = 0;
 
-            if(!index_rec.is_update) {
-                num_indexed++;
-            }
+    for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
+        size_t batch_len = window_size;
+
+        if(batch_index + window_size > iter_batch.size()) {
+            batch_len = iter_batch.size() - batch_index;
+        }
+
+        num_queued++;
+
+        index->thread_pool->enqueue([&, batch_index, batch_len]() {
+            validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
+                                    facet_schema, fallback_field_type,
+                                    token_separators, symbols_to_index);
+
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
+        });
+
+        batch_index += batch_len;
+    }
+
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+
+    Option<uint32_t> index_mem_op(0);
+
+    for(auto& index_rec: iter_batch) {
+        if(index_rec.operation == DELETE) {
+            continue;
+        }
+
+        if(!index_rec.indexed.ok()) {
+            // some records could have been invalidated upstream
+            continue;
+        }
+
+        if(index_rec.is_update) {
+            index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
+        }
+
+        try {
+            index_mem_op = index->index_in_memory(index_rec, index_rec.seq_id, default_sorting_field, index_rec.is_update);
+        } catch(const std::exception& e) {
+            const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
+            LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
+            index_mem_op = Option<uint32_t>(500, error_msg);
+        }
+
+        index_rec.index_success();
+
+        if(!index_rec.is_update) {
+            num_indexed++;
         }
     }
 
@@ -612,15 +733,16 @@ uint64_t Index::facet_token_hash(const field & a_field, const std::string &token
     return hash;
 }
 
-void Index::index_string_field(const std::string & text, const int64_t score, art_tree *t,
-                                    uint32_t seq_id, bool is_facet, const field & a_field) {
-    std::unordered_map<std::string, std::vector<uint32_t>> token_to_offsets;
+void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, const field& a_field,
+                                        const std::vector<char>& symbols_to_index,
+                                        const std::vector<char>& token_separators,
+                                        std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                        std::vector<uint64_t>& facet_hashes) {
 
     Tokenizer tokenizer(text, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
-    std::string token, last_token;
+    std::string token;
+    std::string last_token;
     size_t token_index = 0;
-
-    std::vector<uint64_t> facet_hashes;
 
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
@@ -628,7 +750,7 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
         }
 
         if(is_facet) {
-            uint64_t hash = facet_token_hash(a_field, token);
+            uint64_t hash = Index::facet_token_hash(a_field, token);
             facet_hashes.push_back(hash);
         }
 
@@ -636,16 +758,22 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
         last_token = token;
     }
 
+    if(!token_to_offsets.empty()) {
+        // push 0 for the last occurring token (used for exact match ranking)
+        token_to_offsets[last_token].push_back(0);
+    }
+}
+
+void Index::index_strings_field(const int64_t score, art_tree *t,
+                               uint32_t seq_id, bool is_facet, const field & a_field,
+                               const std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                               const std::vector<uint64_t>& facet_hashes) {
+
+    // requires unique lock from caller
+
     if(token_to_offsets.empty()) {
         return;
     }
-
-    // push 0 for the last occurring token (used for exact match ranking)
-    token_to_offsets[last_token].push_back(0);
-
-    /*if(seq_id == 0) {
-        LOG(INFO) << "field name: " << a_field.name;
-    }*/
 
     insert_doc(score, t, seq_id, token_to_offsets);
 
@@ -662,10 +790,12 @@ void Index::index_string_field(const std::string & text, const int64_t score, ar
     }
 }
 
-void Index::index_string_array_field(const std::vector<std::string> & strings, const int64_t score, art_tree *t,
-                                          uint32_t seq_id, bool is_facet, const field & a_field) {
-    std::unordered_map<std::string, std::vector<uint32_t>> token_positions;
-    std::vector<uint64_t> facet_hashes;
+void Index::tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
+                                              const field& a_field,
+                                              const std::vector<char>& symbols_to_index,
+                                              const std::vector<char>& token_separators,
+                                              std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
+                                              std::vector<uint64_t>& facet_hashes) {
 
     for(size_t array_index = 0; array_index < strings.size(); array_index++) {
         const std::string& str = strings[array_index];
@@ -687,7 +817,7 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
                 //LOG(INFO) << "indexing " << token  << ", hash:" << hash;
             }
 
-            token_positions[token].push_back(token_index + 1);
+            token_to_offsets[token].push_back(token_index + 1);
             token_set.insert(token);
             last_token = token;
         }
@@ -704,33 +834,15 @@ void Index::index_string_array_field(const std::vector<std::string> & strings, c
 
         for(auto& the_token: token_set) {
             // repeat last element to indicate end of offsets for this array index
-            token_positions[the_token].push_back(token_positions[the_token].back());
+            token_to_offsets[the_token].push_back(token_to_offsets[the_token].back());
 
             // iterate and append this array index to all tokens
-            token_positions[the_token].push_back(array_index);
+            token_to_offsets[the_token].push_back(array_index);
         }
 
         // push 0 for the last occurring token (used for exact match ranking)
-        token_positions[last_token].push_back(0);
+        token_to_offsets[last_token].push_back(0);
     }
-
-    if(token_positions.empty()) {
-        return;
-    }
-
-    if(is_facet) {
-        facet_hash_values_t fhashvalues;
-        fhashvalues.length = facet_hashes.size();
-        fhashvalues.hashes = new uint64_t[facet_hashes.size()];
-
-        for(size_t i  = 0; i < facet_hashes.size(); i++) {
-            fhashvalues.hashes[i] = facet_hashes[i];
-        }
-
-        facet_index_v3[a_field.name]->emplace(seq_id, std::move(fhashvalues));
-    }
-
-    insert_doc(score, t, seq_id, token_positions);
 }
 
 void Index::compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type) {
@@ -3541,13 +3653,14 @@ void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& up
     }
 }
 
-void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc) {
+void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& search_schema,
+                              nlohmann::json& update_doc,
+                              nlohmann::json& del_doc,
+                              const nlohmann::json& old_doc) {
     std::vector<std::string> del_keys;
 
     for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
         const std::string& field_name = it.key();
-
-        std::shared_lock lock(mutex);
 
         const auto& search_field_it = search_schema.find(field_name);
         if(search_field_it == search_schema.end()) {
@@ -3555,8 +3668,6 @@ void Index::scrub_reindex_doc(nlohmann::json& update_doc, nlohmann::json& del_do
         }
 
         const auto search_field = search_field_it->second;  // copy, don't use reference!
-
-        lock.unlock();
 
         // compare values between old and update docs:
         // if they match, we will remove them from both del and update docs
