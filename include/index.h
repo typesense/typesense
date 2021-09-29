@@ -72,7 +72,7 @@ struct override_t {
     std::vector<drop_hit_t> drop_hits;
 
     std::string filter_by;
-    bool mutate_query_string = false;
+    bool remove_matched_tokens = false;
 
     override_t() {}
 
@@ -149,12 +149,12 @@ struct override_t {
             }
         }
 
-        if(override_json.count("mutate_query_string") != 0) {
-            if (!override_json["mutate_query_string"].is_boolean()) {
-                return Option<bool>(400, "The `mutate_query_string` must be a boolean.");
+        if(override_json.count("remove_matched_tokens") != 0) {
+            if (!override_json["remove_matched_tokens"].is_boolean()) {
+                return Option<bool>(400, "The `remove_matched_tokens` must be a boolean.");
             }
 
-            override.mutate_query_string = override_json["mutate_query_string"].get<bool>();
+            override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
         }
 
         if(!id.empty()) {

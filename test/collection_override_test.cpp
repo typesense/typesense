@@ -848,7 +848,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
                          {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "category: {category}"}
     };
 
@@ -865,7 +865,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
                              {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "category: {category} && brand: {brand}"}
     };
 
@@ -902,7 +902,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
                          {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", ""}
     };
 
@@ -919,7 +919,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
                              {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", {"foo", "bar"}}
     };
 
@@ -983,7 +983,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
                                             {"match", override_t::MATCH_CONTAINS}
                                     }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by",           "brand: {brand} && color: {color}"}
     };
 
@@ -1063,7 +1063,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringTokensBetweenPlaceholders) {
                                             {"match", override_t::MATCH_CONTAINS}
                                     }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by",           "brand: {brand} && color: {color}"}
     };
 
@@ -1136,7 +1136,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
                              {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "category: {category}"}
     };
 
@@ -1204,7 +1204,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
                              {"match", override_t::MATCH_CONTAINS}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "price:> 100"}
     };
 
@@ -1222,7 +1222,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
                              {"match", override_t::MATCH_EXACT}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "price:< 100"}
     };
 
@@ -1306,7 +1306,7 @@ TEST_F(CollectionOverrideTest, FilteringWithAndWithoutQueryStringMutation) {
                              {"match", override_t::MATCH_CONTAINS}
                      }
             },
-            {"mutate_query_string", false},
+            {"remove_matched_tokens", false},
             {"filter_by", "price:> 200"}
     };
 
@@ -1334,7 +1334,7 @@ TEST_F(CollectionOverrideTest, FilteringWithAndWithoutQueryStringMutation) {
                              {"match", override_t::MATCH_CONTAINS}
                      }
             },
-            {"mutate_query_string", true},
+            {"remove_matched_tokens", true},
             {"filter_by", "price:> 200"}
     };
 
