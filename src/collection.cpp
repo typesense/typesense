@@ -493,7 +493,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   bool pre_segmented_query,
                                   bool enable_overrides,
                                   const std::string& highlight_fields,
-                                  const bool exhaustive_search) const {
+                                  const bool exhaustive_search,
+                                  const size_t search_stop_millis) const {
 
     std::shared_lock lock(mutex);
 
@@ -916,7 +917,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  per_page, page, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
-                                                 exhaustive_search, 4, filter_overrides);
+                                                 exhaustive_search, 4, filter_overrides,
+                                                 search_stop_millis);
 
     index->run_search(search_params);
 
@@ -1250,6 +1252,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
     // free search params
     delete search_params;
+
+    result["search_cutoff"] = search_cutoff;
 
     result["request_params"] = nlohmann::json::object();;
     result["request_params"]["collection_name"] = name;

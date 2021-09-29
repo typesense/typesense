@@ -386,7 +386,8 @@ public:
                                   bool pre_segmented_query=false,
                                   bool enable_overrides=true,
                                   const std::string& highlight_fields="",
-                                  const bool exhaustive_search = false) const;
+                                  const bool exhaustive_search = false,
+                                  size_t search_stop_millis = 200) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

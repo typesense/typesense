@@ -260,6 +260,7 @@ struct search_args {
     bool exhaustive_search;
     size_t concurrency;
     const std::vector<const override_t*>& filter_overrides;
+    size_t search_cutoff_ms;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -281,7 +282,8 @@ struct search_args {
                 bool prioritize_exact_match,
                 bool exhaustive_search,
                 size_t concurrency,
-                const std::vector<const override_t*>& dynamic_overrides):
+                const std::vector<const override_t*>& dynamic_overrides,
+                size_t search_cutoff_ms):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -291,7 +293,7 @@ struct search_args {
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
             exhaustive_search(exhaustive_search), concurrency(concurrency),
-            filter_overrides(dynamic_overrides) {
+            filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -650,7 +652,8 @@ public:
                 const std::string& default_sorting_field,
                 bool prioritize_exact_match,
                 bool exhaustive_search,
-                size_t concurrency) const;
+                size_t concurrency,
+                size_t search_cutoff_ms) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
