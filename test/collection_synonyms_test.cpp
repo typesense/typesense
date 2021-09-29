@@ -526,5 +526,47 @@ TEST_F(CollectionSynonymsTest, SynonymJsonSerialization) {
     ASSERT_STREQ("ipod", obj["synonyms"][0].get<std::string>().c_str());
     ASSERT_STREQ("i pod", obj["synonyms"][1].get<std::string>().c_str());
     ASSERT_STREQ("pod", obj["synonyms"][2].get<std::string>().c_str());
+}
 
+TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Smashed Lemon", "Description 1", "100"},
+        {"Lulu Guinness", "Description 2", "100"},
+        {"Lululemon", "Description 3", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["description"] = records[i][1];
+        doc["points"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    synonym_t synonym1{"syn-1", {"lulu", "lemon"}, {{"lululemon"}}};
+    coll1->add_synonym(synonym1);
+
+    auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    ASSERT_STREQ("2", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
 }

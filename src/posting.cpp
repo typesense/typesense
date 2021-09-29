@@ -155,7 +155,7 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const u
     return pl;
 }
 
-posting_list_t* compact_posting_list_t::to_full_posting_list() {
+posting_list_t* compact_posting_list_t::to_full_posting_list() const {
     posting_list_t* pl = new posting_list_t(256);
 
     size_t i = 0;

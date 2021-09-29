@@ -22,7 +22,7 @@ struct compact_posting_list_t {
     static compact_posting_list_t* create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
                                           uint32_t num_offsets, uint32_t* offsets);
 
-    posting_list_t* to_full_posting_list();
+    posting_list_t* to_full_posting_list() const;
 
     bool contains(uint32_t id);
 

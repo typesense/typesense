@@ -17,7 +17,20 @@
 #include <s2/s2loop.h>
 #include <s2/s2builder.h>
 #include <posting.h>
+#include <thread_local_vars.h>
 #include "logger.h"
+
+#define RETURN_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
+                                std::chrono::high_resolution_clock::now() - begin).count() > search_stop_ms) { \
+                                    search_cutoff = true;                                                    \
+                                    return ;\
+                                }
+
+#define BREAK_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
+                                std::chrono::high_resolution_clock::now() - begin).count() > search_stop_ms) { \
+                                    search_cutoff = true;                              \
+                                    break;\
+                                }
 
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
@@ -1113,6 +1126,8 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
     for(long long n=0; n<N && n<combination_limit; ++n) {
+        RETURN_CIRCUIT_BREAKER
+
         // every element in `query_suggestion` contains a token and its associated hits
         std::vector<art_leaf*> query_suggestion(token_candidates_vec.size());
 
@@ -1231,6 +1246,8 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
 
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
+
+        RETURN_CIRCUIT_BREAKER
 
         if(a_filter.field_name == "id") {
             // we handle `ids` separately
@@ -1616,7 +1633,8 @@ void Index::run_search(search_args* search_params) {
            search_params->default_sorting_field,
            search_params->prioritize_exact_match,
            search_params->exhaustive_search,
-           search_params->concurrency);
+           search_params->concurrency,
+           search_params->search_cutoff_ms);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -2002,9 +2020,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const std::string& default_sorting_field,
                    bool prioritize_exact_match,
                    const bool exhaustive_search,
-                   const size_t concurrency) const {
+                   const size_t concurrency,
+                   const size_t search_cutoff_ms) const {
 
-    //auto begin = std::chrono::high_resolution_clock::now();
+    begin = std::chrono::high_resolution_clock::now();
+    search_stop_ms = search_cutoff_ms;
 
     // process the filters
 
@@ -2520,12 +2540,19 @@ void Index::search_wildcard(const std::vector<std::string>& qtokens, const std::
     uint32_t token_bits = 255;
     std::vector<posting_list_t::iterator_t> plists;
 
+    bool check_for_circuit_break = (filter_ids_length > 1000000);
+
     for(size_t i = 0; i < filter_ids_length; i++) {
         const uint32_t seq_id = filter_ids[i];
         score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 0, topster, {},
                       groups_processed, seq_id, sort_order, field_values,
                       geopoint_indices, group_limit, group_by_fields, token_bits,
                       false, false, plists);
+
+        if(check_for_circuit_break && i % (2^17) == 0) {
+            // check only once every 2^17 docs to reduce overhead
+            BREAK_CIRCUIT_BREAKER
+        }
     }
 
     collate_included_ids(qtokens, field, field_id, included_ids_map, curated_topster, searched_queries);
@@ -2637,6 +2664,8 @@ void Index::search_field(const uint8_t & field_id,
     const size_t num_fuzzy_candidates = exhaustive_search ? 10000 : 4;
 
     while(n < N && n < combination_limit) {
+        RETURN_CIRCUIT_BREAKER
+
         // Outerloop generates combinations of [cost to max_cost] for each token
         // For e.g. for a 3-token query: [0, 0, 0], [0, 0, 1], [0, 1, 1] etc.
         std::vector<uint32_t> costs(token_to_costs.size());
