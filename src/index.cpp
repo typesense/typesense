@@ -1725,7 +1725,7 @@ void Index::static_filter_query_eval(const override_t* override,
             return ;
         }
 
-        if(override->mutate_query_string) {
+        if(override->remove_matched_tokens) {
             query.replace(query.find(override->rule.query), override->rule.query.size(), "");
             if(StringUtils::trim(query).empty()) {
                 tokens = {"*"};
@@ -1851,7 +1851,7 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             bool resolved_override = resolve_override(rule_parts, exact_rule_match, query_tokens, token_order,
                                                       absorbed_tokens, field_override_ids, field_override_ids_len);
 
-            if(resolved_override && override->mutate_query_string) {
+            if(resolved_override && override->remove_matched_tokens) {
                 std::vector<std::string> new_tokens;
                 for(auto& token: query_tokens) {
                     if(absorbed_tokens.count(token) == 0) {
@@ -1879,7 +1879,7 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                 resolved_override = resolve_override(rule_parts, exact_rule_match, syn_tokens, token_order, absorbed_tokens,
                                                      synonym_override_ids, synonym_override_ids_len);
 
-                if(resolved_override && override->mutate_query_string) {
+                if(resolved_override && override->remove_matched_tokens) {
                     std::vector<std::string> new_tokens;
                     for (auto& token: syn_tokens) {
                         if (absorbed_tokens.count(token) == 0) {
