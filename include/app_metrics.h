@@ -84,11 +84,13 @@ public:
         std::shared_lock lock(mutex);
 
         uint64_t total_counts = 0;
+        auto SEARCH_RPS_KEY = SEARCH_LABEL + "_" + rps_key;
+        auto SEARCH_LATENCY_KEY = SEARCH_LABEL + "_" + latency_key;
 
         result[rps_key] = nlohmann::json::object();
         for(const auto& kv: *counts) {
             if(kv.first == SEARCH_LABEL) {
-                result[SEARCH_LABEL + "_" + rps_key] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
+                result[SEARCH_RPS_KEY] = double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000);
             } else {
                 result[rps_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
                 total_counts += kv.second;
@@ -103,11 +105,19 @@ public:
             auto counter_it = counts->find(kv.first);
             if(counter_it != counts->end() && counter_it->second != 0) {
                 if(kv.first == SEARCH_LABEL) {
-                    result[SEARCH_LABEL + "_" + latency_key] = (double(kv.second) / counter_it->second);
+                    result[SEARCH_LATENCY_KEY] = (double(kv.second) / counter_it->second);
                 } else {
                     result[latency_key][kv.first] = (double(kv.second) / counter_it->second);
                 }
             }
+        }
+
+        if(!result.contains(SEARCH_RPS_KEY)) {
+            result[SEARCH_RPS_KEY] = 0;
+        }
+
+        if(!result.contains(SEARCH_LATENCY_KEY)) {
+            result[SEARCH_LATENCY_KEY] = 0;
         }
     }
 };
