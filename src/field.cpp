@@ -63,7 +63,7 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
 
 Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                                         const std::unordered_map<std::string, field>& search_schema,
-                                        Store* store,
+                                        const Store* store,
                                         const std::string& doc_id_prefix,
                                         std::vector<filter>& filters) {
 
@@ -332,7 +332,7 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                                      "`: Unidentified field data type, see docs for supported data types.");
         }
 
-        if(f.comparators.size() > 0 && f.comparators.front() == NOT_EQUALS) {
+        if(!f.comparators.empty() && f.comparators.front() == NOT_EQUALS) {
             exclude_filters.push_back(f);
         } else {
             filters.push_back(f);

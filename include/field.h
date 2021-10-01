@@ -478,7 +478,7 @@ struct filter {
 
     static Option<bool> parse_filter_query(const std::string& simple_filter_query,
                                            const std::unordered_map<std::string, field>& search_schema,
-                                           Store* store,
+                                           const Store* store,
                                            const std::string& doc_id_prefix,
                                            std::vector<filter>& filters);
 };

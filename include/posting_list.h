@@ -67,10 +67,11 @@ public:
     };
 
     struct result_iter_state_t {
-        uint32_t* excluded_result_ids = nullptr;
-        size_t excluded_result_ids_size = 0;
-        uint32_t* filter_ids = nullptr;
-        size_t filter_ids_length = 0;
+        const uint32_t* excluded_result_ids = nullptr;
+        const size_t excluded_result_ids_size = 0;
+
+        const uint32_t* filter_ids = nullptr;
+        const size_t filter_ids_length = 0;
 
         size_t excluded_result_ids_index = 0;
         size_t filter_ids_index = 0;
