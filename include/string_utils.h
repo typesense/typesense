@@ -312,4 +312,9 @@ struct StringUtils {
     static std::map<std::string, std::string> parse_query_string(const std::string& query);
 
     static std::string float_to_str(float value);
+
+    static void replace_all(std::string& subject, const std::string& search,
+                            const std::string& replace);
+
+    static std::string trim_curly_spaces(const std::string& str);
 };

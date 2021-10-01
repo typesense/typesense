@@ -58,7 +58,7 @@ struct override_t {
 
     struct add_hit_t {
         std::string doc_id;
-        uint32_t position;
+        uint32_t position = 0;
     };
 
     struct drop_hit_t {
@@ -74,7 +74,7 @@ struct override_t {
     std::string filter_by;
     bool remove_matched_tokens = false;
 
-    override_t() {}
+    override_t() = default;
 
     static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
         if(!override_json.is_object()) {
@@ -198,6 +198,8 @@ struct override_t {
                 while(i < override.rule.query.size()) {
                     if(override.rule.query[i] == '}') {
                         override.rule.dynamic_query = true;
+                        // remove spaces around curlies
+                        override.rule.query = StringUtils::trim_curly_spaces(override.rule.query);
                         break;
                     }
                     i++;
@@ -229,6 +231,11 @@ struct override_t {
             nlohmann::json exclude;
             exclude["id"] = drop_hit.doc_id;
             override["excludes"].push_back(exclude);
+        }
+
+        if(!filter_by.empty()) {
+            override["filter_by"] = filter_by;
+            override["remove_matched_tokens"] = remove_matched_tokens;
         }
 
         return override;
@@ -368,15 +375,15 @@ class Index {
 private:
     mutable std::shared_mutex mutex;
 
-    ThreadPool* thread_pool;
-
     static constexpr const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
 
     std::string name;
 
     const uint32_t collection_id;
 
-    Store* store;
+    const Store* store;
+
+    ThreadPool* thread_pool;
 
     size_t num_documents;
 
@@ -425,31 +432,31 @@ private:
                                        uint32_t& token_bits,
                                        uint64& qhash);
 
-    void log_leaves(const int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
+    void log_leaves(int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size) const;
 
-    void static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
+    bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   std::vector<filter>& filters) const;
 
     void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                    std::vector<query_tokens_t>& field_query_tokens,
                                    token_ordering token_order,
-                                   std::vector<filter>& filters,
-                                   uint32_t** filter_ids,
-                                   uint32_t& filter_ids_length) const;
+                                   std::vector<filter>& filters) const;
 
-    bool resolve_override(const std::vector<std::string>& rule_parts, const bool exact_rule_match,
+    bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
-                          uint32_t*& override_ids, size_t& override_ids_len) const;
+                          std::string& filter_by_clause) const;
 
-    bool check_for_overrides2(const token_ordering& token_order, const string& field_name, const bool slide_window,
-                              uint32_t*& field_override_ids, size_t& field_override_ids_len,
-                              bool exact_rule_match, std::vector<std::string>& tokens,
-                              std::set<std::string>& absorbed_tokens) const;
+    bool check_for_overrides(const token_ordering& token_order, const string& field_name, bool slide_window,
+                             bool exact_rule_match, std::vector<std::string>& tokens,
+                             std::set<std::string>& absorbed_tokens,
+                             std::vector<std::string>& field_absorbed_tokens) const;
+
+    static void aggregate_topster(Topster* agg_topster, Topster* index_topster);
 
     void search_field(const uint8_t & field_id,
                       std::vector<token_t>& query_tokens,
@@ -460,19 +467,19 @@ private:
                       const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
                       const std::vector<uint32_t>& curated_ids,
                       std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
-                      const int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
+                      int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                       uint32_t** all_result_ids, size_t & all_result_ids_len,
                       size_t& field_num_results,
-                      const size_t group_limit,
+                      size_t group_limit,
                       const std::vector<std::string>& group_by_fields,
                       bool prioritize_exact_match,
                       size_t concurrency,
                       std::set<uint64>& query_hashes,
-                      const token_ordering token_order = FREQUENCY, const bool prefix = false,
-                      const size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                      const size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                      const bool exhaustive_search = false) const;
+                      token_ordering token_order = FREQUENCY, const bool prefix = false,
+                      size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
+                      size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
+                      bool exhaustive_search = false) const;
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
@@ -719,5 +726,7 @@ public:
     void populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
                                const std::vector<sort_by>& sort_fields_std,
                                std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
+
+    void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) const;
 };
 

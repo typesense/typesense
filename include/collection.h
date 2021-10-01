@@ -207,8 +207,7 @@ private:
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::map<size_t, std::vector<uint32_t>>& include_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
-                        std::vector<filter>& filters) const;
+                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
@@ -334,8 +333,6 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
-    static void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster);
-
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
     void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed);
@@ -387,7 +384,7 @@ public:
                                   bool enable_overrides=true,
                                   const std::string& highlight_fields="",
                                   const bool exhaustive_search = false,
-                                  size_t search_stop_millis = 200) const;
+                                  size_t search_stop_millis = 6000*1000) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

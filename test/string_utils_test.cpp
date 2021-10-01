@@ -256,3 +256,11 @@ TEST(StringUtilsTest, ShouldParseStringifiedList) {
     ASSERT_EQ(1, strs.size());
     ASSERT_EQ("John Galt", strs[0]);
 }
+
+TEST(StringUtilsTest, ShouldTrimCurlySpaces) {
+    ASSERT_EQ("foo {bar}", StringUtils::trim_curly_spaces("foo { bar }"));
+    ASSERT_EQ("foo  {bar}", StringUtils::trim_curly_spaces("foo  { bar }"));
+    ASSERT_EQ("", StringUtils::trim_curly_spaces(""));
+    ASSERT_EQ("{}", StringUtils::trim_curly_spaces("{ }"));
+    ASSERT_EQ("foo {bar} {baz}", StringUtils::trim_curly_spaces("foo { bar } {  baz}"));
+}

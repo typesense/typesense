@@ -212,6 +212,85 @@ std::string StringUtils::unicode_nfkd(const std::string& text) {
     }
 }
 
+void StringUtils::replace_all(std::string& subject, const std::string& search, const std::string& replace) {
+    if(search.empty()) {
+        return ;
+    }
+
+    size_t pos = 0;
+    while ((pos = subject.find(search, pos)) != std::string::npos) {
+        subject.replace(pos, search.length(), replace);
+        pos += replace.length();
+    }
+}
+
+std::string StringUtils::trim_curly_spaces(const std::string& str) {
+    std::string left_trimmed;
+    int i = 0;
+    bool inside_curly = false;
+
+    while(i < str.size()) {
+        switch (str[i]) {
+            case '{':
+                left_trimmed += str[i];
+                inside_curly = true;
+                break;
+
+            case '}':
+                left_trimmed += str[i];
+                inside_curly = false;
+                break;
+
+            case ' ':
+                if(!inside_curly) {
+                    left_trimmed += str[i];
+                    inside_curly = false;
+                }
+                break;
+
+            default:
+                left_trimmed += str[i];
+                inside_curly = false;
+        }
+
+        i++;
+    }
+
+    std::string right_trimmed;
+    i = left_trimmed.size()-1;
+    inside_curly = false;
+
+    while(i >= 0) {
+        switch (left_trimmed[i]) {
+            case '}':
+                right_trimmed += left_trimmed[i];
+                inside_curly = true;
+                break;
+
+            case '{':
+                right_trimmed += left_trimmed[i];
+                inside_curly = false;
+                break;
+
+            case ' ':
+                if(!inside_curly) {
+                    right_trimmed += left_trimmed[i];
+                    inside_curly = false;
+                }
+                break;
+
+            default:
+                right_trimmed += left_trimmed[i];
+                inside_curly = false;
+        }
+
+        i--;
+    }
+
+    std::reverse(right_trimmed.begin(), right_trimmed.end());
+    return right_trimmed;
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();

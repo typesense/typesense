@@ -390,8 +390,8 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
                                 std::map<size_t, std::vector<uint32_t>>& include_ids,
-                                std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
-                                std::vector<filter>& filters) const {
+                                std::vector<uint32_t>& excluded_ids,
+                                std::vector<const override_t*>& filter_overrides) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -844,7 +844,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     std::vector<const override_t*> filter_overrides;
     std::string query = raw_query;
     curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   include_ids, excluded_ids, filter_overrides, filters);
+                   include_ids, excluded_ids, filter_overrides);
 
     /*for(auto& kv: include_ids) {
         LOG(INFO) << "key: " << kv.first;
@@ -906,9 +906,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     }
 
     // search all indices
-    size_t num_processed = 0;
-    std::mutex m_process;
-    std::condition_variable cv_process;
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
@@ -1330,33 +1327,6 @@ void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<K
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
             result_kvs.push_back({kv});
-        }
-    }
-}
-
-void Collection::aggregate_topster(size_t query_index, Topster& agg_topster, Topster* index_topster) {
-    if(index_topster->distinct) {
-        for(auto &group_topster_entry: index_topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            for(const auto& map_kv: group_topster->kv_map) {
-                map_kv.second->query_index += query_index;
-                if(map_kv.second->query_indices != nullptr) {
-                    for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
-                        map_kv.second->query_indices[i+1] += query_index;
-                    }
-                }
-                agg_topster.add(map_kv.second);
-            }
-        }
-    } else {
-        for(const auto& map_kv: index_topster->kv_map) {
-            map_kv.second->query_index += query_index;
-            if(map_kv.second->query_indices != nullptr) {
-                for(size_t i = 0; i < map_kv.second->query_indices[0]; i++) {
-                    map_kv.second->query_indices[i+1] += query_index;
-                }
-            }
-            agg_topster.add(map_kv.second);
         }
     }
 }

@@ -5,10 +5,10 @@
 #include "posting_list.h"
 #include "threadpool.h"
 
-#define IS_COMPACT_POSTING(x) (((uintptr_t)x & 1))
-#define SET_COMPACT_POSTING(x) ((void*)((uintptr_t)x | 1))
-#define RAW_POSTING_PTR(x) ((void*)((uintptr_t)x & ~1))
-#define COMPACT_POSTING_PTR(x) ((compact_posting_list_t*)((uintptr_t)x & ~1))
+#define IS_COMPACT_POSTING(x) (((uintptr_t)(x) & 1))
+#define SET_COMPACT_POSTING(x) ((void*)((uintptr_t)(x) | 1))
+#define RAW_POSTING_PTR(x) ((void*)((uintptr_t)(x) & ~1))
+#define COMPACT_POSTING_PTR(x) ((compact_posting_list_t*)((uintptr_t)(x) & ~1))
 
 struct compact_posting_list_t {
     // structured to get 4 byte alignment for `id_offsets`
@@ -22,7 +22,7 @@ struct compact_posting_list_t {
     static compact_posting_list_t* create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
                                           uint32_t num_offsets, uint32_t* offsets);
 
-    posting_list_t* to_full_posting_list() const;
+    [[nodiscard]] posting_list_t* to_full_posting_list() const;
 
     bool contains(uint32_t id);
 
@@ -34,7 +34,7 @@ struct compact_posting_list_t {
     uint32_t first_id();
     uint32_t last_id();
 
-    uint32_t num_ids() const;
+    [[nodiscard]] uint32_t num_ids() const;
 
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 };
