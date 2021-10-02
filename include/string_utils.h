@@ -317,4 +317,6 @@ struct StringUtils {
                             const std::string& replace);
 
     static std::string trim_curly_spaces(const std::string& str);
+
+    static bool ends_with(std::string const &str, std::string const &ending);
 };

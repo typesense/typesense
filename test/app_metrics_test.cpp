@@ -24,10 +24,10 @@ TEST_F(AppMetricsTest, StatefulRemoveDocs) {
     metrics.increment_duration("GET /collections", 4);
     metrics.increment_duration("GET /operations/vote", 5);
 
-    metrics.increment_search_count(1);
-    metrics.increment_search_count(1);
-    metrics.increment_search_duration(16);
-    metrics.increment_search_duration(12);
+    metrics.increment_count(AppMetrics::SEARCH_LABEL, 1);
+    metrics.increment_count(AppMetrics::SEARCH_LABEL, 1);
+    metrics.increment_duration(AppMetrics::SEARCH_LABEL, 16);
+    metrics.increment_duration(AppMetrics::SEARCH_LABEL, 12);
 
     metrics.window_reset();
 

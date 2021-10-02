@@ -33,33 +33,6 @@ enum class ROUTE_CODES {
     ALREADY_HANDLED = 2,
 };
 
-class await_t {
-private:
-
-    std::mutex mcv;
-    std::condition_variable cv;
-    bool ready;
-
-public:
-
-    await_t(): ready(false) {}
-
-    void notify() {
-        // Ideally we don't need lock over notify but it is needed here because
-        // the parent object could be deleted after lock on mutex is released but
-        // before notify can be called on condition variable.
-        std::lock_guard<std::mutex> lk(mcv);
-        ready = true;
-        cv.notify_all();
-    }
-
-    void wait() {
-        auto lk = std::unique_lock<std::mutex>(mcv);
-        cv.wait(lk, [&] { return ready; });
-        ready = false;
-    }
-};
-
 struct http_res {
     uint32_t status_code;
     std::string content_type_header;
@@ -264,15 +237,15 @@ struct http_req {
     ~http_req() {
 
         //LOG(INFO) << "~http_req " << this;
-
         if(!deserialized_request) {
             uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
-
             uint64_t ms_since_start = (now - start_ts) / 1000;
-            std::string metric_identifier = http_method + " " + path_without_query;
 
+            std::string metric_identifier = http_method + " " + path_without_query;
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
+
+            AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
             // log slow request if logging is enabled
             Config& config = Config::get_instance();
@@ -309,7 +282,7 @@ struct http_req {
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
     // Take care to check for existence of key to ensure backward compatibility during upgrade
 
-    void deserialize(const std::string& serialized_content) {
+    void load_from_json(const std::string& serialized_content, const bool is_deserialized) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
         body += content["body"];
@@ -325,10 +298,10 @@ struct http_req {
         log_index = content.count("log_index") != 0 ? content["log_index"].get<int64_t>() : 0;
         _req = nullptr;
 
-        deserialized_request = true;
+        deserialized_request = is_deserialized;
     }
 
-    std::string serialize() const {
+    std::string to_json() const {
         nlohmann::json content;
         content["route_hash"] = route_hash;
         content["params"] = params;
