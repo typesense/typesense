@@ -1198,6 +1198,95 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicFilteringExactMatch) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("brand", field_types::STRING, true),
+                                 field("color", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Retro Shoes";
+    doc1["category"] = "shoes";
+    doc1["color"] = "yellow";
+    doc1["brand"] = "Nike";
+    doc1["points"] = 15;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Baseball Shoes";
+    doc2["category"] = "shoes";
+    doc2["color"] = "white";
+    doc2["brand"] = "Nike";
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoes";
+    doc3["category"] = "sports";
+    doc3["color"] = "grey";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = "Running Shoes";
+    doc4["category"] = "sports";
+    doc4["color"] = "grey";
+    doc4["brand"] = "Adidas";
+    doc4["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC"), sort_by("points", "DESC")};
+
+    nlohmann::json override_json = {
+            {"id",                  "dynamic-cat-filter"},
+            {
+             "rule",                {
+                                            {"query", "popular {brand} shoes"},
+                                            {"match", override_t::MATCH_EXACT}
+                                    }
+            },
+            {"remove_matched_tokens", false},
+            {"filter_by",           "brand: {brand} && points:> 10"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override);
+
+    auto results = coll1->search("really popular nike shoes", {"name", "category", "brand"}, "",
+                                  {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("popular nike running shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+
+    results = coll1->search("popular nike shoes running", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     Collection *coll1;
 
@@ -1391,6 +1480,16 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
+    // with synonum for expensive
+    synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };
+    coll1->add_synonym(synonym1);
+
+    results = coll1->search("costly", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
     // with exact match
 
     results = coll1->search("cheap", {"name"}, "",
@@ -1409,7 +1508,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionOverrideTest, FilteringWithAndWithoutQueryStringMutation) {
+TEST_F(CollectionOverrideTest, StaticFilterWithAndWithoutQueryStringMutation) {
     Collection *coll1;
 
     std::vector<field> fields = {field("name", field_types::STRING, false),

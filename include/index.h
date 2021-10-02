@@ -730,6 +730,6 @@ public:
                                const std::vector<sort_by>& sort_fields_std,
                                std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
 
-    void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) const;
+    static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
 };
 
