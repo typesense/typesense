@@ -500,6 +500,8 @@ private:
                            size_t concurrency,
                            std::set<uint64>& query_hashes) const;
 
+    void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters) const;
+
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
@@ -694,7 +696,8 @@ public:
 
     art_leaf* get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len);
 
-    void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters) const;
+    void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
+                                const std::vector<filter>& filters) const;
 
     void refresh_schemas(const std::vector<field>& new_fields);
 

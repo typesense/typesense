@@ -1346,7 +1346,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
 
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_len = 0;
-    index->do_filtering(filter_ids, filter_ids_len, filters);
+    index->do_filtering_with_lock(filter_ids, filter_ids_len, filters);
     index_ids.emplace_back(filter_ids_len, filter_ids);
 
     return Option<bool>(true);
