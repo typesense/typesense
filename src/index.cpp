@@ -1247,8 +1247,6 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                          const std::vector<filter>& filters) const {
     //auto begin = std::chrono::high_resolution_clock::now();
-    std::shared_lock lock(mutex);
-
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
@@ -1618,6 +1616,13 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
     LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
+}
+
+
+void Index::do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
+                                   const std::vector<filter>& filters) const {
+    std::shared_lock lock(mutex);
+    do_filtering(filter_ids, filter_ids_length, filters);
 }
 
 void Index::run_search(search_args* search_params) {
@@ -2086,11 +2091,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
     process_filter_overrides(filter_overrides, field_query_tokens, token_order, filters);
 
-    lock.unlock();
-
     do_filtering(filter_ids, filter_ids_length, filters);
-
-    lock.lock();
 
     // Order of `fields` are used to sort results
     //auto begin = std::chrono::high_resolution_clock::now();
