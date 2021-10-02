@@ -230,7 +230,7 @@ h2o_pathconf_t* HttpServer::register_handler(h2o_hostconf_t *hostconf, const cha
 
 uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                                 route_path** found_rpath) {
-    for (const auto& index_route : routes) {
+    for (const auto& index_route : route_hash_to_path) {
         const route_path & rpath = index_route.second;
 
         if(rpath.path_parts.size() != path_parts.size() || rpath.http_method != http_method) {
@@ -817,35 +817,40 @@ void HttpServer::get(const std::string & path, bool (*handler)(const std::shared
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("GET", path_parts, handler, async_req, async_res);
-    routes.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path_map.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::post(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("POST", path_parts, handler, async_req, async_res);
-    routes.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path_map.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::put(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("PUT", path_parts, handler, async_req, async_res);
-    routes.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path_map.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::patch(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("PATCH", path_parts, handler, async_req, async_res);
-    routes.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path_map.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::del(const std::string & path, bool (*handler)(const std::shared_ptr<http_req>&, const std::shared_ptr<http_res>&), bool async_req, bool async_res) {
     std::vector<std::string> path_parts;
     StringUtils::split(path, path_parts, "/");
     route_path rpath("DELETE", path_parts, handler, async_req, async_res);
-    routes.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path.emplace_back(rpath.route_hash(), rpath);
+    route_hash_to_path_map.emplace(rpath.route_hash(), rpath);
 }
 
 void HttpServer::on(const std::string & message, bool (*handler)(void*)) {
@@ -896,14 +901,14 @@ bool HttpServer::is_alive() const {
 }
 
 bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
-    for (auto& hash_route : routes) {
-        if(hash_route.first == hash) {
-            *found_rpath = &hash_route.second;
-            return true;
-        }
+    auto route_hash_it = route_hash_to_path_map.find(hash);
+
+    if(route_hash_it == route_hash_to_path_map.end()) {
+        return false;
     }
 
-    return false;
+    *found_rpath = &route_hash_it->second;
+    return true;
 }
 
 uint64_t HttpServer::node_state() const {
@@ -1027,4 +1032,8 @@ void HttpServer::persist_applying_index() {
 
 int64_t HttpServer::get_num_queued_writes() {
     return replication_state->get_num_queued_writes();
+}
+
+bool HttpServer::is_leader() const {
+    return replication_state->is_leader();
 }

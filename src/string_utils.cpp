@@ -291,6 +291,14 @@ std::string StringUtils::trim_curly_spaces(const std::string& str) {
     return right_trimmed;
 }
 
+bool StringUtils::ends_with(const std::string& str, const std::string& ending) {
+    if (str.length() >= ending.length()) {
+        return (0 == str.compare (str.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();

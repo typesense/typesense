@@ -212,7 +212,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 
     butil::IOBufBuilder bufBuilder;
-    bufBuilder << request->serialize();
+    bufBuilder << request->to_json();
 
     //LOG(INFO) << "write() pre request ref count " << request.use_count();
 
@@ -364,7 +364,7 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
 
         if(!iter.done()) {
             // indicates log serialized request
-            request_generated->deserialize(iter.data().to_string());
+            request_generated->load_from_json(iter.data().to_string(), true);
         }
 
         request_generated->log_index = iter.index();
@@ -777,6 +777,16 @@ void ReplicationState::persist_applying_index() {
 
 int64_t ReplicationState::get_num_queued_writes() {
     return batched_indexer->get_queued_writes();
+}
+
+bool ReplicationState::is_leader() {
+    std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        return false;
+    }
+
+    return node->is_leader();
 }
 
 void OnDemandSnapshotClosure::Run() {

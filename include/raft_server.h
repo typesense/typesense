@@ -212,6 +212,8 @@ public:
 
     int64_t get_num_queued_writes();
 
+    bool is_leader();
+
 private:
 
     friend class ReplicationClosure;

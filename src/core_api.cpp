@@ -1,4 +1,3 @@
-#include <regex>
 #include <chrono>
 #include <thread>
 #include <app_metrics.h>
@@ -1406,4 +1405,22 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 
     res->set_200(res_json.dump());
     return true;
+}
+
+bool is_doc_import_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_import_documents);
+}
+
+bool is_doc_write_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_add_document || rpath->handler == patch_update_document);
+}
+
+bool is_doc_del_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == del_remove_document || rpath->handler == del_remove_documents);
 }

@@ -91,8 +91,11 @@ private:
 
     std::string version;
 
-    // must be a vector since order of routes matter
-    std::vector<std::pair<uint64_t, route_path>> routes;
+    // must be a vector since order of routes entered matter
+    std::vector<std::pair<uint64_t, route_path>> route_hash_to_path;
+
+    // also have a hashmap for quick lookup of individual routes
+    std::unordered_map<uint64_t, route_path> route_hash_to_path_map;
 
     const std::string listen_address;
 
@@ -155,6 +158,8 @@ public:
     ReplicationState* get_replication_state() const;
 
     bool is_alive() const;
+
+    bool is_leader() const;
 
     uint64_t node_state() const;
 

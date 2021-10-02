@@ -43,7 +43,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
     //LOG(INFO) << "req_id: " << req->start_ts << ", chunk_sequence: " << chunk_sequence;
 
-    store->insert(request_chunk_key, req->serialize());
+    store->insert(request_chunk_key, req->to_json());
     req->body = "";
 
     {
@@ -110,7 +110,7 @@ void BatchedIndexer::run() {
                         std::shared_ptr<http_req>& orig_req = orig_req_res.req;
                         auto _req = orig_req->_req;
                         orig_req->body = prev_body;
-                        orig_req->deserialize(iter->value().ToString());
+                        orig_req->load_from_json(iter->value().ToString(), _req == nullptr);
                         orig_req->_req = _req;
 
                         // update thread local for reference during a crash
