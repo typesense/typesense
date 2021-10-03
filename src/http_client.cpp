@@ -136,8 +136,10 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
 
 void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers) {
     char* content_type;
-    curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
-    res_headers.emplace("content-type", content_type);
+    CURLcode res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+    if(res == CURLE_OK && content_type != nullptr) {
+        res_headers.emplace("content-type", content_type);
+    }
 }
 
 size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -204,13 +206,16 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     if(req_res->res->status_code == 0) {
         CURL* curl = req_res->req->data;
         long http_code = 500;
-        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        CURLcode res = curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if(res == CURLE_OK) {
+            req_res->res->status_code = http_code;
+        }
 
         char* content_type;
-        curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
-
-        req_res->res->status_code = http_code;
-        req_res->res->content_type_header = content_type;
+        res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+        if(res == CURLE_OK && content_type != nullptr) {
+            req_res->res->content_type_header = content_type;
+        }
     }
 
     // we've got response from remote host: write to client and ask for more request body
