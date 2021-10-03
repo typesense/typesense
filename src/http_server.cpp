@@ -258,6 +258,7 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 }
 
 void HttpServer::on_res_generator_dispose(void *self) {
+    //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
     //LOG(INFO) << "on_res_generator_dispose fires, req use count " << custom_generator->req().use_count();
     destroy_request_response(custom_generator->req(), custom_generator->res());
@@ -265,6 +266,7 @@ void HttpServer::on_res_generator_dispose(void *self) {
     /*LOG(INFO) << "Deleting custom_generator, res: " << custom_generator->res();
               << ", refcount: " << custom_generator->res().use_count();*/
 
+    custom_generator->res()->generator = nullptr;
     delete custom_generator;
 
     //LOG(INFO) << "Deleted custom_generator";
@@ -700,8 +702,6 @@ void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
 
     custom_generator->req()->_req = nullptr;
     custom_generator->res()->final = true;
-
-    // returns control back to caller (raft replication or follower forward)
     //LOG(INFO) << "response_abort: fulfilling req & res proceed.";
 }
 
@@ -732,8 +732,16 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
     //LOG(INFO) << "stream_response called " << response.get();
 
+    if(response->generator == nullptr) {
+        // generator has been disposed, underlying request is probably dead
+        //LOG(INFO) << "response->generator == nullptr";
+        request->_req = nullptr;
+        response->notify();
+        return;
+    }
+
     if(request->_req == nullptr) {
-        // raft log replay or when underlying request is aborted
+        // underlying request has been cancelled
         //LOG(INFO) << "stream_response, request._req == nullptr";
         response->notify();
         return;
