@@ -1577,3 +1577,67 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAll
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, CustomNumTyposConfiguration) {
+    // dropped tokens on a single field cannot be deemed as verbatim match
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Hamburger";
+    doc1["brand"] = "Burger and King";
+    doc1["points"] = 10;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    // by default a typo on 3 char tokens are ignored (min 4 length is needed)
+
+    auto results = coll1->search("asd", {"brand"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false},
+                                 2, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1},
+                                 1000, true, false, true, "", false, 60000*100).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("asd", {"brand"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false},
+                            2, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1},
+                            1000, true, false, true, "", false, 60000*100, 3, 7).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // 2 typos are not tolerated by default on 6-len word
+
+    results = coll1->search("bixger", {"brand"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false},
+                            2, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1},
+                            1000, true, false, true, "", false, 60000*100).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("bixger", {"brand"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false},
+                            2, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1},
+                            1000, true, false, true, "", false, 60000*100, 3, 6).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}

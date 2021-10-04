@@ -491,6 +491,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
+    const char *MIN_LEN_1TYPO = "min_len_1typo";
+    const char *MIN_LEN_2TYPO = "min_len_2typo";
+
     const char *PREFIX = "prefix";
     const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
     const char *TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
@@ -539,6 +542,18 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
+    }
+
+    if(req_params.count(MIN_LEN_1TYPO) == 0) {
+        req_params[MIN_LEN_1TYPO] = "4";
+    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_1TYPO])) {
+        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_1TYPO) + "` must be an unsigned integer.");
+    }
+
+    if(req_params.count(MIN_LEN_2TYPO) == 0) {
+        req_params[MIN_LEN_2TYPO] = "7";
+    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_2TYPO])) {
+        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_2TYPO) + "` must be an unsigned integer.");
     }
 
     if(req_params.count(PREFIX) == 0) {
