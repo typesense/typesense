@@ -1319,6 +1319,18 @@ TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
     ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    // should work even if points of polygon are clockwise
+
+    results = coll1->search("*",
+                            {}, "loc: (48.87756059389807, 2.3443610121873206, "
+                                    "48.859636574404355,2.351469427048221, "
+                                    "48.85745408145392, 2.3267084486160856, "
+                                    "48.875223042424125,2.323509661928681)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
 
