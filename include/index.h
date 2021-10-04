@@ -268,6 +268,8 @@ struct search_args {
     size_t concurrency;
     const std::vector<const override_t*>& filter_overrides;
     size_t search_cutoff_ms;
+    size_t min_len_1typo;
+    size_t min_len_2typo;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -290,7 +292,9 @@ struct search_args {
                 bool exhaustive_search,
                 size_t concurrency,
                 const std::vector<const override_t*>& dynamic_overrides,
-                size_t search_cutoff_ms):
+                size_t search_cutoff_ms,
+                size_t min_len_1typo,
+                size_t min_len_2typo):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -300,7 +304,8 @@ struct search_args {
             group_by_fields(group_by_fields), group_limit(group_limit), default_sorting_field(default_sorting_field),
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
             exhaustive_search(exhaustive_search), concurrency(concurrency),
-            filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms) {
+            filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms),
+            min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -476,10 +481,12 @@ private:
                       bool prioritize_exact_match,
                       size_t concurrency,
                       std::set<uint64>& query_hashes,
-                      token_ordering token_order = FREQUENCY, const bool prefix = false,
-                      size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
-                      size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD,
-                      bool exhaustive_search = false) const;
+                      token_ordering token_order, const bool prefix,
+                      size_t drop_tokens_threshold,
+                      size_t typo_tokens_threshold,
+                      bool exhaustive_search,
+                      size_t min_len_1typo,
+                      size_t min_len_2typo) const;
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
@@ -616,7 +623,8 @@ public:
 
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
 
-    static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len);
+    static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
+                                     size_t min_len_1typo, size_t min_len_2typo);
 
     static int64_t float_to_in64_t(float n);
 
@@ -662,7 +670,9 @@ public:
                 bool prioritize_exact_match,
                 bool exhaustive_search,
                 size_t concurrency,
-                size_t search_cutoff_ms) const;
+                size_t search_cutoff_ms,
+                size_t min_len_1typo,
+                size_t min_len_2typo) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
