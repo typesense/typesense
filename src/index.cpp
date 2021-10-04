@@ -1371,11 +1371,25 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 if(is_polygon) {
                     const int num_verts = int(filter_value_parts.size()) / 2;
                     std::vector<S2Point> vertices;
+                    double sum = 0.0;
+
                     for(size_t point_index = 0; point_index < size_t(num_verts); point_index++) {
                         double lat = std::stod(filter_value_parts[point_index * 2]);
                         double lon = std::stod(filter_value_parts[point_index * 2 + 1]);
                         S2Point vertex = S2LatLng::FromDegrees(lat, lon).ToPoint();
                         vertices.emplace_back(vertex);
+                    }
+
+                    for(size_t vi = 0; vi < vertices.size(); vi++) {
+                        auto& v1 = vertices[vi];
+                        auto& v2 = vertices[(vi + 1) % vertices.size()];
+                        sum += (v2.x() - v1.x()) * (v2.y() + v1.y());
+                    }
+
+                    bool is_clockwise = (sum > 0.0);
+
+                    if(is_clockwise) {
+                        std::reverse(vertices.begin(), vertices.end());
                     }
 
                     query_region = new S2Loop(vertices);
