@@ -114,9 +114,7 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                 }
             }
 
-            if(!id_filter.values.empty()) {
-                filters.push_back(id_filter);
-            }
+            filters.push_back(id_filter);
 
             continue;
         }
