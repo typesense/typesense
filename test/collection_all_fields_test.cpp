@@ -821,6 +821,47 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("i.*", field_types::INT32, false, true),
+                                 field("s.*", field_types::STRING, false, true),
+                                 field("a.*", field_types::STRING_ARRAY, false, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Rand Building";
+    doc["i_age"]  = "28";
+    doc["s_name"]  = nullptr;
+    doc["a_name"]  = {};
+
+    // should coerce while retaining expected type
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto schema = coll1->get_fields();
+
+    ASSERT_EQ("a_name", schema[4].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[4].type);
+
+    ASSERT_EQ("i_age", schema[5].name);
+    ASSERT_EQ(field_types::INT32, schema[5].type);
+
+    ASSERT_EQ("s_name", schema[6].name);
+    ASSERT_EQ(field_types::STRING, schema[6].type);
+
+    auto results = coll1->search("rand", {"title"}, "i_age: 28", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
     Collection *coll1;
 
@@ -890,6 +931,11 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    // org_year should be of type int32
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("org_year", schema[5].name);
+    ASSERT_EQ(field_types::INT32, schema[5].type);
+
     auto res_op = coll1->search("Amazon", {"org_name"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a facet field named `org_name` in the schema.", res_op.error());
@@ -902,6 +948,39 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
 
     results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, RegexpIntFieldWithFallbackStringType) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("n.*", field_types::INT32, false, true),
+                                 field(".*", field_types::STRING, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Amazon Inc.";
+    doc["n_age"]  = 32;
+    doc["rand_str"]  = "fizzbuzz";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // n_age should be of type int32
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("n_age", schema[3].name);
+    ASSERT_EQ(field_types::INT32, schema[3].type);
+
+    ASSERT_EQ("rand_str", schema[4].name);
+    ASSERT_EQ(field_types::STRING, schema[4].type);
 
     collectionManager.drop_collection("coll1");
 }
