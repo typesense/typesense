@@ -39,7 +39,8 @@ struct http_res {
     std::string body;
     std::atomic<bool> final;
 
-    void* generator = nullptr;
+    std::atomic<bool> is_alive;
+    std::atomic<void*> generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
     bool proxied_stream = false;
@@ -48,18 +49,20 @@ struct http_res {
     std::condition_variable cv;
     bool ready;
 
-    http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true), ready(false) {
+    http_res(void* generator): status_code(0), content_type_header("application/json; charset=utf-8"), final(true),
+                               is_alive(generator != nullptr), generator(generator), ready(false) {
 
     }
 
     ~http_res() {
-        //LOG(INFO) << "http_res " << this;
+        //LOG(INFO) << "~http_res " << this;
     }
 
-    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body) {
+    void set_content(uint32_t status_code, const std::string& content_type_header, const std::string& body, const bool final) {
         this->status_code = status_code;
         this->content_type_header = content_type_header;
         this->body = body;
+        this->final = final;
     }
 
     void wait() {
@@ -206,7 +209,6 @@ struct http_req {
     h2o_custom_timer_t defer_timer;
 
     uint64_t start_ts;
-    bool deserialized_request;
 
     std::mutex mcv;
     std::condition_variable cv;
@@ -214,9 +216,11 @@ struct http_req {
 
     int64_t log_index;
 
+    std::atomic<bool> is_http_v1;
+
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false), log_index(0) {
+                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -227,17 +231,21 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false),
+            chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
             log_index(0) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if(_req != nullptr) {
+            is_http_v1 = (_req->version < 0x200);
+        }
     }
 
     ~http_req() {
 
         //LOG(INFO) << "~http_req " << this;
-        if(!deserialized_request) {
+        if(_req != nullptr) {
             uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
             uint64_t ms_since_start = (now - start_ts) / 1000;
@@ -282,7 +290,7 @@ struct http_req {
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
     // Take care to check for existence of key to ensure backward compatibility during upgrade
 
-    void load_from_json(const std::string& serialized_content, const bool is_deserialized) {
+    void load_from_json(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
         body += content["body"];
@@ -296,9 +304,6 @@ struct http_req {
         last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
         start_ts = content.count("start_ts") != 0 ? content["start_ts"].get<uint64_t>() : 0;
         log_index = content.count("log_index") != 0 ? content["log_index"].get<int64_t>() : 0;
-        _req = nullptr;
-
-        deserialized_request = is_deserialized;
     }
 
     std::string to_json() const {
@@ -313,10 +318,6 @@ struct http_req {
         content["log_index"] = log_index;
 
         return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-    }
-
-    bool is_http_v1() {
-        return (_req->version < 0x200);
     }
 };
 

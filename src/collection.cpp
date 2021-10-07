@@ -2389,7 +2389,7 @@ DIRTY_VALUES Collection::parse_dirty_values_option(std::string& dirty_values) co
     return dirty_values_action;
 }
 
-std::vector<char> Collection::to_char_array(std::vector<std::string> strings) {
+std::vector<char> Collection::to_char_array(const std::vector<std::string>& strings) {
     std::vector<char> vec;
     for(const auto& s: strings) {
         if(s.length() == 1) {

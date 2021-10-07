@@ -193,7 +193,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         //LOG(INFO) << "write(), force shutdown";
         response->set_503("Shutting down.");
         response->final = true;
-        request->_req = nullptr;
+        response->is_alive = false;
         request->notify();
         return ;
     }
@@ -245,13 +245,13 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         if(request->_req->proceed_req && response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
-            request->_req = nullptr;
+            response->is_alive = false;
             request->notify();
             return ;
         }
 
         response->set_500("Could not find a leader.");
-        auto req_res = new deferred_req_res_t(request, response, server, true);
+        auto req_res = new async_req_res_t(request, response, true);
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
@@ -265,7 +265,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     const std::string & leader_addr = node->leader_id().to_string();
     //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator.load());
     HttpServer* server = custom_generator->h2o_handler->http_server;
 
     auto raw_req = request->_req;
@@ -321,7 +321,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_500(err);
         }
 
-        auto req_res = new deferred_req_res_t(request, response, server, true);
+        auto req_res = new async_req_res_t(request, response, true);
         message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         pending_writes--;
     });
@@ -360,11 +360,11 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         //LOG(INFO) << "Post assignment " << request_generated.get() << ", use count: " << request_generated.use_count();
 
         const std::shared_ptr<http_res>& response_generated = iter.done() ?
-                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>();
+                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>(nullptr);
 
         if(!iter.done()) {
             // indicates log serialized request
-            request_generated->load_from_json(iter.data().to_string(), true);
+            request_generated->load_from_json(iter.data().to_string());
         }
 
         request_generated->log_index = iter.index();
@@ -816,7 +816,7 @@ void OnDemandSnapshotClosure::Run() {
     res->status_code = status_code;
     res->body = response.dump();
 
-    auto req_res = new deferred_req_res_t(req, res, nullptr, true);
+    auto req_res = new async_req_res_t(req, res, true);
     replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait for response to be sent

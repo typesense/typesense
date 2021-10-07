@@ -260,16 +260,14 @@ uint64_t HttpServer::find_route(const std::vector<std::string> & path_parts, con
 void HttpServer::on_res_generator_dispose(void *self) {
     //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
-    //LOG(INFO) << "on_res_generator_dispose fires, req use count " << custom_generator->req().use_count();
-    destroy_request_response(custom_generator->req(), custom_generator->res());
 
-    /*LOG(INFO) << "Deleting custom_generator, res: " << custom_generator->res();
-              << ", refcount: " << custom_generator->res().use_count();*/
-
+    custom_generator->res()->final = true;
     custom_generator->res()->generator = nullptr;
-    delete custom_generator;
+    custom_generator->res()->is_alive = false;
+    custom_generator->req()->notify();
+    custom_generator->res()->notify();
 
-    //LOG(INFO) << "Deleted custom_generator";
+    delete custom_generator;
 }
 
 int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
@@ -398,16 +396,16 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
                                                                    route_hash, query_map, body);
-    std::shared_ptr<http_res> response = std::make_shared<http_res>();
 
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
-    custom_gen->super = h2o_generator_t {response_proceed, response_abort};
+    std::shared_ptr<http_res> response = std::make_shared<http_res>(custom_gen);
+
+    custom_gen->h2o_generator = h2o_generator_t {response_proceed, response_abort};
     custom_gen->request = request;
     custom_gen->response = response;
     custom_gen->rpath = rpath;
     custom_gen->h2o_handler = h2o_handler;
-    response->generator = &custom_gen->super;
 
     h2o_custom_generator_t** allocated_generator = static_cast<h2o_custom_generator_t**>(
         h2o_mem_alloc_shared(&req->pool, sizeof(*allocated_generator), on_res_generator_dispose)
@@ -468,8 +466,8 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 
     /*
     LOG(INFO) << "async_req_cb, chunk.len=" << chunk.len
-              << ", request->_req->entity.len=" << request->_req->entity.len
-              << ", content_len: " << request->_req->content_length
+              << ", request->req->entity.len=" << request->req->entity.len
+              << ", content_len: " << request->req->content_length
               << ", is_end_stream=" << is_end_stream;
     */
 
@@ -506,13 +504,13 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     request->body += chunk_str;
     request->chunk_len += chunk.len;
 
-    /*LOG(INFO) << "entity: " << std::string(request->_req->entity.base, std::min<size_t>(40, request->_req->entity.len))
+    /*LOG(INFO) << "entity: " << std::string(request->req->entity.base, std::min<size_t>(40, request->req->entity.len))
               << ", chunk len: " << std::string(chunk.base, std::min<size_t>(40, chunk.len));*/
 
     //std::this_thread::sleep_for(std::chrono::seconds(30));
 
     //LOG(INFO) << "request->body.size(): " << request->body.size() << ", request->chunk_len=" << request->chunk_len;
-    // LOG(INFO) << "req->entity.len: " << request->_req->entity.len << ", request->chunk_len=" << request->chunk_len;
+    // LOG(INFO) << "req->entity.len: " << request->req->entity.len << ", request->chunk_len=" << request->chunk_len;
 
     bool async_req = custom_generator->rpath->async_req;
 
@@ -527,7 +525,7 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 
     bool exceeds_chunk_limit;
 
-    if(!request->is_http_v1() && request->first_chunk_aggregate) {
+    if(!request->is_http_v1 && request->first_chunk_aggregate) {
         exceeds_chunk_limit = ((request->chunk_len + request->_req->entity.len) >= ACTIVE_STREAM_WINDOW_SIZE);
     } else {
         exceeds_chunk_limit = (request->chunk_len >= ACTIVE_STREAM_WINDOW_SIZE);
@@ -557,7 +555,7 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
     // we are not ready to fire the request handler, so that means we need to buffer the request further
     // this could be because we are a) dealing with a HTTP v1 request or b) a synchronous request
 
-    if(request->is_http_v1()) {
+    if(request->is_http_v1) {
         // http v1 callbacks fire on small chunk sizes, so fetch more to match window size of http v2 buffer
         size_t written = chunk.len;
         request->_req->proceed_req(request->_req, written, H2O_SEND_STATE_IN_PROGRESS);
@@ -590,15 +588,14 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     auto message_dispatcher = handler->http_server->get_message_dispatcher();
 
     // LOG(INFO) << "Before enqueue res: " << response
-    handler->http_server->get_thread_pool()->enqueue([http_server, rpath, message_dispatcher,
-                                                      request, response]() {
+    handler->http_server->get_thread_pool()->enqueue([rpath, message_dispatcher, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
         (rpath->handler)(request, response);
 
         if(!rpath->async_res) {
             // lifecycle of non async res will be owned by stream responder
-            auto req_res = new deferred_req_res_t(request, response, http_server, true);
+            auto req_res = new async_req_res_t(request, response, true);
             message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         }
         //LOG(INFO) << "Response done " << response.get();
@@ -641,7 +638,7 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
 
     if(req->defer_timer.data == nullptr) {
         //LOG(INFO) << "req->defer_timer.data is null";
-        auto deferred_req_res = new deferred_req_res_t(req, res, this);
+        auto deferred_req_res = new deferred_req_res_t(req, res, this, false);
         //LOG(INFO) << "req use count " << req.use_count();
         req->defer_timer.data = deferred_req_res;
         h2o_timer_init(&req->defer_timer.timer, on_deferred_process_request);
@@ -655,7 +652,7 @@ void HttpServer::defer_processing(const std::shared_ptr<http_req>& req, const st
 
     if(exit_loop) {
         // otherwise, replication thread could be stuck waiting on a future
-        req->_req = nullptr;
+        res->is_alive = false;
         req->notify();
         res->notify();
     }
@@ -676,32 +673,12 @@ int HttpServer::send_response(h2o_req_t *req, int status_code, const std::string
     return 0;
 }
 
-void HttpServer::send_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "send_response, request->_req=" << request->_req;
-
-    if(request->_req == nullptr) {
-        // indicates serialized request and response
-        return ;
-    }
-
-    h2o_req_t* req = request->_req;
-    h2o_generator_t* generator = static_cast<h2o_generator_t*>(response->generator);
-
-    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
-    req->res.status = response->status_code;
-    req->res.reason = http_res::get_status_reason(response->status_code);
-    h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE,
-            nullptr, response->content_type_header.c_str(), response->content_type_header.size());
-    h2o_start_response(req, generator);
-    h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
-}
-
 void HttpServer::response_abort(h2o_generator_t *generator, h2o_req_t *req) {
     LOG(INFO) << "response_abort called";
     h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t*>(generator);
 
-    custom_generator->req()->_req = nullptr;
     custom_generator->res()->final = true;
+    custom_generator->res()->is_alive = false;
     //LOG(INFO) << "response_abort: fulfilling req & res proceed.";
 }
 
@@ -729,91 +706,42 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
     }
 }
 
-void HttpServer::stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "stream_response called " << response.get();
+void HttpServer::stream_response(stream_response_state_t& state) {
+    // LOG(INFO) << "stream_response called";
+    // std::this_thread::sleep_for(std::chrono::milliseconds (5000));
 
-    if(response->generator == nullptr) {
-        // generator has been disposed, underlying request is probably dead
-        //LOG(INFO) << "response->generator == nullptr";
-        request->_req = nullptr;
-        response->notify();
-        return;
-    }
-
-    if(request->_req == nullptr) {
-        // underlying request has been cancelled
-        //LOG(INFO) << "stream_response, request._req == nullptr";
-        response->notify();
-        return;
-    }
-
-    h2o_req_t* req = request->_req;
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
-
-    response->status_code = (response->status_code == 0) ? 503 : response->status_code; // just to be sure
-
-    if(custom_generator->rpath->async_req && custom_generator->res()->final &&
-       !custom_generator->req()->last_chunk_aggregate) {
+    if(state.is_req_early_exit) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed
         LOG(INFO) << "Premature termination of async request.";
 
-        req->res.status = response->status_code;
-        req->res.reason = http_res::get_status_reason(response->status_code);
-        h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
-
-        if (req->_generator == nullptr) {
-            h2o_start_response(req, &custom_generator->super);
+        if (state.req->_generator == nullptr) {
+            h2o_start_response(state.req, reinterpret_cast<h2o_generator_t*>(state.generator));
         }
 
-        if(request->is_http_v1()) {
-            h2o_send(req, &body, 1, H2O_SEND_STATE_FINAL);
-            h2o_dispose_request(req);
+        if(state.is_req_http1) {
+            h2o_send(state.req, &state.res_body, 1, H2O_SEND_STATE_FINAL);
+            h2o_dispose_request(state.req);
         } else {
-            h2o_send(req, &body, 1, H2O_SEND_STATE_ERROR);
+            h2o_send(state.req, &state.res_body, 1, H2O_SEND_STATE_ERROR);
         }
 
         return ;
     }
 
-    if (req->res.status == 0) {
-        //LOG(INFO) << "h2o_start_response, content_type=" << response.content_type_header
-        //          << ",response.status_code=" << response.status_code;
-        req->res.status = response->status_code;
-        req->res.reason = http_res::get_status_reason(response->status_code);
-        h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       response->content_type_header.c_str(),
-                       response->content_type_header.size());
-        h2o_start_response(req, &custom_generator->super);
+    if (state.is_res_start) {
+        /*LOG(INFO) << "h2o_start_response, content_type=" << state.res_content_type
+                  << ",response.status_code=" << state.res_status_code;*/
+        state.req->res.status = state.res_status_code;
+        state.req->res.reason = http_res::get_status_reason(state.res_status_code);
+        h2o_add_header(&state.req->pool, &state.req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
+                       state.res_content_type.c_str(), state.res_content_type.size());
+        h2o_start_response(state.req, reinterpret_cast<h2o_generator_t*>(state.generator));
     }
 
-    /*LOG(INFO) << "stream_response, body_size: " << response->body.size() << ", response_final="
-              << custom_generator->response->final;*/
+    const h2o_send_state_t send_state = state.is_res_final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    h2o_send(state.req, &state.res_body, 1, send_state);
 
-    h2o_iovec_t body = h2o_strdup(&req->pool, response->body.c_str(), SIZE_MAX);
-    response->body = "";
-
-    const h2o_send_state_t state = custom_generator->res()->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
-    h2o_send(req, &body, 1, state);
-
-    // LOG(INFO) << "stream_response after send";
-}
-
-void HttpServer::destroy_request_response(const std::shared_ptr<http_req>& request,
-                                          const std::shared_ptr<http_res>& response) {
-    //LOG(INFO) << "destroy_request_response, req use count: " << request.use_count() << " req " << request.get();
-
-    /*LOG(INFO) << "destroy_request_response, response->proxied_stream=" << response->proxied_stream
-              << ", request->_req=" << request->_req << ", response->await=" << &response->await;*/
-
-    //LOG(INFO) << "destroy_request_response, response: " << response << ", response->auto_dispose: " << response->auto_dispose;
-
-    //LOG(INFO) << "after destroy_request_response, req use count: " << request.use_count() << " req " << request.get();
-
-    request->_req = nullptr;
-    response->final = true;
-
-    request->notify();
-    response->notify();
+    //LOG(INFO) << "stream_response after send";
 }
 
 void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
@@ -925,11 +853,19 @@ uint64_t HttpServer::node_state() const {
 
 bool HttpServer::on_stream_response_message(void *data) {
     //LOG(INFO) << "on_stream_response_message";
-    auto req_res = static_cast<deferred_req_res_t *>(data);
-    stream_response(req_res->req, req_res->res);
+    auto req_res = static_cast<async_req_res_t *>(data);
 
-    if(req_res->destroy_after_stream_response) {
-        //LOG(INFO) << "delete req_res";
+    // NOTE: access to `req` and `res` objects must be synchronized and wrapped by `req_res`
+
+    if(req_res->is_alive()) {
+        stream_response(req_res->res_state);
+    } else {
+        // serialized request or generator has been disposed (underlying request is probably dead)
+        req_res->req_notify();
+        req_res->res_notify();
+    }
+
+    if(req_res->destroy_after_use) {
         delete req_res;
     }
 
@@ -948,7 +884,7 @@ bool HttpServer::on_request_proceed_message(void *data) {
         req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
     }
 
-    if(req_res->destroy_after_stream_response) {
+    if(req_res->destroy_after_use) {
         delete req_res;
     }
 

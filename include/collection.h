@@ -238,7 +238,7 @@ private:
 
     Index* init_index();
 
-    static std::vector<char> to_char_array(std::vector<std::string> strs);
+    static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
 public:
 
