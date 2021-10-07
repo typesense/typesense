@@ -33,11 +33,11 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    if(req->_req == nullptr) {
+    if(!res->is_alive) {
         return ;
     }
 
-    auto req_res = new deferred_req_res_t(req, res, server, true);
+    auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 }
 
@@ -240,7 +240,7 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
+            res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
             return true;
         }
     }
@@ -286,7 +286,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
+            res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
             return true;
         }
     }
@@ -616,7 +616,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     //LOG(INFO) << "json_lines.size after: " << json_lines.size() << ", stream_proceed: " << stream_proceed;
-    //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->stream_state: " << req->stream_state;
+    //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->res_state: " << req->res_state;
 
     // When only one partial record arrives as a chunk, an empty body is pushed to response stream
     bool single_partial_record_body = (json_lines.empty() && !req->body.empty());
@@ -636,7 +636,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         //response_stream << import_summary_json << "\n";
 
         for (size_t i = 0; i < json_lines.size(); i++) {
-            if(i == json_lines.size()-1 && req->body_index == req->body.size() && req->last_chunk_aggregate) {
+            bool res_final = req->last_chunk_aggregate && (i == json_lines.size()-1);
+
+            if(res_final) {
                 // indicates last record of last batch
                 response_stream << json_lines[i];
             } else {
@@ -649,7 +651,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     res->status_code = 200;
     res->body = response_stream.str();
 
-    res->final = req->last_chunk_aggregate;
+    res->final.store(req->last_chunk_aggregate);
     stream_response(req, res);
 
     return true;

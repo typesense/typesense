@@ -25,7 +25,7 @@ struct h2o_custom_req_handler_t {
 };
 
 struct h2o_custom_generator_t {
-    h2o_generator_t super;
+    h2o_generator_t h2o_generator;
     h2o_custom_req_handler_t* h2o_handler;
     route_path* rpath;
     std::shared_ptr<http_req> request;
@@ -40,18 +40,90 @@ struct h2o_custom_generator_t {
     }
 };
 
+struct stream_response_state_t {
+    h2o_req_t* req = nullptr;
+
+    bool is_req_early_exit = false;
+    bool is_req_http1 = true;
+
+    bool is_res_start = true;
+    bool is_res_final = true;
+
+    uint32_t res_status_code = 0;
+    std::string res_content_type;
+    h2o_iovec_t res_body{};
+
+    h2o_generator_t* generator = nullptr;
+};
+
 struct deferred_req_res_t {
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     HttpServer* server;
 
-    // used to manage lifecycle of non-async responses
-    bool destroy_after_stream_response;
+    // used to manage lifecycle of async actions
+    bool destroy_after_use;
 
     deferred_req_res_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res,
-                       HttpServer *server, bool destroy_after_stream_response = false) :
-            req(req), res(res), server(server), destroy_after_stream_response(destroy_after_stream_response) {}
+                       HttpServer *server, bool destroy_after_use) :
+            req(req), res(res), server(server), destroy_after_use(destroy_after_use) {}
 
+};
+
+struct async_req_res_t {
+    // NOTE: care must be taken to ensure that concurrent writes are protected as some fields are also used by http lib
+private:
+    // not exposed or accessed, here only for reference counting
+    const std::shared_ptr<http_req> req;
+    const std::shared_ptr<http_res> res;
+
+public:
+
+    // used to manage lifecycle of async actions
+    const bool destroy_after_use;
+
+    stream_response_state_t res_state;
+
+    async_req_res_t(const std::shared_ptr<http_req>& h_req, const std::shared_ptr<http_res>& h_res,
+                    const bool destroy_after_use) : req(h_req), res(h_res), destroy_after_use(destroy_after_use) {
+
+        if(!res->is_alive) {
+            return;
+        }
+
+        h2o_custom_generator_t* res_generator = (res->generator == nullptr) ? nullptr :
+                                                static_cast<h2o_custom_generator_t*>(res->generator.load());
+
+        res_state.is_req_early_exit = (res_generator == nullptr) ? false :
+                (res_generator->rpath->async_req && res->final && !req->last_chunk_aggregate);
+
+        res_state.is_req_http1 = req->is_http_v1;
+
+        res_state.req = req->_req;
+        res_state.is_res_start = (req->_req == nullptr) ? true : (req->_req->res.status == 0);
+        res_state.is_res_final = res->final;
+
+        res_state.res_status_code = res->status_code;
+        res_state.res_content_type = res->content_type_header;
+
+        if(req->_req != nullptr) {
+            res_state.res_body = h2o_strdup(&req->_req->pool, res->body.c_str(), SIZE_MAX);
+        }
+
+        res_state.generator = (res_generator == nullptr) ? nullptr : &res_generator->h2o_generator;
+    }
+
+    bool is_alive() {
+        return res->is_alive;
+    }
+
+    void req_notify() {
+        return req->notify();
+    }
+
+    void res_notify() {
+        return res->notify();
+    }
 };
 
 struct defer_processing_t {
@@ -180,12 +252,7 @@ public:
 
     void send_message(const std::string & type, void* data);
 
-    void send_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
-
-    static void destroy_request_response(const std::shared_ptr<http_req>& request,
-                                         const std::shared_ptr<http_res>& response);
-
-    static void stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
+    static void stream_response(stream_response_state_t& state);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);

@@ -147,9 +147,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
     // callback for request body to be sent to remote host
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(userdata);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't proxy anymore data to upstream (leader)
-        //LOG(INFO) << "req_res->req->_req is: null";
+        //LOG(INFO) << "req_res->req->req is: null";
         return 0;
     }
 
@@ -195,7 +195,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     //LOG(INFO) << "curl_write_async";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
         return 0;
     }
@@ -239,7 +239,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     //LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
         return 0;
     }

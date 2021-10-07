@@ -179,7 +179,7 @@ TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
 
 TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     std::shared_ptr<http_req> req = std::make_shared<http_req>();
-    std::shared_ptr<http_res> res = std::make_shared<http_res>();
+    std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
 
     req->params["filter_by"] = "user_id: 100";
     nlohmann::json body;
