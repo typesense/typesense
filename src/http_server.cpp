@@ -708,21 +708,27 @@ void HttpServer::response_proceed(h2o_generator_t *generator, h2o_req_t *req) {
 
 void HttpServer::stream_response(stream_response_state_t& state) {
     // LOG(INFO) << "stream_response called";
-    // std::this_thread::sleep_for(std::chrono::milliseconds (5000));
+    //std::this_thread::sleep_for(std::chrono::milliseconds (5000));
+
+    // ***IMPORTANT***
+    // We must ensure that fields of `state.req` are not written to for preventing race conditions with indexing thread
+    // Check `async_req_res_t` constructor for overlapping writes.
+
+    h2o_req_t* req = state.get_req();
 
     if(state.is_req_early_exit) {
         // premature termination of async request: handle this explicitly as otherwise, request is not being closed
         LOG(INFO) << "Premature termination of async request.";
 
-        if (state.req->_generator == nullptr) {
-            h2o_start_response(state.req, reinterpret_cast<h2o_generator_t*>(state.generator));
+        if (req->_generator == nullptr) {
+            h2o_start_response(req, state.generator);
         }
 
         if(state.is_req_http1) {
-            h2o_send(state.req, &state.res_body, 1, H2O_SEND_STATE_FINAL);
-            h2o_dispose_request(state.req);
+            h2o_send(req, &state.res_body, 1, H2O_SEND_STATE_FINAL);
+            h2o_dispose_request(req);
         } else {
-            h2o_send(state.req, &state.res_body, 1, H2O_SEND_STATE_ERROR);
+            h2o_send(req, &state.res_body, 1, H2O_SEND_STATE_ERROR);
         }
 
         return ;
@@ -731,15 +737,10 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     if (state.is_res_start) {
         /*LOG(INFO) << "h2o_start_response, content_type=" << state.res_content_type
                   << ",response.status_code=" << state.res_status_code;*/
-        state.req->res.status = state.res_status_code;
-        state.req->res.reason = http_res::get_status_reason(state.res_status_code);
-        h2o_add_header(&state.req->pool, &state.req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
-                       state.res_content_type.c_str(), state.res_content_type.size());
-        h2o_start_response(state.req, reinterpret_cast<h2o_generator_t*>(state.generator));
+        h2o_start_response(req, state.generator);
     }
 
-    const h2o_send_state_t send_state = state.is_res_final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
-    h2o_send(state.req, &state.res_body, 1, send_state);
+    h2o_send(req, &state.res_body, 1, state.send_state);
 
     //LOG(INFO) << "stream_response after send";
 }
