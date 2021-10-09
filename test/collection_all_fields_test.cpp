@@ -915,6 +915,36 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("foo", "string*", true, true),
+        //field("buzz", "auto", true, true),
+        field("bar.*", "string*", true, true),
+        field("baz.*", "auto", true, true),
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0);
+        ASSERT_TRUE(coll_op.ok());
+        coll1 = coll_op.get();
+    }
+
+    nlohmann::json doc;
+    doc["foo"]  = nullptr;
+    //doc["buzz"]  = nullptr;
+    doc["bar_one"]  = nullptr;
+    doc["baz_one"]  = nullptr;
+
+    // should allow indexing of null values since all are optional
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     Collection *coll1;
 

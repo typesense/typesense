@@ -2272,6 +2272,13 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
             if(test_field_type == field_types::AUTO || field_types::is_string_or_array(test_field_type)) {
                 parseable = field::get_type(kv.value(), field_type);
                 if(!parseable) {
+
+                    if(kv.value().is_null() && new_field.optional) {
+                        // null values are allowed only if field is optional
+                        kv++;
+                        continue;
+                    }
+
                     if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
                         return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
                     } else {
