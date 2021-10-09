@@ -2360,7 +2360,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
 Index* Collection::init_index() {
     for(const field& field: fields) {
         if(field.is_dynamic()) {
-            // regexp fields are treated as dynamic fields
+            // regexp fields and fields with auto type are treated as dynamic fields
             dynamic_fields.push_back(field);
             continue;
         }

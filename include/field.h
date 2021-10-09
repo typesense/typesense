@@ -124,7 +124,7 @@ struct field {
     }
 
     static bool is_dynamic(const std::string& name, const std::string& type) {
-        return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
+        return type == "string*" || (name != ".*" && type == field_types::AUTO) || (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool has_numerical_index() const {
@@ -236,19 +236,8 @@ struct field {
                 found_default_sorting_field = true;
             }
 
-            if(field.type == field_types::AUTO) {
-                if(field.name.find(".*") == std::string::npos) {
-                    return Option<bool>(400, std::string("Cannot use type `auto` for `") +
-                                             field.name + "`. It can be used only for a field name containing `.*`");
-                }
-            }
-
             if(field.is_dynamic() && !field.optional) {
-                if(field_types::is_string_or_array(field.type)) {
-                    return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
-                }
-
-                return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
+                return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 
             if(!field.index && !field.optional) {
@@ -303,15 +292,6 @@ struct field {
             if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
                 return Option<bool>(400, std::string("The `index` property of the field `") +
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
-            }
-
-            // field of type auto can be used only on a field name containing .*
-            if(field_json.at(fields::type) == "auto") {
-                if(field_json.at(fields::name).get<std::string>().find(".*") == std::string::npos) {
-                    return Option<bool>(400, std::string("Cannot use type `auto` for `") +
-                                             field_json[fields::name].get<std::string>() +
-                                             "`. It can be used only for a field name containing `.*`");
-                }
             }
 
             if(field_json.count(fields::locale) != 0){

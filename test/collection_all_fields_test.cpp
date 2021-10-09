@@ -551,15 +551,37 @@ TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
 TEST_F(CollectionAllFieldsTest, NormalFieldWithAutoType) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("publication_year", field_types::AUTO, true)};
+    std::vector<field> fields = {
+        field("city", field_types::AUTO, true, true),
+        field("publication_year", field_types::AUTO, true, true),
+    };
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
-        ASSERT_FALSE(coll_op.ok());
-        ASSERT_EQ("Cannot use type `auto` for `publication_year`. It can be used only for a field name containing `.*`",
-                  coll_op.error());
+        ASSERT_TRUE(coll_op.ok());
+        coll1 = coll_op.get();
     }
+
+    nlohmann::json doc;
+    doc["title"]  = "FIRST";
+    doc["city"]  = "Austin";
+    doc["publication_year"]  = 2010;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res_op = coll1->search("austin", {"city"}, "publication_year: 2010", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("city", schema[2].name);
+    ASSERT_EQ(field_types::STRING, schema[2].type);
+
+    ASSERT_EQ("publication_year", schema[3].name);
+    ASSERT_EQ(field_types::INT64, schema[3].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -890,7 +912,7 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
 
     auto op = collectionManager.create_collection("coll1", 1, bad_fields, "", 0);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `.*_name` with wildcard name must be an optional field.", op.error());
+    ASSERT_EQ("Field `.*_name` must be an optional field.", op.error());
 
     // string* fields should only be optional
     std::vector<field> bad_fields2 = {field("title", field_types::STRING, true),
@@ -920,7 +942,7 @@ TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
 
     std::vector<field> fields = {
         field("foo", "string*", true, true),
-        //field("buzz", "auto", true, true),
+        field("buzz", "auto", true, true),
         field("bar.*", "string*", true, true),
         field("baz.*", "auto", true, true),
     };
@@ -934,13 +956,39 @@ TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
 
     nlohmann::json doc;
     doc["foo"]  = nullptr;
-    //doc["buzz"]  = nullptr;
+    doc["buzz"]  = nullptr;
     doc["bar_one"]  = nullptr;
     doc["baz_one"]  = nullptr;
 
     // should allow indexing of null values since all are optional
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ(4, schema.size());
+
+    doc["foo"]  = {"hello", "world"};
+    doc["buzz"]  = 123;
+    doc["bar_one"]  = "hello";
+    doc["baz_one"]  = true;
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    schema = coll1->get_fields();
+    ASSERT_EQ(8, schema.size());
+
+    ASSERT_EQ("bar_one", schema[4].name);
+    ASSERT_EQ(field_types::STRING, schema[4].type);
+
+    ASSERT_EQ("baz_one", schema[5].name);
+    ASSERT_EQ(field_types::BOOL, schema[5].type);
+
+    ASSERT_EQ("buzz", schema[6].name);
+    ASSERT_EQ(field_types::INT64, schema[6].type);
+
+    ASSERT_EQ("foo", schema[7].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[7].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1139,7 +1187,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `.*_txt` with wildcard name must be an optional field.", op.error());
+    ASSERT_EQ("Field `.*_txt` must be an optional field.", op.error());
 
     // don't allow catch all field to contain non-index field
 
