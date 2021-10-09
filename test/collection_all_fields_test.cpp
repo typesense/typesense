@@ -370,6 +370,14 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     ASSERT_TRUE(add_op.ok());
     auto added_doc = add_op.get();
 
+    auto schema = coll1->get_fields();
+
+    ASSERT_EQ("int_values", schema[0].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[0].type);
+
+    ASSERT_EQ("title", schema[1].name);
+    ASSERT_EQ(field_types::STRING, schema[1].type);
+
     ASSERT_EQ("1", added_doc["int_values"][0].get<std::string>());
     ASSERT_EQ("2", added_doc["int_values"][1].get<std::string>());
 
@@ -463,6 +471,12 @@ TEST_F(CollectionAllFieldsTest, SearchStringifiedField) {
 
     Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
     ASSERT_TRUE(add_op.ok());
+
+    // department field's type must be "solidified" to an actual type
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("department", schema[4].name);
+    ASSERT_EQ(field_types::STRING, schema[4].type);
 
     auto results_op = coll1->search("stark", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(results_op.ok());
@@ -827,7 +841,8 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
     std::vector<field> fields = {field("title", field_types::STRING, true),
                                  field("i.*", field_types::INT32, false, true),
                                  field("s.*", field_types::STRING, false, true),
-                                 field("a.*", field_types::STRING_ARRAY, false, true),};
+                                 field("a.*", field_types::STRING_ARRAY, false, true),
+                                 field("num.*", "string*", false, true),};
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
@@ -839,6 +854,7 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
     doc["i_age"]  = "28";
     doc["s_name"]  = nullptr;
     doc["a_name"]  = {};
+    doc["num_employees"] = 28;
 
     // should coerce while retaining expected type
 
@@ -847,14 +863,18 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
 
     auto schema = coll1->get_fields();
 
-    ASSERT_EQ("a_name", schema[4].name);
-    ASSERT_EQ(field_types::STRING_ARRAY, schema[4].type);
+    ASSERT_EQ("a_name", schema[5].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[5].type);
 
-    ASSERT_EQ("i_age", schema[5].name);
-    ASSERT_EQ(field_types::INT32, schema[5].type);
+    ASSERT_EQ("i_age", schema[6].name);
+    ASSERT_EQ(field_types::INT32, schema[6].type);
 
-    ASSERT_EQ("s_name", schema[6].name);
-    ASSERT_EQ(field_types::STRING, schema[6].type);
+    // num_employees field's type must be "solidified" to an actual type
+    ASSERT_EQ("num_employees", schema[7].name);
+    ASSERT_EQ(field_types::STRING, schema[7].type);
+
+    ASSERT_EQ("s_name", schema[8].name);
+    ASSERT_EQ(field_types::STRING, schema[8].type);
 
     auto results = coll1->search("rand", {"title"}, "i_age: 28", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
@@ -957,6 +977,7 @@ TEST_F(CollectionAllFieldsTest, RegexpIntFieldWithFallbackStringType) {
 
     std::vector<field> fields = {field("title", field_types::STRING, true),
                                  field("n.*", field_types::INT32, false, true),
+                                 field("s.*", "string*", false, true),
                                  field(".*", field_types::STRING, false, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
@@ -969,6 +990,7 @@ TEST_F(CollectionAllFieldsTest, RegexpIntFieldWithFallbackStringType) {
     nlohmann::json doc;
     doc["title"]  = "Amazon Inc.";
     doc["n_age"]  = 32;
+    doc["s_tags"]  = {"shopping"};
     doc["rand_str"]  = "fizzbuzz";
 
     auto add_op = coll1->add(doc.dump(), CREATE);
@@ -976,11 +998,15 @@ TEST_F(CollectionAllFieldsTest, RegexpIntFieldWithFallbackStringType) {
 
     // n_age should be of type int32
     auto schema = coll1->get_fields();
-    ASSERT_EQ("n_age", schema[3].name);
-    ASSERT_EQ(field_types::INT32, schema[3].type);
 
-    ASSERT_EQ("rand_str", schema[4].name);
-    ASSERT_EQ(field_types::STRING, schema[4].type);
+    ASSERT_EQ("n_age", schema[4].name);
+    ASSERT_EQ(field_types::INT32, schema[4].type);
+
+    ASSERT_EQ("rand_str", schema[5].name);
+    ASSERT_EQ(field_types::STRING, schema[5].type);
+
+    ASSERT_EQ("s_tags", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
 
     collectionManager.drop_collection("coll1");
 }
