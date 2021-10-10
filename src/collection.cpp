@@ -2275,7 +2275,7 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
 
                     if(kv.value().is_null() && new_field.optional) {
                         // null values are allowed only if field is optional
-                        kv++;
+                        kv = document.erase(kv);
                         continue;
                     }
 
