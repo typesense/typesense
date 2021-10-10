@@ -964,6 +964,10 @@ TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    auto res = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+
     auto schema = coll1->get_fields();
     ASSERT_EQ(4, schema.size());
 
