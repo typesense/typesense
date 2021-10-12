@@ -875,6 +875,8 @@ bool HttpServer::on_stream_response_message(void *data) {
 
 bool HttpServer::on_request_proceed_message(void *data) {
     //LOG(INFO) << "on_request_proceed_message";
+    // This callback will run concurrently to batch indexer's run() so care must be taken to protect access
+    // to variables that are written to by the batch indexer, which for now is only: last_chunk_aggregate (atomic)
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
     auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
 
