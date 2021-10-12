@@ -1215,23 +1215,25 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
         size_t num_result_ids = 0;
 
         for(size_t i = 0; i < concurrency; i++) {
-            if(result_id_vecs[i].empty()) {
-                // can happen if not all threads produce results
-                continue;
+            // empty vec can happen if not all threads produce results
+            if (!result_id_vecs[i].empty()) {
+                uint32_t* new_all_result_ids = nullptr;
+                all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &result_id_vecs[i][0],
+                                                           result_id_vecs[i].size(), &new_all_result_ids);
+                delete[] *all_result_ids;
+                *all_result_ids = new_all_result_ids;
+
+                num_result_ids += result_id_vecs[i].size();
+
+                if (topster != nullptr) {
+                    // topster is null when used by overrides which requires only IDs but not actual processing
+                    aggregate_topster(topster, topsters[i]);
+                    groups_processed.insert(groups_processed_vec[i].begin(), groups_processed_vec[i].end());
+                }
             }
 
-            uint32_t* new_all_result_ids = nullptr;
-            all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &result_id_vecs[i][0],
-                                                       result_id_vecs[i].size(), &new_all_result_ids);
-            delete [] *all_result_ids;
-            *all_result_ids = new_all_result_ids;
-
-            num_result_ids += result_id_vecs[i].size();
-
             if(topster != nullptr) {
-                aggregate_topster(topster, topsters[i]);
                 delete topsters[i];
-                groups_processed.insert(groups_processed_vec[i].begin(), groups_processed_vec[i].end());
             }
         }
 
