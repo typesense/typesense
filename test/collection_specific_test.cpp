@@ -1032,6 +1032,12 @@ TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
         "coll1", 1, fields, "points", 0, "", {"+"}, {}
     ).get();
 
+    nlohmann::json coll_summary = coll1->get_summary_json();
+    ASSERT_EQ(1, coll_summary["symbols_to_index"].size());
+    ASSERT_EQ(0, coll_summary["token_separators"].size());
+
+    ASSERT_EQ("+", coll_summary["symbols_to_index"][0].get<std::string>());
+
     nlohmann::json doc1;
     doc1["id"] = "0";
     doc1["name"] = "Yes, C++ is great!";
@@ -1114,6 +1120,16 @@ TEST_F(CollectionSpecificTest, CustomSeparatorsHandleQueryVariations) {
     Collection* coll1 = collectionManager.create_collection(
         "coll1", 1, fields, "points", 0, "", {}, {"-", ".", "*", "&", "/"}
     ).get();
+
+    nlohmann::json coll_summary = coll1->get_summary_json();
+    ASSERT_EQ(0, coll_summary["symbols_to_index"].size());
+    ASSERT_EQ(5, coll_summary["token_separators"].size());
+
+    ASSERT_EQ("-", coll_summary["token_separators"][0].get<std::string>());
+    ASSERT_EQ(".", coll_summary["token_separators"][1].get<std::string>());
+    ASSERT_EQ("*", coll_summary["token_separators"][2].get<std::string>());
+    ASSERT_EQ("&", coll_summary["token_separators"][3].get<std::string>());
+    ASSERT_EQ("/", coll_summary["token_separators"][4].get<std::string>());
 
     nlohmann::json doc1;
     doc1["id"] = "0";
