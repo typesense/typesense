@@ -864,6 +864,7 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
                                  field("i.*", field_types::INT32, false, true),
                                  field("s.*", field_types::STRING, false, true),
                                  field("a.*", field_types::STRING_ARRAY, false, true),
+                                 field("nullsa.*", field_types::STRING_ARRAY, false, true),
                                  field("num.*", "string*", false, true),};
 
     coll1 = collectionManager.get_collection("coll1").get();
@@ -876,6 +877,7 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
     doc["i_age"]  = "28";
     doc["s_name"]  = nullptr;
     doc["a_name"]  = {};
+    doc["nullsa"]  = nullptr;
     doc["num_employees"] = 28;
 
     // should coerce while retaining expected type
@@ -885,18 +887,21 @@ TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
 
     auto schema = coll1->get_fields();
 
-    ASSERT_EQ("a_name", schema[5].name);
-    ASSERT_EQ(field_types::STRING_ARRAY, schema[5].type);
+    ASSERT_EQ("a_name", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
 
-    ASSERT_EQ("i_age", schema[6].name);
-    ASSERT_EQ(field_types::INT32, schema[6].type);
+    ASSERT_EQ("i_age", schema[7].name);
+    ASSERT_EQ(field_types::INT32, schema[7].type);
+
+    ASSERT_EQ("nullsa", schema[8].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[8].type);
 
     // num_employees field's type must be "solidified" to an actual type
-    ASSERT_EQ("num_employees", schema[7].name);
-    ASSERT_EQ(field_types::STRING, schema[7].type);
+    ASSERT_EQ("num_employees", schema[9].name);
+    ASSERT_EQ(field_types::STRING, schema[9].type);
 
-    ASSERT_EQ("s_name", schema[8].name);
-    ASSERT_EQ(field_types::STRING, schema[8].type);
+    ASSERT_EQ("s_name", schema[10].name);
+    ASSERT_EQ(field_types::STRING, schema[10].type);
 
     auto results = coll1->search("rand", {"title"}, "i_age: 28", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
