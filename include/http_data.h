@@ -196,7 +196,7 @@ struct http_req {
     std::map<std::string, std::string> params;
 
     bool first_chunk_aggregate;
-    bool last_chunk_aggregate;
+    std::atomic<bool> last_chunk_aggregate;
     size_t chunk_len;
 
     std::string body;
@@ -311,7 +311,7 @@ struct http_req {
         content["route_hash"] = route_hash;
         content["params"] = params;
         content["first_chunk_aggregate"] = first_chunk_aggregate;
-        content["last_chunk_aggregate"] = last_chunk_aggregate;
+        content["last_chunk_aggregate"] = last_chunk_aggregate.load();
         content["body"] = body;
         content["metadata"] = metadata;
         content["start_ts"] = start_ts;
