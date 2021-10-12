@@ -148,6 +148,16 @@ nlohmann::json Collection::get_summary_json() const {
     json_response["name"] = name;
     json_response["num_documents"] = num_documents.load();
     json_response["created_at"] = created_at.load();
+    json_response["token_separators"] = nlohmann::json::array();
+    json_response["symbols_to_index"] = nlohmann::json::array();
+
+    for(auto c: symbols_to_index) {
+        json_response["symbols_to_index"].push_back(std::string(1, c));
+    }
+
+    for(auto c: token_separators) {
+        json_response["token_separators"].push_back(std::string(1, c));
+    }
 
     nlohmann::json fields_arr;
 
