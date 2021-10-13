@@ -2002,6 +2002,8 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, token_order, false, 0, 1, false, 3, 7);
 
+            delete [] result_ids;
+
             if(result_ids_len != 0) {
                 // remove window_tokens from `tokens`
                 std::vector<std::string> new_tokens;
