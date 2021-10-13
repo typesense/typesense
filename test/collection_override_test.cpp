@@ -886,6 +886,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
+    ASSERT_EQ("<mark>shoes</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>shoes</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
     // should not apply filter for non-exact case
     results = coll1->search("running shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10).get();

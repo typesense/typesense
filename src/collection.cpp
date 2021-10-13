@@ -1437,16 +1437,18 @@ void Collection::highlight_result(const field &search_field,
                                   const std::string& highlight_end_tag,
                                   highlight_t & highlight) const {
 
-    if(searched_queries.size() <= field_order_kv->query_index) {
-        return ;
-    }
-
     std::vector<art_leaf*> query_suggestion;
     std::set<std::string> query_suggestion_tokens;
 
     size_t qindex = 0;
 
     do {
+        if(searched_queries.size() <= field_order_kv->query_index) {
+            // in filter based overrides with matched tokens removal, we could have no queries but still might
+            // want to highlight fields from actual query tokens
+            break;
+        }
+
         auto searched_query =
                 (field_order_kv->query_indices == nullptr) ? searched_queries[field_order_kv->query_index] :
                 searched_queries[field_order_kv->query_indices[qindex + 1]];
