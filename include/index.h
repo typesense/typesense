@@ -72,7 +72,7 @@ struct override_t {
     std::vector<drop_hit_t> drop_hits;
 
     std::string filter_by;
-    bool remove_matched_tokens = false;
+    bool remove_matched_tokens = true;
 
     override_t() = default;
 

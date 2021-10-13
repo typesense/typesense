@@ -1394,7 +1394,6 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
                      {"match", override_t::MATCH_EXACT}
                  }
         },
-        {"remove_matched_tokens", true},
         {"filter_by", "category: {category}"}
     };
 
@@ -1407,7 +1406,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     ASSERT_EQ(1, overrides.size());
     auto override_json = overrides["dynamic-filters"].to_json();
     ASSERT_EQ("category: {category}", override_json["filter_by"].get<std::string>());
-    ASSERT_EQ(true, override_json["remove_matched_tokens"].get<bool>());
+    ASSERT_EQ(true, override_json["remove_matched_tokens"].get<bool>());  // must be true by default
 
     nlohmann::json override_json2 = {
         {"id",   "static-filters"},
