@@ -740,6 +740,11 @@ void HttpServer::stream_response(stream_response_state_t& state) {
         h2o_start_response(req, state.generator);
     }
 
+    if(state.res_body.len == 0) {
+        // without this, http streaming will break
+        return;
+    }
+
     h2o_send(req, &state.res_body, 1, state.send_state);
 
     //LOG(INFO) << "stream_response after send";
