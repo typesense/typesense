@@ -2658,7 +2658,13 @@ void Index::search_field(const uint8_t & field_id,
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
     size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
-    auto& the_field = search_schema.at(field);
+    auto field_it = search_schema.find(field);
+
+    if(field_it == search_schema.end()) {
+        return;
+    }
+
+    auto& the_field = field_it->second;
 
     if(the_field.locale != "" && the_field.locale != "en") {
         // disable fuzzy trie traversal for non-english locales
