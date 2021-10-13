@@ -937,6 +937,54 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, DynamicFilteringMissingField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["category"] = "shoes";
+    doc1["points"] = 3;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{categories}"},             // this field does NOT exist
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "category: {categories}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    auto results = coll1->search("shoes", {"name", "category"}, "",
+                            {}, sort_fields, {2, 2}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
     Collection* coll1;
 
