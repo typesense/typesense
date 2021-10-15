@@ -202,6 +202,7 @@ If we don't offer an API client in your language, you can still use any popular 
 Here are some community-contributed clients and integrations:
 
 - [API client for Go](https://github.com/typesense/typesense-go)
+- [API client for Dart](https://github.com/typesense/typesense-dart)
 - [API client for C#](https://github.com/DAXGRID/typesense-dotnet)
 - [Laravel Scout driver](https://github.com/devloopsnet/laravel-scout-typesense-engine)
 - [Symfony integration](https://github.com/acseo/TypesenseBundle)
