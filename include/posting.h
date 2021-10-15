@@ -44,13 +44,13 @@ private:
     static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
 
     static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
-                                   std::vector<uint32_t>& expanded_plist_indices);
+                                   std::vector<posting_list_t*>& expanded_plists);
 
 public:
 
     struct block_intersector_t {
         std::vector<posting_list_t*> plists;
-        std::vector<uint32_t> expanded_plist_indices;
+        std::vector<posting_list_t*> expanded_plists;
         posting_list_t::result_iter_state_t& iter_state;
         ThreadPool* thread_pool;
         size_t parallelize_min_ids;
@@ -62,7 +62,7 @@ public:
                             iter_state(iter_state), thread_pool(thread_pool),
                             parallelize_min_ids(parallelize_min_ids) {
 
-            to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+            to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
             std::sort(this->plists.begin(), this->plists.end(), [](posting_list_t* a, posting_list_t* b) {
                 return a->num_blocks() < b->num_blocks();
@@ -70,8 +70,8 @@ public:
         }
 
         ~block_intersector_t() {
-            for(uint32_t expanded_plist_index: expanded_plist_indices) {
-                delete plists[expanded_plist_index];
+            for(auto expanded_plist: expanded_plists) {
+                delete expanded_plist;
             }
         }
 
