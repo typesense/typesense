@@ -74,6 +74,22 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
         std::unique_lock lk(mutex);
         request_to_chunk.erase(req->start_ts);
+        lk.unlock();
+
+        if(req->start_ts == 0) {
+            // Indicates a serialized request from a version that did not support batching (v0.21 and below).
+            // We can only do serial writes as we cannot reliably distinguish one streaming request from another.
+            // So, wait for `req_res_map` to be empty before proceeding
+            while(true) {
+                lk.lock();
+                if(req_res_map.empty()) {
+                    break;
+                }
+                lk.unlock();
+
+                std::this_thread::sleep_for(std::chrono::milliseconds (10));
+            }
+        }
     }
 
     if(req->_req != nullptr && req->_req->proceed_req) {

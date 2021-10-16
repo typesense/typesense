@@ -293,7 +293,13 @@ struct http_req {
     void load_from_json(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
-        body += content["body"];
+
+        if(start_ts == 0) {
+            // Serialized request from an older version (v0.21 and below) which serializes import data differently.
+            body = content["body"];
+        } else {
+            body += content["body"];
+        }
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
