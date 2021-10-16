@@ -85,7 +85,7 @@ void crash_callback(int sig, backward::StackTrace& st) {
         }
     }
 
-    LOG(ERROR) << "Typesense is terminating abruptly.";
+    LOG(ERROR) << "Typesense " << TYPESENSE_VERSION << " is terminating abruptly.";
     exit(-1);
 }
 
