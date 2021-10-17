@@ -225,7 +225,8 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     //LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
-    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
 
     // wait until response is sent
     //LOG(INFO) << "Waiting on req_res " << req_res->res;
@@ -247,7 +248,8 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->res->body = "";
     req_res->res->final = true;
 
-    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
 
     // wait until final response is flushed or response object will be destroyed by caller
     req_res->res->wait();
