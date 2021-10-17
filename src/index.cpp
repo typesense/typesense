@@ -1247,12 +1247,15 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 }
 
 void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
-                         const std::vector<filter>& filters) const {
+                         const std::vector<filter>& filters,
+                         const bool enable_short_circuit) const {
     //auto begin = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
-        RETURN_CIRCUIT_BREAKER
+        if(enable_short_circuit) {
+            RETURN_CIRCUIT_BREAKER
+        }
 
         if(a_filter.field_name == "id") {
             // we handle `ids` separately
@@ -1638,7 +1641,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
 void Index::do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                    const std::vector<filter>& filters) const {
     std::shared_lock lock(mutex);
-    do_filtering(filter_ids, filter_ids_length, filters);
+    do_filtering(filter_ids, filter_ids_length, filters, false);
 }
 
 void Index::run_search(search_args* search_params) {
@@ -2086,7 +2089,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
     process_filter_overrides(filter_overrides, field_query_tokens, token_order, filters);
 
-    do_filtering(filter_ids, filter_ids_length, filters);
+    do_filtering(filter_ids, filter_ids_length, filters, true);
 
     // Order of `fields` are used to sort results
     //auto begin = std::chrono::high_resolution_clock::now();
