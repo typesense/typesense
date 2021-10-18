@@ -41,12 +41,13 @@ struct compact_posting_list_t {
 
 class posting_t {
 private:
-    static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
 
     static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
                                    std::vector<posting_list_t*>& expanded_plists);
 
 public:
+    static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
+    static constexpr size_t MAX_BLOCK_ELEMENTS = 256;
 
     struct block_intersector_t {
         std::vector<posting_list_t*> plists;

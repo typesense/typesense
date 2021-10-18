@@ -432,9 +432,16 @@ static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_docum
 
     uint32_t ids[1] = {document->id};
     uint32_t offset_index[1] = {0};
-    compact_posting_list_t* list = compact_posting_list_t::create(1, ids, offset_index, document->offsets.size(),
-                                                                  &document->offsets[0]);
-    l->values = SET_COMPACT_POSTING(list);
+
+    if((2 + document->offsets.size()) <= posting_t::COMPACT_LIST_THRESHOLD_LENGTH) {
+        compact_posting_list_t* list = compact_posting_list_t::create(1, ids, offset_index, document->offsets.size(),
+                                                                      &document->offsets[0]);
+        l->values = SET_COMPACT_POSTING(list);
+    } else {
+        posting_list_t* pl = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
+        pl->upsert(document->id, document->offsets);
+        l->values = pl;
+    }
 
     memcpy(l->key, key, key_len);
     add_document_to_leaf(document, l);

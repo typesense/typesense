@@ -156,7 +156,7 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const u
 }
 
 posting_list_t* compact_posting_list_t::to_full_posting_list() const {
-    posting_list_t* pl = new posting_list_t(256);
+    posting_list_t* pl = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
 
     size_t i = 0;
     while(i < length) {
@@ -244,9 +244,23 @@ void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& off
         compact_posting_list_t* list = (compact_posting_list_t*) RAW_POSTING_PTR(obj);
         int64_t extra_capacity_required = list->upsert(id, offsets);
 
-        if(extra_capacity_required != 0) {
+        if(extra_capacity_required == 0) {
+            // upsert succeeded
+            return;
+        }
+
+        if((list->capacity + extra_capacity_required) > COMPACT_LIST_THRESHOLD_LENGTH) {
+            // we have to convert to a full posting list
+            posting_list_t* full_list = list->to_full_posting_list();
+            free(list);
+            obj = full_list;
+        }
+
+        else {
             // grow the container by 30%
-            size_t new_capacity = (list->capacity + extra_capacity_required) * 1.3;
+            size_t new_capacity = std::min<size_t>((list->capacity + extra_capacity_required) * 1.3,
+                                                   COMPACT_LIST_THRESHOLD_LENGTH);
+
             size_t new_capacity_bytes = sizeof(compact_posting_list_t) + (new_capacity * sizeof(uint32_t));
             auto new_list = (compact_posting_list_t *) realloc(list, new_capacity_bytes);
             if(new_list == nullptr) {
@@ -258,20 +272,14 @@ void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& off
             obj = SET_COMPACT_POSTING(list);
 
             list->upsert(id, offsets);
-        }
 
-        if(list->length > COMPACT_LIST_THRESHOLD_LENGTH) {
-            // we will store anything over this threshold as a full posting list
-            posting_list_t* full_list = list->to_full_posting_list();
-            free(list);
-            obj = full_list;
-            return;
+            return ;
         }
-
-    } else {
-        posting_list_t* list = (posting_list_t*)(obj);
-        list->upsert(id, offsets);
     }
+
+    // either `obj` is already a full list or was converted to a full list above
+    posting_list_t* list = (posting_list_t*)(obj);
+    list->upsert(id, offsets);
 }
 
 void posting_t::erase(void*& obj, uint32_t id) {
@@ -465,7 +473,6 @@ void posting_t::block_intersector_t::split_lists(size_t concurrency,
                 // [3, 5] [6]
 
                 if(i == 0) {
-                    auto& plist = this->plists[i];
                     p_start_block = start_block;
                     p_end_block = curr_block->next;
                 } else {

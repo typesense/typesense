@@ -1657,3 +1657,43 @@ TEST_F(CollectionSpecificTest, CustomNumTyposConfiguration) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, RepeatingStringArrayTokens) {
+    std::vector<std::string> tags;
+
+    // when the first document containing a token already cannot fit compact posting list
+
+    for(size_t i = 0; i < 200; i++) {
+        tags.emplace_back("spools");
+    }
+
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["tags"] = tags;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("spools", {"tags"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // when the second document containing a token cannot fit compact posting list
+    tags = {"foobar"};
+    doc["tags"] = tags;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    for(size_t i = 0; i < 200; i++) {
+        tags.emplace_back("foobar");
+    }
+
+    doc["tags"] = tags;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    results = coll1->search("foobar", {"tags"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
