@@ -81,7 +81,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
 
         // IMPORTANT: must not read `req` variables (except _req) henceforth to prevent data races with indexing thread
 
-        if(is_old_serialized_request == 0) {
+        if(is_old_serialized_request) {
             // Indicates a serialized request from a version that did not support batching (v0.21 and below).
             // We can only do serial writes as we cannot reliably distinguish one streaming request from another.
             // So, wait for `req_res_map` to be empty before proceeding
