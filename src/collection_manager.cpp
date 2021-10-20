@@ -91,19 +91,22 @@ void CollectionManager::add_to_collections(Collection* collection) {
 
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
-                             const std::string & auth_key) {
+                             const std::string & auth_key,
+                             std::atomic<bool>& quit) {
     std::unique_lock lock(mutex);
 
     this->store = store;
     this->thread_pool = thread_pool;
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
+    this->quit = &quit;
 }
 
 // used only in tests!
-void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key) {
+void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
+                             std::atomic<bool>& quit) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit);
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -154,8 +157,8 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
-                              &m_process, &cv_process, &num_processed, &next_coll_id_status]() {
-            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status);
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
             if(!res.ok()) {
                 LOG(ERROR) << "Error while loading collection. " << res.error();
                 LOG(ERROR) << "Typesense is quitting.";
@@ -977,7 +980,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
                                                 const size_t init_batch_size,
-                                                const StoreStatus& next_coll_id_status) {
+                                                const StoreStatus& next_coll_id_status,
+                                                const std::atomic<bool>& quit) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -1065,6 +1069,8 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
 
+    auto begin = std::chrono::high_resolution_clock::now();
+
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
         num_found_docs++;
         const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
@@ -1105,6 +1111,21 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
             index_records.clear();
             num_indexed_docs += num_indexed;
+        }
+
+        if(num_found_docs % 20*1000 == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Loaded " << num_found_docs << " documents from " << collection->get_name() << " so far.";
+            }
+        }
+
+        if(quit) {
+            break;
         }
     }
 

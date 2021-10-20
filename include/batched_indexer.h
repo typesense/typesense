@@ -42,7 +42,7 @@ private:
 
     std::chrono::high_resolution_clock::time_point last_gc_run;
 
-    std::atomic<bool> exit;
+    std::atomic<bool> quit;
 
     static const size_t GC_INTERVAL_SECONDS = 60;
     static const size_t GC_PRUNE_MAX_SECONDS = 3600;

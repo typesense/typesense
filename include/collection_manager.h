@@ -71,6 +71,8 @@ private:
 
     std::atomic<float> max_memory_ratio;
 
+    std::atomic<bool>* quit;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -105,7 +107,9 @@ public:
                                        float max_memory_ratio);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
-                                        const size_t init_batch_size, const StoreStatus& next_coll_id_status);
+                                        const size_t init_batch_size,
+                                        const StoreStatus& next_coll_id_status,
+                                        const std::atomic<bool>& quit);
 
     void add_to_collections(Collection* collection);
 
@@ -115,10 +119,11 @@ public:
 
     // PUBLICLY EXPOSED API
 
-    void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio, const std::string & auth_key);
+    void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
+              const std::string & auth_key, std::atomic<bool>& quit);
 
     // only for tests!
-    void init(Store *store, const float max_memory_ratio, const std::string & auth_key);
+    void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
 
     Option<bool> load(const size_t collection_batch_size, const size_t document_batch_size);
 

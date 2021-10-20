@@ -4,7 +4,7 @@
 
 BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t num_threads):
                                server(server), store(store), num_threads(num_threads),
-                               last_gc_run(std::chrono::high_resolution_clock::now()), exit(false) {
+                               last_gc_run(std::chrono::high_resolution_clock::now()), quit(false) {
     thread_pool = new ThreadPool(num_threads);
     queues.resize(num_threads);
     qmutuxes = new std::mutex[num_threads];
@@ -112,7 +112,7 @@ void BatchedIndexer::run() {
         std::mutex& queue_mutex = qmutuxes[i];
 
         thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
-            while(!exit) {
+            while(!quit) {
                 std::unique_lock<std::mutex> qlk(queue_mutex);
 
                 if(queue.empty()) {
@@ -169,6 +169,10 @@ void BatchedIndexer::run() {
 
                         queued_writes--;
                         iter->Next();
+
+                        if(quit) {
+                            break;
+                        }
                     }
 
                     delete iter;
@@ -187,7 +191,7 @@ void BatchedIndexer::run() {
         });
     }
 
-    while(!exit) {
+    while(!quit) {
         std::this_thread::sleep_for(std::chrono::milliseconds (1000));
 
         //LOG(INFO) << "Batch indexer main thread";
@@ -240,7 +244,7 @@ BatchedIndexer::~BatchedIndexer() {
 }
 
 void BatchedIndexer::stop() {
-    exit = true;
+    quit = true;
 }
 
 int64_t BatchedIndexer::get_queued_writes() {

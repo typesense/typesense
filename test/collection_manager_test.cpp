@@ -10,6 +10,7 @@ class CollectionManagerTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
     Collection *collection1;
     std::vector<field> search_fields;
     std::vector<sort_by> sort_fields;
@@ -20,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
         search_fields = {
@@ -250,7 +251,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 1.0, "auth_key");
+    collectionManager2.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
@@ -345,7 +346,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 1.0, "auth_key");
+    collectionManager2.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
@@ -454,7 +455,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     // try resolving on a blank slate
@@ -529,7 +530,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
-    cmanager2.init(store, 1.0, "auth_key");
+    cmanager2.init(store, 1.0, "auth_key", quit);
     cmanager2.load(8, 1000);
 
     collection_option = cmanager2.resolve_symlink("company");
@@ -557,7 +558,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     for(size_t i = 0; i < 100; i++) {
@@ -579,7 +580,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     delete new_store;
 
     new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     ASSERT_EQ(100, cmanager.get_collections().size());
