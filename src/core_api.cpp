@@ -14,7 +14,7 @@
 using namespace std::chrono_literals;
 
 std::shared_mutex mutex;
-LRU::TimedCache<uint64_t, cached_res_t> res_cache(60*1000ms, 1000);
+LRU::Cache<uint64_t, cached_res_t> res_cache;
 
 bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body,
                            const route_path& rpath, const std::string& auth_key) {
@@ -225,8 +225,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto cache_it = req->params.find("use_cache");
-    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    const auto use_cache_it = req->params.find("use_cache");
+    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
 
     if(use_cache) {
@@ -240,8 +240,18 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
-            return true;
+
+            // we still need to check that TTL has not expired
+            uint32_t ttl = cached_value.ttl;
+            uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
+
+            if(seconds_elapsed < cached_value.ttl) {
+                res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                return true;
+            }
+
+            //LOG(INFO) << "Result found in cache but ttl lapsed.";
         }
     }
 
@@ -258,12 +268,17 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     // we will cache only successful requests
     if(use_cache) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
-        cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
-        std::unique_lock lock(mutex);
+        auto now = std::chrono::high_resolution_clock::now();
+        const auto cache_ttl_it = req->params.find("cache_ttl");
+        uint32_t cache_ttl = 60;
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+            cache_ttl = std::stoul(cache_ttl_it->second);
+        }
 
-        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
-        res_cache.erase(req_hash);
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+
+        std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
     }
 
@@ -271,8 +286,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto cache_it = req->params.find("use_cache");
-    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    const auto use_cache_it = req->params.find("use_cache");
+    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
 
     if(use_cache) {
@@ -286,8 +301,16 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
-            return true;
+
+            // we still need to check that TTL has not expired
+            uint32_t ttl = cached_value.ttl;
+            uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
+
+            if(seconds_elapsed < cached_value.ttl) {
+                res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                return true;
+            }
         }
     }
 
@@ -365,12 +388,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     // we will cache only successful requests
     if(use_cache) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
-        cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
-        std::unique_lock lock(mutex);
+        auto now = std::chrono::high_resolution_clock::now();
+        const auto cache_ttl_it = req->params.find("cache_ttl");
+        uint32_t cache_ttl = 60;
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+            cache_ttl = std::stoul(cache_ttl_it->second);
+        }
 
-        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
-        res_cache.erase(req_hash);
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+
+        std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
     }
 
