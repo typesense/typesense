@@ -366,7 +366,8 @@ int run_server(const Config & config, const std::string & version, void (*master
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(), config.get_api_key());
+    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
+                           config.get_api_key(), quit_raft_service);
 
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
