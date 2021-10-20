@@ -17,6 +17,8 @@ extern "C" {
     #include "h2o.h"
 }
 
+using TimePoint = std::chrono::high_resolution_clock::time_point;
+
 struct h2o_custom_timer_t {
     h2o_timer_t timer;
     void *data;
@@ -167,6 +169,8 @@ struct cached_res_t {
     uint32_t status_code;
     std::string content_type_header;
     std::string body;
+    TimePoint created_at;
+    uint32_t ttl;
     uint64_t hash;
 
     bool operator == (const cached_res_t& res) const {
@@ -177,10 +181,13 @@ struct cached_res_t {
         return hash != res.hash;
     }
 
-    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body, uint64_t hash) {
+    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body,
+              const TimePoint created_at, const uint32_t ttl, uint64_t hash) {
         this->status_code = status_code;
         this->content_type_header = content_type_header;
         this->body = body;
+        this->created_at = created_at;
+        this->ttl = ttl;
         this->hash = hash;
     }
 };
