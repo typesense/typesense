@@ -79,8 +79,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
-    options.add<int>("healthy-read-lag", '\0', "Reads are rejected if the updates lag behind this threshold.", false, 1000);
-    options.add<int>("healthy-write-lag", '\0', "Writes are rejected if the updates lag behind this threshold.", false, 500);
+    options.add<size_t>("healthy-read-lag", '\0', "Reads are rejected if the updates lag behind this threshold.", false, 1000);
+    options.add<size_t>("healthy-write-lag", '\0', "Writes are rejected if the updates lag behind this threshold.", false, 500);
     options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
 
     options.add<uint32_t>("num-collections-parallel-load", '\0', "Number of collections that are loaded in parallel during start up.", false, 4);
