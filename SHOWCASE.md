@@ -6,7 +6,6 @@ Please add to this file and send us a PR:
 
 | Name        | Description |
 | ----------- | ----------- |
-| [Bookology](https://play.google.com/store/apps/details?id=com.imihirpaldhikar.bookology) | I am using Typesense for searching the the books listed on the platform. I switched from Algolia to Typesense because it is more convenient to only pay for the underlying infrastrucutre rather then paying for search queries. I will always use Typesense in my future projects.
 | [Recipe Search](https://recipe-search.typesense.org/) | A site that showcases Typesense in action on a 2 Million recipe database, with the ability to filter by ingredients.|
 | [Linux Commit History Search](https://linux-commits-search.typesense.org/) | A site that indexes 1M linux commit messages in Typesense and lets you browse, search and filter through the commits.|
 | [Grafikart](https://www.grafikart.fr/) | Learning resources library |
@@ -25,3 +24,4 @@ Please add to this file and send us a PR:
 | [2020 US Presidential Candidates' Speeches Search](https://biden-trump-speeches-search.typesense.org/) | Instant Search speeches of US Presidential Candidates side-by-side. |
 | [E-commerce Store Browsing Experience](https://ecommerce-store.typesense.org/) | A site that showcases how to build an e-commerce storefront browsing experience with Typesense. |
 | [Read This Twice](https://www.readthistwice.com/) | Book discovery platform uses typesense to power the book/people search |
+| [Bookology](https://play.google.com/store/apps/details?id=com.imihirpaldhikar.bookology) | "I am using Typesense for searching the the books listed on the platform. I switched from Algolia to Typesense because it is more convenient to only pay for the underlying infrastrucutre rather then paying for search queries. I will always use Typesense in my future projects." - @imihirpaldhikar
