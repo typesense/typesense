@@ -38,10 +38,9 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     const std::string& req_key_prefix = get_req_prefix_key(req->start_ts);
     const std::string& request_chunk_key = req_key_prefix + StringUtils::serialize_uint32_t(chunk_sequence);
 
-    //LOG(INFO) << "insert request_chunk_key: " << request_chunk_key;
+    //LOG(INFO) << "request_chunk_key: " << req->start_ts << "_" << chunk_sequence << ", req body: " << req->body;
 
     store->insert(request_chunk_key, req->to_json());
-    req->body = "";
 
     bool is_old_serialized_request = (req->start_ts == 0);
     bool read_more_input = (req->_req != nullptr && req->_req->proceed_req);
@@ -59,10 +58,10 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
                 queues[queue_id].emplace_back(req->start_ts);
             }
 
-            qmutuxes[queue_id].cv.notify_one();
-
             std::unique_lock lk2(mutex);
             req_res_map[req->start_ts].is_complete = true;
+
+            qmutuxes[queue_id].cv.notify_one();
         }
 
         // IMPORTANT: must not read `req` variables (except _req) henceforth to prevent data races with indexing thread
@@ -152,6 +151,8 @@ void BatchedIndexer::run() {
 
                 const std::string& req_key_start_prefix = get_req_prefix_key(req_id) +
                                                     StringUtils::serialize_uint32_t(orig_req_res.next_chunk_index);
+
+                //LOG(INFO) << "index req " << req_id << "_" << orig_req_res.next_chunk_index;
 
                 rocksdb::Iterator* iter = store->scan(req_key_start_prefix);
 
