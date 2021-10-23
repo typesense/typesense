@@ -18,19 +18,20 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
     uint32_t chunk_sequence = 0;
 
     {
+        uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
         std::unique_lock lk(mutex);
         auto req_res_map_it = req_res_map.find(req->start_ts);
 
         if(req_res_map_it == req_res_map.end()) {
             // first chunk
-            uint64_t batch_begin_ts = std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch()).count();
-
-            req_res_t req_res("", req, res, batch_begin_ts, 1, 0, false);
+            req_res_t req_res(req->start_ts, "", req, res, now, 1, 0, false);
             req_res_map.emplace(req->start_ts, req_res);
         } else {
             chunk_sequence = req_res_map_it->second.num_chunks;
             req_res_map_it->second.num_chunks += 1;
+            req_res_map_it->second.last_updated = now;
         }
     }
 
@@ -125,8 +126,18 @@ void BatchedIndexer::run() {
                     queue.pop_front();
                     qlk.unlock();
 
+                    uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                            std::chrono::system_clock::now().time_since_epoch()).count();
+
                     std::unique_lock mlk(mutex);
-                    req_res_t& orig_req_res = req_res_map[req_id];
+                    auto req_res_map_it = req_res_map.find(req_id);
+                    if(req_res_map_it == req_res_map.end()) {
+                        LOG(ERROR) << "Req ID " << req_id << " not found in req_res_map.";
+                        continue;
+                    }
+
+                    req_res_map_it->second.last_updated = now;
+                    req_res_t orig_req_res = req_res_map_it->second;  // copy for ref counting req + res
                     mlk.unlock();
 
                     // scan db for all logs associated with request
@@ -204,8 +215,6 @@ void BatchedIndexer::run() {
     while(!quit) {
         std::this_thread::sleep_for(std::chrono::milliseconds (1000));
 
-        //LOG(INFO) << "Batch indexer main thread";
-
         // do gc, if we are due for one
         uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::high_resolution_clock::now() - last_gc_run).count();
@@ -217,15 +226,20 @@ void BatchedIndexer::run() {
 
             // iterate through all map entries and delete ones which are > GC_PRUNE_MAX_SECONDS
             for (auto it = req_res_map.cbegin(); it != req_res_map.cend();) {
-                uint64_t seconds_since_batch_start = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count() - it->second.batch_begin_ts;
+                uint64_t seconds_since_batch_update = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count() - it->second.last_updated;
 
-                //LOG(INFO) << "Seconds since batch start: " << seconds_since_batch_start;
+                //LOG(INFO) << "Seconds since last batch update: " << seconds_since_batch_update;
 
-                if(seconds_since_batch_start > GC_PRUNE_MAX_SECONDS) {
-                    LOG(INFO) << "Deleting partial upload for req id " << it->second.req->start_ts;
-                    const std::string& req_key_prefix = get_req_prefix_key(it->second.req->start_ts);
+                if(seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
+                    LOG(INFO) << "Deleting partial upload for req id " << it->second.start_ts;
+                    const std::string& req_key_prefix = get_req_prefix_key(it->second.start_ts);
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
+
+                    it->second.res->final = true;
+                    async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
+                    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+
                     it = req_res_map.erase(it);
                 } else {
                     it++;
@@ -272,7 +286,8 @@ void BatchedIndexer::serialize_state(nlohmann::json& state) {
         std::string req_key = std::to_string(kv.first);
         state["req_res_map"].emplace(req_key, nlohmann::json());
         nlohmann::json& req_res = state["req_res_map"][req_key];
-        req_res["batch_begin_ts"] = kv.second.batch_begin_ts;
+        req_res["start_ts"] = kv.second.start_ts;
+        req_res["last_updated"] = kv.second.last_updated;
         req_res["num_chunks"] = kv.second.num_chunks;
         req_res["next_chunk_index"] = kv.second.next_chunk_index;
         req_res["is_complete"] = kv.second.is_complete;
@@ -297,8 +312,9 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         req->load_from_json(kv.value()["req"].get<std::string>());
 
         std::shared_ptr<http_res> res = std::make_shared<http_res>(nullptr);
-        req_res_t req_res(kv.value()["prev_req_body"].get<std::string>(), req, res,
-                          kv.value()["batch_begin_ts"].get<uint64_t>(),
+        req_res_t req_res(kv.value()["start_ts"].get<uint64_t>(),
+                          kv.value()["prev_req_body"].get<std::string>(), req, res,
+                          kv.value()["last_updated"].get<uint64_t>(),
                           kv.value()["num_chunks"].get<uint32_t>(),
                           kv.value()["next_chunk_index"].get<uint32_t>(),
                           kv.value()["is_complete"].get<bool>());

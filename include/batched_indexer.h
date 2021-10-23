@@ -10,24 +10,25 @@
 class BatchedIndexer {
 private:
     struct req_res_t {
+        uint64_t start_ts;
         std::string prev_req_body;  // used to handle partial JSON documents caused by chunking
         std::shared_ptr<http_req> req;
         std::shared_ptr<http_res> res;
-        uint64_t batch_begin_ts;
+        uint64_t last_updated;
 
         uint32_t num_chunks;
         uint32_t next_chunk_index;   // index where next read must begin
         bool is_complete;           //  whether the req has been written to store fully
 
-        req_res_t(const std::string& prev_req_body,
+        req_res_t(uint64_t start_ts, const std::string& prev_req_body,
                   const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res,
-                  uint64_t batch_begin_ts, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete):
-                prev_req_body(prev_req_body), req(req), res(res), batch_begin_ts(batch_begin_ts),
+                  uint64_t last_updated, uint32_t num_chunks, uint32_t next_chunk_index, bool is_complete):
+                start_ts(start_ts), prev_req_body(prev_req_body), req(req), res(res), last_updated(last_updated),
                 num_chunks(num_chunks), next_chunk_index(next_chunk_index), is_complete(is_complete) {
 
         }
 
-        req_res_t(): req(nullptr), res(nullptr), batch_begin_ts(0), num_chunks(0),
+        req_res_t(): req(nullptr), res(nullptr), last_updated(0), num_chunks(0),
                      next_chunk_index(0), is_complete(false) {};
     };
 
