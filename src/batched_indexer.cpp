@@ -6,7 +6,7 @@ BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t nu
                                server(server), store(store), num_threads(num_threads),
                                last_gc_run(std::chrono::high_resolution_clock::now()), quit(false) {
     queues.resize(num_threads);
-    qmutuxes = new std::mutex[num_threads];
+    qmutuxes = new await_t[num_threads];
 }
 
 void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -53,8 +53,13 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
         {
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
-            std::unique_lock lk1(qmutuxes[queue_id]);
-            queues[queue_id].emplace_back(req->start_ts);
+
+            {
+                std::unique_lock lk1(qmutuxes[queue_id].mcv);
+                queues[queue_id].emplace_back(req->start_ts);
+            }
+
+            qmutuxes[queue_id].cv.notify_one();
 
             std::unique_lock lk2(mutex);
             req_res_map[req->start_ts].is_complete = true;
@@ -113,101 +118,100 @@ void BatchedIndexer::run() {
 
     for(size_t i = 0; i < num_threads; i++) {
         std::deque<uint64_t>& queue = queues[i];
-        std::mutex& queue_mutex = qmutuxes[i];
+        await_t& queue_mutex = qmutuxes[i];
 
         thread_pool->enqueue([&queue, &queue_mutex, this, i]() {
             while(!quit) {
-                std::unique_lock<std::mutex> qlk(queue_mutex);
+                std::unique_lock<std::mutex> qlk(queue_mutex.mcv);
+                queue_mutex.cv.wait(qlk, [&] { return quit || !queue.empty(); });
 
-                if(queue.empty()) {
-                    qlk.unlock();
-                } else {
-                    uint64_t req_id = queue.front();
-                    queue.pop_front();
-                    qlk.unlock();
-
-                    uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-                            std::chrono::system_clock::now().time_since_epoch()).count();
-
-                    std::unique_lock mlk(mutex);
-                    auto req_res_map_it = req_res_map.find(req_id);
-                    if(req_res_map_it == req_res_map.end()) {
-                        LOG(ERROR) << "Req ID " << req_id << " not found in req_res_map.";
-                        continue;
-                    }
-
-                    req_res_map_it->second.last_updated = now;
-                    req_res_t orig_req_res = req_res_map_it->second;  // copy for ref counting req + res
-                    mlk.unlock();
-
-                    // scan db for all logs associated with request
-                    const std::string& req_key_prefix = get_req_prefix_key(req_id);
-
-                    const std::string& req_key_start_prefix = get_req_prefix_key(req_id) +
-                                                        StringUtils::serialize_uint32_t(orig_req_res.next_chunk_index);
-
-                    rocksdb::Iterator* iter = store->scan(req_key_start_prefix);
-
-                    // used to handle partial JSON documents caused by chunking
-                    std::string& prev_body = orig_req_res.prev_req_body;
-
-                    const std::shared_ptr<http_req>& orig_req = orig_req_res.req;
-                    const std::shared_ptr<http_res>& orig_res = orig_req_res.res;
-                    bool is_live_req = orig_res->is_alive;
-
-                    route_path* found_rpath = nullptr;
-                    bool route_found = server->get_route(orig_req->route_hash, &found_rpath);
-                    bool async_res = false;
-
-                    while(iter->Valid() && iter->key().starts_with(req_key_prefix)) {
-                        std::shared_lock slk(pause_mutex); // used for snapshot
-                        orig_req->body = prev_body;
-                        orig_req->load_from_json(iter->value().ToString());
-
-                        // update thread local for reference during a crash
-                        write_log_index = orig_req->log_index;
-
-                        //LOG(INFO) << "original request: " << orig_req_res.req << ", req: " << orig_req_res.req->req;
-
-                        if(route_found) {
-                            async_res = found_rpath->async_res;
-                            found_rpath->handler(orig_req, orig_res);
-                            prev_body = orig_req->body;
-                        } else {
-                            orig_res->set_404();
-                        }
-
-                        if(is_live_req && (!route_found ||!async_res)) {
-                            // sync request get a response immediately
-                            async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
-                            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                        }
-
-                        if(!route_found) {
-                            break;
-                        }
-
-                        queued_writes--;
-                        orig_req_res.next_chunk_index++;
-                        iter->Next();
-
-                        if(quit) {
-                            break;
-                        }
-                    }
-
-                    delete iter;
-
-                    //LOG(INFO) << "Erasing request data from disk and memory for request " << orig_req_res.req->start_ts;
-
-                    // we can delete the buffered request content
-                    store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
-
-                    std::unique_lock lk(mutex);
-                    req_res_map.erase(req_id);
+                if(quit) {
+                    break;
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds (10));
+                uint64_t req_id = queue.front();
+                queue.pop_front();
+                qlk.unlock();
+
+                uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+
+                std::unique_lock mlk(mutex);
+                auto req_res_map_it = req_res_map.find(req_id);
+                if(req_res_map_it == req_res_map.end()) {
+                    LOG(ERROR) << "Req ID " << req_id << " not found in req_res_map.";
+                    continue;
+                }
+
+                req_res_map_it->second.last_updated = now;
+                req_res_t orig_req_res = req_res_map_it->second;  // copy for ref counting req + res
+                mlk.unlock();
+
+                // scan db for all logs associated with request
+                const std::string& req_key_prefix = get_req_prefix_key(req_id);
+
+                const std::string& req_key_start_prefix = get_req_prefix_key(req_id) +
+                                                    StringUtils::serialize_uint32_t(orig_req_res.next_chunk_index);
+
+                rocksdb::Iterator* iter = store->scan(req_key_start_prefix);
+
+                // used to handle partial JSON documents caused by chunking
+                std::string& prev_body = orig_req_res.prev_req_body;
+
+                const std::shared_ptr<http_req>& orig_req = orig_req_res.req;
+                const std::shared_ptr<http_res>& orig_res = orig_req_res.res;
+                bool is_live_req = orig_res->is_alive;
+
+                route_path* found_rpath = nullptr;
+                bool route_found = server->get_route(orig_req->route_hash, &found_rpath);
+                bool async_res = false;
+
+                while(iter->Valid() && iter->key().starts_with(req_key_prefix)) {
+                    std::shared_lock slk(pause_mutex); // used for snapshot
+                    orig_req->body = prev_body;
+                    orig_req->load_from_json(iter->value().ToString());
+
+                    // update thread local for reference during a crash
+                    write_log_index = orig_req->log_index;
+
+                    //LOG(INFO) << "original request: " << orig_req_res.req << ", req: " << orig_req_res.req->req;
+
+                    if(route_found) {
+                        async_res = found_rpath->async_res;
+                        found_rpath->handler(orig_req, orig_res);
+                        prev_body = orig_req->body;
+                    } else {
+                        orig_res->set_404();
+                    }
+
+                    if(is_live_req && (!route_found ||!async_res)) {
+                        // sync request get a response immediately
+                        async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
+                        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                    }
+
+                    if(!route_found) {
+                        break;
+                    }
+
+                    queued_writes--;
+                    orig_req_res.next_chunk_index++;
+                    iter->Next();
+
+                    if(quit) {
+                        break;
+                    }
+                }
+
+                delete iter;
+
+                //LOG(INFO) << "Erasing request data from disk and memory for request " << orig_req_res.req->start_ts;
+
+                // we can delete the buffered request content
+                store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
+
+                std::unique_lock lk(mutex);
+                req_res_map.erase(req_id);
             }
         });
     }
@@ -249,6 +253,14 @@ void BatchedIndexer::run() {
             last_gc_run = std::chrono::high_resolution_clock::now();
         }
     }
+
+    LOG(INFO) << "Notifying batch indexer threads about shutdown...";
+    for(size_t i = 0; i < num_threads; i++) {
+        await_t& queue_mutex = qmutuxes[i];
+        std::lock_guard<std::mutex> lk(queue_mutex.mcv);
+        queue_mutex.cv.notify_one();
+    }
+
 
     LOG(INFO) << "Batched indexer threadpool shutdown...";
     thread_pool->shutdown();
@@ -332,7 +344,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             queue_ids.push_back(queue_id);
-            std::unique_lock qlk(qmutuxes[queue_id]);
+            std::unique_lock qlk(qmutuxes[queue_id].mcv);
             queues[queue_id].emplace_back(req->start_ts);
         }
 
@@ -341,7 +353,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
 
     // need to sort on `start_ts` to preserve original order
     for(auto queue_id: queue_ids) {
-        std::unique_lock lk(qmutuxes[queue_id]);
+        std::unique_lock lk(qmutuxes[queue_id].mcv);
         std::sort(queues[queue_id].begin(), queues[queue_id].end());
     }
 

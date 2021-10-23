@@ -32,12 +32,17 @@ private:
                      next_chunk_index(0), is_complete(false) {};
     };
 
+    struct await_t {
+        std::mutex mcv;
+        std::condition_variable cv;
+    };
+
     HttpServer* server;
     Store* store;
 
     const size_t num_threads;
 
-    std::mutex* qmutuxes;
+    await_t* qmutuxes;
     std::vector<std::deque<uint64_t>> queues;
 
     /* Variables to be serialized on snapshot                  /
