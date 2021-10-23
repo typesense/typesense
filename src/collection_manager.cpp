@@ -3,6 +3,7 @@
 #include <json.hpp>
 #include <app_metrics.h>
 #include "collection_manager.h"
+#include "batched_indexer.h"
 #include "logger.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
@@ -92,7 +93,8 @@ void CollectionManager::add_to_collections(Collection* collection) {
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
                              const std::string & auth_key,
-                             std::atomic<bool>& quit) {
+                             std::atomic<bool>& quit,
+                             BatchedIndexer* batch_indexer) {
     std::unique_lock lock(mutex);
 
     this->store = store;
@@ -100,13 +102,14 @@ void CollectionManager::init(Store *store, ThreadPool* thread_pool,
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
     this->quit = &quit;
+    this->batch_indexer = batch_indexer;
 }
 
 // used only in tests!
 void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
                              std::atomic<bool>& quit) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key, quit);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -197,6 +200,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
     loading_pool.shutdown();
+
+    LOG(INFO) << "Initializing batched indexer from snapshot state...";
+    if(batch_indexer != nullptr) {
+        std::string batched_indexer_state_str;
+        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
+        if(s == FOUND) {
+            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
+            batch_indexer->load_state(batch_indexer_state);
+        }
+    }
 
     return Option<bool>(true);
 }

@@ -365,10 +365,6 @@ int run_server(const Config & config, const std::string & version, void (*master
     // meta DB for storing house keeping things
     Store meta_store(meta_dir, 24*60*60, 1024, false);
 
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
-                           config.get_api_key(), quit_raft_service);
-
     curl_global_init(CURL_GLOBAL_SSL);
     HttpClient & httpClient = HttpClient::get_instance();
     httpClient.init(config.get_api_key());
@@ -393,6 +389,10 @@ int run_server(const Config & config, const std::string & version, void (*master
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
     BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, num_threads);
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
+                           config.get_api_key(), quit_raft_service, batch_indexer);
 
     // first we start the peering service
 
