@@ -447,13 +447,24 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     LOG(INFO) << "on_snapshot_save";
 
     std::string db_snapshot_path = writer->get_path() + "/" + db_snapshot_name;
-    rocksdb::Checkpoint* checkpoint = nullptr;
-    rocksdb::Status status = store->create_check_point(&checkpoint, db_snapshot_path);
-    std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
 
-    if(!status.ok()) {
-        LOG(ERROR) << "Failure during checkpoint creation, msg:" << status.ToString();
-        done->status().set_error(EIO, "Checkpoint creation failure.");
+    {
+        // grab batch indexer lock so that we can take a clean snapshot
+        std::shared_mutex& pause_mutex = batched_indexer->get_pause_mutex();
+        std::unique_lock lk(pause_mutex);
+
+        nlohmann::json batch_index_state;
+        batched_indexer->serialize_state(batch_index_state);
+        store->insert(CollectionManager::BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+
+        rocksdb::Checkpoint* checkpoint = nullptr;
+        rocksdb::Status status = store->create_check_point(&checkpoint, db_snapshot_path);
+        std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
+
+        if(!status.ok()) {
+            LOG(ERROR) << "Failure during checkpoint creation, msg:" << status.ToString();
+            done->status().set_error(EIO, "Checkpoint creation failure.");
+        }
     }
 
     SnapshotArg* arg = new SnapshotArg;

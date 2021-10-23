@@ -8,6 +8,7 @@
 #include "collection.h"
 #include "auth_manager.h"
 #include "threadpool.h"
+#include "batched_indexer.h"
 
 template<typename ResourceType>
 struct locked_resource_view_t {
@@ -73,6 +74,8 @@ private:
 
     std::atomic<bool>* quit;
 
+    BatchedIndexer* batch_indexer;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -92,6 +95,7 @@ public:
 
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
+    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -120,7 +124,7 @@ public:
     // PUBLICLY EXPOSED API
 
     void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
-              const std::string & auth_key, std::atomic<bool>& quit);
+              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer);
 
     // only for tests!
     void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
