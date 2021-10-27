@@ -326,8 +326,15 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
                         h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
                         h2o_iovec_init(H2O_STRLIT(""));
 
+    if(query.len > 4000) {
+        nlohmann::json resp;
+        resp["message"] = "Query string exceeds max allowed length of 4000. Use the /multi_search end-point for larger payloads.";
+        return send_response(req, 400, resp.dump());
+    }
+
     std::string query_str(query.base, query.len);
-    std::map<std::string, std::string> query_map = StringUtils::parse_query_string(query_str);
+    std::map<std::string, std::string> query_map;
+    StringUtils::parse_query_string(query_str, query_map);
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.
     std::string api_auth_key_sent = "";

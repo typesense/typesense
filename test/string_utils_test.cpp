@@ -102,120 +102,138 @@ TEST(StringUtilsTest, ShouldComputeSHA256) {
 }
 
 TEST(StringUtilsTest, ShouldParseQueryString) {
+    std::map<std::string, std::string> qmap;
+    
     std::string qs = "?q=bar&filter_by=points: >100 && points: <200";
-    auto qmap = StringUtils::parse_query_string(qs);
+
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
 
     qs = "?q=bar&filter_by=points%3A%20%3E100%20%26%26%20points%3A%20%3C200";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
 
     qs = "?q=bar&filter_by=points%3A%20%3E100%20%26%26%20points%3A%20%3C200&";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("points: >100 && points: <200", qmap["filter_by"]);
 
     qs = "q=bar&filter_by=baz&&";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("baz&", qmap["filter_by"]);
 
     qs = "q=bar&filter_by=";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("", qmap["filter_by"]);
 
     qs = "q=bread && breakfast&filter_by=";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bread && breakfast", qmap["q"]);
     ASSERT_EQ("", qmap["filter_by"]);
 
     qs = "q=bread & breakfast&filter_by=";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(3, qmap.size());
     ASSERT_EQ("bread ", qmap["q"]);
     ASSERT_EQ("", qmap[" breakfast"]);
     ASSERT_EQ("", qmap["filter_by"]);
 
     qs = "q=bar&filter_by=&";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("", qmap["filter_by"]);
 
     qs = "q=bar&filter_by=points :> 100&enable_typos";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(3, qmap.size());
     ASSERT_EQ("bar", qmap["q"]);
     ASSERT_EQ("points :> 100", qmap["filter_by"]);
     ASSERT_EQ("", qmap["enable_typos"]);
 
-    qs = "foo=" + StringUtils::randstring(4000);
-    qmap = StringUtils::parse_query_string(qs);
-    ASSERT_EQ(0, qmap.size());
-
     qs = "foo=bar&baz=&bazinga=true";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(3, qmap.size());
     ASSERT_EQ("bar", qmap["foo"]);
     ASSERT_EQ("", qmap["baz"]);
     ASSERT_EQ("true", qmap["bazinga"]);
 
     qs = "foo=bar&bazinga=true&foo=buzz";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("buzz", qmap["foo"]);
     ASSERT_EQ("true", qmap["bazinga"]);
 
     qs = "filter_by=points:>100&bazinga=true&filter_by=points:<=200";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("points:>100&&points:<=200", qmap["filter_by"]);
     ASSERT_EQ("true", qmap["bazinga"]);
 
     qs = "filter_by=points:>100 && brand:= nike&bazinga=true&filter_by=points:<=200";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(2, qmap.size());
     ASSERT_EQ("points:>100 && brand:= nike&&points:<=200", qmap["filter_by"]);
     ASSERT_EQ("true", qmap["bazinga"]);
 
     qs = "foo";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(1, qmap.size());
     ASSERT_EQ("", qmap["foo"]);
 
     qs = "?foo=";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(1, qmap.size());
     ASSERT_EQ("", qmap["foo"]);
 
     qs = "?foo";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(1, qmap.size());
     ASSERT_EQ("", qmap["foo"]);
 
     qs = "?";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(0, qmap.size());
 
     qs = "";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(0, qmap.size());
 
     qs = "&";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(0, qmap.size());
 
     qs = "&&";
-    qmap = StringUtils::parse_query_string(qs);
+    qmap.clear();
+    StringUtils::parse_query_string(qs, qmap);
     ASSERT_EQ(0, qmap.size());
 }
 

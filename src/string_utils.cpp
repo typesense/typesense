@@ -80,13 +80,7 @@ std::string StringUtils::hash_sha256(const std::string& str) {
     return StringUtils::str2hex(std::string(reinterpret_cast<char*>(hash_buf), SHA256_SIZE));
 }
 
-std::map<std::string, std::string> StringUtils::parse_query_string(const std::string &query) {
-    if(query.size() > 4000) {
-        LOG(ERROR) << "Query string exceeds max allowed length of 4000. Actual length: " << query.size();
-        return {};
-    }
-
-    std::map<std::string, std::string> query_map;
+void StringUtils::parse_query_string(const std::string& query, std::map<std::string, std::string>& query_map) {
     std::string key_value;
 
     int query_len = int(query.size());
@@ -145,8 +139,6 @@ std::map<std::string, std::string> StringUtils::parse_query_string(const std::st
 
         i++;
     }
-
-    return query_map;
 }
 
 void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::string>& filter_values) {

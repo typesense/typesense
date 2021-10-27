@@ -309,7 +309,7 @@ struct StringUtils {
         return str.rfind(prefix, 0) == 0;
     }
 
-    static std::map<std::string, std::string> parse_query_string(const std::string& query);
+    static void parse_query_string(const std::string& query, std::map<std::string, std::string>& query_map);
 
     static std::string float_to_str(float value);
 
