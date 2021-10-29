@@ -1493,7 +1493,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 // there could be multiple tokens in a filter value, which we have to treat as ANDs
                 // e.g. country: South Africa
 
-                Tokenizer tokenizer(filter_value, true, false, f.locale);
+                Tokenizer tokenizer(filter_value, true, false, f.locale, symbols_to_index, token_separators);
 
                 std::string str_token;
                 size_t token_index = 0;

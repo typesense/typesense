@@ -1724,6 +1724,12 @@ TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    results = coll1->search("*", {"place"}, "place:= `St. John's Cathedral, Denver, Colorado`", {}, {}, {0}, 10, 1,
+                            FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
     results = coll1->search("*", {"place"}, "place:= [`St. John's Cathedral, Denver, Colorado`]", {}, {}, {0}, 10, 1,
                             FREQUENCY, {true}, 10).get();
 
@@ -1913,4 +1919,46 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
     ASSERT_EQ("Error with filter field `bool_array`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll_bool");
+}
+
+TEST_F(CollectionFilteringTest, FilteringWithTokenSeparators) {
+    std::vector<field> fields = {field("code", field_types::STRING, true)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["code"] = "7318.15";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("*", {},"code:=7318.15", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*", {},"code:=`7318.15`", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "", {"."}, {}
+    ).get();
+
+    doc1["id"] = "0";
+    doc1["code"] = "7318.15";
+
+    ASSERT_TRUE(coll2->add(doc1.dump()).ok());
+
+    results = coll2->search("*", {},"code:=7318.15", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll2");
 }
