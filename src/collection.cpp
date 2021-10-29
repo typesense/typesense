@@ -1632,7 +1632,7 @@ void Collection::highlight_result(const field &search_field,
                 found_first_match = true;
 
             } else if(query_suggestion_tokens.find(raw_token) != query_suggestion_tokens.end() ||
-                      raw_token.rfind(prefix_token, 0) == 0 || prefix_token.rfind(raw_token, 0) == 0) {
+                      raw_token.rfind(prefix_token, 0) == 0) {
                 token_offsets.emplace(tok_start, tok_end);
                 token_hits.insert(raw_token);
             }

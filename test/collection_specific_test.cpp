@@ -1698,3 +1698,26 @@ TEST_F(CollectionSpecificTest, RepeatingStringArrayTokens) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
+    std::vector<std::string> tags;
+
+    // when the first document containing a token already cannot fit compact posting list
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "And then there were a storm.";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("and", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    LOG(INFO) << results;
+
+    collectionManager.drop_collection("coll1");
+}
+
