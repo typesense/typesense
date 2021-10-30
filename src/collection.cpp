@@ -1070,6 +1070,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                 const std::string& field_name = fields_highlighted_vec[i];
                 const std::vector<std::string>& q_tokens = field_query_tokens[fields_highlighted_indices[i]].q_include_tokens;
 
+                if(search_schema.count(field_name) == 0) {
+                    continue;
+                }
+
                 field search_field = search_schema.at(field_name);
                 if(query != "*" && (search_field.type == field_types::STRING ||
                                     search_field.type == field_types::STRING_ARRAY)) {
@@ -1369,6 +1373,7 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
                                        const nlohmann::json &document, std::string &value) const {
 
     if(document.count(a_facet.field_name) == 0) {
+        // check for field exists
         if(search_schema.at(a_facet.field_name).optional) {
             return false;
         }

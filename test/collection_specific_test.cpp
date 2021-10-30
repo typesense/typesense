@@ -142,6 +142,17 @@ TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
+    // highlight field that does not exist
+
+    results = coll1->search("brown fox pernell", {"title"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 10000, true, false, true, "not-found").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
     collectionManager.drop_collection("coll1");
 }
 
