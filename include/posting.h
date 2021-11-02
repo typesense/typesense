@@ -105,6 +105,13 @@ public:
         const std::vector<void*>& posting_lists,
         std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions
     );
+
+    static void get_exact_matches(const std::vector<void*>& raw_posting_lists, bool field_is_array,
+                                  const uint32_t* ids, uint32_t num_ids,
+                                  uint32_t*& exact_ids, size_t& num_exact_ids);
+
+    static void get_matching_array_indices(const std::vector<void*>& raw_posting_lists,
+                                           uint32_t id, std::vector<size_t>& indices);
 };
 
 template<class T>

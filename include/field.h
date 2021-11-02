@@ -546,8 +546,7 @@ struct facet_count_t {
     // used to fetch the actual document and value for representation
     uint32_t doc_id;
     uint32_t array_pos;
-
-    std::unordered_map<uint32_t, token_pos_cost_t> query_token_pos;
+    std::vector<std::string> tokens;
 };
 
 struct facet_stats_t {
@@ -565,6 +564,14 @@ struct facet {
     explicit facet(const std::string & field_name): field_name(field_name) {
 
     }
+};
+
+struct facet_info_t {
+    // facet hash => resolved tokens
+    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    bool use_facet_query = false;
+    bool should_compute_stats = false;
+    field facet_field{"", "", false};
 };
 
 struct facet_query_t {

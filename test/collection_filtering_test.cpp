@@ -260,10 +260,10 @@ TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
-    // don't allow exact filter on non-faceted field
-    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
+    // allow exact filter on non-faceted field
+    results = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<size_t>());
 
     // multi match exact query (OR condition)
     results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();

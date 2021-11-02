@@ -1,4 +1,5 @@
 #include "posting_list.h"
+#include <bitset>
 #include "for.h"
 #include "array_utils.h"
 
@@ -975,6 +976,231 @@ bool posting_list_t::contains_atleast_one(const uint32_t* target_ids, size_t tar
     }
 
     return false;
+}
+
+void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool field_is_array,
+                                       const uint32_t* ids, const uint32_t num_ids,
+                                       uint32_t*& exact_ids, size_t& num_exact_ids) {
+
+    size_t exact_id_index = 0;
+
+    if(its.size() == 1) {
+        for(size_t i = 0; i < num_ids; i++) {
+            uint32_t id = ids[i];
+            if(is_single_token_verbatim_match(its[0], field_is_array)) {
+                exact_ids[exact_id_index++] = id;
+            }
+        }
+    } else {
+
+        if(!field_is_array) {
+            for(size_t i = 0; i < num_ids; i++) {
+                uint32_t id = ids[i];
+                bool is_exact_match = true;
+
+                for(int j = its.size()-1; j >= 0; j--) {
+                    posting_list_t::iterator_t& it = its[j];
+                    it.skip_to(id);
+
+                    block_t* curr_block = it.block();
+                    uint32_t curr_index = it.index();
+
+                    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+                        is_exact_match = false;
+                        break;
+                    }
+
+                    uint32_t* offsets = it.offsets;
+
+                    uint32_t start_offset_index = it.offset_index[curr_index];
+                    uint32_t end_offset_index = (curr_index == curr_block->size() - 1) ?
+                                                curr_block->offsets.getLength() :
+                                                it.offset_index[curr_index + 1];
+
+                    if(j == its.size()-1) {
+                        // check if the last query token is the last offset
+                        if(offsets[end_offset_index-1] != 0) {
+                            // not the last token for the document, so skip
+                            is_exact_match = false;
+                            break;
+                        }
+                    }
+
+                    // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
+                    while(start_offset_index < end_offset_index) {
+                        uint32_t offset = offsets[start_offset_index];
+
+                        if(offset == (j + 1)) {
+                            // we have found a matching index, no need to look further
+                            is_exact_match = true;
+                            break;
+                        }
+
+                        if(offset > (j + 1)) {
+                            is_exact_match = false;
+                            break;
+                        }
+                    }
+
+                    if(!is_exact_match) {
+                        break;
+                    }
+                }
+
+                if(is_exact_match) {
+                    exact_ids[exact_id_index++] = id;
+                }
+            }
+        }
+
+        else {
+            // field is an array
+
+            for(size_t i = 0; i < num_ids; i++) {
+                uint32_t id = ids[i];
+
+                std::map<size_t, std::bitset<32>> array_index_to_token_index;
+                bool premature_exit = false;
+
+                for(int j = its.size()-1; j >= 0; j--) {
+                    posting_list_t::iterator_t& it = its[j];
+
+                    it.skip_to(id);
+
+                    block_t* curr_block = it.block();
+                    uint32_t curr_index = it.index();
+
+                    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+                        premature_exit = true;
+                        break;
+                    }
+
+                    uint32_t* offsets = it.offsets;
+                    uint32_t start_offset_index = it.offset_index[curr_index];
+                    uint32_t end_offset_index = (curr_index == curr_block->size() - 1) ?
+                                                curr_block->offsets.getLength() :
+                                                it.offset_index[curr_index + 1];
+
+                    int prev_pos = -1;
+                    bool has_atleast_one_last_token = false;
+                    bool found_matching_index = false;
+
+                    while(start_offset_index < end_offset_index) {
+                        int pos = offsets[start_offset_index];
+                        start_offset_index++;
+
+                        if(pos == prev_pos) {  // indicates end of array index
+                            size_t array_index = (size_t) offsets[start_offset_index];
+
+                            if(start_offset_index+1 < end_offset_index) {
+                                size_t next_offset = (size_t) offsets[start_offset_index + 1];
+                                if(next_offset == 0) {
+                                    // indicates that token is the last token on the doc
+                                    has_atleast_one_last_token = true;
+                                    start_offset_index++;
+                                }
+                            }
+
+                            if(found_matching_index) {
+                                array_index_to_token_index[array_index].set(j+1);
+                            }
+
+                            start_offset_index++;  // skip current value which is the array index or flag for last index
+                            prev_pos = -1;
+                            continue;
+                        }
+
+                        if(pos == (j + 1)) {
+                            // we have found a matching index
+                            found_matching_index = true;
+                        }
+
+                        prev_pos = pos;
+                    }
+
+                    // check if the last query token is the last offset of ANY array element
+                    if(j == its.size()-1 && !has_atleast_one_last_token) {
+                        premature_exit = true;
+                        break;
+                    }
+
+                    if(!found_matching_index) {
+                        // not even a single matching index found: can never be an exact match
+                        premature_exit = true;
+                        break;
+                    }
+                }
+
+                if(!premature_exit) {
+                    // iterate array index to token index to check if atleast 1 array position contains all tokens
+                    for(auto& kv: array_index_to_token_index) {
+                        if(kv.second.count() == its.size()) {
+                            exact_ids[exact_id_index++] = id;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    num_exact_ids = exact_id_index;
+}
+
+void posting_list_t::get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
+                                                std::vector<size_t>& indices) {
+    std::map<size_t, std::bitset<32>> array_index_to_token_index;
+
+    for(int j = its.size()-1; j >= 0; j--) {
+        posting_list_t::iterator_t& it = its[j];
+
+        it.skip_to(id);
+
+        block_t* curr_block = it.block();
+        uint32_t curr_index = it.index();
+
+        if(curr_block == nullptr || curr_index == UINT32_MAX) {
+            return;
+        }
+
+        uint32_t* offsets = it.offsets;
+        uint32_t start_offset_index = it.offset_index[curr_index];
+        uint32_t end_offset_index = (curr_index == curr_block->size() - 1) ?
+                                    curr_block->offsets.getLength() :
+                                    it.offset_index[curr_index + 1];
+
+        int prev_pos = -1;
+        while(start_offset_index < end_offset_index) {
+            int pos = offsets[start_offset_index];
+            start_offset_index++;
+
+            if(pos == prev_pos) {  // indicates end of array index
+                size_t array_index = (size_t) offsets[start_offset_index];
+
+                if(start_offset_index+1 < end_offset_index) {
+                    size_t next_offset = (size_t) offsets[start_offset_index + 1];
+                    if(next_offset == 0) {
+                        // indicates that token is the last token on the doc
+                        start_offset_index++;
+                    }
+                }
+
+                array_index_to_token_index[array_index].set(j+1);
+                start_offset_index++;  // skip current value which is the array index or flag for last index
+                prev_pos = -1;
+                continue;
+            }
+
+            prev_pos = pos;
+        }
+    }
+
+    // iterate array index to token index to check if atleast 1 array position contains all tokens
+    for(auto& kv: array_index_to_token_index) {
+        if(kv.second.count() == its.size()) {
+            indices.push_back(kv.first);
+        }
+    }
 }
 
 /* iterator_t operations */

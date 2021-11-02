@@ -1174,6 +1174,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             facet_hash_counts.emplace_back(kv);
         }
 
+        auto the_field = search_schema.at(a_facet.field_name);
+
         // keep only top K facets
         auto max_facets = std::min(max_facet_values, facet_hash_counts.size());
         std::nth_element(facet_hash_counts.begin(), facet_hash_counts.begin() + max_facets,
@@ -1181,7 +1183,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
 
         std::vector<std::string> facet_query_tokens;
-        StringUtils::split(facet_query.query, facet_query_tokens, " ");
+        if(the_field.locale.empty() || the_field.locale == "en") {
+            StringUtils::split(facet_query.query, facet_query_tokens, " ");
+        } else {
+            Tokenizer(facet_query.query, true, !the_field.is_string()).tokenize(facet_query_tokens);
+        }
 
         std::vector<facet_value_t> facet_values;
 
@@ -1207,32 +1213,71 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                 continue;
             }
 
-            std::vector<std::string> tokens;
-            StringUtils::split(value, tokens, " ");
-            std::stringstream highlightedss;
+            std::unordered_map<std::string, size_t> ftoken_pos;
 
-            // invert query_pos -> token_pos
-            spp::sparse_hash_map<uint32_t, uint32_t> token_query_pos;
-            for(auto qtoken_pos: facet_count.query_token_pos) {
-                token_query_pos.emplace(qtoken_pos.second.pos, qtoken_pos.first);
+            for(size_t ti = 0; ti < facet_count.tokens.size(); ti++) {
+                if(the_field.is_bool()) {
+                    if(facet_count.tokens[ti] == "1") {
+                        facet_count.tokens[ti] = "true";
+                    } else {
+                        facet_count.tokens[ti] = "false";
+                    }
+                }
+
+                const std::string& resolved_token = facet_count.tokens[ti];
+                ftoken_pos[resolved_token] = ti;
             }
 
-            for(size_t i = 0; i < tokens.size(); i++) {
-                if(i != 0) {
-                    highlightedss << " ";
+            const std::string& last_full_q_token = facet_count.tokens.empty() ? "" : facet_count.tokens.back();
+            const std::string& last_q_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
+
+            // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
+
+            Tokenizer tokenizer(value, true, !the_field.is_string());
+            std::string raw_token;
+            size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
+
+            // need an ordered map here to ensure that it is ordered by the key (start offset)
+            std::map<size_t, size_t> token_offsets;
+            size_t prefix_token_start_index = 0;
+
+            while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+                auto token_pos_it = ftoken_pos.find(raw_token);
+                if(token_pos_it != ftoken_pos.end()) {
+                    token_offsets[tok_start] = tok_end;
+                    if(raw_token == last_full_q_token) {
+                        prefix_token_start_index = tok_start;
+                    }
+                }
+            }
+
+            auto offset_it = token_offsets.begin();
+            size_t i = 0;
+            std::stringstream highlightedss;
+
+            while(i < value.size()) {
+                if(offset_it != token_offsets.end()) {
+                    if (i == offset_it->first) {
+                        highlightedss << highlight_start_tag;
+
+                        // loop until end index, accumulate token and complete highlighting
+                        size_t token_len = (i == prefix_token_start_index) ?
+                                           std::min(last_full_q_token.size(), last_q_token.size()) :
+                                           (offset_it->second - i + 1);
+
+                        for(size_t j = 0; j < token_len; j++) {
+                            highlightedss << value[i + j];
+                        }
+
+                        highlightedss << highlight_end_tag;
+                        offset_it++;
+                        i += token_len;
+                        continue;
+                    }
                 }
 
-                if(token_query_pos.count(i) != 0) {
-                    size_t query_token_len = facet_query_tokens[token_query_pos[i]].size();
-                    // handle query token being larger than actual token (typo correction)
-                    query_token_len = std::min(query_token_len, tokens[i].size());
-                    const std::string & unmarked = tokens[i].substr(query_token_len, std::string::npos);
-                    highlightedss << highlight_start_tag <<
-                                    tokens[i].substr(0, query_token_len) <<
-                                    highlight_end_tag << unmarked;
-                } else {
-                    highlightedss << tokens[i];
-                }
+                highlightedss << value[i];
+                i++;
             }
 
             facet_value_t facet_value = {value, highlightedss.str(), facet_count.count};
@@ -1414,7 +1459,9 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
         float raw_val = document[a_facet.field_name].get<float>();
         value = StringUtils::float_to_str(raw_val);
-        value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
+        if(value != "0") {
+            value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
+        }
     } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
         float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
         value = StringUtils::float_to_str(raw_val);
