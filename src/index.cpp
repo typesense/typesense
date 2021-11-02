@@ -80,7 +80,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
     }
 
     for(const auto& pair: facet_schema) {
-        spp::sparse_hash_map<uint32_t, facet_hash_values_t> *doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
+        auto doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
         facet_index_v3.emplace(pair.first, doc_to_values);
     }
 
@@ -1978,7 +1978,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                         curated_topster, groups_processed, searched_queries, group_limit, group_by_fields,
                         curated_ids, curated_ids_sorted,
                         exclude_token_ids, exclude_token_ids_size, field_id, field,
-                        all_result_ids, all_result_ids_len, filter_ids, filter_ids_length);
+                        all_result_ids, all_result_ids_len, filter_ids, filter_ids_length, concurrency);
     } else {
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
@@ -2059,11 +2059,12 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                             syn_wildcard_filter_init_done = true;
                         }
 
-                        search_wildcard({"*"}, filters, included_ids_map, sort_fields_std, actual_topster, curated_topster,
+                        search_wildcard({"*"}, filters, included_ids_map, sort_fields_std, actual_topster,
+                                        curated_topster,
                                         groups_processed, searched_queries, group_limit, group_by_fields,
                                         curated_ids, curated_ids_sorted,
                                         exclude_token_ids, exclude_token_ids_size, field_id, field_name,
-                                        all_result_ids, all_result_ids_len, filter_ids, filter_ids_length);
+                                        all_result_ids, all_result_ids_len, filter_ids, filter_ids_length, concurrency);
                     } else {
                         search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                                      field_it->second, field_name, filter_ids, filter_ids_length, curated_ids_sorted, sort_fields_std,
@@ -2550,35 +2551,89 @@ void Index::search_wildcard(const std::vector<std::string>& qtokens, const std::
                             const std::vector<sort_by>& sort_fields_std, Topster* topster, Topster* curated_topster,
                             spp::sparse_hash_set<uint64_t>& groups_processed,
                             std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
-                            const std::vector<std::string>& group_by_fields,
-                            const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
-                            const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, const uint8_t field_id,
-                            const string& field, uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                            const uint32_t* filter_ids, uint32_t filter_ids_length) const {
+                            const std::vector<std::string>& group_by_fields, const std::set<uint32_t>& curated_ids,
+                            const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
+                            size_t exclude_token_ids_size, const uint8_t field_id, const string& field,
+                            uint32_t*& all_result_ids, size_t& all_result_ids_len, const uint32_t* filter_ids,
+                            uint32_t filter_ids_length, const size_t concurrency) const {
 
     int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
     std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
     std::vector<size_t> geopoint_indices;
-
     populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 
     uint32_t token_bits = 255;
+    const bool check_for_circuit_break = (filter_ids_length > 1000000);
+
+    //auto beginF = std::chrono::high_resolution_clock::now();
+
+    const size_t num_threads = std::min<size_t>(concurrency, filter_ids_length);
+    const size_t window_size = (num_threads == 0) ? 0 :
+                               (filter_ids_length + num_threads - 1) / num_threads;  // rounds up
+
+    spp::sparse_hash_set<uint64_t> tgroups_processed[num_threads];
+    Topster* topsters[num_threads];
     std::vector<posting_list_t::iterator_t> plists;
 
-    bool check_for_circuit_break = (filter_ids_length > 1000000);
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
 
-    for(size_t i = 0; i < filter_ids_length; i++) {
-        const uint32_t seq_id = filter_ids[i];
-        score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 0, topster, {},
-                      groups_processed, seq_id, sort_order, field_values,
-                      geopoint_indices, group_limit, group_by_fields, token_bits,
-                      false, false, plists);
+    size_t num_queued = 0;
+    size_t filter_index = 0;
 
-        if(check_for_circuit_break && i % (2^17) == 0) {
-            // check only once every 2^17 docs to reduce overhead
-            BREAK_CIRCUIT_BREAKER
+    for(size_t thread_id = 0; thread_id < num_threads && filter_index < filter_ids_length; thread_id++) {
+        size_t batch_res_len = window_size;
+
+        if(filter_index + window_size > filter_ids_length) {
+            batch_res_len = filter_ids_length - filter_index;
         }
+
+        const uint32_t* batch_result_ids = filter_ids + filter_index;
+        num_queued++;
+
+        topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct);
+
+        thread_pool->enqueue([this, thread_id, &sort_fields_std, &searched_queries, &field_id,
+                                     &group_limit, &group_by_fields, &topsters, &tgroups_processed,
+                                     &sort_order, field_values, &geopoint_indices, &token_bits, &plists,
+                                     check_for_circuit_break,
+                                     batch_result_ids, batch_res_len,
+                                     &num_processed, &m_process, &cv_process]() {
+
+            for(size_t i = 0; i < batch_res_len; i++) {
+                const uint32_t seq_id = batch_result_ids[i];
+                score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 0,
+                              topsters[thread_id], {}, tgroups_processed[thread_id], seq_id, sort_order, field_values,
+                              geopoint_indices, group_limit, group_by_fields, token_bits,
+                              false, false, plists);
+
+                if(check_for_circuit_break && i % (1 << 17) == 0) {
+                    // check only once every 2^17 docs to reduce overhead
+                    BREAK_CIRCUIT_BREAKER
+                }
+            }
+
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
+        });
+
+        filter_index += batch_res_len;
     }
+
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+
+    for(size_t thread_id = 0; thread_id < num_processed; thread_id++) {
+        groups_processed.insert(tgroups_processed[thread_id].begin(), tgroups_processed[thread_id].end());
+        aggregate_topster(topster, topsters[thread_id]);
+        delete topsters[thread_id];
+    }
+
+    /*long long int timeMillisF = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::high_resolution_clock::now() - beginF).count();
+    LOG(INFO) << "Time for raw scoring: " << timeMillisF;*/
 
     collate_included_ids(qtokens, field, field_id, included_ids_map, curated_topster, searched_queries);
 
@@ -2855,16 +2910,17 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 }
 
 void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
-                          const uint8_t & field_id, bool field_is_array, const uint32_t total_cost, Topster* topster,
+                          const uint8_t & field_id, const bool field_is_array, const uint32_t total_cost,
+                          Topster* topster /**/,
                           const std::vector<art_leaf *> &query_suggestion,
-                          spp::sparse_hash_set<uint64_t>& groups_processed,
+                          spp::sparse_hash_set<uint64_t>& groups_processed /**/,
                           const uint32_t seq_id, const int sort_order[3],
-                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
+                          std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values /**/,
                           const std::vector<size_t>& geopoint_indices,
                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           const uint32_t token_bits,
-                          bool prioritize_exact_match,
-                          bool single_exact_query_token,
+                          const bool prioritize_exact_match,
+                          const bool single_exact_query_token,
                           const std::vector<posting_list_t::iterator_t>& posting_lists) const {
 
     int64_t geopoint_distances[3];
@@ -3305,7 +3361,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
         if(new_field.is_facet()) {
             facet_schema.emplace(new_field.name, new_field);
 
-            spp::sparse_hash_map<uint32_t, facet_hash_values_t> *doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
+            auto doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
             facet_index_v3.emplace(new_field.name, doc_to_values);
 
             // initialize for non-string facet fields
