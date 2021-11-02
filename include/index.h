@@ -727,11 +727,11 @@ public:
                          const std::vector<sort_by>& sort_fields_std, Topster* topster, Topster* curated_topster,
                          spp::sparse_hash_set<uint64_t>& groups_processed,
                          std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
-                         const std::vector<std::string>& group_by_fields,
-                         const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
-                         const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, const uint8_t field_id,
-                         const string& field, uint32_t*& all_result_ids, size_t& all_result_ids_len,
-                         const uint32_t* filter_ids, uint32_t filter_ids_length) const;
+                         const std::vector<std::string>& group_by_fields, const std::set<uint32_t>& curated_ids,
+                         const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
+                         size_t exclude_token_ids_size, const uint8_t field_id, const string& field,
+                         uint32_t*& all_result_ids, size_t& all_result_ids_len, const uint32_t* filter_ids,
+                         uint32_t filter_ids_length, const size_t concurrency) const;
 
     void curate_filtered_ids(const std::vector<filter>& filters, const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
