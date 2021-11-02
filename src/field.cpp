@@ -292,12 +292,6 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
             NUM_COMPARATOR str_comparator = CONTAINS;
 
             if(raw_value[0] == '=') {
-                if(!_field.facet) {
-                    // EQUALS filtering on string is possible only on facet fields
-                    return Option<bool>(400, "To perform exact filtering, filter field `" +
-                                             _field.name + "` must be a facet field.");
-                }
-
                 // string filter should be evaluated in strict "equals" mode
                 str_comparator = EQUALS;
                 while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');

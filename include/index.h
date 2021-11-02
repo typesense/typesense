@@ -380,8 +380,6 @@ class Index {
 private:
     mutable std::shared_mutex mutex;
 
-    static constexpr const uint64_t FACET_ARRAY_DELIMETER = std::numeric_limits<uint64_t>::max();
-
     std::string name;
 
     const uint32_t collection_id;
@@ -440,6 +438,7 @@ private:
     void log_leaves(int cost, const std::string &token, const std::vector<art_leaf *> &leaves) const;
 
     void do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
+                   const std::vector<facet_info_t>& facet_infos,
                    size_t group_limit, const std::vector<std::string>& group_by_fields,
                    const uint32_t* result_ids, size_t results_size) const;
 
@@ -469,9 +468,10 @@ private:
                       const uint32_t* exclude_token_ids,
                       size_t exclude_token_ids_size,
                       size_t& num_tokens_dropped,
-                      const std::string & field, uint32_t *filter_ids, size_t filter_ids_length,
+                      const field& the_field, const std::string& field_name,
+                      const uint32_t *filter_ids, size_t filter_ids_length,
                       const std::vector<uint32_t>& curated_ids,
-                      std::vector<facet> & facets, const std::vector<sort_by> & sort_fields,
+                      const std::vector<sort_by> & sort_fields,
                       int num_typos, std::vector<std::vector<art_leaf*>> & searched_queries,
                       Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                       uint32_t** all_result_ids, size_t & all_result_ids_len,
@@ -490,7 +490,7 @@ private:
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
-                           uint32_t* filter_ids, size_t filter_ids_length,
+                           const uint32_t* filter_ids, size_t filter_ids_length,
                            const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                            const std::vector<uint32_t>& curated_ids,
                            const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
@@ -742,5 +742,10 @@ public:
                                std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
 
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
+
+    void compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
+                             const uint32_t* all_result_ids, const size_t& all_result_ids_len,
+                             const std::vector<std::string>& group_by_fields,
+                             std::vector<facet_info_t>& facet_infos) const;
 };
 

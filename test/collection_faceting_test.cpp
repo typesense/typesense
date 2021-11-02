@@ -177,13 +177,14 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
                                         {false}, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
-                                        spp::sparse_hash_set<std::string>(), 10, "tags: fxne aluminium").get();
+                                        spp::sparse_hash_set<std::string>(), 10, "tags: fxne platim").get();
 
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_STREQ("tags", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("FINE PLATINUM", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>FINE</mark> <mark>PLATIN</mark>UM", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     // facet with facet filter query matching first token of an array
     results = coll_array_fields->search("*", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY,
@@ -218,6 +219,7 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_STREQ("age", results["facet_counts"][0]["field_name"].get<std::string>().c_str());
+
     ASSERT_EQ(1, (int) results["facet_counts"][0]["counts"][0]["count"]);
     ASSERT_STREQ("21", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>2</mark>1", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
@@ -237,6 +239,10 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
     ASSERT_FLOAT_EQ(9.99899959564209, results["facet_counts"][0]["stats"]["max"].get<double>());
     ASSERT_FLOAT_EQ(24.400999426841736, results["facet_counts"][0]["stats"]["sum"].get<double>());
     ASSERT_FLOAT_EQ(5, results["facet_counts"][0]["stats"]["total_values"].get<size_t>());
+
+    // check for "0" case
+    ASSERT_STREQ("0", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
 
     // facet query on a float field
     results = coll_array_fields->search("*", query_fields, "", {"rating"}, sort_fields, {0}, 10, 1, FREQUENCY,
@@ -264,7 +270,6 @@ TEST_F(CollectionFacetingTest, FacetCounts) {
                                         {false}, Index::DROP_TOKENS_THRESHOLD,
                                         spp::sparse_hash_set<std::string>(),
                                         spp::sparse_hash_set<std::string>(), 10, "timestamps: 142189002").get();
-
     ASSERT_EQ(5, results["hits"].size());
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
@@ -688,8 +693,6 @@ TEST_F(CollectionFacetingTest, FacetCountOnSimilarStrings) {
 }
 
 TEST_F(CollectionFacetingTest, FacetQueryOnStringWithColon) {
-    ;
-
     std::vector<field> fields = {field("title", field_types::STRING, true),
                                  field("points", field_types::INT32, false)};
 
@@ -728,6 +731,85 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringWithColon) {
 
     ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, FacetQueryOnStringArray) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("genres", field_types::STRING_ARRAY, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Song 1";
+    doc1["genres"] = {"Country Punk Rock", "Country", "Slow"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Song 2";
+    doc2["genres"] = {"Soft Rock", "Rock", "Electronic"};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Song 3";
+    doc3["genres"] = {"Rockabilly", "Metal"};
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["title"] = "Song 4";
+    doc4["genres"] = {"Pop Rock", "Rock", "Fast"};
+
+    nlohmann::json doc5;
+    doc5["id"] = "4";
+    doc5["title"] = "Song 5";
+    doc5["genres"] = {"Pop", "Rockabilly", "Fast"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc5.dump()).ok());
+
+    auto results = coll1->search("*", {}, "", {"genres"}, sort_fields, {0}, 0, 1, FREQUENCY,
+                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "genres: roc").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(5, results["facet_counts"][0]["counts"].size());
+
+    results = coll1->search("*", {}, "", {"genres"}, sort_fields, {0}, 0, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "genres: soft roc").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    results = coll1->search("*", {}, "", {"genres"}, sort_fields, {0}, 0, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "genres: punk roc").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("Country <mark>Punk</mark> <mark>Roc</mark>k", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
+
+    results = coll1->search("*", {}, "", {"genres"}, sort_fields, {0}, 0, 1, FREQUENCY,
+                            {false}, Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "genres: country roc").get();
+
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("<mark>Country</mark> Punk <mark>Roc</mark>k", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

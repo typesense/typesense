@@ -79,8 +79,8 @@ public:
 
         result_iter_state_t() = default;
 
-        result_iter_state_t(uint32_t* excluded_result_ids, size_t excluded_result_ids_size, uint32_t* filter_ids,
-                            size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
+        result_iter_state_t(uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                            const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
                                                         excluded_result_ids_size(excluded_result_ids_size),
                                                         filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
     };
@@ -164,6 +164,13 @@ public:
     );
 
     static bool is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array);
+
+    static void get_exact_matches(std::vector<iterator_t>& its, bool field_is_array,
+                                  const uint32_t* ids, const uint32_t num_ids,
+                                  uint32_t*& exact_ids, size_t& num_exact_ids);
+
+    static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
+                                           std::vector<size_t>& indices);
 };
 
 template<class T>
