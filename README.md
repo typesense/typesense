@@ -71,7 +71,13 @@
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 - **No Runtime Dependencies:** Typesense is a single binary that you can run locally or in production with a single command.
 
-**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and add a comment to it explaining your use-case, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+
+## Roadmap
+
+Here's Typesense's public roadmap: https://github.com/typesense/typesense/projects/2.
+
+The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 
 ## Benchmarks
 
