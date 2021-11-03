@@ -4225,7 +4225,7 @@ private:
             raise(info->si_signo);
 
             // terminate the process immediately.
-            puts("watf? exit");
+            puts("wat? exit");
             _exit(EXIT_FAILURE);
         }
     };
