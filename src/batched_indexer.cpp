@@ -2,8 +2,8 @@
 #include "core_api.h"
 #include "thread_local_vars.h"
 
-BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, const size_t num_threads):
-                               server(server), store(store), num_threads(num_threads),
+BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads):
+                               server(server), store(store), meta_store(meta_store), num_threads(num_threads),
                                last_gc_run(std::chrono::high_resolution_clock::now()), quit(false) {
     queues.resize(num_threads);
     qmutuxes = new await_t[num_threads];
@@ -118,6 +118,11 @@ void BatchedIndexer::run() {
     LOG(INFO) << "Starting batch indexer with " << num_threads << " threads.";
     ThreadPool* thread_pool = new ThreadPool(num_threads);
 
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+    populate_skip_index();
+
+    LOG(INFO) << "BatchedIndexer skip_index: " << skip_index;
+
     for(size_t i = 0; i < num_threads; i++) {
         std::deque<uint64_t>& queue = queues[i];
         await_t& queue_mutex = qmutuxes[i];
@@ -178,24 +183,32 @@ void BatchedIndexer::run() {
                     // update thread local for reference during a crash
                     write_log_index = orig_req->log_index;
 
-                    //LOG(INFO) << "original request: " << orig_req_res.req << ", req: " << orig_req_res.req->req;
-
-                    if(route_found) {
-                        async_res = found_rpath->async_res;
-                        found_rpath->handler(orig_req, orig_res);
-                        prev_body = orig_req->body;
-                    } else {
-                        orig_res->set_404();
+                    if(write_log_index == skip_index) {
+                        LOG(ERROR) << "Skipping write log index " << write_log_index
+                                   << " which seems to have triggered a crash previously.";
+                        populate_skip_index();
                     }
 
-                    if(is_live_req && (!route_found ||!async_res)) {
-                        // sync request get a response immediately
-                        async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
-                        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
-                    }
+                    else {
+                        //LOG(INFO) << "original request: " << orig_req_res.req << ", req: " << orig_req_res.req->req;
 
-                    if(!route_found) {
-                        break;
+                        if(route_found) {
+                            async_res = found_rpath->async_res;
+                            found_rpath->handler(orig_req, orig_res);
+                            prev_body = orig_req->body;
+                        } else {
+                            orig_res->set_404();
+                        }
+
+                        if(is_live_req && (!route_found ||!async_res)) {
+                            // sync request get a response immediately
+                            async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
+                            server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                        }
+
+                        if(!route_found) {
+                            break;
+                        }
                     }
 
                     queued_writes--;
@@ -280,6 +293,7 @@ std::string BatchedIndexer::get_req_prefix_key(uint64_t req_id) {
 
 BatchedIndexer::~BatchedIndexer() {
     delete [] qmutuxes;
+    delete skip_index_iter;
 }
 
 void BatchedIndexer::stop() {
@@ -288,6 +302,25 @@ void BatchedIndexer::stop() {
 
 int64_t BatchedIndexer::get_queued_writes() {
     return queued_writes;
+}
+
+void BatchedIndexer::populate_skip_index() {
+    if(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
+        const std::string& index_value = skip_index_iter->value().ToString();
+        if(StringUtils::is_int64_t(index_value)) {
+            skip_index = std::stoll(index_value);
+        }
+
+        skip_index_iter->Next();
+    } else {
+        skip_index = UNSET_SKIP_INDEX;
+    }
+}
+
+void BatchedIndexer::persist_applying_index() {
+    LOG(INFO) << "Saving currently applying index: " << write_log_index;
+    std::string key = SKIP_INDICES_PREFIX + std::to_string(write_log_index);
+    meta_store->insert(key, std::to_string(write_log_index));
 }
 
 void BatchedIndexer::serialize_state(nlohmann::json& state) {
@@ -366,4 +399,16 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
 
 std::shared_mutex& BatchedIndexer::get_pause_mutex() {
     return pause_mutex;
+}
+
+void BatchedIndexer::clear_skip_indices() {
+    delete skip_index_iter;
+    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
+
+    while(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
+        meta_store->remove(skip_index_iter->key().ToString());
+        skip_index_iter->Next();
+    }
+
+    meta_store->flush();
 }

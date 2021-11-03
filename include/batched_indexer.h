@@ -39,6 +39,7 @@ private:
 
     HttpServer* server;
     Store* store;
+    Store* meta_store;
 
     const size_t num_threads;
 
@@ -60,6 +61,12 @@ private:
     std::atomic<bool> quit;
     std::shared_mutex pause_mutex;
 
+    // Used to skip over a bad raft log entry which previously triggered a crash
+    const static int64_t UNSET_SKIP_INDEX = -9999;
+    std::atomic<int64_t> skip_index = UNSET_SKIP_INDEX;
+    rocksdb::Iterator* skip_index_iter = nullptr;
+    static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
+
     static const size_t GC_INTERVAL_SECONDS = 60;
     static const size_t GC_PRUNE_MAX_SECONDS = 3600;
 
@@ -69,7 +76,7 @@ public:
 
     static const constexpr char* RAFT_REQ_LOG_PREFIX = "$RL_";
 
-    BatchedIndexer(HttpServer* server, Store* store, size_t num_threads);
+    BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, size_t num_threads);
 
     ~BatchedIndexer();
 
@@ -80,6 +87,12 @@ public:
     void run();
 
     void stop();
+
+    void populate_skip_index();
+
+    void persist_applying_index();
+
+    void clear_skip_indices();
 
     // requires external synchronization!
     void serialize_state(nlohmann::json& state);
