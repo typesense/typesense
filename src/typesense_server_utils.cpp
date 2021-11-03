@@ -388,7 +388,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
-    BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, num_threads);
+    BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, &meta_store, num_threads);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
@@ -396,7 +396,7 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     // first we start the peering service
 
-    ReplicationState replication_state(server, batch_indexer, &store, &meta_store,
+    ReplicationState replication_state(server, batch_indexer, &store,
                                        &app_thread_pool, server->get_message_dispatcher(),
                                        ssl_enabled,
                                        &config,
