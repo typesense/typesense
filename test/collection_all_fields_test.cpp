@@ -1131,7 +1131,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     std::vector<field> fields = {field("company_name", field_types::STRING, false),
                                  field("num_employees", field_types::INT32, false),
                                  field("post", field_types::STRING, false, true, false),
-                                 field(".*_txt", field_types::STRING, true, true, false),
+                                 field(".*_txt", field_types::STRING, false, true, false),
                                  field(".*", field_types::AUTO, false, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
@@ -1199,16 +1199,37 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Field `.*_txt` must be an optional field.", op.error());
 
-    // don't allow catch all field to contain non-index field
+    // don't allow catch all field to be non-indexable
 
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),
-              field(".*_txt", field_types::STRING, true, true, false),
+              field(".*_txt", field_types::STRING, false, true, false),
               field(".*", field_types::AUTO, false, true, false)};
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Field `.*` cannot be marked as non-indexable.", op.error());
 
+    // allow auto field to be non-indexable
+
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("noidx_.*", field_types::AUTO, false, true, false)};
+
+    op = collectionManager.create_collection("coll3", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_TRUE(op.ok());
+
+    // don't allow facet to be true when index is false
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("facet_noindex", field_types::STRING, true, true, false)};
+
+    op = collectionManager.create_collection("coll4", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `facet_noindex` cannot be a facet since it's marked as non-indexable.", op.error());
+
     collectionManager.drop_collection("coll1");
+    collectionManager.drop_collection("coll2");
+    collectionManager.drop_collection("coll3");
+    collectionManager.drop_collection("coll4");
 }

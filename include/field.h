@@ -244,8 +244,13 @@ struct field {
                 return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
             }
 
-            if(!field.index && field.is_auto()) {
+            if(field.name == ".*" && !field.index) {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
+            }
+
+            if(!field.index && field.facet) {
+                return Option<bool>(400, "Field `" + field.name + "` cannot be a facet since "
+                                                                  "it's marked as non-indexable.");
             }
         }
 
