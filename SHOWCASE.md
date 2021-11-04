@@ -5,7 +5,7 @@ This is a selection of sites and apps using Typesense:
 | Name        | Description |
 | ----------- | ----------- |
 | [Read This Twice](https://www.readthistwice.com/) | Book discovery platform uses typesense to power the book/people search |
-| [Oddle](https://oddle.me) | Online Ordering System built for restaurants | 
+| [Oddle Eats](https://eats.oddle.me) | Food Delivery Service in Singapore | 
 | [Dave & Adams Card World](https://www.dacardworld.com) | E-commerce platform for collectibles like sports cards, gaming cards, comics, or autographed memorabilia |
 | [Instatus](https://instatus.com) | System Status Pages Platform |
 | [Iconduck](https://iconduck.com) | Site to search for open source icons |
