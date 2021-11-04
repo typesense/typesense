@@ -55,12 +55,14 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             req->body = "";
 
             {
+                std::unique_lock lk2(mutex);
+                req_res_map[req->start_ts].is_complete = true;
+            }
+
+            {
                 std::unique_lock lk1(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
             }
-
-            std::unique_lock lk2(mutex);
-            req_res_map[req->start_ts].is_complete = true;
 
             qmutuxes[queue_id].cv.notify_one();
         }
@@ -140,9 +142,6 @@ void BatchedIndexer::run() {
                 queue.pop_front();
                 qlk.unlock();
 
-                uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
-                        std::chrono::system_clock::now().time_since_epoch()).count();
-
                 std::unique_lock mlk(mutex);
                 auto req_res_map_it = req_res_map.find(req_id);
                 if(req_res_map_it == req_res_map.end()) {
@@ -150,8 +149,7 @@ void BatchedIndexer::run() {
                     continue;
                 }
 
-                req_res_map_it->second.last_updated = now;
-                req_res_t orig_req_res = req_res_map_it->second;  // copy for ref counting req + res
+                req_res_t& orig_req_res = req_res_map_it->second;
                 mlk.unlock();
 
                 // scan db for all logs associated with request
@@ -159,8 +157,6 @@ void BatchedIndexer::run() {
 
                 const std::string& req_key_start_prefix = get_req_prefix_key(req_id) +
                                                     StringUtils::serialize_uint32_t(orig_req_res.next_chunk_index);
-
-                //LOG(INFO) << "index req " << req_id << "_" << orig_req_res.next_chunk_index;
 
                 rocksdb::Iterator* iter = store->scan(req_key_start_prefix);
 
@@ -215,6 +211,8 @@ void BatchedIndexer::run() {
                     orig_req_res.next_chunk_index++;
                     iter->Next();
 
+                    //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
+
                     if(quit) {
                         break;
                     }
@@ -245,15 +243,16 @@ void BatchedIndexer::run() {
             std::unique_lock lk(mutex);
             LOG(INFO) << "Running GC for aborted requests, req map size: " << req_res_map.size();
 
-            // iterate through all map entries and delete ones which are > GC_PRUNE_MAX_SECONDS
+            // iterate through all map entries and delete ones which are not complete but > GC_PRUNE_MAX_SECONDS
             for (auto it = req_res_map.cbegin(); it != req_res_map.cend();) {
                 uint64_t seconds_since_batch_update = std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count() - it->second.last_updated;
 
                 //LOG(INFO) << "Seconds since last batch update: " << seconds_since_batch_update;
 
-                if(seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
+                if(!it->second.is_complete && seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
                     LOG(INFO) << "Deleting partial upload for req id " << it->second.start_ts;
+
                     const std::string& req_key_prefix = get_req_prefix_key(it->second.start_ts);
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
 
@@ -377,7 +376,9 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
         // the rest will be added by enqueue() when raft log is completely read
 
         if(req_res.is_complete) {
-            LOG(INFO) << "req_res.next_chunk_index: " << req_res.next_chunk_index;
+            LOG(INFO) << "req_res.start_ts: " <<  req_res.start_ts
+                      << ", req_res.next_chunk_index: " << req_res.next_chunk_index;
+
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
             queue_ids.push_back(queue_id);
