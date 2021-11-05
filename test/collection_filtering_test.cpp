@@ -1962,3 +1962,101 @@ TEST_F(CollectionFilteringTest, FilteringWithTokenSeparators) {
 
     collectionManager.drop_collection("coll2");
 }
+
+TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensSingularField) {
+    std::vector<field> fields = {field("name", field_types::STRING, true)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Cardiology - Interventional Cardiology";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Cardiology - Interventional";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Cardiology - Interventional Cardiology Department";
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = "Interventional Cardiology - Interventional Cardiology";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=Cardiology - Interventional Cardiology", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Cardiology - Interventional", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Interventional Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {},"name:=Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensArrayField) {
+    std::vector<field> fields = {field("name", field_types::STRING_ARRAY, true)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = {"Cardiology - Interventional Cardiology"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = {"Cardiology - Interventional"};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = {"Cardiology - Interventional Cardiology Department"};
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = {"Interventional Cardiology - Interventional Cardiology"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=Cardiology - Interventional Cardiology", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Cardiology - Interventional", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Interventional Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {},"name:=Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}

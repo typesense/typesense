@@ -1381,7 +1381,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 }
 
                 // For NOT_EQUALS alone, it is okay for none of the results to match prior to negation
-                // e.g. field:- [RANDOM_NON_EXISTING_STRING]
+                // e.g. field:!= [RANDOM_NON_EXISTING_STRING]
                 if(a_filter.comparators[0] != NOT_EQUALS && posting_lists.size() != str_tokens.size()) {
                     continue;
                 }

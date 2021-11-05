@@ -1019,7 +1019,8 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
 
                     if(j == its.size()-1) {
                         // check if the last query token is the last offset
-                        if(offsets[end_offset_index-1] != 0) {
+                        if( offsets[end_offset_index-1] != 0 ||
+                            (end_offset_index-2 >= 0 && offsets[end_offset_index-2] != its.size())) {
                             // not the last token for the document, so skip
                             is_exact_match = false;
                             break;
@@ -1029,6 +1030,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                     // looping handles duplicate query tokens, e.g. "hip hip hurray hurray"
                     while(start_offset_index < end_offset_index) {
                         uint32_t offset = offsets[start_offset_index];
+                        start_offset_index++;
 
                         if(offset == (j + 1)) {
                             // we have found a matching index, no need to look further
@@ -1094,7 +1096,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
 
                             if(start_offset_index+1 < end_offset_index) {
                                 size_t next_offset = (size_t) offsets[start_offset_index + 1];
-                                if(next_offset == 0) {
+                                if(next_offset == 0 && pos == its.size()) {
                                     // indicates that token is the last token on the doc
                                     has_atleast_one_last_token = true;
                                     start_offset_index++;
