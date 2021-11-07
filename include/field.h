@@ -545,12 +545,12 @@ struct token_pos_cost_t {
 };
 
 struct facet_count_t {
-    uint32_t count;
+    uint32_t count = 0;
     spp::sparse_hash_set<uint64_t> groups;  // used for faceting grouped results
 
     // used to fetch the actual document and value for representation
-    uint32_t doc_id;
-    uint32_t array_pos;
+    uint32_t doc_id = 0;
+    uint32_t array_pos = 0;
     std::vector<std::string> tokens;
 };
 
