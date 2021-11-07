@@ -22,6 +22,10 @@
 #include "posting_list.h"
 #include "threadpool.h"
 
+static constexpr size_t ARRAY_FACET_DIM = 4;
+using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
+using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
+
 struct token_t {
     size_t position;
     std::string value;
@@ -403,7 +407,7 @@ private:
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::vector<uint32_t>>*> geopoint_index;
 
     // facet_field => (seq_id => values)
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, facet_hash_values_t>*> facet_index_v3;
+    spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
 
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
