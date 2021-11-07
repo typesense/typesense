@@ -80,8 +80,12 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
     }
 
     for(const auto& pair: facet_schema) {
-        auto doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
-        facet_index_v3.emplace(pair.first, doc_to_values);
+        array_mapped_facet_t facet_array;
+        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+            facet_array[i] = new facet_map_t();
+        }
+
+        facet_index_v3.emplace(pair.first, facet_array);
     }
 
     num_documents = 0;
@@ -130,9 +134,11 @@ Index::~Index() {
 
     sort_index.clear();
 
-    for(auto& kv: facet_index_v3) {
-        delete kv.second;
-        kv.second = nullptr;
+    for(auto& field_name_facet_map_array: facet_index_v3) {
+        for(auto& facet_map: field_name_facet_map_array.second) {
+            delete facet_map;
+            facet_map = nullptr;
+        }
     }
 
     facet_index_v3.clear();
@@ -793,7 +799,7 @@ void Index::index_strings_field(const int64_t score, art_tree *t,
             fhashvalues.hashes[i] = facet_hashes[i];
         }
 
-        facet_index_v3[a_field.name]->emplace(seq_id, std::move(fhashvalues));
+        facet_index_v3[a_field.name][seq_id % ARRAY_FACET_DIM]->emplace(seq_id, std::move(fhashvalues));
     }
 }
 
@@ -904,9 +910,9 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
 
         for(size_t i = 0; i < results_size; i++) {
             uint32_t doc_seq_id = result_ids[i];
-            const auto& facet_hashes_it = field_facet_mapping->find(doc_seq_id);
+            const auto& facet_hashes_it = field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->find(doc_seq_id);
 
-            if(facet_hashes_it == field_facet_mapping->end()) {
+            if(facet_hashes_it == field_facet_mapping[doc_seq_id % ARRAY_FACET_DIM]->end()) {
                 continue;
             }
 
@@ -2468,8 +2474,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                 for(size_t i = 0; i < std::min<size_t>(1000, field_result_ids_len); i++) {
                     uint32_t seq_id = field_result_ids[i];
 
-                    const auto doc_fvalues_it = field_facet_mapping_it->second->find(seq_id);
-                    if(doc_fvalues_it == field_facet_mapping_it->second->end()) {
+                    const auto doc_fvalues_it = field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
+                    if(doc_fvalues_it == field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
                         continue;
                     }
 
@@ -3117,9 +3123,9 @@ uint64_t Index::get_distinct_id(const std::vector<std::string>& group_by_fields,
         }
 
         const auto& field_facet_mapping = field_facet_mapping_it->second;
-        const auto& facet_hashes_it = field_facet_mapping->find(seq_id);
+        const auto& facet_hashes_it = field_facet_mapping[seq_id % ARRAY_FACET_DIM]->find(seq_id);
 
-        if(facet_hashes_it == field_facet_mapping->end()) {
+        if(facet_hashes_it == field_facet_mapping[seq_id % ARRAY_FACET_DIM]->end()) {
             continue;
         }
 
@@ -3285,9 +3291,9 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         const auto& field_facets_it = facet_index_v3.find(field_name);
 
         if(field_facets_it != facet_index_v3.end()) {
-            const auto& fvalues_it = field_facets_it->second->find(seq_id);
-            if(fvalues_it != field_facets_it->second->end()) {
-                field_facets_it->second->erase(fvalues_it);
+            const auto& fvalues_it = field_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
+            if(fvalues_it != field_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
+                field_facets_it->second[seq_id % ARRAY_FACET_DIM]->erase(fvalues_it);
             }
         }
 
@@ -3361,8 +3367,12 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
         if(new_field.is_facet()) {
             facet_schema.emplace(new_field.name, new_field);
 
-            auto doc_to_values = new spp::sparse_hash_map<uint32_t, facet_hash_values_t>();
-            facet_index_v3.emplace(new_field.name, doc_to_values);
+            array_mapped_facet_t facet_array;
+            for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+                facet_array[i] = new facet_map_t();
+            }
+
+            facet_index_v3.emplace(new_field.name, facet_array);
 
             // initialize for non-string facet fields
             if(!new_field.is_string()) {
