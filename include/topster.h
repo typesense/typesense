@@ -4,7 +4,7 @@
 #include <climits>
 #include <cstdio>
 #include <algorithm>
-#include <sparsepp.h>
+#include <unordered_map>
 
 struct KV {
     uint8_t field_id{};
@@ -106,9 +106,9 @@ struct Topster {
     KV** kvs;
 
     // For distinct, stores the min heap kv of each group_kv_map topster value
-    spp::sparse_hash_map<uint64_t, KV*> kv_map;
+    std::unordered_map<uint64_t, KV*> kv_map;
 
-    spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
+    std::unordered_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {

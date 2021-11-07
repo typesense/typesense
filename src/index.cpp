@@ -927,11 +927,6 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                 }
 
                 if(!use_facet_query || fquery_hashes.find(fhash) != fquery_hashes.end()) {
-                    if(a_facet.result_map.count(fhash) == 0) {
-                        a_facet.result_map.emplace(fhash, facet_count_t{0, spp::sparse_hash_set<uint64_t>(),
-                                                                        doc_seq_id, 0, {}});
-                    }
-
                     facet_count_t& facet_count = a_facet.result_map[fhash];
 
                     //LOG(INFO) << "field: " << a_facet.field_name << ", doc id: " << doc_seq_id << ", hash: " <<  fhash;
