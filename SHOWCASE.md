@@ -30,6 +30,7 @@ This is a selection of sites and apps using Typesense:
 | [Have A Class](https://haveaclass.com/) | Find the perfect teacher online |
 | [Jobsort](https://www.jobsort.com/) | Job search engine for developers, by developers (quicksort for tech jobs.) |
 | [Bookology](https://play.google.com/store/apps/details?id=com.imihirpaldhikar.bookology) | "I am using Typesense for searching the the books listed on the platform. I switched from Algolia to Typesense because it is more convenient to only pay for the underlying infrastrucutre rather then paying for search queries. I will always use Typesense in my future projects." - @imihirpaldhikar
+| [Puey Ungphakorn Institute for Economic Research](https://www.pier.or.th) | A research institute in Thailand |
 
 > As of Nov 2, 2021 we have around 753K Docker pulls. So the list above is a tiny sample of everyone using Typesense.
 > 
