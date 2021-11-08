@@ -186,7 +186,7 @@ void BatchedIndexer::run() {
                     }
 
                     else {
-                        //LOG(INFO) << "original request: " << orig_req_res.req << ", req: " << orig_req_res.req->req;
+                        //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
 
                         if(route_found) {
                             async_res = found_rpath->async_res;
@@ -210,8 +210,6 @@ void BatchedIndexer::run() {
                     queued_writes--;
                     orig_req_res.next_chunk_index++;
                     iter->Next();
-
-                    //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
 
                     if(quit) {
                         break;
@@ -248,6 +246,7 @@ void BatchedIndexer::run() {
                 uint64_t seconds_since_batch_update = std::chrono::duration_cast<std::chrono::seconds>(
                         std::chrono::system_clock::now().time_since_epoch()).count() - it->second.last_updated;
 
+                //LOG(INFO) << "GC checking on req id: " << it->first;
                 //LOG(INFO) << "Seconds since last batch update: " << seconds_since_batch_update;
 
                 if(!it->second.is_complete && seconds_since_batch_update > GC_PRUNE_MAX_SECONDS) {
@@ -384,6 +383,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
             queue_ids.push_back(queue_id);
             std::unique_lock qlk(qmutuxes[queue_id].mcv);
             queues[queue_id].emplace_back(req->start_ts);
+            qmutuxes[queue_id].cv.notify_one();
         }
 
         num_reqs_restored++;
