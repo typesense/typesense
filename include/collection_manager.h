@@ -111,7 +111,7 @@ public:
                                        float max_memory_ratio);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
-                                        const size_t init_batch_size,
+                                        const size_t batch_size,
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit);
 

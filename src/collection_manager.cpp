@@ -992,7 +992,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
-                                                const size_t init_batch_size,
+                                                const size_t batch_size,
                                                 const StoreStatus& next_coll_id_status,
                                                 const std::atomic<bool>& quit) {
 
@@ -1109,8 +1109,6 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
         // batch must match atleast the number of shards
-        const size_t batch_size = 1;
-
         if((num_valid_docs % batch_size == 0) || last_record) {
             size_t num_records = index_records.size();
             size_t num_indexed = collection->batch_index_in_memory(index_records);
