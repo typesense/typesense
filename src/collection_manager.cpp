@@ -1126,7 +1126,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             num_indexed_docs += num_indexed;
         }
 
-        if(num_found_docs % 20*1000 == 0) {
+        if(num_found_docs % ((1 << 14)) == 0) {
             // having a cheaper higher layer check to prevent checking clock too often
             auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                     std::chrono::high_resolution_clock::now() - begin).count();

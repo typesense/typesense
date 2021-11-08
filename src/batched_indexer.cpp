@@ -220,7 +220,7 @@ void BatchedIndexer::run() {
 
                 delete iter;
 
-                //LOG(INFO) << "Erasing request data from disk and memory for request " << orig_req_res.req->start_ts;
+                //LOG(INFO) << "Erasing request data from disk and memory for request " << req_id;
 
                 // we can delete the buffered request content
                 store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
