@@ -2,7 +2,7 @@
 
 This is a selection of sites and apps using Typesense.
 
-> As of Nov 2, 2021 we have around 753K Docker pulls. So the list above is a tiny sample of everyone using Typesense.
+> As of Nov 2, 2021 we have around 753K Docker pulls. So the list below is a tiny sample of everyone using Typesense.
 > 
 > If you are a Typesense user, an easy way to contribute back to the ecosystem is by sharing that you are indeed using Typesense. This helps build confidence among potential new users who are exploring Typesense.
 > So we invite and welcome you to add your own sites / apps to the list above. Please edit this file and send us a PR 🙏 
