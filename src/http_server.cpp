@@ -275,9 +275,24 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     const std::string & http_method = std::string(req->method.base, req->method.len);
     const std::string & path = std::string(req->path.base, req->path.len);
-
     std::vector<std::string> path_with_query_parts;
-    StringUtils::split(path, path_with_query_parts, "?");
+
+    // These guards have been added to debug a strange issue of `path_with_query_parts` being empty sometimes
+    if(req->path.len == 0 || path.empty()) {
+        LOG(ERROR) << "Request path is empty: path.len=" << req->path.len << ", path: " << path;
+        nlohmann::json resp;
+        resp["message"] = "Request path is empty.";
+        return send_response(req, 400, resp.dump());
+    } else {
+        StringUtils::split(path, path_with_query_parts, "?");
+        if(path_with_query_parts.empty()) {
+            LOG(ERROR) << "Request path is empty after splitting: path=" << path;
+            nlohmann::json resp;
+            resp["message"] = "Request path after splitting is empty.";
+            return send_response(req, 400, resp.dump());
+        }
+    }
+
     const std::string & path_without_query = path_with_query_parts[0];
 
     std::string metric_identifier = http_method + " " + path_without_query;
