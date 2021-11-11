@@ -116,11 +116,16 @@ typedef struct {
  * Represents a document to be indexed.
  * `offsets` refer to the index locations where a token appeared in the document
  */
-typedef struct {
-    int64_t score;
-    uint32_t id;
-    std::vector<uint32_t> offsets;
-} art_document;
+struct art_document {
+    const uint32_t id;
+    const int64_t score;
+    const std::vector<uint32_t> offsets;
+
+    art_document(const uint32_t id, const int64_t score, const std::vector<uint32_t>& offsets):
+            id(id), score(score), offsets(offsets) {
+
+    }
+};
 
 enum token_ordering {
     NOT_SET,
@@ -187,6 +192,10 @@ inline uint64_t art_size(art_tree *t) {
  * the old value pointer is returned.
  */
 void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document);
+
+/* Insert multiple docs sharing the same key */
+void* art_inserts(art_tree *t, const unsigned char *key, int key_len, const int64_t docs_max_score,
+                  std::vector<art_document>& documents);
 
 /**
  * Deletes a value from the ART tree

@@ -421,7 +421,6 @@ static void add_document_to_leaf(art_document *document, art_leaf *leaf) {
 
     if(document->score == USE_FREQUENCY_SCORE) {
         leaf->max_score = posting_t::num_ids(leaf->values);
-        document->score = leaf->max_score;
     }
 }
 
@@ -609,11 +608,17 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len,
-                              art_document *document, int depth, std::list<art_node*>& path, int *old) {
+static void* recursive_insert(art_node* n, art_node** ref, const unsigned char* key, uint32_t key_len,
+                              const int64_t docs_max_score, std::vector<art_document>& documents, int depth,
+                              std::list<art_node*>& path, int* old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
-        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
+        art_leaf* new_leaf = make_leaf(key, key_len, &documents[0]);
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], new_leaf);
+        }
+
+        *ref = (art_node*)SET_LEAF(new_leaf);
         return NULL;
     }
 
@@ -624,7 +629,9 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
             *old = 1;
-            add_document_to_leaf(document, l);
+            for(size_t i = 0; i < documents.size(); i++) {
+                add_document_to_leaf(&documents[i], l);
+            }
             return l->values;
         }
 
@@ -632,11 +639,15 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
 
         // Create a new leaf
-        art_leaf *l2 = make_leaf(key, key_len, document);
+        art_leaf *l2 = make_leaf(key, key_len, &documents[0]);
 
         uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
+
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], l2);
+        }
 
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -645,8 +656,8 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    if(document->score != USE_FREQUENCY_SCORE) {
-        n->max_score = MAX(n->max_score, document->score);
+    if(docs_max_score != USE_FREQUENCY_SCORE) {
+        n->max_score = MAX(n->max_score, docs_max_score);
     }
 
     // Check if given node has a prefix
@@ -679,7 +690,11 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         }
 
         // Insert the new leaf
-        art_leaf *l = make_leaf(key, key_len, document);
+        art_leaf *l = make_leaf(key, key_len, &documents[0]);
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], l);
+        }
+
         add_child4(new_n, ref, key[depth+prefix_diff], SET_LEAF(l));
         path.push_back(*ref);
         return NULL;
@@ -690,11 +705,15 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, document, depth + 1, path, old);
+        return recursive_insert(*child, child, key, key_len, docs_max_score, documents, depth + 1, path, old);
     }
 
     // No child, node goes within us
-    art_leaf *l = make_leaf(key, key_len, document);
+    art_leaf *l = make_leaf(key, key_len, &documents[0]);
+    for(size_t i = 1; i < documents.size(); i++) {
+        add_document_to_leaf(&documents[i], l);
+    }
+
     add_child(n, ref, key[depth], SET_LEAF(l));
     path.push_back(*ref);
     return NULL;
@@ -710,16 +729,22 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * the old value pointer is returned.
  */
 void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document) {
+    std::vector<art_document> documents = {*document};
+    return art_inserts(t, key, key_len, document->score, documents);
+}
+
+void* art_inserts(art_tree *t, const unsigned char *key, int key_len, const int64_t docs_max_score,
+                  std::vector<art_document>& documents) {
     int old_val = 0;
 
     std::list<art_node*> path;
-    bool frequency_based_ordering = (document->score == USE_FREQUENCY_SCORE);
-    void *old = recursive_insert(t->root, &t->root, key, key_len, document, 0, path, &old_val);
+    bool frequency_based_ordering = (docs_max_score == USE_FREQUENCY_SCORE);
+    void *old = recursive_insert(t->root, &t->root, key, key_len, docs_max_score, documents, 0, path, &old_val);
     if (!old_val) t->size++;
 
     if(frequency_based_ordering) {
         for(art_node* n: path) {
-            n->max_score = MAX(n->max_score, document->score);
+            n->max_score = MAX(n->max_score, docs_max_score);
         }
     }
 

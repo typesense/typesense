@@ -161,7 +161,13 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
                               &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+
+            //auto begin = std::chrono::high_resolution_clock::now();
             Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
+            /*long long int timeMillis =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+            LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
+
             if(!res.ok()) {
                 LOG(ERROR) << "Error while loading collection. " << res.error();
                 LOG(ERROR) << "Typesense is quitting.";

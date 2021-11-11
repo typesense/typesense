@@ -18,6 +18,7 @@
 #include <s2/s2builder.h>
 #include <posting.h>
 #include <thread_local_vars.h>
+#include <unordered_set>
 #include "logger.h"
 
 #define RETURN_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
@@ -252,182 +253,6 @@ void Index::compute_token_offsets_facets(index_record& record,
     }
 }
 
-Option<uint32_t> Index::index_in_memory(const index_record& record, uint32_t seq_id,
-                                        const std::string & default_sorting_field,
-                                        const bool is_update) {
-    std::unique_lock lock(mutex);
-
-    int64_t points = 0;
-    auto& document = record.doc;
-
-    if(document.count(default_sorting_field) == 0) {
-        auto default_sorting_field_it = sort_index.find(default_sorting_field);
-        if(default_sorting_field_it != sort_index.end()) {
-            auto seq_id_it = default_sorting_field_it->second->find(seq_id);
-            if(seq_id_it != default_sorting_field_it->second->end()) {
-                points = seq_id_it->second;
-            } else {
-                points = INT64_MIN;
-            }
-        } else {
-            points = INT64_MIN;
-        }
-    } else {
-        points = get_points_from_doc(document, default_sorting_field);
-    }
-
-    if(!is_update) {
-        // for updates, the seq_id will already exist
-        seq_ids.append(seq_id);
-    }
-
-    // assumes that validation has already been done
-    for(const auto& field_pair: search_schema) {
-        const std::string & field_name = field_pair.first;
-
-        if(document.count(field_name) == 0 || !field_pair.second.index) {
-            continue;
-        }
-
-        bool is_facet = (facet_schema.count(field_name) != 0);
-
-        // non-string, non-geo faceted field should be indexed as faceted string field as well
-        if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
-            auto field_index_it = record.field_index.find(field_name);
-            if(field_index_it == record.field_index.end()) {
-                continue;
-            }
-
-            art_tree *t = search_index.at(field_pair.second.faceted_name());
-
-            index_strings_field(points, t, seq_id, is_facet, field_pair.second,
-                                field_index_it->second.offsets,
-                                field_index_it->second.facet_hashes);
-        }
-
-        if(field_pair.second.is_string()) {
-            auto field_index_it = record.field_index.find(field_name);
-            if(field_index_it == record.field_index.end()) {
-                continue;
-            }
-
-            art_tree *t = search_index.at(field_name);
-            index_strings_field(points, t, seq_id, is_facet, field_pair.second,
-                                field_index_it->second.offsets,
-                                field_index_it->second.facet_hashes);
-        } else if(field_pair.second.type == field_types::INT32) {
-            auto num_tree = numerical_index.at(field_name);
-            int32_t value = document[field_name].get<int32_t>();
-            num_tree->insert(value, seq_id);
-        } else if(field_pair.second.type == field_types::INT64) {
-            auto num_tree = numerical_index.at(field_name);
-            int64_t value = document[field_name].get<int64_t>();
-            num_tree->insert(value, seq_id);
-        } else if(field_pair.second.type == field_types::FLOAT) {
-            auto num_tree = numerical_index.at(field_name);
-            float fvalue = document[field_name].get<float>();
-            int64_t value = float_to_in64_t(fvalue);
-            num_tree->insert(value, seq_id);
-        } else if(field_pair.second.type == field_types::BOOL) {
-            auto num_tree = numerical_index.at(field_name);
-            bool value = document[field_name];
-            num_tree->insert(value, seq_id);
-        } else if(field_pair.second.type == field_types::GEOPOINT) {
-            const std::vector<double>& latlong = document[field_name];
-            auto geo_index = geopoint_index.at(field_name);
-
-            S2RegionTermIndexer::Options options;
-            options.set_index_contains_points_only(true);
-            S2RegionTermIndexer indexer(options);
-            S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-
-            for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                (*geo_index)[term].push_back(seq_id);
-            }
-        } else if(field_pair.second.type == field_types::GEOPOINT_ARRAY) {
-            const std::vector<std::vector<double>>& latlongs = document[field_name];
-            auto geo_index = geopoint_index.at(field_name);
-            S2RegionTermIndexer::Options options;
-            options.set_index_contains_points_only(true);
-            S2RegionTermIndexer indexer(options);
-
-            int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
-            packed_latlongs[0] = latlongs.size();
-
-            for(size_t li = 0; li < latlongs.size(); li++) {
-                auto& latlong = latlongs[li];
-                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                std::set<std::string> terms;
-                for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                    terms.insert(term);
-                }
-
-                for(const auto& term: terms) {
-                    (*geo_index)[term].push_back(seq_id);
-                }
-
-                int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
-                packed_latlongs[li + 1] = packed_latlong;
-            }
-
-            geo_array_index.at(field_name)->emplace(seq_id, packed_latlongs);
-        }
-
-        else if(field_pair.second.is_array()) {
-            // all other numerical arrays
-            auto num_tree = numerical_index.at(field_name);
-
-            for(size_t arr_i = 0; arr_i < document[field_name].size(); arr_i++) {
-                const auto& arr_value = document[field_name][arr_i];
-
-                if(field_pair.second.type == field_types::INT32_ARRAY) {
-                    const int32_t value = arr_value;
-                    num_tree->insert(value, seq_id);
-                }
-
-                else if(field_pair.second.type == field_types::INT64_ARRAY) {
-                    const int64_t value = arr_value;
-                    num_tree->insert(value, seq_id);
-                }
-
-                else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
-                    const float fvalue = arr_value;
-                    int64_t value = float_to_in64_t(fvalue);
-                    num_tree->insert(value, seq_id);
-                }
-
-                else if(field_pair.second.type == field_types::BOOL_ARRAY) {
-                    const bool value = document[field_name][arr_i];
-                    num_tree->insert(int64_t(value), seq_id);
-                }
-            }
-        }
-
-        // add numerical values automatically into sort index
-        if(field_pair.second.type == field_types::INT32 || field_pair.second.type == field_types::INT64 ||
-           field_pair.second.type == field_types::FLOAT || field_pair.second.type == field_types::BOOL ||
-           field_pair.second.type == field_types::GEOPOINT) {
-            spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(field_pair.first);
-
-            if(field_pair.second.is_integer() ) {
-                doc_to_score->emplace(seq_id, document[field_pair.first].get<int64_t>());
-            } else if(field_pair.second.is_float()) {
-                int64_t ifloat = float_to_in64_t(document[field_pair.first].get<float>());
-                doc_to_score->emplace(seq_id, ifloat);
-            } else if(field_pair.second.is_bool()) {
-                doc_to_score->emplace(seq_id, (int64_t) document[field_pair.first].get<bool>());
-            } else if(field_pair.second.is_geopoint()) {
-                const std::vector<double>& latlong = document[field_pair.first];
-                int64_t lat_lng = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
-                doc_to_score->emplace(seq_id, lat_lng);
-            }
-        }
-    }
-
-    num_documents += 1;
-    return Option<>(201);
-}
-
 Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
@@ -628,6 +453,27 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
         }
 
         compute_token_offsets_facets(index_rec, search_schema, facet_schema, token_separators, symbols_to_index);
+
+        int64_t points = 0;
+
+        if(index_rec.doc.count(default_sorting_field) == 0) {
+            auto default_sorting_field_it = index->sort_index.find(default_sorting_field);
+            if(default_sorting_field_it != index->sort_index.end()) {
+                auto seq_id_it = default_sorting_field_it->second->find(index_rec.seq_id);
+                if(seq_id_it != default_sorting_field_it->second->end()) {
+                    points = seq_id_it->second;
+                } else {
+                    points = INT64_MIN;
+                }
+            } else {
+                points = INT64_MIN;
+            }
+        } else {
+            points = get_points_from_doc(index_rec.doc, default_sorting_field);
+        }
+
+        index_rec.points = points;
+        index_rec.index_success();
     }
 }
 
@@ -674,51 +520,290 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         batch_index += batch_len;
     }
 
-    std::unique_lock<std::mutex> lock_process(m_process);
-    cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+    {
+        std::unique_lock<std::mutex> lock_process(m_process);
+        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
+    }
 
-    Option<uint32_t> index_mem_op(0);
+    std::unordered_set<std::string> found_fields;
 
-    for(auto& index_rec: iter_batch) {
-        if(index_rec.operation == DELETE) {
-            continue;
-        }
-
-        if(!index_rec.indexed.ok()) {
-            // some records could have been invalidated upstream
-            continue;
-        }
-
+    for(size_t i = 0; i < iter_batch.size(); i++) {
+        auto& index_rec = iter_batch[i];
         if(index_rec.is_update) {
             index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
-        }
-
-        try {
-            index_mem_op = index->index_in_memory(index_rec, index_rec.seq_id, default_sorting_field, index_rec.is_update);
-        } catch(const std::exception& e) {
-            const std::string& error_msg = std::string("Fatal error during indexing: ") + e.what();
-            LOG(ERROR) << error_msg << ", document: " << index_rec.doc;
-            index_mem_op = Option<uint32_t>(500, error_msg);
-        }
-
-        index_rec.index_success();
-
-        if(!index_rec.is_update) {
+        } else {
             num_indexed++;
         }
+
+        for(const auto& kv: index_rec.doc.items()) {
+            found_fields.insert(kv.key());
+        }
+    }
+
+    num_queued = num_processed = 0;
+
+    for(const auto& field_name: found_fields) {
+        //LOG(INFO) << "field name: " << field_name;
+        if(field_name != "id" && search_schema.count(field_name) == 0) {
+            continue;
+        }
+
+        num_queued++;
+
+        index->thread_pool->enqueue([&]() {
+            const field& f = (field_name == "id") ?
+                             field("id", field_types::STRING, false) : search_schema.at(field_name);
+            index->index_field_in_memory(f, iter_batch);
+            std::unique_lock<std::mutex> lock(m_process);
+            num_processed++;
+            cv_process.notify_one();
+        });
+    }
+
+    {
+        std::unique_lock<std::mutex> lock_process(m_process);
+        cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
     }
 
     return num_indexed;
 }
 
+void Index::index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch) {
+    // indexes a given field of all documents in the batch
+
+    if(afield.name == "id") {
+        for(const auto& record: iter_batch) {
+            if(!record.is_update) {
+                // for updates, the seq_id will already exist
+                seq_ids.append(record.seq_id);
+            }
+        }
+
+        return;
+    }
+
+    // We have to handle both these edge cases:
+    // a) `afield` might not exist in the document (optional field)
+    // b) `afield` value could be empty
+
+    // non-geo faceted field should be indexed as faceted string field as well
+    bool non_string_facet_field = (afield.facet && !afield.is_geopoint());
+
+    if(afield.is_string() || non_string_facet_field) {
+        std::unordered_map<std::string, std::vector<art_document>> token_to_doc_offsets;
+        int64_t max_score = INT64_MIN;
+
+        for(const auto& record: iter_batch) {
+            const auto& document = record.doc;
+            const auto seq_id = record.seq_id;
+
+            if(document.count(afield.name) == 0 || !afield.index) {
+                continue;
+            }
+
+            auto field_index_it = record.field_index.find(afield.name);
+            if(field_index_it == record.field_index.end()) {
+                continue;
+            }
+
+            if(afield.facet) {
+                facet_hash_values_t fhashvalues;
+                fhashvalues.length = field_index_it->second.facet_hashes.size();
+                fhashvalues.hashes = new uint64_t[field_index_it->second.facet_hashes.size()];
+
+                for(size_t i  = 0; i < field_index_it->second.facet_hashes.size(); i++) {
+                    fhashvalues.hashes[i] = field_index_it->second.facet_hashes[i];
+                }
+
+                facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM]->emplace(seq_id, std::move(fhashvalues));
+            }
+
+            if(record.points > max_score) {
+                max_score = record.points;
+            }
+
+            for(auto &token_offsets: field_index_it->second.offsets) {
+                token_to_doc_offsets[token_offsets.first].emplace_back(seq_id, record.points, token_offsets.second);
+            }
+        }
+
+        auto tree_it = search_index.find(afield.faceted_name());
+        if(tree_it == search_index.end()) {
+            return;
+        }
+
+        art_tree *t = tree_it->second;
+
+        for(auto& token_to_doc: token_to_doc_offsets) {
+            std::vector<art_document>& documents = token_to_doc.second;
+            const std::string& token = token_to_doc.first;
+
+            const auto *key = (const unsigned char *) token.c_str();
+            int key_len = (int) token.length() + 1;  // for the terminating \0 char
+
+            //LOG(INFO) << "key: " << key << ", art_doc.id: " << art_doc.id;
+            art_inserts(t, key, key_len, max_score, documents);
+        }
+    }
+
+    if(!afield.is_string()) {
+        if (afield.type == field_types::INT32) {
+            auto num_tree = numerical_index.at(afield.name);
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+                    (const index_record& record, uint32_t seq_id) {
+                int32_t value = record.doc[afield.name].get<int32_t>();
+                num_tree->insert(value, seq_id);
+            });
+        }
+
+        else if(afield.type == field_types::INT64) {
+            auto num_tree = numerical_index.at(afield.name);
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+            (const index_record& record, uint32_t seq_id) {
+                int64_t value = record.doc[afield.name].get<int64_t>();
+                num_tree->insert(value, seq_id);
+          });
+        }
+
+        else if(afield.type == field_types::FLOAT) {
+            auto num_tree = numerical_index.at(afield.name);
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+                    (const index_record& record, uint32_t seq_id) {
+                float fvalue = record.doc[afield.name].get<float>();
+                int64_t value = float_to_in64_t(fvalue);
+                num_tree->insert(value, seq_id);
+            });
+        } else if(afield.type == field_types::BOOL) {
+            auto num_tree = numerical_index.at(afield.name);
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+                    (const index_record& record, uint32_t seq_id) {
+                bool value = record.doc[afield.name].get<bool>();
+                num_tree->insert(value, seq_id);
+            });
+        } else if(afield.type == field_types::GEOPOINT) {
+            auto geo_index = geopoint_index.at(afield.name);
+
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, geo_index]
+                    (const index_record& record, uint32_t seq_id) {
+                const std::vector<double>& latlong = record.doc[afield.name];
+
+                S2RegionTermIndexer::Options options;
+                options.set_index_contains_points_only(true);
+                S2RegionTermIndexer indexer(options);
+                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+
+                for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                    (*geo_index)[term].push_back(seq_id);
+                }
+            });
+        } else if(afield.type == field_types::GEOPOINT_ARRAY) {
+            auto geo_index = geopoint_index.at(afield.name);
+
+            iterate_and_index_numerical_field(iter_batch, afield,
+            [&afield, &geo_array_index=geo_array_index, geo_index](const index_record& record, uint32_t seq_id) {
+
+                const std::vector<std::vector<double>>& latlongs = record.doc[afield.name];
+                S2RegionTermIndexer::Options options;
+                options.set_index_contains_points_only(true);
+                S2RegionTermIndexer indexer(options);
+
+                int64_t* packed_latlongs = new int64_t[latlongs.size() + 1];
+                packed_latlongs[0] = latlongs.size();
+
+                for(size_t li = 0; li < latlongs.size(); li++) {
+                    auto& latlong = latlongs[li];
+                    S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+                    std::set<std::string> terms;
+                    for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                        terms.insert(term);
+                    }
+
+                    for(const auto& term: terms) {
+                        (*geo_index)[term].push_back(seq_id);
+                    }
+
+                    int64_t packed_latlong = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                    packed_latlongs[li + 1] = packed_latlong;
+                }
+
+                geo_array_index.at(afield.name)->emplace(seq_id, packed_latlongs);
+            });
+        } else if(afield.is_array()) {
+            // all other numerical arrays
+            auto num_tree = numerical_index.at(afield.name);
+            iterate_and_index_numerical_field(iter_batch, afield, [&afield, num_tree]
+                    (const index_record& record, uint32_t seq_id) {
+                for(size_t arr_i = 0; arr_i < record.doc[afield.name].size(); arr_i++) {
+                    const auto& arr_value = record.doc[afield.name][arr_i];
+
+                    if(afield.type == field_types::INT32_ARRAY) {
+                        const int32_t value = arr_value;
+                        num_tree->insert(value, seq_id);
+                    }
+
+                    else if(afield.type == field_types::INT64_ARRAY) {
+                        const int64_t value = arr_value;
+                        num_tree->insert(value, seq_id);
+                    }
+
+                    else if(afield.type == field_types::FLOAT_ARRAY) {
+                        const float fvalue = arr_value;
+                        int64_t value = float_to_in64_t(fvalue);
+                        num_tree->insert(value, seq_id);
+                    }
+
+                    else if(afield.type == field_types::BOOL_ARRAY) {
+                        const bool value = record.doc[afield.name][arr_i];
+                        num_tree->insert(int64_t(value), seq_id);
+                    }
+                }
+            });
+        }
+
+        // add numerical values automatically into sort index
+        if(afield.type == field_types::INT32 || afield.type == field_types::INT64 ||
+           afield.type == field_types::FLOAT || afield.type == field_types::BOOL ||
+           afield.type == field_types::GEOPOINT) {
+            spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(afield.name);
+
+            bool is_integer = afield.is_integer();
+            bool is_float = afield.is_float();
+            bool is_bool = afield.is_bool();
+            bool is_geopoint = afield.is_geopoint();
+
+            for(const auto& record: iter_batch) {
+                if(!record.indexed.ok()) {
+                    continue;
+                }
+
+                const auto& document = record.doc;
+                const auto seq_id = record.seq_id;
+
+                if (document.count(afield.name) == 0 || !afield.index) {
+                    continue;
+                }
+
+                if(is_integer) {
+                    doc_to_score->emplace(seq_id, document[afield.name].get<int64_t>());
+                } else if(is_float) {
+                    int64_t ifloat = float_to_in64_t(document[afield.name].get<float>());
+                    doc_to_score->emplace(seq_id, ifloat);
+                } else if(is_bool) {
+                    doc_to_score->emplace(seq_id, (int64_t) document[afield.name].get<bool>());
+                } else if(is_geopoint) {
+                    const std::vector<double>& latlong = document[afield.name];
+                    int64_t lat_lng = GeoPoint::pack_lat_lng(latlong[0], latlong[1]);
+                    doc_to_score->emplace(seq_id, lat_lng);
+                }
+            }
+        }
+    }
+}
+
 void Index::insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                        const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const {
     for(auto & kv: token_to_offsets) {
-        art_document art_doc;
-        art_doc.id = seq_id;
-        art_doc.score = score;
-        art_doc.offsets = kv.second;
-
+        art_document art_doc(seq_id, score, kv.second);
         uint32_t num_hits = 0;
 
         const unsigned char *key = (const unsigned char *) kv.first.c_str();

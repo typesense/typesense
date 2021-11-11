@@ -355,6 +355,7 @@ struct index_record {
 
     // pre-processed data primed for indexing
     std::unordered_map<std::string, offsets_facet_hashes_t> field_index;
+    int64_t points;
 
     Option<bool> indexed;               // indicates if the indexing operation was a success
 
@@ -681,10 +682,6 @@ public:
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
-    Option<uint32_t> index_in_memory(const index_record& record, uint32_t seq_id,
-                                     const std::string& default_sorting_field,
-                                     const bool is_update);
-
     static void validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
                                           const size_t batch_start_index, const size_t batch_size,
                                           const std::string & default_sorting_field,
@@ -702,6 +699,11 @@ public:
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index);
+
+    void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
+
+    template<class T>
+    void iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func);
 
     //static bool is_point_in_polygon(const Geofence& poly, const GeoCoord& point);
 
@@ -753,3 +755,20 @@ public:
                              std::vector<facet_info_t>& facet_infos) const;
 };
 
+template<class T>
+void Index::iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func) {
+    for(const auto& record: iter_batch) {
+        if(!record.indexed.ok()) {
+            continue;
+        }
+
+        const auto& document = record.doc;
+        const auto seq_id = record.seq_id;
+
+        if (document.count(afield.name) == 0 || !afield.index) {
+            continue;
+        }
+
+        func(record, seq_id);
+    }
+}

@@ -2261,6 +2261,7 @@ TEST_F(CollectionTest, UpdateDocument) {
     // reindex the document entirely again verbatim and try querying
     add_op = coll1->add(doc.dump(), UPSERT);
     ASSERT_TRUE(add_op.ok());
+    ASSERT_EQ(1, coll1->get_num_documents());
 
     res = coll1->search("lazy", {"title"}, "", {"tags"}, sort_fields, {0}, 10, 1,
                         token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
