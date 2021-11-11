@@ -20,7 +20,7 @@ struct compact_posting_list_t {
     uint32_t id_offsets[];
 
     static compact_posting_list_t* create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
-                                          uint32_t num_offsets, uint32_t* offsets);
+                                          uint32_t num_offsets, const uint32_t* offsets);
 
     [[nodiscard]] posting_list_t* to_full_posting_list() const;
 
