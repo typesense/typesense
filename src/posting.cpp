@@ -135,7 +135,7 @@ void compact_posting_list_t::erase(const uint32_t id) {
 }
 
 compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
-                                                       uint32_t num_offsets, uint32_t* offsets) {
+                                                       uint32_t num_offsets, const uint32_t* offsets) {
     // format: num_offsets, offset1,..,offsetn, id1 | num_offsets, offset1,..,offsetn, id2
 
     size_t length_required = num_offsets + (2 * num_ids);
