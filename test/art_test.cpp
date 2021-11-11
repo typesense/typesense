@@ -14,10 +14,7 @@
 #define ill_file_path std::string(std::string(ROOT_DIR)+"/test/ill.txt").c_str()
 
 art_document get_document(uint32_t id) {
-    art_document document;
-    document.score = id;
-    document.id = id;
-    document.offsets = {0};
+    art_document document(id, id, {0});
     return document;
 }
 
@@ -275,24 +272,24 @@ TEST(ArtTest, test_art_iter_prefix) {
         ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
 
         s = "api.foo.baz";
-        doc = get_document((uint32_t) 2);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+        auto doc2 = get_document((uint32_t) 2);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc2));
 
         s = "api.foe.fum";
-        doc = get_document((uint32_t) 3);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+        auto doc3 = get_document((uint32_t) 3);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc3));
 
         s = "abc.123.456";
-        doc = get_document((uint32_t) 4);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+        auto doc4 = get_document((uint32_t) 4);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc4));
 
         s = "api.foo";
-        doc = get_document((uint32_t) 5);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+        auto doc5 = get_document((uint32_t) 5);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc5));
 
         s = "api";
-        doc = get_document((uint32_t) 6);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+        auto doc6 = get_document((uint32_t) 6);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc6));
 
         // Iterate over api
         const char *expected[] = {"api", "api.foe.fum", "api.foo", "api.foo.bar", "api.foo.baz"};
@@ -353,13 +350,13 @@ TEST(ArtTest, test_art_long_prefix) {
 
     s = "this:key:has:a:long:common:prefix:2";
     id = 2;
-    doc = get_document((uint32_t) id);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+    auto doc2 = get_document((uint32_t) id);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc2));
 
     s = "this:key:has:a:long:common:prefix:1";
     id = 1;
-    doc = get_document((uint32_t) id);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
+    auto doc3 = get_document((uint32_t) id);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc3));
 
     // Search for the keys
     s = "this:key:has:a:long:common:prefix:1";
@@ -438,12 +435,12 @@ TEST(ArtTest, test_art_max_prefix_len_scan_prefix) {
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -469,12 +466,12 @@ TEST(ArtTest, test_art_prefix_iter_out_of_bounds) {
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -500,12 +497,12 @@ TEST(ArtTest, test_art_search_out_of_bounds) {
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -529,12 +526,12 @@ TEST(ArtTest, test_art_delete_out_of_bounds) {
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc));
+    art_document doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc));
+    art_document doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -556,16 +553,16 @@ TEST(ArtTest, test_art_insert_multiple_ids_for_same_token) {
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
-    doc = get_document((uint32_t) 2);
-    void* value = art_insert(&t, (unsigned char*)key1, strlen(key1) + 1, &doc);
+    art_document doc2 = get_document((uint32_t) 2);
+    void* value = art_insert(&t, (unsigned char*)key1, strlen(key1) + 1, &doc2);
     ASSERT_TRUE(value != NULL);
 
     ASSERT_EQ(posting_t::num_ids(value), 2);
     ASSERT_EQ(posting_t::first_id(value), 1);
     ASSERT_TRUE(posting_t::contains(value, 2));
 
-    doc = get_document((uint32_t) 3);
-    void* reinsert_value = art_insert(&t, (unsigned char*) key1, strlen(key1) + 1, &doc);
+    art_document doc3 = get_document((uint32_t) 3);
+    void* reinsert_value = art_insert(&t, (unsigned char*) key1, strlen(key1) + 1, &doc3);
 
     ASSERT_TRUE(art_size(&t) == 1);
     ASSERT_EQ(posting_t::num_ids(reinsert_value), 3);
@@ -923,11 +920,11 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
     art_document doc = get_document((uint32_t) 1);
     ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc));
 
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[1].c_str(), keys[1].size()+1, &doc));
+    art_document doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[1].c_str(), keys[1].size()+1, &doc2));
 
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[2].c_str(), keys[2].size()+1, &doc));
+    art_document doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[2].c_str(), keys[2].size()+1, &doc3));
 
     for (const auto &key : keys) {
         art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
@@ -1099,7 +1096,6 @@ TEST(ArtTest, test_int32_overlap) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
@@ -1111,7 +1107,7 @@ TEST(ArtTest, test_int32_overlap) {
     for(uint32_t i = 0; i < values.size(); i++) {
         for(size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
-            doc.id = i;
+            art_document doc = get_document(i);
             art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc);
         }
     }
@@ -1174,12 +1170,11 @@ TEST(ArtTest, test_int32_duplicates) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(size_t i = 0; i < 10000; i++) {
-        doc.id = i;
+        art_document doc = get_document(i);
         int value = 1900 + (rand() % static_cast<int>(2018 - 1900 + 1));
         encode_int32(value, chars);
         art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc);
@@ -1499,7 +1494,6 @@ TEST(ArtTest, test_int32_array) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
@@ -1514,7 +1508,7 @@ TEST(ArtTest, test_int32_array) {
     for (uint32_t i = 0; i < values.size(); i++) {
         for (size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
-            doc.id = i;
+            art_document doc = get_document(i);
             art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc);
         }
     }

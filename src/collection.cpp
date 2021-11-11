@@ -368,7 +368,11 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 
     index_record rec(0, seq_id, document, op, dirty_values);
     Index::compute_token_offsets_facets(rec, search_schema, facet_schema, token_separators, symbols_to_index);
-    index->index_in_memory(rec, seq_id, default_sorting_field, op);
+
+    std::vector<index_record> index_batch;
+    index_batch.emplace_back(std::move(rec));
+    Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, facet_schema,
+                              fallback_field_type, token_separators, symbols_to_index);
 
     num_documents += 1;
     return Option<>(200);
@@ -2426,6 +2430,10 @@ Index* Collection::init_index() {
         if(field.is_dynamic()) {
             // regexp fields and fields with auto type are treated as dynamic fields
             dynamic_fields.push_back(field);
+            continue;
+        }
+
+        if(field.name == ".*") {
             continue;
         }
 
