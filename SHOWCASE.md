@@ -37,7 +37,7 @@ This is a selection of sites and apps using Typesense.
 | [Jobsort](https://www.jobsort.com/) | Job search engine for developers, by developers (quicksort for tech jobs.) |
 | [Bookology](https://play.google.com/store/apps/details?id=com.imihirpaldhikar.bookology) | "I am using Typesense for searching the the books listed on the platform. I switched from Algolia to Typesense because it is more convenient to only pay for the underlying infrastrucutre rather then paying for search queries. I will always use Typesense in my future projects." - @imihirpaldhikar
 | [Puey Ungphakorn Institute for Economic Research](https://www.pier.or.th) | A research institute in Thailand |
-
+| [Lawyaw](https://lawyaw.com) | Lawyaw provides easy to use document automation software that helps legal practices save time and avoid mistakes without sacrificing quality. *"Typesense is used as our search index and works great to search, sort and facet thousands of our Court forms each day. We look forward to working with Typesense for years to come as it continues to mature!" - @tpayne84* | 
 ### Typesense Demos
 
 | Name        | Description |
