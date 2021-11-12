@@ -1233,3 +1233,46 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     collectionManager.drop_collection("coll3");
     collectionManager.drop_collection("coll4");
 }
+
+TEST_F(CollectionAllFieldsTest, NullValueUpdate) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, true),
+                                 field(".*_name", field_types::STRING, true, true),
+                                 field("unindexed", field_types::STRING, false, true, false),
+                                 field(".*", field_types::STRING, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["id"]  = "0";
+    doc["title"]  = "Running Shoes";
+    doc["company_name"]  = "Nike";
+    doc["country"]  = "USA";
+    doc["unindexed"]  = "Hello";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"] = nullptr;
+    doc["company_name"]  = nullptr;
+    doc["country"]  = nullptr;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // ensure that the fields are removed from the document
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());
+    ASSERT_EQ("Hello", results["hits"][0]["document"]["unindexed"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}

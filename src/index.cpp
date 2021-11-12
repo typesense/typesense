@@ -287,7 +287,10 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
         if(a_field.optional && document[field_name].is_null()) {
             // we will ignore `null` on an option field
-            document.erase(field_name);
+            if(op != UPDATE) {
+                // for updates, the erasure is done later since we need to keep the key for overwrite
+                document.erase(field_name);
+            }
             continue;
         }
 
@@ -3829,6 +3832,7 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
 void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& update_doc,
                             const nlohmann::json& old_doc, nlohmann::json& new_doc, nlohmann::json& del_doc) {
 
+    // construct new doc with old doc values first
     for(auto it = old_doc.begin(); it != old_doc.end(); ++it) {
         if(op == UPSERT && !update_doc.contains(it.key())) {
             del_doc[it.key()] = it.value();
@@ -3837,11 +3841,17 @@ void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& up
         }
     }
 
+    // now override new doc with updated doc values and also create del doc
     for(auto it = update_doc.begin(); it != update_doc.end(); ++it) {
         // adds new key or overrides existing key from `old_doc`
-        new_doc[it.key()] = it.value();
+        if(!it.value().is_null()) {
+            // null values should not indexed
+            new_doc[it.key()] = it.value();
+        } else {
+            new_doc.erase(it.key());
+        }
 
-        // if the update update_doc contains a field that exists in old, we record that (for delete + reindex)
+        // if the update doc contains a field that exists in old, we record that (for delete + reindex)
         bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
         if(field_exists_in_old_doc) {
             // key exists in the stored doc, so it must be reindexed
@@ -3855,7 +3865,10 @@ void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& sear
                               nlohmann::json& update_doc,
                               nlohmann::json& del_doc,
                               const nlohmann::json& old_doc) {
-    std::vector<std::string> del_keys;
+    // del_doc contains fields that exist in both update doc and old doc
+    // But we will only remove fields that are different
+
+    std::vector<std::string> unchanged_keys;
 
     for(auto it = del_doc.cbegin(); it != del_doc.cend(); it++) {
         const std::string& field_name = it.key();
@@ -3870,14 +3883,20 @@ void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& sear
         // compare values between old and update docs:
         // if they match, we will remove them from both del and update docs
 
-        if(update_doc.contains(search_field.name) && update_doc[search_field.name] == old_doc[search_field.name]) {
-            del_keys.push_back(field_name);
+        if(update_doc.contains(search_field.name)) {
+            if(update_doc[search_field.name].is_null()) {
+                // we don't allow null values to be stored or indexed but need to be removed from stored doc
+                update_doc.erase(search_field.name);
+            }
+            else if(update_doc[search_field.name] == old_doc[search_field.name]) {
+                unchanged_keys.push_back(field_name);
+            }
         }
     }
 
-    for(const auto& del_key: del_keys) {
-        del_doc.erase(del_key);
-        update_doc.erase(del_key);
+    for(const auto& unchanged_key: unchanged_keys) {
+        del_doc.erase(unchanged_key);
+        update_doc.erase(unchanged_key);
     }
 }
 
