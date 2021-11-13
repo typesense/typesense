@@ -987,6 +987,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     if(its.size() == 1) {
         for(size_t i = 0; i < num_ids; i++) {
             uint32_t id = ids[i];
+            its[0].skip_to(id);
             if(is_single_token_verbatim_match(its[0], field_is_array)) {
                 exact_ids[exact_id_index++] = id;
             }

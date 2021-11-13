@@ -638,8 +638,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         art_tree *t = tree_it->second;
 
         for(auto& token_to_doc: token_to_doc_offsets) {
-            std::vector<art_document>& documents = token_to_doc.second;
             const std::string& token = token_to_doc.first;
+            std::vector<art_document>& documents = token_to_doc.second;
 
             const auto *key = (const unsigned char *) token.c_str();
             int key_len = (int) token.length() + 1;  // for the terminating \0 char
@@ -1483,9 +1483,8 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     strt_ids_size = result_id_vec.size();
                 }
 
-                if((a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) && f.is_facet()) {
-                    // need to do exact match (unlike CONTAINS) by using the facet index
-                    // field being a facet is already enforced upstream
+                if(a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
+                    // need to do exact match (unlike CONTAINS)
                     uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
                     size_t exact_strt_size = 0;
 
@@ -1497,7 +1496,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     strt_ids_size = exact_strt_size;
                 }
 
-                if(a_filter.comparators[0] == NOT_EQUALS && f.is_facet()) {
+                if(a_filter.comparators[0] == NOT_EQUALS) {
                     // exclude records from existing IDs (from previous filters or ALL records)
                     // upstream will guarantee that NOT_EQUALS is placed right at the end of filters list
                     if(ids == nullptr) {
