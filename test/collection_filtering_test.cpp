@@ -184,6 +184,11 @@ TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
+    // with backticks
+    results = coll_str->search("*", query_fields, "starring:= `samuel l. Jackson`", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
     // contains filter with a single token should work as well
     results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
@@ -1517,6 +1522,16 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    // single ID with backtick
+
+    results = coll1->search("*",
+                            {}, "id: `123`",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
     // single ID with condition
     results = coll1->search("*",
                             {}, "id: 125 && num_employees: 150",
@@ -1536,6 +1551,35 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // multiple IDs with exact equals operator with IDs not being ordered
+    results = coll1->search("*",
+                            {}, "id:= [129, 123, 127, 125] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // multiple IDs with exact equals operator and backticks
+    results = coll1->search("*",
+                            {}, "id:= [`123`, `125`, `127`, `129`] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // not equals is not supported yet
+    auto res_op = coll1->search("*",
+                            {}, "id:!= [123,125] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Not equals filtering is not supported on the `id` field.", res_op.error());
 
     // when no IDs exist
     results = coll1->search("*",

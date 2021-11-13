@@ -244,29 +244,29 @@ TEST(StringUtilsTest, ShouldParseStringifiedList) {
     StringUtils::split_to_values(str, strs);
     ASSERT_EQ(2, strs.size());
     ASSERT_EQ("John Galt", strs[0]);
-    ASSERT_EQ(" Random Jack", strs[1]);
+    ASSERT_EQ("Random Jack", strs[1]);
 
     strs.clear();
     str = "`John Galt`, `Random, Jack`";
     StringUtils::split_to_values(str, strs);
     ASSERT_EQ(2, strs.size());
     ASSERT_EQ("John Galt", strs[0]);
-    ASSERT_EQ(" Random, Jack", strs[1]);
+    ASSERT_EQ("Random, Jack", strs[1]);
 
     strs.clear();
     str = "`John Galt, `Random, Jack`";
     StringUtils::split_to_values(str, strs);
     ASSERT_EQ(2, strs.size());
     ASSERT_EQ("John Galt, Random", strs[0]);
-    ASSERT_EQ(" Jack", strs[1]);
+    ASSERT_EQ("Jack", strs[1]);
 
     strs.clear();
     str = "`Traveller's \\`delight\\`!`, Not wrapped, Last word";
     StringUtils::split_to_values(str, strs);
     ASSERT_EQ(3, strs.size());
     ASSERT_EQ("Traveller's \\`delight\\`!", strs[0]);
-    ASSERT_EQ(" Not wrapped", strs[1]);
-    ASSERT_EQ(" Last word", strs[2]);
+    ASSERT_EQ("Not wrapped", strs[1]);
+    ASSERT_EQ("Last word", strs[2]);
 
     strs.clear();
     str = "`John Galt`";

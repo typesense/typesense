@@ -164,7 +164,7 @@ void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::
                 break;
             case ',':
                 if(!inside_tick) {
-                    filter_values.push_back(buffer);
+                    filter_values.push_back(StringUtils::trim(buffer));
                     buffer = "";
                 } else {
                     buffer += c;
@@ -178,7 +178,7 @@ void StringUtils::split_to_values(const std::string& vals_str, std::vector<std::
     }
 
     if(!buffer.empty()) {
-        filter_values.push_back(buffer);
+        filter_values.push_back(StringUtils::trim(buffer));
     }
 }
 
