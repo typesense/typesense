@@ -1222,6 +1222,8 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 result_ids.push_back(std::stoul(id_str));
             }
 
+            std::sort(result_ids.begin(), result_ids.end());
+
             if(i == 0) {
                 filter_ids = new uint32[result_ids.size()];
                 std::copy(result_ids.begin(), result_ids.end(), filter_ids);

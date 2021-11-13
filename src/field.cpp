@@ -89,9 +89,27 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
             StringUtils::trim(raw_value);
             id_filter = {field_name, {}, {}};
 
+            NUM_COMPARATOR id_comparator = EQUALS;
+            size_t filter_value_index = 0;
+
+            if(raw_value[0] == '=') {
+                id_comparator = EQUALS;
+                while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
+            } else if(raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
+                return Option<bool>(400, "Not equals filtering is not supported on the `id` field.");
+            }
+
+            if(filter_value_index != 0) {
+                raw_value = raw_value.substr(filter_value_index);
+            }
+
+            if(filter_value_index == raw_value.size()) {
+                return Option<bool>(400, "Error with filter field `id`: Filter value cannot be empty.");
+            }
+
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {
                 std::vector<std::string> doc_ids;
-                StringUtils::split(raw_value.substr(1, raw_value.size() - 2), doc_ids, ",");
+                StringUtils::split_to_values(raw_value.substr(1, raw_value.size() - 2), doc_ids);
 
                 for(std::string& doc_id: doc_ids) {
                     // we have to convert the doc_id to seq id
@@ -103,14 +121,17 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                     }
 
                     id_filter.values.push_back(seq_id_str);
-                    id_filter.comparators.push_back(EQUALS);
+                    id_filter.comparators.push_back(id_comparator);
                 }
             } else {
+                std::vector<std::string> doc_ids;
+                StringUtils::split_to_values(raw_value, doc_ids);  // to handle backticks
+
                 std::string seq_id_str;
-                StoreStatus seq_id_status = store->get(doc_id_prefix + raw_value, seq_id_str);
+                StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
                 if(seq_id_status == StoreStatus::FOUND) {
                     id_filter.values.push_back(seq_id_str);
-                    id_filter.comparators.push_back(EQUALS);
+                    id_filter.comparators.push_back(id_comparator);
                 }
             }
 
