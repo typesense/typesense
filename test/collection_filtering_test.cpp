@@ -1963,8 +1963,54 @@ TEST_F(CollectionFilteringTest, FilteringWithTokenSeparators) {
     collectionManager.drop_collection("coll2");
 }
 
+TEST_F(CollectionFilteringTest, ExactFilteringSingleQueryTerm) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "AT&T GoPhone";
+    doc1["tags"] = {"AT&T GoPhone"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "AT&T";
+    doc2["tags"] = {"AT&T"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=AT&T", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"tags:=AT&T", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Phone";
+    doc3["tags"] = {"Samsung Phone", "Phone"};
+
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    results = coll1->search("*", {},"tags:=Phone", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensSingularField) {
-    std::vector<field> fields = {field("name", field_types::STRING, true)};
+    std::vector<field> fields = {field("name", field_types::STRING, false)};
 
     Collection* coll1 = collectionManager.create_collection(
         "coll1", 1, fields, "", 0, "", {}, {"."}
@@ -2013,7 +2059,7 @@ TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensSingularField) {
 }
 
 TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensArrayField) {
-    std::vector<field> fields = {field("name", field_types::STRING_ARRAY, true)};
+    std::vector<field> fields = {field("name", field_types::STRING_ARRAY, false)};
 
     Collection* coll1 = collectionManager.create_collection(
         "coll1", 1, fields, "", 0, "", {}, {"."}
