@@ -1327,6 +1327,19 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     return true;
 }
 
+bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    {
+        std::unique_lock lock(mutex);
+        res_cache.clear();
+    }
+
+    nlohmann::json response;
+    response["success"] = true;
+    res->set_200(response.dump());
+
+    return true;
+}
+
 bool get_synonyms(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
     auto collection = collectionManager.get_collection(req->params["collection"]);
