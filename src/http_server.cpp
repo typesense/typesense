@@ -351,7 +351,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     std::map<std::string, std::string> query_map;
     StringUtils::parse_query_string(query_str, query_map);
 
-    // cache ttl can be applied only from an embedded key
+    // cache ttl can be applied only from an embedded key: cannot be a get param
     query_map.erase("cache_ttl");
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.

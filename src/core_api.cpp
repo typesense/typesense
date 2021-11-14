@@ -362,6 +362,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         req->params = orig_req_params;
 
         for(auto& search_item: search_params.items()) {
+            if(search_item.key() == "cache_ttl") {
+                // cache ttl can be applied only from an embedded key: cannot be a multi search param
+                continue;
+            }
+
             // overwrite = false since req params will contain embedded params and so has higher priority
             bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
             if(!populated) {
