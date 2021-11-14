@@ -97,6 +97,8 @@ bool post_vote(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_
 
 bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Misc helpers
 
 void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,

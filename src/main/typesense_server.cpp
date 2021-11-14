@@ -68,6 +68,7 @@ void master_server_routes() {
 
     server->post("/operations/snapshot", post_snapshot, false, true);
     server->post("/operations/vote", post_vote, false, false);
+    server->post("/operations/cache/clear", post_clear_cache, false, false);
 
     server->post("/config", post_config, false, false);
 }
