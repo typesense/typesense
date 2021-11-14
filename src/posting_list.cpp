@@ -619,6 +619,7 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
     }
 
     if(posting_lists.size() == 1) {
+        result_ids.reserve(posting_lists[0]->ids_length);
         auto it = posting_lists[0]->new_iterator();
         while(it.valid()) {
             result_ids.push_back(it.id());
@@ -939,7 +940,7 @@ uint32_t posting_list_t::advance_smallest2(std::vector<posting_list_t::iterator_
     return smallest_value;
 }
 
-size_t posting_list_t::num_ids() {
+size_t posting_list_t::num_ids() const {
     return ids_length;
 }
 
