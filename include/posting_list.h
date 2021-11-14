@@ -89,7 +89,7 @@ private:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
     const uint16_t BLOCK_MAX_ELEMENTS;
-    uint16_t ids_length = 0;
+    uint32_t ids_length = 0;
 
     block_t root_block;
 
@@ -133,7 +133,7 @@ public:
 
     size_t num_blocks() const;
 
-    size_t num_ids();
+    size_t num_ids() const;
 
     uint32_t first_id();
 
