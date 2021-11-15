@@ -1211,10 +1211,6 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
-        if(enable_short_circuit) {
-            RETURN_CIRCUIT_BREAKER
-        }
-
         if(a_filter.field_name == "id") {
             // we handle `ids` separately
             std::vector<uint32> result_ids;
