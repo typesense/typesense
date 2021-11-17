@@ -559,8 +559,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
     const char *PRE_SEGMENTED_QUERY = "pre_segmented_query";
 
-    const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
+    const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
@@ -671,12 +671,15 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[PRE_SEGMENTED_QUERY] = "false";
     }
 
-    if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
-        req_params[EXHAUSTIVE_SEARCH] = "false";
-    }
-
     if(req_params.count(SEARCH_CUTOFF_MS) == 0) {
         req_params[SEARCH_CUTOFF_MS] = "2000";
+    }
+
+    if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
+        req_params[EXHAUSTIVE_SEARCH] = "false";
+    } else if(req_params[EXHAUSTIVE_SEARCH] == "true") {
+        // if exhaustive search is enabled, we won't enable search cut-off by default
+        req_params[SEARCH_CUTOFF_MS] = "3600000";
     }
 
     std::vector<std::string> query_by_weights_str;
