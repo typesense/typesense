@@ -1266,6 +1266,10 @@ TEST_F(CollectionAllFieldsTest, NullValueUpdate) {
     add_op = coll1->add(doc.dump(), UPDATE);
     ASSERT_TRUE(add_op.ok());
 
+    // try updating the doc with null value again
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
     // ensure that the fields are removed from the document
     auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
 
@@ -1273,6 +1277,81 @@ TEST_F(CollectionAllFieldsTest, NullValueUpdate) {
     ASSERT_EQ(2, results["hits"][0]["document"].size());
     ASSERT_EQ("Hello", results["hits"][0]["document"]["unindexed"].get<std::string>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, NullValueArrayUpdate) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("titles", field_types::STRING_ARRAY, false, true),
+                                 field(".*_names", field_types::STRING_ARRAY, true, true),
+                                 field("unindexed", field_types::STRING, false, true, false),
+                                 field(".*", field_types::STRING_ARRAY, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING_ARRAY);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["id"]  = "0";
+    doc["titles"]  = {"Running Shoes"};
+    doc["company_names"]  = {"Nike"};
+    doc["countries"]  = {"USA", nullptr};
+    doc["unindexed"]  = "Hello";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {nullptr};
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {"USA"};
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
+    ASSERT_EQ(1, coll1->_get_index()->num_seq_ids());
+
+    doc["titles"] = nullptr;
+    doc["company_names"]  = nullptr;
+    doc["countries"]  = nullptr;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // try updating the doc with null value again
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
+
+    // ensure that the fields are removed from the document
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());
+    ASSERT_EQ("Hello", results["hits"][0]["document"]["unindexed"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // update with null values inside array
+    doc["countries"]  = {nullptr};
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {"USA", nullptr};
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
 
     collectionManager.drop_collection("coll1");
 }
