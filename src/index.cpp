@@ -427,56 +427,61 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
     for(size_t i = 0; i < batch_size; i++) {
         index_record& index_rec = iter_batch[batch_start_index + i];
 
-        if(!index_rec.indexed.ok()) {
-            // some records could have been invalidated upstream
-            continue;
-        }
+        try {
+            if(!index_rec.indexed.ok()) {
+                // some records could have been invalidated upstream
+                continue;
+            }
 
-        if(index_rec.operation == DELETE) {
-            continue;
-        }
+            if(index_rec.operation == DELETE) {
+                continue;
+            }
 
-        Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
-                                                                  default_sorting_field,
-                                                                  search_schema, facet_schema,
-                                                                  index_rec.operation,
-                                                                  fallback_field_type,
-                                                                  index_rec.dirty_values);
+            Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
+                                                                      default_sorting_field,
+                                                                      search_schema, facet_schema,
+                                                                      index_rec.operation,
+                                                                      fallback_field_type,
+                                                                      index_rec.dirty_values);
 
-        if(!validation_op.ok()) {
-            index_rec.index_failure(validation_op.code(), validation_op.error());
-            continue;
-        }
+            if(!validation_op.ok()) {
+                index_rec.index_failure(validation_op.code(), validation_op.error());
+                continue;
+            }
 
-        if(index_rec.is_update) {
-            // scrub string fields to reduce delete ops
-            get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
-                            index_rec.del_doc);
-            scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
-        }
+            if(index_rec.is_update) {
+                // scrub string fields to reduce delete ops
+                get_doc_changes(index_rec.operation, index_rec.doc, index_rec.old_doc, index_rec.new_doc,
+                                index_rec.del_doc);
+                scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
+            }
 
-        compute_token_offsets_facets(index_rec, search_schema, facet_schema, token_separators, symbols_to_index);
+            compute_token_offsets_facets(index_rec, search_schema, facet_schema, token_separators, symbols_to_index);
 
-        int64_t points = 0;
+            int64_t points = 0;
 
-        if(index_rec.doc.count(default_sorting_field) == 0) {
-            auto default_sorting_field_it = index->sort_index.find(default_sorting_field);
-            if(default_sorting_field_it != index->sort_index.end()) {
-                auto seq_id_it = default_sorting_field_it->second->find(index_rec.seq_id);
-                if(seq_id_it != default_sorting_field_it->second->end()) {
-                    points = seq_id_it->second;
+            if(index_rec.doc.count(default_sorting_field) == 0) {
+                auto default_sorting_field_it = index->sort_index.find(default_sorting_field);
+                if(default_sorting_field_it != index->sort_index.end()) {
+                    auto seq_id_it = default_sorting_field_it->second->find(index_rec.seq_id);
+                    if(seq_id_it != default_sorting_field_it->second->end()) {
+                        points = seq_id_it->second;
+                    } else {
+                        points = INT64_MIN;
+                    }
                 } else {
                     points = INT64_MIN;
                 }
             } else {
-                points = INT64_MIN;
+                points = get_points_from_doc(index_rec.doc, default_sorting_field);
             }
-        } else {
-            points = get_points_from_doc(index_rec.doc, default_sorting_field);
-        }
 
-        index_rec.points = points;
-        index_rec.index_success();
+            index_rec.points = points;
+            index_rec.index_success();
+        } catch(const std::exception &e) {
+            LOG(INFO) << "Error while validating document: " << e.what();
+            index_rec.index_failure(400, e.what());
+        }
     }
 }
 
@@ -534,7 +539,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         auto& index_rec = iter_batch[i];
         if(index_rec.is_update) {
             index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
-        } else {
+        } else if(index_rec.indexed.ok()) {
             num_indexed++;
         }
 
@@ -576,7 +581,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
     if(afield.name == "id") {
         for(const auto& record: iter_batch) {
-            if(!record.is_update) {
+            if(!record.is_update && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
                 seq_ids.append(record.seq_id);
             }
@@ -600,7 +605,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             const auto& document = record.doc;
             const auto seq_id = record.seq_id;
 
-            if(document.count(afield.name) == 0 || !afield.index) {
+            if(document.count(afield.name) == 0 || !afield.index || !record.indexed.ok()) {
                 continue;
             }
 
@@ -3839,7 +3844,7 @@ Option<uint32_t> Index::coerce_float(const DIRTY_VALUES& dirty_values, const fie
     return Option<uint32_t>(200);
 }
 
-void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& update_doc,
+void Index::get_doc_changes(const index_operation_t op, nlohmann::json& update_doc,
                             const nlohmann::json& old_doc, nlohmann::json& new_doc, nlohmann::json& del_doc) {
 
     // construct new doc with old doc values first
@@ -3852,21 +3857,24 @@ void Index::get_doc_changes(const index_operation_t op, const nlohmann::json& up
     }
 
     // now override new doc with updated doc values and also create del doc
-    for(auto it = update_doc.begin(); it != update_doc.end(); ++it) {
-        // adds new key or overrides existing key from `old_doc`
-        if(!it.value().is_null()) {
-            // null values should not indexed
-            new_doc[it.key()] = it.value();
-        } else {
-            new_doc.erase(it.key());
-        }
-
+    auto it = update_doc.begin();
+    for(; it != update_doc.end(); ) {
         // if the update doc contains a field that exists in old, we record that (for delete + reindex)
         bool field_exists_in_old_doc = (old_doc.count(it.key()) != 0);
         if(field_exists_in_old_doc) {
             // key exists in the stored doc, so it must be reindexed
             // we need to check for this because a field can be optional
             del_doc[it.key()] = old_doc[it.key()];
+        }
+
+        // adds new key or overrides existing key from `old_doc`
+        if(it.value().is_null()) {
+            // null values should not indexed
+            new_doc.erase(it.key());
+            it = update_doc.erase(it);
+        } else {
+            new_doc[it.key()] = it.value();
+            ++it;
         }
     }
 }
@@ -3908,6 +3916,11 @@ void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& sear
         del_doc.erase(unchanged_key);
         update_doc.erase(unchanged_key);
     }
+}
+
+size_t Index::num_seq_ids() const {
+    std::shared_lock lock(mutex);
+    return seq_ids.getLength();
 }
 
 /*

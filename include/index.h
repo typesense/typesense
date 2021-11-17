@@ -545,7 +545,7 @@ private:
 
     static void compute_facet_stats(facet &a_facet, uint64_t raw_value, const std::string & field_type);
 
-    static void get_doc_changes(const index_operation_t op, const nlohmann::json &update_doc,
+    static void get_doc_changes(const index_operation_t op, nlohmann::json &update_doc,
                                 const nlohmann::json &old_doc, nlohmann::json &new_doc, nlohmann::json &del_doc);
 
     static Option<uint32_t> coerce_string(const DIRTY_VALUES& dirty_values, const std::string& fallback_field_type,
@@ -753,11 +753,13 @@ public:
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              std::vector<facet_info_t>& facet_infos) const;
+
+    size_t num_seq_ids() const;
 };
 
 template<class T>
 void Index::iterate_and_index_numerical_field(std::vector<index_record>& iter_batch, const field& afield, T func) {
-    for(const auto& record: iter_batch) {
+    for(auto& record: iter_batch) {
         if(!record.indexed.ok()) {
             continue;
         }
@@ -769,6 +771,11 @@ void Index::iterate_and_index_numerical_field(std::vector<index_record>& iter_ba
             continue;
         }
 
-        func(record, seq_id);
+        try {
+            func(record, seq_id);
+        } catch(const std::exception &e) {
+            LOG(INFO) << "Error while indexing numerical field." << e.what();
+            record.index_failure(400, e.what());
+        }
     }
 }
