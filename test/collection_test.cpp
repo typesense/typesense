@@ -2272,10 +2272,10 @@ TEST_F(CollectionTest, UpdateDocument) {
     ASSERT_STREQ("tags", res["facet_counts"][0]["field_name"].get<std::string>().c_str());
     ASSERT_EQ(2, res["facet_counts"][0]["counts"].size());
 
-    ASSERT_STREQ("NEWS", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][0]["count"]);
 
-    ASSERT_STREQ("LAZY", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
+    ASSERT_STREQ("NEWS", res["facet_counts"][0]["counts"][1]["value"].get<std::string>().c_str());
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][1]["count"]);
 
     // upsert only part of the document -- document should be REPLACED

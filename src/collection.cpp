@@ -952,7 +952,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     if(group_limit) {
         for(auto& acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
-                facet_kv.second.count = facet_kv.second.groups.size();
+                facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
             }
         }
 
@@ -1168,7 +1168,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     result["facet_counts"] = nlohmann::json::array();
 
     // populate facets
-    for(const facet & a_facet: facets) {
+    for(facet & a_facet: facets) {
         nlohmann::json facet_result = nlohmann::json::object();
         facet_result["field_name"] = a_facet.field_name;
         facet_result["counts"] = nlohmann::json::array();
@@ -1218,21 +1218,22 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             }
 
             std::unordered_map<std::string, size_t> ftoken_pos;
+            std::vector<string>& ftokens = a_facet.hash_tokens[kv.first];
 
-            for(size_t ti = 0; ti < facet_count.tokens.size(); ti++) {
+            for(size_t ti = 0; ti < ftokens.size(); ti++) {
                 if(the_field.is_bool()) {
-                    if(facet_count.tokens[ti] == "1") {
-                        facet_count.tokens[ti] = "true";
+                    if(ftokens[ti] == "1") {
+                        ftokens[ti] = "true";
                     } else {
-                        facet_count.tokens[ti] = "false";
+                        ftokens[ti] = "false";
                     }
                 }
 
-                const std::string& resolved_token = facet_count.tokens[ti];
+                const std::string& resolved_token = ftokens[ti];
                 ftoken_pos[resolved_token] = ti;
             }
 
-            const std::string& last_full_q_token = facet_count.tokens.empty() ? "" : facet_count.tokens.back();
+            const std::string& last_full_q_token = ftokens.empty() ? "" : ftokens.back();
             const std::string& last_q_token = facet_query_tokens.empty() ? "" : facet_query_tokens.back();
 
             // 2 passes: first identify tokens that need to be highlighted and then construct highlighted text
