@@ -539,19 +539,11 @@ public:
     }
 };
 
-struct token_pos_cost_t {
-    size_t pos;
-    uint32_t cost;
-};
-
 struct facet_count_t {
     uint32_t count = 0;
-    spp::sparse_hash_set<uint64_t> groups;  // used for faceting grouped results
-
     // used to fetch the actual document and value for representation
     uint32_t doc_id = 0;
     uint32_t array_pos = 0;
-    std::vector<std::string> tokens;
 };
 
 struct facet_stats_t {
@@ -563,10 +555,17 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    std::unordered_map<uint64_t, facet_count_t> result_map;
+    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
+
+    // used for facet value query
+    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
+
+    // used for faceting grouped results
+    spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
+
     facet_stats_t stats;
 
-    explicit facet(const std::string & field_name): field_name(field_name) {
+    explicit facet(const std::string& field_name): field_name(field_name) {
 
     }
 };

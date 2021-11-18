@@ -1028,13 +1028,13 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                     facet_count.array_pos = j;
 
                     if(group_limit) {
-                        facet_count.groups.emplace(distinct_id);
+                        a_facet.hash_groups[fhash].emplace(distinct_id);
                     } else {
                         facet_count.count += 1;
                     }
 
                     if(use_facet_query) {
-                        facet_count.tokens = fquery_hashes.at(fhash);
+                        a_facet.hash_tokens[fhash] = fquery_hashes.at(fhash);
                     }
                 }
             }
@@ -2415,7 +2415,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         std::unique_lock<std::mutex> lock_process(m_process);
         cv_process.wait(lock_process, [&](){ return num_processed == num_queued; });
 
-        for(const auto& facet_batch: facet_batches) {
+        for(auto& facet_batch: facet_batches) {
             for(size_t fi = 0; fi < facet_batch.size(); fi++) {
                 auto& this_facet = facet_batch[fi];
                 auto& acc_facet = facets[fi];
@@ -2423,8 +2423,9 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                 for(auto & facet_kv: this_facet.result_map) {
                     if(group_limit) {
                         // we have to add all group sets
-                        acc_facet.result_map[facet_kv.first].groups.insert(
-                                facet_kv.second.groups.begin(), facet_kv.second.groups.end()
+                        acc_facet.hash_groups[facet_kv.first].insert(
+                            this_facet.hash_groups[facet_kv.first].begin(),
+                            this_facet.hash_groups[facet_kv.first].end()
                         );
                     } else {
                         size_t count = 0;
@@ -2439,7 +2440,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
                     acc_facet.result_map[facet_kv.first].doc_id = facet_kv.second.doc_id;
                     acc_facet.result_map[facet_kv.first].array_pos = facet_kv.second.array_pos;
-                    acc_facet.result_map[facet_kv.first].tokens = facet_kv.second.tokens;
+                    acc_facet.hash_tokens[facet_kv.first] = this_facet.hash_tokens[facet_kv.first];
                 }
 
                 if(this_facet.stats.fvcount != 0) {
