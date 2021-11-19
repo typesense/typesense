@@ -1024,6 +1024,8 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         }
     }
 
+    LOG(INFO) << "leaf results.size: " << results.size();
+
     printf("OUTSIDE art_topk_iter: results size: %d\n", results.size());
     return 0;
 }
