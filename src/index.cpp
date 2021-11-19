@@ -2175,6 +2175,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             }
         }
 
+        auto begin0 = std::chrono::high_resolution_clock::now();
+
         for(auto& seq_id_kvs: topster_ids) {
             const uint64_t seq_id = seq_id_kvs.first;
             auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
@@ -2358,6 +2360,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
             topster->add(kvs[0]);
         }
+
+        auto timeMillis0 = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::high_resolution_clock::now() - begin0).count();
+
+        LOG(INFO) << "Time taken for multi-field aggregation: " << timeMillis0 << "ms";
     }
 
     //LOG(INFO) << "topster size: " << topster->size;
