@@ -672,14 +672,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     if(req_params.count(SEARCH_CUTOFF_MS) == 0) {
-        req_params[SEARCH_CUTOFF_MS] = "2000";
+        req_params[SEARCH_CUTOFF_MS] = "3600000";
     }
 
     if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
         req_params[EXHAUSTIVE_SEARCH] = "false";
-    } else if(req_params[EXHAUSTIVE_SEARCH] == "true") {
-        // if exhaustive search is enabled, we won't enable search cut-off by default
-        req_params[SEARCH_CUTOFF_MS] = "3600000";
     }
 
     std::vector<std::string> query_by_weights_str;
