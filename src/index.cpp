@@ -2266,18 +2266,14 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
                 for(size_t token_index=0; token_index < field_query_tokens[i].q_include_tokens.size(); token_index++) {
                     const auto& token = field_query_tokens[i].q_include_tokens[token_index];
+                    const art_leaf* leaf = (art_leaf *) art_search(search_index.at(field), (const unsigned char*) token.c_str(),
+                                                             token.length()+1);
 
-                    std::vector<art_leaf*> leaves;
-                    const bool prefix_search = field_prefix && (token_index == field_query_tokens[i].q_include_tokens.size()-1);
-                    const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
-                    art_fuzzy_search(search_index.at(field), (const unsigned char *) token.c_str(), token_len,
-                                     0, 0, 1, token_order, prefix_search, nullptr, 0, leaves);
-
-                    if(leaves.empty()) {
+                    if(!leaf) {
                         continue;
                     }
 
-                    if(!posting_t::contains(leaves[0]->values, seq_id)) {
+                    if(!posting_t::contains(leaf->values, seq_id)) {
                         continue;
                     }
 
