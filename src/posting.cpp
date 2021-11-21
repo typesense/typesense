@@ -221,17 +221,23 @@ bool compact_posting_list_t::contains_atleast_one(const uint32_t* target_ids, si
         size_t num_existing_offsets = id_offsets[i];
         size_t existing_id = id_offsets[i + num_existing_offsets + 1];
 
-        if(existing_id == target_ids[target_ids_index]) {
-            return true;
+        // Returns iterator to the first element that is >= to value or last if no such element is found.
+        size_t found_index = std::lower_bound(target_ids + target_ids_index,
+                                              target_ids + target_ids_size, existing_id) - target_ids;
+
+        if(found_index == target_ids_size) {
+            // all elements are lesser than lowest value (existing_id), so we can stop looking
+            return false;
+        } else {
+            if(target_ids[found_index] == existing_id) {
+                return true;
+            }
+
+            // adjust lower bound to found_index+1 whose value is >= `existing_id`
+            target_ids_index = found_index;
         }
 
-        if(target_ids[target_ids_index] < existing_id) {
-            while(target_ids_index < target_ids_size && target_ids[target_ids_index] < existing_id) {
-                target_ids_index++;
-            }
-        } else {
-            i += num_existing_offsets + 2;
-        }
+        i += num_existing_offsets + 2;
     }
 
     return false;
