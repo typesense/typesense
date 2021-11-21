@@ -561,13 +561,12 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
     synonym_t synonym1{"syn-1", {"lulu", "lemon"}, {{"lululemon"}}};
     coll1->add_synonym(synonym1);
 
-    auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+    auto res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
 
-    ASSERT_EQ(2, res["hits"].size());
-    ASSERT_EQ(2, res["found"].get<uint32_t>());
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["found"].get<uint32_t>());
 
     ASSERT_STREQ("2", res["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", res["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

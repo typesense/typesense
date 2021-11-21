@@ -1711,8 +1711,6 @@ TEST_F(CollectionSpecificTest, RepeatingStringArrayTokens) {
 }
 
 TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
-    std::vector<std::string> tags;
-
     // when the first document containing a token already cannot fit compact posting list
 
     std::vector<field> fields = {field("title", field_types::STRING, false),};
@@ -1727,8 +1725,44 @@ TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
     auto results = coll1->search("and", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
-    LOG(INFO) << results;
-
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
+    // when the first document containing a token already cannot fit compact posting list
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "The nonstick pressure cooker is a great invention.";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("non stick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("t h e", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("c o o k e r", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // three word split won't work
+
+    results = coll1->search("nonstickpressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // only first 5 words of the query are used for concat/split
+
+    results = coll1->search("nonstick pressure cooker is a greatinvention", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("nonstick pressure cooker is a gr eat", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
