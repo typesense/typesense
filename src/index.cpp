@@ -3920,6 +3920,156 @@ size_t Index::num_seq_ids() const {
     return seq_ids.getLength();
 }
 
+void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const string& field_name,
+                                   std::vector<std::vector<std::string>>& resolved_queries) {
+
+    std::shared_lock lock(mutex);
+
+    auto tree_it = search_index.find(field_name);
+
+    if(tree_it == search_index.end()) {
+        return ;
+    }
+
+    // we will try to find a verbatim match first
+
+    art_tree* t = tree_it->second;
+    std::vector<art_leaf*> leaves;
+
+    for(const std::string& token: qtokens) {
+        art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) token.c_str(),
+                                                 token.length()+1);
+        if(leaf == nullptr) {
+            break;
+        }
+
+        leaves.push_back(leaf);
+    }
+
+    if(leaves.size() == qtokens.size() && common_results_exist(leaves)) {
+        return ;
+    }
+
+    // When we cannot find verbatim match, we can try concatting and splitting query tokens for alternatives.
+
+    // Concatenation:
+
+    size_t qtokens_size = std::min<size_t>(5, qtokens.size());  // only first 5 tokens will be considered
+
+    if(qtokens.size() > 1) {
+        // a) join all tokens to form a single string
+        const string& all_tokens_query = StringUtils::join(qtokens, "");
+        if(art_search(t, (const unsigned char*) all_tokens_query.c_str(), all_tokens_query.length()+1) != nullptr) {
+            resolved_queries.push_back({all_tokens_query});
+            return;
+        }
+
+        // b) join 2 adjacent tokens in a sliding window (provided they are atleast 2 tokens in size)
+
+        for(size_t i = 0; i < qtokens_size-1 && qtokens_size > 2; i++) {
+            std::vector<std::string> candidate_tokens;
+
+            for(size_t j = 0; j < i; j++) {
+                candidate_tokens.push_back(qtokens[j]);
+            }
+
+            std::string joined_tokens = qtokens[i] + qtokens[i+1];
+            candidate_tokens.push_back(joined_tokens);
+
+            for(size_t j = i+2; j < qtokens.size(); j++) {
+                candidate_tokens.push_back(qtokens[j]);
+            }
+
+            leaves.clear();
+
+            for(auto& token: candidate_tokens) {
+                art_leaf* leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) token.c_str(),
+                                                                   token.length() + 1));
+                if(leaf == nullptr) {
+                    break;
+                }
+
+                leaves.push_back(leaf);
+            }
+
+            if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves)) {
+                resolved_queries.push_back(candidate_tokens);
+                return;
+            }
+        }
+    }
+
+    // concats did not work, we will try splitting individual tokens
+    for(size_t i = 0; i < qtokens_size; i++) {
+        std::vector<std::string> candidate_tokens;
+
+        for(size_t j = 0; j < i; j++) {
+            candidate_tokens.push_back(qtokens[j]);
+        }
+
+        const std::string& token = qtokens[i];
+        bool found_split = false;
+
+        for(size_t ci = 1; ci < token.size(); ci++) {
+            std::string first_part = token.substr(0, token.size()-ci);
+            art_leaf* first_leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) first_part.c_str(),
+                                                                     first_part.length() + 1));
+
+            if(first_leaf != nullptr) {
+                // check if rest of the string is also a valid token
+                std::string second_part = token.substr(token.size()-ci, ci);
+                art_leaf* second_leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) second_part.c_str(),
+                                                                          second_part.length() + 1));
+
+                std::vector<art_leaf*> part_leaves = {first_leaf, second_leaf};
+                if(second_leaf != nullptr && common_results_exist(part_leaves)) {
+                    candidate_tokens.push_back(first_part);
+                    candidate_tokens.push_back(second_part);
+                    found_split = true;
+                    break;
+                }
+            }
+        }
+
+        if(!found_split) {
+            continue;
+        }
+
+        for(size_t j = i+1; j < qtokens.size(); j++) {
+            candidate_tokens.push_back(qtokens[j]);
+        }
+
+        leaves.clear();
+
+        for(auto& token: candidate_tokens) {
+            art_leaf* leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) token.c_str(),
+                                                               token.length() + 1));
+            if(leaf == nullptr) {
+                break;
+            }
+
+            leaves.push_back(leaf);
+        }
+
+        if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves)) {
+            resolved_queries.push_back(candidate_tokens);
+            return;
+        }
+    }
+}
+
+bool Index::common_results_exist(std::vector<art_leaf*>& leaves) {
+    std::vector<uint32_t> result_ids;
+    std::vector<void*> leaf_vals;
+
+    for(auto leaf: leaves) {
+        leaf_vals.push_back(leaf->values);
+    }
+
+    posting_t::intersect(leaf_vals, result_ids);
+    return !result_ids.empty();
+}
+
 /*
 // https://stackoverflow.com/questions/924171/geo-fencing-point-inside-outside-polygon
 // NOTE: polygon and point should have been transformed with `transform_for_180th_meridian`

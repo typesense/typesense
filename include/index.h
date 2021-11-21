@@ -575,6 +575,8 @@ private:
                                             const std::string &field_name,
                                             nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
+    bool common_results_exist(std::vector<art_leaf*>& leaves);
+
 public:
     // for limiting number of results on multiple candidates / query rewrites
     enum {TYPO_TOKENS_THRESHOLD = 1};
@@ -753,6 +755,9 @@ public:
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
                              std::vector<facet_info_t>& facet_infos) const;
+
+    void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
+                                std::vector<std::vector<std::string>>& resolved_queries);
 
     size_t num_seq_ids() const;
 };
