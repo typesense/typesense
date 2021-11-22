@@ -510,7 +510,8 @@ private:
                            bool prioritize_exact_match,
                            bool exhaustive_search,
                            size_t concurrency,
-                           std::set<uint64>& query_hashes) const;
+                           std::set<uint64>& query_hashes,
+                           std::vector<uint32_t>& id_buff) const;
 
     void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters,
                       const bool enable_short_circuit) const;

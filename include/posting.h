@@ -65,9 +65,11 @@ public:
 
             to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
-            std::sort(this->plists.begin(), this->plists.end(), [](posting_list_t* a, posting_list_t* b) {
-                return a->num_blocks() < b->num_blocks();
-            });
+            if(plists.size() > 1) {
+                std::sort(this->plists.begin(), this->plists.end(), [](posting_list_t* a, posting_list_t* b) {
+                    return a->num_blocks() < b->num_blocks();
+                });
+            }
         }
 
         ~block_intersector_t() {

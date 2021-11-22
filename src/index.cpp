@@ -1075,7 +1075,8 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
                               bool prioritize_exact_match,
                               const bool exhaustive_search,
                               const size_t concurrency,
-                              std::set<uint64>& query_hashes) const {
+                              std::set<uint64>& query_hashes,
+                              std::vector<uint32_t>& id_buff) const {
 
     auto product = []( long long a, token_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
@@ -1180,11 +1181,15 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
         for(size_t i = 0; i < concurrency; i++) {
             // empty vec can happen if not all threads produce results
             if (!result_id_vecs[i].empty()) {
-                uint32_t* new_all_result_ids = nullptr;
-                all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &result_id_vecs[i][0],
-                                                           result_id_vecs[i].size(), &new_all_result_ids);
-                delete[] *all_result_ids;
-                *all_result_ids = new_all_result_ids;
+                if(exhaustive_search) {
+                    id_buff.insert(id_buff.end(), result_id_vecs[i].begin(), result_id_vecs[i].end());
+                } else {
+                    uint32_t* new_all_result_ids = nullptr;
+                    all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &result_id_vecs[i][0],
+                                                               result_id_vecs[i].size(), &new_all_result_ids);
+                    delete[] *all_result_ids;
+                    *all_result_ids = new_all_result_ids;
+                }
 
                 num_result_ids += result_id_vecs[i].size();
 
@@ -1198,6 +1203,20 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
             if(topster != nullptr) {
                 delete topsters[i];
             }
+        }
+
+        if(id_buff.size() > 100000) {
+            // prevents too many ORs during exhaustive searching
+            std::sort(id_buff.begin(), id_buff.end());
+            id_buff.erase(std::unique( id_buff.begin(), id_buff.end() ), id_buff.end());
+
+            uint32_t* new_all_result_ids = nullptr;
+            all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &id_buff[0],
+                                                       id_buff.size(), &new_all_result_ids);
+            delete[] *all_result_ids;
+            *all_result_ids = new_all_result_ids;
+            num_result_ids += id_buff.size();
+            id_buff.clear();
         }
 
         if(num_result_ids == 0) {
@@ -2940,13 +2959,26 @@ void Index::search_field(const uint8_t & field_id,
         }
 
         if(!token_candidates_vec.empty()) {
+            std::vector<uint32_t> id_buff;
+
             // If atleast one token is found, go ahead and search for candidates
             search_candidates(field_id, the_field.is_array(), filter_ids, filter_ids_length,
                               exclude_token_ids, exclude_token_ids_size,
                               curated_ids, sort_fields, token_candidates_vec, searched_queries, topster,
                               groups_processed, all_result_ids, all_result_ids_len, field_num_results,
                               typo_tokens_threshold, group_limit, group_by_fields, query_tokens,
-                              prioritize_exact_match, combination_limit, concurrency, query_hashes);
+                              prioritize_exact_match, combination_limit, concurrency, query_hashes, id_buff);
+
+            if(id_buff.size() > 1) {
+                std::sort(id_buff.begin(), id_buff.end());
+                id_buff.erase(std::unique( id_buff.begin(), id_buff.end() ), id_buff.end());
+            }
+
+            uint32_t* new_all_result_ids = nullptr;
+            all_result_ids_len = ArrayUtils::or_scalar(*all_result_ids, all_result_ids_len, &id_buff[0],
+                                                       id_buff.size(), &new_all_result_ids);
+            delete[] *all_result_ids;
+            *all_result_ids = new_all_result_ids;
         }
 
         resume_typo_loop:
