@@ -666,37 +666,18 @@ void posting_list_t::intersect(const std::vector<posting_list_t*>& posting_lists
 bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
     // decide if this result id should be excluded
     if(istate.excluded_result_ids_size != 0) {
-        while(istate.excluded_result_ids_index < istate.excluded_result_ids_size &&
-              istate.excluded_result_ids[istate.excluded_result_ids_index] < id) {
-            istate.excluded_result_ids_index++;
-        }
-
-        if(istate.excluded_result_ids_index < istate.excluded_result_ids_size &&
-           id == istate.excluded_result_ids[istate.excluded_result_ids_index]) {
-            istate.excluded_result_ids_index++;
+        if (std::binary_search(istate.excluded_result_ids,
+                               istate.excluded_result_ids + istate.excluded_result_ids_size, id)) {
             return false;
         }
     }
 
-    bool id_found_in_filter = true;
-
     // decide if this result be matched with filter results
     if(istate.filter_ids_length != 0) {
-        id_found_in_filter = false;
-
-        // e.g. [1, 3] vs [2, 3]
-
-        while(istate.filter_ids_index < istate.filter_ids_length && istate.filter_ids[istate.filter_ids_index] < id) {
-            istate.filter_ids_index++;
-        }
-
-        if(istate.filter_ids_index < istate.filter_ids_length && istate.filter_ids[istate.filter_ids_index] == id) {
-            istate.filter_ids_index++;
-            id_found_in_filter = true;
-        }
+        return std::binary_search(istate.filter_ids, istate.filter_ids + istate.filter_ids_length, id);
     }
 
-    return id_found_in_filter;
+    return true;
 }
 
 bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
