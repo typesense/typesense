@@ -950,6 +950,8 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 
     q.push(root);
 
+    size_t num_large_lists = 0;
+
     while(!q.empty() && results.size() < max_results*4) {
         art_node *n = (art_node *) q.top();
         q.pop();
@@ -974,6 +976,10 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 results.push_back(l);
             } else {
                 // we will push leaf only if filter matches with leaf IDs
+                if(!IS_COMPACT_POSTING(l->values)) {
+                    num_large_lists++;
+                }
+
                 bool found_atleast_one = posting_t::contains_atleast_one(l->values, filter_ids, filter_ids_length);
                 if(found_atleast_one) {
                     results.push_back(l);
@@ -1023,6 +1029,10 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 abort();
         }
     }
+
+    LOG(INFO) << "leaf results.size: " << results.size()
+              << ", filter_ids_length: " << filter_ids_length
+              << ", num_large_lists: " << num_large_lists;
 
     printf("OUTSIDE art_topk_iter: results size: %d\n", results.size());
     return 0;

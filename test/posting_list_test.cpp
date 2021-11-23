@@ -1325,6 +1325,12 @@ TEST_F(PostingListTest, CompactPostingListContainsAtleastOne) {
     ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids3[0], target_ids3.size()));
     ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids4[0], target_ids4.size()));
 
+    std::vector<uint32_t> target_ids5 = {2, 3};
+    ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids5[0], target_ids5.size()));
+
+    std::vector<uint32_t> target_ids6 = {0, 1, 2};
+    ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids6[0], target_ids6.size()));
+
     posting_t::destroy_list(obj);
 }
 
