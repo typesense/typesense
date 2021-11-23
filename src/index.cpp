@@ -1923,7 +1923,8 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             std::vector<token_t> window_tokens;
             std::set<std::string> window_tokens_set;
             for (size_t i = start_index; i < start_index + window_len; i++) {
-                window_tokens.push_back({i, tokens[i]});
+                bool is_prefix = (i == (start_index + window_len - 1));
+                window_tokens.emplace_back(i, tokens[i], is_prefix);
                 window_tokens_set.emplace(tokens[i]);
             }
 
@@ -2100,14 +2101,16 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         for(size_t i = 0; i < num_search_fields; i++) {
             std::vector<token_t> q_include_pos_tokens;
             for(size_t j=0; j < field_query_tokens[i].q_include_tokens.size(); j++) {
-                q_include_pos_tokens.push_back({j, field_query_tokens[i].q_include_tokens[j]});
+                bool is_prefix = (j == field_query_tokens[i].q_include_tokens.size()-1);
+                q_include_pos_tokens.emplace_back(j, field_query_tokens[i].q_include_tokens[j], is_prefix);
             }
 
             std::vector<std::vector<token_t>> q_pos_synonyms;
             for(const auto& q_syn_vec: field_query_tokens[i].q_synonyms) {
                 std::vector<token_t> q_pos_syn;
                 for(size_t j=0; j < q_syn_vec.size(); j++) {
-                    q_pos_syn.push_back({j, q_syn_vec[j]});
+                    bool is_prefix = (j == q_syn_vec.size()-1);
+                    q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix);
                 }
                 q_pos_synonyms.emplace_back(q_pos_syn);
             }
@@ -2543,8 +2546,9 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             std::vector<token_t> search_tokens, qtokens;
 
             for (size_t qtoken_index = 0; qtoken_index < query_tokens.size(); qtoken_index++) {
-                search_tokens.emplace_back(token_t{qtoken_index, query_tokens[qtoken_index]});
-                qtokens.emplace_back(token_t{qtoken_index, query_tokens[qtoken_index]});
+                bool is_prefix = (qtoken_index == query_tokens.size()-1);
+                search_tokens.emplace_back(qtoken_index, query_tokens[qtoken_index], is_prefix);
+                qtokens.emplace_back(qtoken_index, query_tokens[qtoken_index], is_prefix);
             }
 
             std::vector<std::vector<art_leaf*>> searched_queries;
@@ -2893,14 +2897,14 @@ void Index::search_field(const uint8_t & field_id,
             const std::string token_cost_hash = token + std::to_string(costs[token_index]);
 
             std::vector<art_leaf*> leaves;
-            //LOG(INFO) << "Searching for field: " << field << ", token:" << token << " - cost: " << costs[token_index];
+            const bool prefix_search = prefix && search_tokens[token_index].prefix;
 
-            const bool prefix_search = prefix && (token_index == search_tokens.size()-1);
+            /*LOG(INFO) << "Searching for field: " << the_field.name << ", token:"
+                      << token << " - cost: " << costs[token_index] << ", prefix_search: " << prefix_search;*/
 
             if(token_cost_cache.count(token_cost_hash) != 0) {
                 leaves = token_cost_cache[token_cost_hash];
             } else {
-                // prefix should apply only for last token
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
                 //auto begin = std::chrono::high_resolution_clock::now();
@@ -3008,13 +3012,13 @@ void Index::search_field(const uint8_t & field_id,
             // drop from right
             size_t end_index = (query_tokens.size() - 1) - num_tokens_dropped;
             for(size_t i=0; i <= end_index; i++) {
-                truncated_tokens.push_back({query_tokens[i].position, query_tokens[i].value});
+                truncated_tokens.emplace_back(query_tokens[i].position, query_tokens[i].value, query_tokens[i].prefix);
             }
         } else {
             // drop from left
             size_t start_index = (num_tokens_dropped - mid_index);
             for(size_t i=start_index; i<query_tokens.size(); i++) {
-                truncated_tokens.push_back({query_tokens[i].position, query_tokens[i].value});
+                truncated_tokens.emplace_back(query_tokens[i].position, query_tokens[i].value, query_tokens[i].prefix);
             }
         }
 

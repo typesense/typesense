@@ -1711,8 +1711,6 @@ TEST_F(CollectionSpecificTest, RepeatingStringArrayTokens) {
 }
 
 TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
-    std::vector<std::string> tags;
-
     // when the first document containing a token already cannot fit compact posting list
 
     std::vector<field> fields = {field("title", field_types::STRING, false),};
@@ -1727,8 +1725,46 @@ TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
     auto results = coll1->search("and", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
 
-    LOG(INFO) << results;
-
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeUsedForPrefixSearch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Dog Shoemaker";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Shoe and Sock";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("shoe cat", {"title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("cat shoe", {"title"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
