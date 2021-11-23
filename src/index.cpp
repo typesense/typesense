@@ -1231,7 +1231,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
 void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                          const std::vector<filter>& filters,
                          const bool enable_short_circuit) const {
-    auto begin = std::chrono::high_resolution_clock::now();
+    //auto begin = std::chrono::high_resolution_clock::now();
     for(size_t i = 0; i < filters.size(); i++) {
         const filter & a_filter = filters[i];
 
@@ -1571,10 +1571,10 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
         }
     }
 
-    long long int timeMillis =
+    /*long long int timeMillis =
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
 
-    LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";
+    LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
 }
 
 
@@ -2194,7 +2194,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             }
         }
 
-        auto begin0 = std::chrono::high_resolution_clock::now();
+        //auto begin0 = std::chrono::high_resolution_clock::now();
 
         for(auto& seq_id_kvs: topster_ids) {
             const uint64_t seq_id = seq_id_kvs.first;
@@ -2376,10 +2376,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             topster->add(kvs[0]);
         }
 
-        auto timeMillis0 = std::chrono::duration_cast<std::chrono::milliseconds>(
+        /*auto timeMillis0 = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::high_resolution_clock::now() - begin0).count();
 
-        LOG(INFO) << "Time taken for multi-field aggregation: " << timeMillis0 << "ms";
+        LOG(INFO) << "Time taken for multi-field aggregation: " << timeMillis0 << "ms";*/
     }
 
     //LOG(INFO) << "topster size: " << topster->size;
@@ -2903,17 +2903,17 @@ void Index::search_field(const uint8_t & field_id,
                 // prefix should apply only for last token
                 const size_t token_len = prefix_search ? (int) token.length() : (int) token.length() + 1;
 
-                auto begin = std::chrono::high_resolution_clock::now();
+                //auto begin = std::chrono::high_resolution_clock::now();
 
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field_name), (const unsigned char *) token.c_str(), token_len,
                                  costs[token_index], costs[token_index], num_fuzzy_candidates, token_order, prefix_search,
                                  filter_ids, filter_ids_length, leaves, unique_tokens);
 
-                auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::high_resolution_clock::now() - begin).count();
 
-                LOG(INFO) << "Time taken for fuzzy search: " << timeMillis << "ms";
+                LOG(INFO) << "Time taken for fuzzy search: " << timeMillis << "ms";*/
 
                 if(!leaves.empty()) {
                     token_cost_cache.emplace(token_cost_hash, leaves);
