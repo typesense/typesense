@@ -4,6 +4,7 @@
 API_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1)
 sed -i "s/\$API_KEY/$API_KEY/g" /etc/typesense/typesense-server.ini
 
+systemctl stop typesense-server
 systemctl enable typesense-server
 systemctl daemon-reload
 systemctl start typesense-server
