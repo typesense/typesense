@@ -29,6 +29,11 @@ using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
 struct token_t {
     size_t position;
     std::string value;
+    bool prefix;
+
+    token_t(size_t position, const std::string& value, bool prefix): position(position), value(value), prefix(prefix) {
+
+    }
 };
 
 struct token_candidates {
