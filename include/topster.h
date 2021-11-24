@@ -105,10 +105,9 @@ struct Topster {
     KV *data;
     KV** kvs;
 
-    // For distinct, stores the min heap kv of each group_kv_map topster value
     std::unordered_map<uint64_t, KV*> kv_map;
 
-    std::unordered_map<uint64_t, Topster*> group_kv_map;
+    spp::sparse_hash_map<uint64_t, Topster*> group_kv_map;
     size_t distinct;
 
     explicit Topster(size_t capacity): Topster(capacity, 0) {
@@ -172,64 +171,17 @@ struct Topster {
         bool SIFT_DOWN = true;
 
         if(distinct) {
-            const auto& found_it = group_kv_map.find(kv->distinct_key);
-            bool is_duplicate_key = (found_it != group_kv_map.end());
-
-            if(!is_duplicate_key && less_than_min_heap) {
-                // for distinct, if a non duplicate kv is < than min heap we ignore
-                return false;
-            }
-
-            if(is_duplicate_key) {
-                // if min heap (group_topster.kvs[0]) changes, we have to update kvs and sift
-                Topster* group_topster = found_it->second;
-                KV old_min_heap_kv = *kv_map[kv->distinct_key];
-                bool added = group_topster->add(kv);
-
-                if(!added) {
-                    return false;
-                }
-
-                // if new kv score is greater than previous min heap score we sift down, otherwise sift up
-                SIFT_DOWN = is_greater(kv, &old_min_heap_kv);
-
-                // new kv is different from old_min_heap_kv so we have to sift heap
-                heap_op_index = old_min_heap_kv.array_index;
-
-                // erase current min heap key from kv_map
-                kv_map.erase(old_min_heap_kv.distinct_key);
-
+            // Grouping cannot be a streaming operation, so aggregate the KVs associated with every group.
+            auto kvs_it = group_kv_map.find(kv->distinct_key);
+            if(kvs_it != group_kv_map.end()) {
+                kvs_it->second->add(kv);
             } else {
-                // kv is guaranteed to be > current min heap: kvs[0]
-                // create fresh topster for this distinct group key since it does not exist
-                Topster* group_topster = new Topster(distinct, 0);
-                group_topster->add(kv);
-
-                // add new group key to map
-                group_kv_map.emplace(kv->distinct_key, group_topster);
-
-                // find heap operation index for updating kvs
-
-                if(size < MAX_SIZE) {
-                    // there is enough space in heap we just copy to end
-                    SIFT_DOWN = false;
-                    heap_op_index = size;
-                    size++;
-                } else {
-                    SIFT_DOWN = true;
-
-                    // max size is reached so we are forced to replace current min heap element (kvs[0])
-                    heap_op_index = 0;
-
-                    // remove current min heap group key from maps
-                    delete group_kv_map[kvs[heap_op_index]->distinct_key];
-                    group_kv_map.erase(kvs[heap_op_index]->distinct_key);
-                    kv_map.erase(kvs[heap_op_index]->distinct_key);
-                }
+                Topster* g_topster = new Topster(distinct, 0);
+                g_topster->add(kv);
+                group_kv_map.insert({kv->distinct_key, g_topster});
             }
-
-            // kv will be copied into the pointer at heap_op_index
-            kv_map.emplace(kv->distinct_key, kvs[heap_op_index]);
+            
+            return true;
 
         } else { // not distinct
             //LOG(INFO) << "Searching for key: " << kv->key;
@@ -334,9 +286,8 @@ struct Topster {
 
     // topster must be sorted before iterated upon to remove dead array entries
     void sort() {
-        std::stable_sort(kvs, kvs + size, is_greater);
-        for(auto &group_topster: group_kv_map) {
-            group_topster.second->sort();
+        if(!distinct) {
+            std::stable_sort(kvs, kvs + size, is_greater);
         }
     }
 

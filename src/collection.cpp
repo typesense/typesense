@@ -1384,12 +1384,27 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) {
     if(topster->distinct) {
-        for(auto &group_topster_entry: topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            result_kvs.emplace_back(group_kvs);
+        // we have to pick top-K groups
+        Topster gtopster(topster->MAX_SIZE);
+
+        for(auto& group_topster: topster->group_kv_map) {
+            group_topster.second->sort();
+            if(group_topster.second->size != 0) {
+                KV* kv_head = group_topster.second->getKV(0);
+                gtopster.add(kv_head);
+            }
         }
 
+        gtopster.sort();
+
+        for(size_t i = 0; i < gtopster.size; i++) {
+            KV* kv = gtopster.getKV(i);
+            const std::vector<KV*> group_kvs(
+                topster->group_kv_map[kv->distinct_key]->kvs,
+                topster->group_kv_map[kv->distinct_key]->kvs+topster->group_kv_map[kv->distinct_key]->size
+            );
+            result_kvs.emplace_back(group_kvs);
+        }
     } else {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);
