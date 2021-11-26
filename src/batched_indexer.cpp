@@ -255,9 +255,11 @@ void BatchedIndexer::run() {
                     const std::string& req_key_prefix = get_req_prefix_key(it->second.start_ts);
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
 
-                    it->second.res->final = true;
-                    async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
-                    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                    if(it->second.res->is_alive) {
+                        it->second.res->final = true;
+                        async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
+                        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                    }
 
                     it = req_res_map.erase(it);
                 } else {

@@ -34,7 +34,13 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     if(!res->is_alive) {
+        // underlying request is dead or this is a raft log playback
         return ;
+    }
+
+    if(req->_req->res.status != 0) {
+        // not the first response chunk, so wait for previous chunk to finish
+        res->wait();
     }
 
     auto req_res = new async_req_res_t(req, res, true);
