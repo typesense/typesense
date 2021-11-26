@@ -1550,6 +1550,8 @@ TEST_F(CollectionSpecificTest, UpdateOfTwoDocsWithSameIdWithinSameBatch) {
 
     ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("points")->size());
     ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionSpecificTest, UpsertOfTwoDocsWithSameIdWithinSameBatch) {
@@ -1600,6 +1602,8 @@ TEST_F(CollectionSpecificTest, UpsertOfTwoDocsWithSameIdWithinSameBatch) {
     import_response = coll1->add_many(upserts, update_doc, UPDATE);
     ASSERT_FALSE(import_response["success"].get<bool>());
     ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionSpecificTest, UpdateUpsertOfDocWithMissingFields) {
@@ -1675,6 +1679,8 @@ TEST_F(CollectionSpecificTest, UpdateUpsertOfDocWithMissingFields) {
 
     ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("points")->size());
     ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionSpecificTest, FacetParallelizationVerification) {
@@ -1937,4 +1943,6 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeUsedForPrefixSearch) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
 }
