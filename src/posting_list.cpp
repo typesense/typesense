@@ -269,7 +269,8 @@ void posting_list_t::merge_adjacent_blocks(posting_list_t::block_t* block1, post
     size_t new_block1_offsets_size = block1->offsets.getLength() + num_block2_offsets_to_move;
     uint32_t* new_block1_offsets = new uint32_t[new_block1_offsets_size];
 
-    uint32_t min = offsets1[0], max = offsets1[0];
+    uint32_t min = block1->offsets.getLength() != 0 ? offsets1[0] : 0;
+    uint32_t max = min;
 
     // we have to manually copy over so we can find the new min and max
     for(size_t i = 0; i < block1->offsets.getLength(); i++) {
