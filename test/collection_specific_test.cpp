@@ -1541,15 +1541,28 @@ TEST_F(CollectionSpecificTest, UpdateOfTwoDocsWithSameIdWithinSameBatch) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true).get();
 
-    LOG(INFO) << results;
+    collectionManager.drop_collection("coll1");
+}
 
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_TRUE(results["hits"][0]["document"].contains("last_chance"));
-    ASSERT_EQ(false, results["hits"][0]["document"]["last_chance"].get<bool>());
+TEST_F(CollectionSpecificTest, CyrillicText) {
+    // when the first document containing a token already cannot fit compact posting list
 
-    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("points")->size());
-    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "sr"),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test Тест";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "TEST ТЕСТ";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("тест", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1779,9 +1792,10 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAll
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
 
+    ASSERT_EQ(2, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
-
 TEST_F(CollectionSpecificTest, CustomNumTyposConfiguration) {
     // dropped tokens on a single field cannot be deemed as verbatim match
 
