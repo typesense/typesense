@@ -186,7 +186,9 @@ bool posting_list_t::block_t::contains(uint32_t id) {
 /* posting_list_t operations */
 
 posting_list_t::posting_list_t(uint16_t max_block_elements): BLOCK_MAX_ELEMENTS(max_block_elements) {
-
+    if(max_block_elements <= 1) {
+        throw std::invalid_argument("max_block_elements must be > 1");
+    }
 }
 
 posting_list_t::~posting_list_t() {
@@ -423,7 +425,7 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
     } else {
         const auto it = id_block_map.lower_bound(id);
         upsert_block = (it == id_block_map.end()) ? id_block_map.rbegin()->second : it->second;
-        before_upsert_last_id = upsert_block->ids.at(upsert_block->size() - 1);
+        before_upsert_last_id = upsert_block->ids.last();
     }
 
     // happy path: upsert_block is not full
@@ -431,7 +433,7 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
         uint32_t num_inserted = upsert_block->upsert(id, offsets);
         ids_length += num_inserted;
 
-        last_id_t after_upsert_last_id = upsert_block->ids.at(upsert_block->size() - 1);
+        last_id_t after_upsert_last_id = upsert_block->ids.last();
         if(before_upsert_last_id != after_upsert_last_id) {
             id_block_map.erase(before_upsert_last_id);
             id_block_map.emplace(after_upsert_last_id, upsert_block);
@@ -451,12 +453,12 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
             // evenly divide elements between both blocks
             split_block(upsert_block, new_block);
 
-            last_id_t after_upsert_last_id = upsert_block->ids.at(upsert_block->size() - 1);
+            last_id_t after_upsert_last_id = upsert_block->ids.last();
             id_block_map.erase(before_upsert_last_id);
             id_block_map.emplace(after_upsert_last_id, upsert_block);
         }
 
-        last_id_t after_new_block_id = new_block->ids.at(new_block->size() - 1);
+        last_id_t after_new_block_id = new_block->ids.last();
         id_block_map.emplace(after_new_block_id, new_block);
 
         new_block->next = upsert_block->next;
@@ -485,6 +487,17 @@ void posting_list_t::erase(const uint32_t id) {
             // since we will be deleting the empty node, set the previous node's next pointer to null
             std::prev(it)->second->next = nullptr;
             delete erase_block;
+        } else {
+            // The root block cannot be empty if there are other blocks so we will pull some contents from next block
+            // This is only an issue for blocks with max size of 2
+            if(root_block.next != nullptr) {
+                auto next_block_last_id = erase_block->next->ids.last();
+                merge_adjacent_blocks(erase_block, erase_block->next, erase_block->next->size()/2);
+                id_block_map.erase(next_block_last_id);
+
+                id_block_map.emplace(erase_block->next->ids.last(), erase_block->next);
+                id_block_map.emplace(erase_block->ids.last(), erase_block);
+            }
         }
 
         id_block_map.erase(before_last_id);
@@ -493,7 +506,7 @@ void posting_list_t::erase(const uint32_t id) {
     }
 
     if(new_ids_length >= BLOCK_MAX_ELEMENTS/2 || erase_block->next == nullptr) {
-        last_id_t after_last_id = erase_block->ids.at(new_ids_length-1);
+        last_id_t after_last_id = erase_block->ids.last();
         if(before_last_id != after_last_id) {
             id_block_map.erase(before_last_id);
             id_block_map.emplace(after_last_id, erase_block);
@@ -505,7 +518,7 @@ void posting_list_t::erase(const uint32_t id) {
     // block is less than 50% of max capacity and contains a next node which we can refill from
 
     auto next_block = erase_block->next;
-    last_id_t next_block_last_id = next_block->ids.at(next_block->ids.getLength()-1);
+    last_id_t next_block_last_id = next_block->ids.last();
 
     if(erase_block->size() + next_block->size() <= BLOCK_MAX_ELEMENTS) {
         // we can merge the contents of next block with `erase_block` and delete the next block
@@ -515,13 +528,15 @@ void posting_list_t::erase(const uint32_t id) {
 
         id_block_map.erase(next_block_last_id);
     } else {
-        // only part of the next block can be moved over
-        size_t num_block2_ids = BLOCK_MAX_ELEMENTS - erase_block->size();
+        // Only part of the next block can be moved over.
+        // We will move only 50% of max elements to ensure that we don't end up "flipping" adjacent blocks:
+        // 1, 5 -> 5, 1
+        size_t num_block2_ids = BLOCK_MAX_ELEMENTS/2;
         merge_adjacent_blocks(erase_block, next_block, num_block2_ids);
         // NOTE: we don't have to update `id_block_map` for `next_block` as last element doesn't change
     }
 
-    last_id_t after_last_id = erase_block->ids.at(erase_block->ids.getLength()-1);
+    last_id_t after_last_id = erase_block->ids.last();
     if(before_last_id != after_last_id) {
         id_block_map.erase(before_last_id);
         id_block_map.emplace(after_last_id, erase_block);
