@@ -385,16 +385,16 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
             queue_ids.push_back(queue_id);
             std::unique_lock qlk(qmutuxes[queue_id].mcv);
             queues[queue_id].emplace_back(req->start_ts);
-            qmutuxes[queue_id].cv.notify_one();
         }
 
         num_reqs_restored++;
     }
 
-    // need to sort on `start_ts` to preserve original order
+    // need to sort on `start_ts` to preserve original order before notifying queues
     for(auto queue_id: queue_ids) {
         std::unique_lock lk(qmutuxes[queue_id].mcv);
         std::sort(queues[queue_id].begin(), queues[queue_id].end());
+        qmutuxes[queue_id].cv.notify_one();
     }
 
     LOG(INFO) << "Restored " << num_reqs_restored << " in-flight requests from snapshot.";
