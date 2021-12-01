@@ -1352,7 +1352,9 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool exclude_operator_prior = false;
 
         for(auto& token: tokens) {
-            if(token[0] == '-') {
+            if(token == "-") {
+                continue;
+            } else if(token[0] == '-') {
                 exclude_operator_prior = true;
                 token = token.substr(1);
             }
