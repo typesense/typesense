@@ -1939,7 +1939,7 @@ TEST_F(CollectionTest, DeletionOfDocumentArrayFields) {
                                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                        spp::sparse_hash_set<std::string>(), 10).get();
 
-    ASSERT_EQ(1, res["found"]);
+    ASSERT_EQ(1, res["found"].get<size_t>());
 
     Option<std::string> rem_op = coll1->remove("100");
 

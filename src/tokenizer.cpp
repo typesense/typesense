@@ -96,7 +96,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                         LOG(ERROR) << "Unicode error during parsing: " << errcode;
                     }
                 } else {
-                    token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+                    token = unicode_text.toLower().tempSubString(prev_position, length).toUTF8String(word);
                 }
 
                 if(!token.empty()) {

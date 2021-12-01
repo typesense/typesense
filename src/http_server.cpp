@@ -767,6 +767,7 @@ void HttpServer::stream_response(stream_response_state_t& state) {
 
     if(state.res_body.len == 0 && state.send_state != H2O_SEND_STATE_FINAL) {
         // without this guard, http streaming will break
+        state.generator->proceed(state.generator, req);
         return;
     }
 
@@ -908,13 +909,15 @@ bool HttpServer::on_request_proceed_message(void *data) {
     // This callback will run concurrently to batch indexer's run() so care must be taken to protect access
     // to variables that are written to by the batch indexer, which for now is only: last_chunk_aggregate (atomic)
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(data);
-    auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+    if(req_res->res->is_alive) {
+        auto stream_state = (req_res->req->last_chunk_aggregate) ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
 
-    size_t written = req_res->req->chunk_len;
-    req_res->req->chunk_len = 0;
+        size_t written = req_res->req->chunk_len;
+        req_res->req->chunk_len = 0;
 
-    if(req_res->req->_req && req_res->req->_req->proceed_req) {
-        req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+        if(req_res->req->_req && req_res->req->_req->proceed_req) {
+            req_res->req->_req->proceed_req(req_res->req->_req, written, stream_state);
+        }
     }
 
     if(req_res->destroy_after_use) {

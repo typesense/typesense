@@ -255,9 +255,11 @@ void BatchedIndexer::run() {
                     const std::string& req_key_prefix = get_req_prefix_key(it->second.start_ts);
                     store->delete_range(req_key_prefix, req_key_prefix + StringUtils::serialize_uint32_t(UINT32_MAX));
 
-                    it->second.res->final = true;
-                    async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
-                    server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                    if(it->second.res->is_alive) {
+                        it->second.res->final = true;
+                        async_req_res_t* async_req_res = new async_req_res_t(it->second.req, it->second.res, true);
+                        server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                    }
 
                     it = req_res_map.erase(it);
                 } else {
@@ -352,7 +354,7 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
     queued_writes = state["queued_writes"].get<int64_t>();
 
     size_t num_reqs_restored = 0;
-    std::vector<uint64_t> queue_ids;
+    std::set<uint64_t> queue_ids;
 
     for(auto& kv: state["req_res_map"].items()) {
         std::shared_ptr<http_req> req = std::make_shared<http_req>();
@@ -380,19 +382,19 @@ void BatchedIndexer::load_state(const nlohmann::json& state) {
 
             const std::string& coll_name = get_collection_name(req);
             uint64_t queue_id = StringUtils::hash_wy(coll_name.c_str(), coll_name.size()) % num_threads;
-            queue_ids.push_back(queue_id);
+            queue_ids.insert(queue_id);
             std::unique_lock qlk(qmutuxes[queue_id].mcv);
             queues[queue_id].emplace_back(req->start_ts);
-            qmutuxes[queue_id].cv.notify_one();
         }
 
         num_reqs_restored++;
     }
 
-    // need to sort on `start_ts` to preserve original order
+    // need to sort on `start_ts` to preserve original order before notifying queues
     for(auto queue_id: queue_ids) {
         std::unique_lock lk(qmutuxes[queue_id].mcv);
         std::sort(queues[queue_id].begin(), queues[queue_id].end());
+        qmutuxes[queue_id].cv.notify_one();
     }
 
     LOG(INFO) << "Restored " << num_reqs_restored << " in-flight requests from snapshot.";
