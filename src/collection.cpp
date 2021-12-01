@@ -223,21 +223,27 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         // NOTE: we overwrite the input json_lines with result to avoid memory pressure
 
         record.is_update = false;
+        bool repeated_doc = false;
 
         if(!doc_seq_id_op.ok()) {
             record.index_failure(doc_seq_id_op.code(), doc_seq_id_op.error());
         } else {
+            const std::string& doc_id = record.doc["id"].get<std::string>();
+            repeated_doc = (batch_doc_ids.find(doc_id) != batch_doc_ids.end());
+
+            if(repeated_doc) {
+                // when a document repeats, we send the batch until this document so that we can deal with conflicts
+                i--;
+                goto do_batched_index;
+            }
+
             record.is_update = !doc_seq_id_op.get().is_new;
+
             if(record.is_update) {
                 get_document_from_store(get_seq_id_key(seq_id), record.old_doc);
-            } else {
-                const std::string& doc_id = record.doc["id"].get<std::string>();
-                if(batch_doc_ids.find(doc_id) != batch_doc_ids.end()) {
-                    record.index_failure(400, "Document with `id` " + doc_id + " already exists in the batch.");
-                } else {
-                    batch_doc_ids.emplace(doc_id);
-                }
             }
+
+            batch_doc_ids.insert(doc_id);
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
             if(!fallback_field_type.empty() || !dynamic_fields.empty()) {
@@ -248,25 +254,11 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             }
         }
 
-        /*
-        // check for memory threshold before allowing subsequent batches
-        if(is_exceeding_memory_threshold()) {
-            exceeds_memory_limit = true;
-        }
-
-        if(exceeds_memory_limit) {
-            nlohmann::json index_res;
-            index_res["error"] = "Max memory ratio exceeded.";
-            index_res["success"] = false;
-            index_res["document"] = json_line;
-            json_lines[i] = index_res.dump();
-            record.index_failure(500, "Max memory ratio exceeded.");
-        }
-        */
-
         index_records.emplace_back(std::move(record));
 
-        if((i+1) % index_batch_size == 0 || i == json_lines.size()-1) {
+        do_batched_index:
+
+        if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
             batch_index(index_records, json_lines, num_indexed);
 
             // to return the document for the single doc add cases
@@ -1393,12 +1385,27 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
 void Collection::populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs) {
     if(topster->distinct) {
-        for(auto &group_topster_entry: topster->group_kv_map) {
-            Topster* group_topster = group_topster_entry.second;
-            const std::vector<KV*> group_kvs(group_topster->kvs, group_topster->kvs+group_topster->size);
-            result_kvs.emplace_back(group_kvs);
+        // we have to pick top-K groups
+        Topster gtopster(topster->MAX_SIZE);
+
+        for(auto& group_topster: topster->group_kv_map) {
+            group_topster.second->sort();
+            if(group_topster.second->size != 0) {
+                KV* kv_head = group_topster.second->getKV(0);
+                gtopster.add(kv_head);
+            }
         }
 
+        gtopster.sort();
+
+        for(size_t i = 0; i < gtopster.size; i++) {
+            KV* kv = gtopster.getKV(i);
+            const std::vector<KV*> group_kvs(
+                topster->group_kv_map[kv->distinct_key]->kvs,
+                topster->group_kv_map[kv->distinct_key]->kvs+topster->group_kv_map[kv->distinct_key]->size
+            );
+            result_kvs.emplace_back(group_kvs);
+        }
     } else {
         for(uint32_t t = 0; t < topster->size; t++) {
             KV* kv = topster->getKV(t);

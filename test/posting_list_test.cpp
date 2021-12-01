@@ -447,13 +447,13 @@ TEST_F(PostingListTest, RemovalsOnLaterBlocks) {
     // only part of the next node contents can be moved over when we delete 8 since (1 + 5) > 5
     pl.erase(8);
 
-    // [0..4], [9], [10..14] => [0..4], [9,10,11,12,13], [14]
+    // [0..4], [9], [10..14] => [0..4], [9,10,11], [12,13,14]
 
     ASSERT_EQ(3, pl.num_blocks());
     ASSERT_EQ(11, pl.num_ids());
-    ASSERT_EQ(5, pl.get_root()->next->size());
-    ASSERT_EQ(1, pl.get_root()->next->next->size());
-    ASSERT_EQ(13, pl.get_root()->next->ids.last());
+    ASSERT_EQ(3, pl.get_root()->next->size());
+    ASSERT_EQ(3, pl.get_root()->next->next->size());
+    ASSERT_EQ(11, pl.get_root()->next->ids.last());
     ASSERT_EQ(14, pl.get_root()->next->next->ids.last());
 
     for(size_t i = 0; i < pl.get_root()->next->offset_index.getLength(); i++) {
@@ -615,27 +615,6 @@ TEST_F(PostingListTest, SplittingOfListsSimple) {
 
     std::vector<std::vector<posting_list_t::iterator_t>> partial_its_vec(4);
     intersector.split_lists(4, partial_its_vec);
-
-    /*for(size_t i = 0; i < partial_its_vec.size(); i++) {
-        auto& partial_its = partial_its_vec[i];
-
-        if (partial_its.empty()) {
-            continue;
-        }
-
-        LOG(INFO) << "Vec " << i;
-
-        for (auto& it: partial_its) {
-            while (it.valid()) {
-                LOG(INFO) << it.id();
-                it.next();
-            }
-
-            LOG(INFO) << "---";
-        }
-    }
-
-    return ;*/
 
     std::vector<std::vector<std::vector<uint32_t>>> split_ids = {
         {{0, 2}, {1, 3}, {2, 3}},
@@ -1325,6 +1304,12 @@ TEST_F(PostingListTest, CompactPostingListContainsAtleastOne) {
     ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids3[0], target_ids3.size()));
     ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids4[0], target_ids4.size()));
 
+    std::vector<uint32_t> target_ids5 = {2, 3};
+    ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids5[0], target_ids5.size()));
+
+    std::vector<uint32_t> target_ids6 = {0, 1, 2};
+    ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids6[0], target_ids6.size()));
+
     posting_t::destroy_list(obj);
 }
 
@@ -1376,6 +1361,94 @@ TEST_F(PostingListTest, BlockIntersectionOnMixedLists) {
     ASSERT_EQ(8, result_ids[1]);
 
     free(list1);
+}
+
+TEST_F(PostingListTest, InsertAndEraseSequence) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(5);
+
+    pl.upsert(0, offsets);
+    pl.upsert(2, offsets);
+    pl.upsert(4, offsets);
+    pl.upsert(6, offsets);
+    pl.upsert(8, offsets);
+
+    // this will cause a split of the root block
+    pl.upsert(3, offsets); // 0,2,3 | 4,6,8
+    pl.erase(0); // 2,3 | 4,6,8
+    pl.upsert(5, offsets); // 2,3 | 4,5,6,8
+    pl.upsert(7, offsets); // 2,3 | 4,5,6,7,8
+    pl.upsert(10, offsets); // 2,3 | 4,5,6,7,8 | 10
+
+    // this will cause adjacent block refill
+    pl.erase(2); // 3,4,5,6,7 | 8 | 10
+
+    // deletes second block
+    pl.erase(8);
+
+    // remove all elements
+    pl.erase(3);
+    pl.erase(4);
+    pl.erase(5);
+    pl.erase(6);
+    pl.erase(7);
+    pl.erase(10);
+
+    ASSERT_EQ(0, pl.num_ids());
+}
+
+TEST_F(PostingListTest, InsertAndEraseSequenceWithBlockSizeTwo) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(2);
+
+    pl.upsert(2, offsets);
+    pl.upsert(3, offsets);
+    pl.upsert(1, offsets);  // inserting 2 again here?  // inserting 4 here?
+
+    // 1 | 2,3
+
+    pl.erase(1);
+
+    ASSERT_EQ(1, pl.get_root()->size());
+    ASSERT_EQ(2, pl.num_blocks());
+
+    pl.erase(3);
+    pl.erase(2);
+
+    ASSERT_EQ(0, pl.get_root()->size());
+}
+
+TEST_F(PostingListTest, PostingListMustHaveAtleast1Element) {
+    try {
+        std::vector<uint32_t> offsets = {0, 1, 3};
+        posting_list_t pl(1);
+        FAIL() << "Expected std::invalid_argument";
+    }
+    catch(std::invalid_argument const & err) {
+        EXPECT_EQ(err.what(),std::string("max_block_elements must be > 1"));
+    } catch(...) {
+        FAIL() << "Expected std::invalid_argument";
+    }
+}
+
+TEST_F(PostingListTest, DISABLED_RandInsertAndErase) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(5);
+
+    time_t t;
+    srand((unsigned) time(&t));
+
+    for(size_t i = 0; i < 10000; i++) {
+        LOG(INFO) << "i: " << i;
+        uint32_t add_id = rand() % 15;
+        pl.upsert(add_id, offsets);
+
+        uint32_t del_id = rand() % 15;
+        LOG(INFO) << "add: " << add_id << ", erase: " << del_id;
+        pl.erase(del_id);
+    }
+
+    LOG(INFO) << "Num ids: " << pl.num_ids() << ", num bocks: " << pl.num_blocks();
 }
 
 TEST_F(PostingListTest, DISABLED_Benchmark) {

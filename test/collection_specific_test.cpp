@@ -1452,7 +1452,7 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
 
     ASSERT_TRUE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
     ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
-    ASSERT_EQ("Document with `id` 0 already exists in the batch.",
+    ASSERT_EQ("A document with id 0 already exists.",
               nlohmann::json::parse(import_records[1])["error"].get<std::string>());
 
     auto results = coll1->search("levis", {"name"},
@@ -1485,7 +1485,7 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
 
-    // repeated ID is rejected even if the first ID is not indexed due to some error
+    // repeated ID is NOT rejected if the first ID is not indexed due to some error
     import_records.clear();
     doc1.erase("name");
     doc1["id"] = "100";
@@ -1497,12 +1497,199 @@ TEST_F(CollectionSpecificTest, ImportDocumentWithRepeatingIDInTheSameBatch) {
     import_response = coll1->add_many(import_records, document);
 
     ASSERT_FALSE(import_response["success"].get<bool>());
-    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
 
     ASSERT_FALSE(nlohmann::json::parse(import_records[0])["success"].get<bool>());
-    ASSERT_FALSE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
-    ASSERT_EQ("Document with `id` 100 already exists in the batch.",
-              nlohmann::json::parse(import_records[1])["error"].get<std::string>());
+    ASSERT_EQ("Field `name` has been declared in the schema, but is not found in the document.",
+              nlohmann::json::parse(import_records[0])["error"].get<std::string>());
+
+    ASSERT_TRUE(nlohmann::json::parse(import_records[1])["success"].get<bool>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+
+TEST_F(CollectionSpecificTest, UpdateOfTwoDocsWithSameIdWithinSameBatch) {
+    std::vector<field> fields = {field("last_chance", field_types::BOOL, false, true),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    // second update should reflect the result of first update
+    std::vector<std::string> updates = {
+            R"({"id": "0", "last_chance": false})",
+            R"({"id": "0", "points": 200})",
+    };
+
+    nlohmann::json update_doc;
+    auto import_response = coll1->add_many(updates, update_doc, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    auto results = coll1->search("*", {},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, CyrillicText) {
+    // when the first document containing a token already cannot fit compact posting list
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "sr"),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test Тест";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "TEST ТЕСТ";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("тест", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, UpsertOfTwoDocsWithSameIdWithinSameBatch) {
+    std::vector<field> fields = {field("last_chance", field_types::BOOL, false, true),
+                                 field("points", field_types::INT32, false, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    // first upsert removes both fields, so second upsert should only insert "points"
+    std::vector<std::string> upserts = {
+            R"({"id": "0", "last_chance": true})",
+            R"({"id": "0", "points": 200})",
+    };
+
+    nlohmann::json update_doc;
+    auto import_response = coll1->add_many(upserts, update_doc, UPSERT);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    auto results = coll1->search("*", {},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0]["document"].contains("points"));
+    ASSERT_FALSE(results["hits"][0]["document"].contains("last_chance"));
+    ASSERT_EQ(200, results["hits"][0]["document"]["points"].get<int32_t>());
+
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("points")->size());
+    ASSERT_EQ(0, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
+
+    // update without doc id
+
+    upserts = {
+            R"({"last_chance": true})",
+    };
+
+    import_response = coll1->add_many(upserts, update_doc, UPDATE);
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(0, import_response["num_imported"].get<int>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, UpdateUpsertOfDocWithMissingFields) {
+    std::vector<field> fields = {field("last_chance", field_types::BOOL, false, true),
+                                 field("points", field_types::INT32, false, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["last_chance"] = true;
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    // upsert doc with missing fields: should be removed from index
+    std::vector<std::string> upserts = {
+            R"({"id": "0"})"
+    };
+
+    nlohmann::json update_doc;
+    auto import_response = coll1->add_many(upserts, update_doc, UPSERT);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    auto results = coll1->search("*", {},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, results["hits"][0]["document"].size());
+
+    ASSERT_EQ(0, coll1->_get_index()->_get_numerical_index().at("points")->size());
+    ASSERT_EQ(0, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
+
+    // put the original doc back
+    ASSERT_TRUE(coll1->add(doc1.dump(), UPSERT).ok());
+
+    results = coll1->search("*", {},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+
+    // update doc with missing fields: existing fields should NOT be removed
+
+    upserts = {
+            R"({"id": "0"})"
+    };
+
+    import_response = coll1->add_many(upserts, update_doc, UPDATE);
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    results = coll1->search("*", {},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("points")->size());
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().at("last_chance")->size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1603,9 +1790,10 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAll
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
 
+    ASSERT_EQ(2, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
-
 TEST_F(CollectionSpecificTest, CustomNumTyposConfiguration) {
     // dropped tokens on a single field cannot be deemed as verbatim match
 
@@ -1728,6 +1916,49 @@ TEST_F(CollectionSpecificTest, HighlightOnPrefixRegression) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeUsedForPrefixSearch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Dog Shoemaker";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Shoe and Sock";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("shoe cat", {"title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("cat shoe", {"title"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
     // when the first document containing a token already cannot fit compact posting list
     std::vector<field> fields = {field("title", field_types::STRING, false),};
@@ -1758,10 +1989,12 @@ TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
 
     // only first 5 words of the query are used for concat/split
 
-    results = coll1->search("nonstick pressure cooker is a greatinvention", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    results = coll1->search("nonstick pressure cooker is a greatinvention", {"title"}, "", {}, {}, {0}, 10, 1,
+                            FREQUENCY, {false}, 0).get();
     ASSERT_EQ(0, results["hits"].size());
 
-    results = coll1->search("nonstick pressure cooker is a gr eat", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    results = coll1->search("nonstick pressure cooker is a gr eat", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {false}, 0).get();
     ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll1");

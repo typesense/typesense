@@ -29,6 +29,11 @@ using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
 struct token_t {
     size_t position;
     std::string value;
+    bool prefix;
+
+    token_t(size_t position, const std::string& value, bool prefix): position(position), value(value), prefix(prefix) {
+
+    }
 };
 
 struct token_candidates {
@@ -510,7 +515,8 @@ private:
                            bool prioritize_exact_match,
                            bool exhaustive_search,
                            size_t concurrency,
-                           std::set<uint64>& query_hashes) const;
+                           std::set<uint64>& query_hashes,
+                           std::vector<uint32_t>& id_buff) const;
 
     void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters,
                       const bool enable_short_circuit) const;
