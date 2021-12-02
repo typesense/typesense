@@ -506,6 +506,38 @@ TEST_F(CollectionLocaleTest, SearchCyrillicText) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionLocaleTest, SearchCyrillicTextWithDropTokens) {
+    // this test ensures that even when tokens are dropped, the eventual text is highlighted on all query tokens
+    std::vector<field> fields = {field("description", field_types::STRING, false, false, true, "sr"),
+                                 field("points", field_types::INT32, false, false, true, "sr"),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["description"] = "HPE Aruba AP575 802.11ax Wireless Access Point - TAA Compliant - 2.40 GHz, "
+                          "5 GHz - MIMO Technology - 1 x Network (RJ-45) - Gigabit Ethernet - Bluetooth 5";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("HPE Aruba AP575 Technology Gigabit Bluetooth 5", {"description"}, "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "description", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>").get();
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("<mark>HPE</mark> <mark>Aruba</mark> <mark>AP575</mark> 802.11ax Wireless Access Point - "
+              "TAA Compliant - 2.40 GHz, <mark>5</mark> GHz - MIMO <mark>Technology</mark> - 1 x Network (RJ-45) - "
+              "<mark>Gigabit</mark> Ethernet - <mark>Bluetooth</mark> <mark>5</mark>",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionLocaleTest, SearchGreekText) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "el"),};
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
