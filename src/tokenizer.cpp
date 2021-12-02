@@ -29,6 +29,12 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
     else if(locale == "ja") {
         normalized_text = JapaneseLocalizer::get_instance().normalize(input);
         text = normalized_text;
+    } else if(is_cyrillic(locale)) {
+        // init transliterator but will only transliterate during tokenization
+        UErrorCode translit_status = U_ZERO_ERROR;
+        transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
+                                                             UTRANS_FORWARD, translit_status);
+        text = input;
     } else {
         text = input;
     }
@@ -89,14 +95,16 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                     nfkd->normalize(src, dst, errcode);
 
                     if(!U_FAILURE(errcode)) {
-                        std::string output;
-                        dst.toUTF8String(output);
-                        token = output;
+                        token = dst.toUTF8String(word);
                     } else {
                         LOG(ERROR) << "Unicode error during parsing: " << errcode;
                     }
+                } else if(normalize && is_cyrillic(locale)) {
+                    auto raw_text = unicode_text.tempSubString(prev_position, length);
+                    transliterator->transliterate(raw_text);
+                    token = raw_text.toUTF8String(word);
                 } else {
-                    token = unicode_text.toLower().tempSubString(prev_position, length).toUTF8String(word);
+                    token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
                 }
 
                 if(!token.empty()) {
@@ -197,7 +205,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
         //printf("[%s]\n", inbuf);
 
         errno = 0;
-        iconv(cd, &inptr, &insize, &outptr, &outsize);
+        iconv(cd, &inptr, &insize, &outptr, &outsize);  // this can be handled by ICU via "Latin-ASCII"
 
         if(errno == EILSEQ) {
             // symbol cannot be represented as ASCII, so write the original symbol
@@ -251,4 +259,9 @@ void Tokenizer::tokenize(std::string& token) {
 bool Tokenizer::next(std::string &token, size_t &token_index) {
     size_t start_index, end_index;
     return next(token, token_index, start_index, end_index);
+}
+
+bool Tokenizer::is_cyrillic(const std::string& locale) {
+    return locale == "el" ||
+           locale == "ru" || locale == "sr" || locale == "uk" || locale == "be";
 }

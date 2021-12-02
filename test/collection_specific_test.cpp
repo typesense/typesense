@@ -1542,29 +1542,6 @@ TEST_F(CollectionSpecificTest, UpdateOfTwoDocsWithSameIdWithinSameBatch) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, CyrillicText) {
-    // when the first document containing a token already cannot fit compact posting list
-
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "sr"),};
-
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
-
-    nlohmann::json doc;
-    doc["title"] = "Test Тест";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    doc["title"] = "TEST ТЕСТ";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
-    auto results = coll1->search("тест", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
-
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-
-    collectionManager.drop_collection("coll1");
-}
-
 TEST_F(CollectionSpecificTest, UpsertOfTwoDocsWithSameIdWithinSameBatch) {
     std::vector<field> fields = {field("last_chance", field_types::BOOL, false, true),
                                  field("points", field_types::INT32, false, true),};

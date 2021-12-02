@@ -1651,7 +1651,12 @@ void Collection::highlight_result(const field &search_field,
             text = document[search_field.name][match_index.index];
         }
 
-        Tokenizer tokenizer(text, true, false, search_field.locale, symbols_to_index, token_separators);
+        bool is_cyrillic = Tokenizer::is_cyrillic(search_field.locale);
+        bool normalise = is_cyrillic ? false : true;
+        Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators);
+
+        // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
+        Tokenizer word_tokenizer("", true, false, search_field.locale, symbols_to_index, token_separators);
 
         if(search_field.locale == "ko") {
             text = string_utils.unicode_nfkd(text);
@@ -1676,6 +1681,10 @@ void Collection::highlight_result(const field &search_field,
         bool found_first_match = false;
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
+            if(is_cyrillic) {
+                word_tokenizer.tokenize(raw_token);
+            }
+
             if(!found_first_match) {
                 if(snippet_start_window.size() == highlight_affix_num_tokens + 1) {
                     snippet_start_window.pop_front();
