@@ -73,4 +73,6 @@ public:
     void tokenize(std::vector<std::string>& tokens);
 
     void tokenize(std::string& token);
+
+    static bool is_cyrillic(const std::string& locale);
 };

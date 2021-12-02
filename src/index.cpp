@@ -2840,8 +2840,8 @@ void Index::search_field(const uint8_t & field_id,
 
     size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
 
-    if(the_field.locale != "" && the_field.locale != "en") {
-        // disable fuzzy trie traversal for non-english locales
+    if(the_field.locale != "" && the_field.locale != "en" && !Tokenizer::is_cyrillic(the_field.locale)) {
+        // disable fuzzy trie traversal for certain non-english locales
         max_cost = 0;
     }
 

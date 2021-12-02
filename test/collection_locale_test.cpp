@@ -470,3 +470,59 @@ TEST_F(CollectionLocaleTest, SearchAgainstKoreanTextContainingEnglishChars) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("개혁 등의 영향으로 <mark>11</mark>%나 위축됐다", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
+
+
+TEST_F(CollectionLocaleTest, SearchCyrillicText) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "sr"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test Тест";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "TEST ТЕСТ";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("тест", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("<mark>TEST</mark> ТЕСТ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Test</mark> Тест", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+    // with typo
+
+    results = coll1->search("тетст", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("<mark>TEST</mark> ТЕСТ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Test</mark> Тест", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionLocaleTest, SearchGreekText) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "el"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Εμφάνιση κάθε μέρα.";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("Εμφάν", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>Εμφάνιση</mark> κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    // with typo
+
+    results = coll1->search("Εμφάιση", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>Εμφάνιση</mark> κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}

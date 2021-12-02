@@ -305,9 +305,8 @@ struct field {
                                              field_json[fields::name].get<std::string>() + std::string("` should be a string."));
                 }
 
-                if(!field_json[fields::locale].get<std::string>().empty() && field_json[fields::locale] != "en" &&
-                   field_json[fields::locale] != "ja" && field_json[fields::locale] != "ko" &&
-                   field_json[fields::locale] != "zh" && field_json[fields::locale] != "th") {
+                if(!field_json[fields::locale].get<std::string>().empty() &&
+                    field_json[fields::locale].get<std::string>().size() != 2) {
                     return Option<bool>(400, std::string("The `locale` value of the field `") +
                                              field_json[fields::name].get<std::string>() + std::string("` is not valid."));
                 }
