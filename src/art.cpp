@@ -1,8 +1,13 @@
 #include <stdlib.h>
-#include <string.h>
-#include <strings.h>
-#include <stdio.h>
+
+#if defined(__x86_64__)
 #include <emmintrin.h>
+#elif defined(__aarch64__)
+#include <sse2neon.h>
+#endif
+
+#include <string.h>
+#include <stdio.h>
 #include <assert.h>
 #include <art.h>
 #include <functional>
