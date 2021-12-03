@@ -19,6 +19,10 @@ else()
     endif()
 endif()
 
+if(${CMAKE_SYSTEM_PROCESSOR} MATCHES "arm")
+    set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -mcpu=native")
+endif()
+
 # will be overridden from command line during build
 set(TYPESENSE_VERSION "nightly" CACHE STRING "")
 set(BUILD_DEPS "yes" CACHE STRING "")

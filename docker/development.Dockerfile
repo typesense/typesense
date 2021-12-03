@@ -21,9 +21,9 @@ RUN tar -C /opt -xf /opt/binutils-2.36.tar.xz
 RUN cd /opt/binutils-2.36 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
     make -j8 tooldir=/usr install && cp include/libiberty.h /usr/include
 
-ADD https://github.com/Kitware/CMake/releases/download/v3.15.2/cmake-3.15.2-Linux-x86_64.tar.gz /opt/cmake-3.15.2-Linux-x86_64.tar.gz
-RUN tar -C /opt -xvzf /opt/cmake-3.15.2-Linux-x86_64.tar.gz
-RUN cp -r /opt/cmake-3.15.2-Linux-x86_64/* /usr
+ADD https://github.com/Kitware/CMake/releases/download/v3.15.2/cmake-3.21.3-Linux-x86_64.tar.gz /opt/cmake-3.21.3-Linux-x86_64.tar.gz
+RUN tar -C /opt -xvzf /opt/cmake-3.21.3-Linux-x86_64.tar.gz
+RUN cp -r /opt/cmake-3.21.3-Linux-x86_64/* /usr
 
 ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz /opt/snappy_1.1.3.orig.tar.gz
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
@@ -37,12 +37,12 @@ RUN cd /opt/icu/source && echo "#define U_DISABLE_RENAMING 1" >> common/unicode/
 RUN cd /opt/icu/source && ./runConfigureICU Linux --disable-samples --disable-tests --enable-static \
     --disable-shared --disable-renaming && make -j8 && make install
 
-ADD https://openssl.org/source/openssl-1.1.1d.tar.gz /opt/openssl-1.1.1d.tar.gz
-RUN tar -C /opt -xvzf /opt/openssl-1.1.1d.tar.gz
-RUN cd /opt/openssl-1.1.1d && sh ./config --prefix=/usr/local --openssldir=/usr/local zlib
-RUN make -C /opt/openssl-1.1.1d depend
-RUN make -C /opt/openssl-1.1.1d -j8
-RUN make -C /opt/openssl-1.1.1d install
+ADD https://openssl.org/source/openssl-1.1.1l.tar.gz /opt/openssl-1.1.1l.tar.gz
+RUN tar -C /opt -xvzf /opt/openssl-1.1.1l.tar.gz
+RUN cd /opt/openssl-1.1.1l && sh ./config --prefix=/usr/local --openssldir=/usr/local zlib
+RUN make -C /opt/openssl-1.1.1l depend
+RUN make -C /opt/openssl-1.1.1l -j8
+RUN make -C /opt/openssl-1.1.1l install
 
 ADD https://github.com/curl/curl/releases/download/curl-7_78_0/curl-7.78.0.tar.gz /opt/curl-7.78.0.tar.gz
 RUN tar -C /opt -xf /opt/curl-7.78.0.tar.gz
@@ -72,6 +72,11 @@ RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
     cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_TLS=OFF -DWITH_UNWIND=OFF .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
+ADD https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2 /opt/elfutils-0.182.tar.bz2
+RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
+RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod && \
+    make -j8 && make install && rm -rf /usr/local/lib/*.so*
+
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
 COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
@@ -81,20 +86,15 @@ RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/bld && cd /opt/incubator-brpc-0.9.7-
     make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/incubator-brpc-0.9.7-rc03/bld/output/bin
 
-ADD https://github.com/typesense/braft/archive/c649789.tar.gz /opt/braft-c649789.tar.gz
-RUN tar -C /opt -xf /opt/braft-c649789.tar.gz
-COPY patches/braft_cmakelists.txt /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
-RUN chown root:root /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
-RUN mkdir -p /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
-    cd /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
+ADD https://github.com/typesense/braft/archive/0201a4e.tar.gz /opt/braft-0201a4e.tar.gz
+RUN tar -C /opt -xf /opt/braft-0201a4e.tar.gz
+COPY patches/braft_cmakelists.txt /opt/braft-0201a4ea8dbb2e1432a7bf23980789b4bde101d4/src/CMakeLists.txt
+RUN chown root:root /opt/braft-0201a4ea8dbb2e1432a7bf23980789b4bde101d4/src/CMakeLists.txt
+RUN mkdir -p /opt/braft-0201a4ea8dbb2e1432a7bf23980789b4bde101d4/bld && \
+    cd /opt/braft-0201a4ea8dbb2e1432a7bf23980789b4bde101d4/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j4 && \
     make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld/output/bin
-
-ADD https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2 /opt/elfutils-0.182.tar.bz2
-RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
-RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod && \
-    make -j8 && make install && rm -rf /usr/local/lib/*.so*
+    rm -rf /opt/braft-0201a4ea8dbb2e1432a7bf23980789b4bde101d4/bld/output/bin
 
 ENV CC /usr/local/gcc-10.1.0/bin/gcc
 ENV CXX /usr/local/gcc-10.1.0/bin/g++
