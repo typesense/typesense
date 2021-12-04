@@ -7,22 +7,19 @@ FROM typesense/ubuntu-12-04-gcc:v10.1.0
 ENV PATH /usr/local/gcc-10.1.0/bin/:$PATH
 ENV LD_LIBRARY_PATH /usr/local/gcc-10.1.0/lib64
 
-RUN apt-get install -y python-software-properties \
-	&& add-apt-repository ppa:git-core/ppa \
-	&& apt-get update \
-	&& apt-get install -y \
+RUN apt-get update && apt-get install -y \
+    python-software-properties \
 	zlib1g-dev \
-	liblist-compare-perl \
-	git
+	liblist-compare-perl
 
 ADD https://ftp.gnu.org/gnu/binutils/binutils-2.36.tar.xz /opt/binutils-2.36.tar.xz
 RUN tar -C /opt -xf /opt/binutils-2.36.tar.xz
 RUN cd /opt/binutils-2.36 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
     make -j8 tooldir=/usr install && cp include/libiberty.h /usr/include
 
-ADD https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0-Linux-x86_64.tar.gz /opt/cmake-3.22.0-Linux-x86_64.tar.gz
-RUN tar -C /opt -xvzf /opt/cmake-3.22.0-Linux-x86_64.tar.gz
-RUN cp -r /opt/cmake-3.22.0-Linux-x86_64/* /usr
+ADD https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0-linux-x86_64.tar.gz /opt/cmake-3.22.0-linux-x86_64.tar.gz
+RUN tar -C /opt -xvzf /opt/cmake-3.22.0-linux-x86_64.tar.gz
+RUN cp -r /opt/cmake-3.22.0-linux-x86_64/* /usr
 
 ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz /opt/snappy_1.1.3.orig.tar.gz
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
