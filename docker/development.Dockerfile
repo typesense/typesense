@@ -93,5 +93,8 @@ RUN mkdir -p /opt/braft-938eeb5f67dd9ef592f7ec9bd37b9b822980a2c5/bld && \
     make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/braft-938eeb5f67dd9ef592f7ec9bd37b9b822980a2c5/bld/output/bin
 
+# This is mostly for CI, and should be moved above in the next iteration
+RUN apt-get -y install git
+
 ENV CC /usr/local/gcc-10.1.0/bin/gcc
 ENV CXX /usr/local/gcc-10.1.0/bin/g++
