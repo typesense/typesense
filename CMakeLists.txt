@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.17.5)
 project(typesense)
 
 cmake_policy(SET CMP0074 NEW)
+cmake_policy(SET CMP0003 NEW)
 
 set(USE_SANTINIZER OFF)
 
