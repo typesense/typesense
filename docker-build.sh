@@ -22,7 +22,7 @@ if [[ "$@" == *"--depclean"* ]]; then
 fi
 
 
-TYPESENSE_DEV_IMAGE="typesense-development:09-AUG-2021-1"
+TYPESENSE_DEV_IMAGE="typesense-development:04-DEC-2021-1"
 if [[ "$@" == *"--graviton2"* ]]; then
   TYPESENSE_DEV_IMAGE="typesense-development-arm:03-DEC-2021-1"
 fi
