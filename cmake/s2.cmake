@@ -1,12 +1,12 @@
 # Download and build S2
 
-set(S2_VERSION 0.9.0)
+set(S2_VERSION efb124d8eaf3433323d3e877dedd5e94a63339a3)
 set(S2_NAME s2geometry-${S2_VERSION})
 set(S2_TAR_PATH ${DEP_ROOT_DIR}/${S2_NAME}.tar.gz)
 
 if(NOT EXISTS ${S2_TAR_PATH})
-    message(STATUS "Downloading https://github.com/google/s2geometry/archive/v${S2_VERSION}.tar.gz")
-    file(DOWNLOAD https://github.com/google/s2geometry/archive/v${S2_VERSION}.tar.gz ${S2_TAR_PATH})
+    message(STATUS "Downloading https://github.com/google/s2geometry/archive/${S2_VERSION}.tar.gz")
+    file(DOWNLOAD https://github.com/google/s2geometry/archive/${S2_VERSION}.tar.gz ${S2_TAR_PATH})
 endif()
 
 if(NOT EXISTS ${DEP_ROOT_DIR}/${S2_NAME})

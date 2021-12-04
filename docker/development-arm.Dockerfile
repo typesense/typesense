@@ -1,28 +1,23 @@
-# docker build --file $PROJECT_DIR/docker/development.Dockerfile --tag typesense/typesense-development:latest $PROJECT_DIR/docker
+# docker build --file ./docker/development-arm.Dockerfile --tag typesense/typesense-development-arm:03-DEC-2021-1 ./docker
 # 
-# $ docker push typesense/typesense-development:latest
+# $ docker push typesense/typesense-development-arm:03-DEC-2021-1
 
-FROM typesense/ubuntu-12-04-gcc:v10.1.0
+FROM gcc:10.3.0-buster
 
-ENV PATH /usr/local/gcc-10.1.0/bin/:$PATH
-ENV LD_LIBRARY_PATH /usr/local/gcc-10.1.0/lib64
-
-RUN apt-get install -y python-software-properties \
-	&& add-apt-repository ppa:git-core/ppa \
-	&& apt-get update \
-	&& apt-get install -y \
-	zlib1g-dev \
-	liblist-compare-perl \
-	git
+RUN apt-get update && \
+    apt-get install -y software-properties-common \
+    zlib1g-dev \
+    liblist-compare-perl \
+    git
 
 ADD https://ftp.gnu.org/gnu/binutils/binutils-2.36.tar.xz /opt/binutils-2.36.tar.xz
 RUN tar -C /opt -xf /opt/binutils-2.36.tar.xz
 RUN cd /opt/binutils-2.36 && ./configure --prefix=/usr && make tooldir=/usr && make check && \
     make -j8 tooldir=/usr install && cp include/libiberty.h /usr/include
 
-ADD https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0-Linux-x86_64.tar.gz /opt/cmake-3.22.0-Linux-x86_64.tar.gz
-RUN tar -C /opt -xvzf /opt/cmake-3.22.0-Linux-x86_64.tar.gz
-RUN cp -r /opt/cmake-3.22.0-Linux-x86_64/* /usr
+ADD https://github.com/Kitware/CMake/releases/download/v3.22.0/cmake-3.22.0-linux-aarch64.tar.gz /opt/cmake-3.22.0-linux-aarch64.tar.gz
+RUN tar -C /opt -xvzf /opt/cmake-3.22.0-linux-aarch64.tar.gz
+RUN cp -r /opt/cmake-3.22.0-linux-aarch64/* /usr
 
 ADD https://launchpad.net/ubuntu/+archive/primary/+files/snappy_1.1.3.orig.tar.gz /opt/snappy_1.1.3.orig.tar.gz
 RUN tar -C /opt -xf /opt/snappy_1.1.3.orig.tar.gz
@@ -74,8 +69,8 @@ RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
 
 ADD https://sourceware.org/elfutils/ftp/0.182/elfutils-0.182.tar.bz2 /opt/elfutils-0.182.tar.bz2
 RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
-RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod --without-lzma --without-bzlib \
-&& make -j8 && make install && rm -rf /usr/local/lib/*.so*
+RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod --without-lzma --without-bzlib && \
+make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
 RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
@@ -95,6 +90,3 @@ RUN mkdir -p /opt/braft-938eeb5f67dd9ef592f7ec9bd37b9b822980a2c5/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j4 && \
     make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/braft-938eeb5f67dd9ef592f7ec9bd37b9b822980a2c5/bld/output/bin
-
-ENV CC /usr/local/gcc-10.1.0/bin/gcc
-ENV CXX /usr/local/gcc-10.1.0/bin/g++
