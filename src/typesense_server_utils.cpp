@@ -24,6 +24,21 @@
 HttpServer* server;
 std::atomic<bool> quit_raft_service;
 
+extern "C" {
+    typedef int (*mallctl_t)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+}
+
+bool using_jemalloc() {
+    // On OSX, jemalloc API is prefixed with "je_"
+    mallctl_t mallctl;
+#ifdef __APPLE__
+    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "je_mallctl");
+#else
+    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "mallctl");
+#endif
+    return (mallctl != nullptr);
+}
+
 void catch_interrupt(int sig) {
     LOG(INFO) << "Stopping Typesense server...";
     signal(sig, SIG_IGN);  // ignore for now as we want to shut down elegantly
@@ -290,15 +305,21 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 int run_server(const Config & config, const std::string & version, void (*master_server_routes)()) {
     LOG(INFO) << "Starting Typesense " << version << std::flush;
 
-    // Due to time based decay depending on application not being idle-ish, set `background_thread`
-    // to help with releasing memory back to the OS and improve tail latency.
-    // See: https://github.com/jemalloc/jemalloc/issues/1398
-    bool background_thread = true;
-    #ifdef __APPLE__
+    if(using_jemalloc()) {
+        LOG(INFO) << "Typesense is using jemalloc.";
+
+        // Due to time based decay depending on application not being idle-ish, set `background_thread`
+        // to help with releasing memory back to the OS and improve tail latency.
+        // See: https://github.com/jemalloc/jemalloc/issues/1398
+        bool background_thread = true;
+#ifdef __APPLE__
         je_mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
-    #elif __linux__
+#elif __linux__
         mallctl("background_thread", nullptr, nullptr, &background_thread, sizeof(bool));
-    #endif
+#endif
+    } else {
+        LOG(WARNING) << "Typesense is NOT using jemalloc.";
+    }
 
     quit_raft_service = false;
 
