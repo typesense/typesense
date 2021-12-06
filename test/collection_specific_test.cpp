@@ -218,22 +218,13 @@ TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
+    // use weights to push title matching ahead
+
     results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
                             1, FREQUENCY, {true, true},
                             10, spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                             "<mark>", "</mark>", {2, 1}).get();
-
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-
-    // use extreme weights to push title matching ahead
-
-    results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
-                            1, FREQUENCY, {true, true},
-                            10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {10, 1}).get();
 
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
