@@ -2261,7 +2261,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                         exact_match_fields += weight;
                     }
 
-                    auto weighted_tokens_match = (tokens_found * weight) + (MAX_SUM_TYPOS - field_typos + 1);
+                    auto weighted_tokens_match = (tokens_found * weight);
                     if(weighted_tokens_match > max_weighted_tokens_match) {
                         max_weighted_tokens_match = weighted_tokens_match;
                     }
@@ -2322,7 +2322,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                         verbatim_match_fields += weight;  // this is only an approximate
                     }
 
-                    auto weighted_tokens_match = (tokens_found * weight) + (MAX_SUM_TYPOS - field_typos + 1);
+                    auto weighted_tokens_match = (tokens_found * weight);
 
                     if(weighted_tokens_match > max_weighted_tokens_match) {
                         max_weighted_tokens_match = weighted_tokens_match;
