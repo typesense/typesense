@@ -25,18 +25,21 @@ HttpServer* server;
 std::atomic<bool> quit_raft_service;
 
 extern "C" {
-    typedef int (*mallctl_t)(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen);
+// weak symbol: resolved at runtime by the linker if we are using jemalloc, nullptr otherwise
+#ifdef __APPLE__
+    int je_mallctl(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) __attribute__((weak_import));
+#else
+    int mallctl(const char *name, void *oldp, size_t *oldlenp, void *newp, size_t newlen) __attribute__((weak));
+#endif
 }
 
 bool using_jemalloc() {
     // On OSX, jemalloc API is prefixed with "je_"
-    mallctl_t mallctl;
 #ifdef __APPLE__
-    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "je_mallctl");
+    return (je_mallctl != nullptr);
 #else
-    mallctl = (mallctl_t) ::dlsym(RTLD_DEFAULT, "mallctl");
-#endif
     return (mallctl != nullptr);
+#endif
 }
 
 void catch_interrupt(int sig) {
