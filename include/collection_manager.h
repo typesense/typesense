@@ -8,6 +8,7 @@
 #include "collection.h"
 #include "auth_manager.h"
 #include "threadpool.h"
+#include "batched_indexer.h"
 
 template<typename ResourceType>
 struct locked_resource_view_t {
@@ -71,6 +72,10 @@ private:
 
     std::atomic<float> max_memory_ratio;
 
+    std::atomic<bool>* quit;
+
+    BatchedIndexer* batch_indexer;
+
     CollectionManager();
 
     ~CollectionManager() = default;
@@ -90,6 +95,7 @@ public:
 
     static constexpr const char* NEXT_COLLECTION_ID_KEY = "$CI";
     static constexpr const char* SYMLINK_PREFIX = "$SL";
+    static constexpr const char* BATCHED_INDEXER_STATE_KEY = "$BI";
 
     static CollectionManager & get_instance() {
         static CollectionManager instance;
@@ -105,7 +111,9 @@ public:
                                        float max_memory_ratio);
 
     static Option<bool> load_collection(const nlohmann::json& collection_meta,
-                                        const size_t init_batch_size, const StoreStatus& next_coll_id_status);
+                                        const size_t batch_size,
+                                        const StoreStatus& next_coll_id_status,
+                                        const std::atomic<bool>& quit);
 
     void add_to_collections(Collection* collection);
 
@@ -115,10 +123,11 @@ public:
 
     // PUBLICLY EXPOSED API
 
-    void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio, const std::string & auth_key);
+    void init(Store *store, ThreadPool* thread_pool, const float max_memory_ratio,
+              const std::string & auth_key, std::atomic<bool>& quit, BatchedIndexer* batch_indexer);
 
     // only for tests!
-    void init(Store *store, const float max_memory_ratio, const std::string & auth_key);
+    void init(Store *store, const float max_memory_ratio, const std::string & auth_key, std::atomic<bool>& exit);
 
     Option<bool> load(const size_t collection_batch_size, const size_t document_batch_size);
 
@@ -134,7 +143,9 @@ public:
                                           const std::vector<field> & fields,
                                           const std::string & default_sorting_field="",
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
-                                          const std::string& fallback_field_type = "");
+                                          const std::string& fallback_field_type = "",
+                                          const std::vector<std::string>& symbols_to_index = {},
+                                          const std::vector<std::string>& token_separators = {});
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

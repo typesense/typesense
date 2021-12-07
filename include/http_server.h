@@ -25,7 +25,7 @@ struct h2o_custom_req_handler_t {
 };
 
 struct h2o_custom_generator_t {
-    h2o_generator_t super;
+    h2o_generator_t h2o_generator;
     h2o_custom_req_handler_t* h2o_handler;
     route_path* rpath;
     std::shared_ptr<http_req> request;
@@ -40,18 +40,103 @@ struct h2o_custom_generator_t {
     }
 };
 
+struct stream_response_state_t {
+private:
+
+    h2o_req_t* req = nullptr;
+
+public:
+
+    bool is_req_early_exit = false;
+    bool is_req_http1 = true;
+
+    bool is_res_start = true;
+    h2o_send_state_t send_state = H2O_SEND_STATE_IN_PROGRESS;
+    h2o_iovec_t res_body{};
+
+    h2o_generator_t* generator = nullptr;
+
+    stream_response_state_t(h2o_req_t* _req): req(_req), is_res_start(req->res.status == 0) {
+
+    }
+
+    void set_response(uint32_t status_code, const std::string& content_type, const std::string& body) {
+        res_body = h2o_strdup(&req->pool, body.c_str(), SIZE_MAX);
+
+        if(is_res_start) {
+            req->res.status = status_code;
+            req->res.reason = http_res::get_status_reason(status_code);
+            h2o_add_header(&req->pool, &req->res.headers, H2O_TOKEN_CONTENT_TYPE, NULL,
+                           content_type.c_str(), content_type.size());
+        }
+    }
+
+    h2o_req_t* get_req() {
+        return req;
+    }
+};
+
 struct deferred_req_res_t {
     const std::shared_ptr<http_req> req;
     const std::shared_ptr<http_res> res;
     HttpServer* server;
 
-    // used to manage lifecycle of non-async responses
-    bool destroy_after_stream_response;
+    // used to manage lifecycle of async actions
+    bool destroy_after_use;
 
     deferred_req_res_t(const std::shared_ptr<http_req> &req, const std::shared_ptr<http_res> &res,
-                       HttpServer *server, bool destroy_after_stream_response = false) :
-            req(req), res(res), server(server), destroy_after_stream_response(destroy_after_stream_response) {}
+                       HttpServer *server, bool destroy_after_use) :
+            req(req), res(res), server(server), destroy_after_use(destroy_after_use) {}
 
+};
+
+struct async_req_res_t {
+    // NOTE: care must be taken to ensure that concurrent writes are protected as some fields are also used by http lib
+private:
+    // not exposed or accessed, here only for reference counting
+    const std::shared_ptr<http_req> req;
+    const std::shared_ptr<http_res> res;
+
+public:
+
+    // used to manage lifecycle of async actions
+    const bool destroy_after_use;
+
+    // stores http lib related datastructures to avoid race conditions between indexing and http write threads
+    stream_response_state_t res_state;
+
+    async_req_res_t(const std::shared_ptr<http_req>& h_req, const std::shared_ptr<http_res>& h_res,
+                    const bool destroy_after_use) :
+            req(h_req), res(h_res), destroy_after_use(destroy_after_use), res_state(h_req->_req) {
+
+        if(!res->is_alive || req->_req == nullptr || res->generator == nullptr) {
+            return;
+        }
+
+        // ***IMPORTANT***
+        // We limit writing to fields of `res_state.req` to prevent race conditions with http thread
+        // Check `HttpServer::stream_response()` for overlapping writes.
+
+        h2o_custom_generator_t* res_generator = static_cast<h2o_custom_generator_t*>(res->generator.load());
+
+        res_state.is_req_early_exit = (res_generator->rpath->async_req && res->final && !req->last_chunk_aggregate);
+        res_state.is_req_http1 = req->is_http_v1;
+        res_state.send_state = res->final ? H2O_SEND_STATE_FINAL : H2O_SEND_STATE_IN_PROGRESS;
+        res_state.generator = (res_generator == nullptr) ? nullptr : &res_generator->h2o_generator;
+        res_state.set_response(res->status_code, res->content_type_header, res->body);
+    }
+
+    bool is_alive() {
+        return res->is_alive;
+    }
+
+    void req_notify() {
+        return req->notify();
+    }
+
+    void res_notify() {
+        return res->notify();
+    }
 };
 
 struct defer_processing_t {
@@ -91,8 +176,11 @@ private:
 
     std::string version;
 
-    // must be a vector since order of routes matter
-    std::vector<std::pair<uint64_t, route_path>> routes;
+    // must be a vector since order of routes entered matter
+    std::vector<std::pair<uint64_t, route_path>> route_hash_to_path;
+
+    // also have a hashmap for quick lookup of individual routes
+    std::unordered_map<uint64_t, route_path> route_hash_to_path_map;
 
     const std::string listen_address;
 
@@ -156,6 +244,8 @@ public:
 
     bool is_alive() const;
 
+    bool is_leader() const;
+
     uint64_t node_state() const;
 
     void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
@@ -175,12 +265,7 @@ public:
 
     void send_message(const std::string & type, void* data);
 
-    void send_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
-
-    static void destroy_request_response(const std::shared_ptr<http_req>& request,
-                                         const std::shared_ptr<http_res>& response);
-
-    static void stream_response(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response);
+    static void stream_response(stream_response_state_t& state);
 
     uint64_t find_route(const std::vector<std::string> & path_parts, const std::string & http_method,
                     route_path** found_rpath);
@@ -224,4 +309,6 @@ public:
     bool trigger_vote();
 
     void persist_applying_index();
+
+    int64_t get_num_queued_writes();
 };

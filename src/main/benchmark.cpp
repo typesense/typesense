@@ -21,7 +21,7 @@ std::string get_query(StringUtils & string_utils, std::string & text) {
 
     for(uint32_t i=0; i<tokens.size(); i++) {
         auto token = tokens[i];
-        string_utils.unicode_normalize(token);
+        //string_utils.unicode_normalize(token);
         normalized_tokens.push_back(token);
     }
 
@@ -46,7 +46,8 @@ void benchmark_hn_titles(char* file_path) {
 
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store, 4, "abcd");
+    std::atomic<bool> quit;
+    collectionManager.init(store, 1, "abcd", quit);
     collectionManager.load(100, 100);
 
     Collection *collection = collectionManager.get_collection("hnstories_direct").get();
@@ -87,7 +88,7 @@ void benchmark_hn_titles(char* file_path) {
     auto begin = std::chrono::high_resolution_clock::now();
 
     for(size_t i = 0; i < queries.size(); i++) {
-        auto results_op = collection->search(queries[i], search_fields, "", { }, {sort_by("points", "DESC")}, 2, 10, 1, MAX_SCORE, true);
+        auto results_op = collection->search(queries[i], search_fields, "", { }, {sort_by("points", "DESC")}, {2}, 10, 1, MAX_SCORE, {true});
         if(results_op.ok() != true) {
             exit(2);
         }
@@ -116,7 +117,8 @@ void benchmark_reactjs_pages(char* file_path) {
 
     Store *store = new Store("/tmp/typesense-data");
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store, 4, "abcd");
+    std::atomic<bool> quit;
+    collectionManager.init(store, 4, "abcd", quit);
     collectionManager.load(100, 100);
 
     Collection* collection = collectionManager.get_collection("reactjs_pages").get();
@@ -152,8 +154,8 @@ void benchmark_reactjs_pages(char* file_path) {
     auto begin = std::chrono::high_resolution_clock::now();
 
     for(size_t i = 0; i < queries.size(); i++) {
-        auto results_op = collection->search(queries[i], search_fields, "", { }, {sort_by("dummy_sorting_field", "DESC")}, 2, 10, 1,
-                                             MAX_SCORE, true, 10, spp::sparse_hash_set<std::string>(), {"p"});
+        auto results_op = collection->search(queries[i], search_fields, "", { }, {sort_by("dummy_sorting_field", "DESC")}, {2}, 10, 1,
+                                             MAX_SCORE, {true}, 10, spp::sparse_hash_set<std::string>(), {"p"});
         if(results_op.ok() != true) {
             exit(2);
         }

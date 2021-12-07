@@ -12,6 +12,7 @@
 #include "http_data.h"
 #include "threadpool.h"
 #include "http_server.h"
+#include "batched_indexer.h"
 
 class Store;
 class ReplicationState;
@@ -85,7 +86,6 @@ public:
 class ReplicationState : public braft::StateMachine {
 private:
     static constexpr const char* db_snapshot_name = "db_snapshot";
-    static constexpr const char* SKIP_INDICES_PREFIX = "$XP";
 
     mutable std::shared_mutex node_mutex;
 
@@ -93,22 +93,16 @@ private:
     butil::atomic<int64_t> leader_term;
 
     HttpServer* server;
+    BatchedIndexer* batched_indexer;
 
     Store* store;
-    Store* meta_store;
 
     ThreadPool* thread_pool;
     http_message_dispatcher* message_dispatcher;
 
-    // Used to skip over a bad raft log entry which previously triggered a crash
-    const static int64_t UNSET_SKIP_INDEX = -9999;
-    std::atomic<int64_t> skip_index = UNSET_SKIP_INDEX;
-    rocksdb::Iterator* skip_index_iter = nullptr;
-
     const bool api_uses_ssl;
 
-    const int64_t healthy_read_lag;
-    const int64_t healthy_write_lag;
+    const Config* config;
 
     const size_t num_collections_parallel_load;
     const size_t num_documents_parallel_load;
@@ -135,9 +129,9 @@ public:
     static constexpr const char* meta_dir_name = "meta";
     static constexpr const char* snapshot_dir_name = "snapshot";
 
-    ReplicationState(HttpServer* server, Store* store, Store* meta_store,
+    ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer, Store* store,
                      ThreadPool* thread_pool, http_message_dispatcher* message_dispatcher,
-                     bool api_uses_ssl, int64_t healthy_read_lag, int64_t healthy_write_lag,
+                     bool api_uses_ssl, const Config* config,
                      size_t num_collections_parallel_load, size_t num_documents_parallel_load);
 
     // Starts this node
@@ -209,6 +203,10 @@ public:
 
     static std::string resolve_node_hosts(const std::string& nodes_config);
 
+    int64_t get_num_queued_writes();
+
+    bool is_leader();
+
 private:
 
     friend class ReplicationClosure;
@@ -268,6 +266,4 @@ private:
 
     std::string get_leader_url_path(const std::string& leader_addr, const std::string& path,
                                     const std::string& protocol) const;
-
-    void populate_skip_index();
 };

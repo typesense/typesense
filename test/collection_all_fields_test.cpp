@@ -10,6 +10,7 @@ class CollectionAllFieldsTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
@@ -20,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
 
@@ -370,6 +371,14 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     ASSERT_TRUE(add_op.ok());
     auto added_doc = add_op.get();
 
+    auto schema = coll1->get_fields();
+
+    ASSERT_EQ("int_values", schema[0].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[0].type);
+
+    ASSERT_EQ("title", schema[1].name);
+    ASSERT_EQ(field_types::STRING, schema[1].type);
+
     ASSERT_EQ("1", added_doc["int_values"][0].get<std::string>());
     ASSERT_EQ("2", added_doc["int_values"][1].get<std::string>());
 
@@ -464,6 +473,12 @@ TEST_F(CollectionAllFieldsTest, SearchStringifiedField) {
     Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
     ASSERT_TRUE(add_op.ok());
 
+    // department field's type must be "solidified" to an actual type
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("department", schema[4].name);
+    ASSERT_EQ(field_types::STRING, schema[4].type);
+
     auto results_op = coll1->search("stark", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_TRUE(results_op.ok());
     ASSERT_EQ(1, results_op.get()["hits"].size());
@@ -505,6 +520,8 @@ TEST_F(CollectionAllFieldsTest, StringSingularAllValues) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("FIRST", results["hits"][0]["document"]["title"].get<std::string>());
     ASSERT_EQ("123", results["hits"][0]["document"]["int_values"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
@@ -535,15 +552,37 @@ TEST_F(CollectionAllFieldsTest, UpdateOfDocumentsInAutoMode) {
 TEST_F(CollectionAllFieldsTest, NormalFieldWithAutoType) {
     Collection *coll1;
 
-    std::vector<field> fields = {field("publication_year", field_types::AUTO, true)};
+    std::vector<field> fields = {
+        field("city", field_types::AUTO, true, true),
+        field("publication_year", field_types::AUTO, true, true),
+    };
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
         auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
-        ASSERT_FALSE(coll_op.ok());
-        ASSERT_EQ("Cannot use type `auto` for `publication_year`. It can be used only for a field name containing `.*`",
-                  coll_op.error());
+        ASSERT_TRUE(coll_op.ok());
+        coll1 = coll_op.get();
     }
+
+    nlohmann::json doc;
+    doc["title"]  = "FIRST";
+    doc["city"]  = "Austin";
+    doc["publication_year"]  = 2010;
+
+    auto add_op = coll1->add(doc.dump(), CREATE, "0", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res_op = coll1->search("austin", {"city"}, "publication_year: 2010", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
+    ASSERT_TRUE(res_op.ok());
+    auto results = res_op.get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("city", schema[2].name);
+    ASSERT_EQ(field_types::STRING, schema[2].type);
+
+    ASSERT_EQ("publication_year", schema[3].name);
+    ASSERT_EQ(field_types::INT64, schema[3].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -819,6 +858,58 @@ TEST_F(CollectionAllFieldsTest, WildcardFacetFieldsWithoutAutoSchema) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionAllFieldsTest, RegexpExplicitFieldTypeCoercion) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("i.*", field_types::INT32, false, true),
+                                 field("s.*", field_types::STRING, false, true),
+                                 field("a.*", field_types::STRING_ARRAY, false, true),
+                                 field("nullsa.*", field_types::STRING_ARRAY, false, true),
+                                 field("num.*", "string*", false, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0).get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Rand Building";
+    doc["i_age"]  = "28";
+    doc["s_name"]  = nullptr;
+    doc["a_name"]  = {};
+    doc["nullsa"]  = nullptr;
+    doc["num_employees"] = 28;
+
+    // should coerce while retaining expected type
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto schema = coll1->get_fields();
+
+    ASSERT_EQ("a_name", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
+
+    ASSERT_EQ("i_age", schema[7].name);
+    ASSERT_EQ(field_types::INT32, schema[7].type);
+
+    ASSERT_EQ("nullsa", schema[8].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[8].type);
+
+    // num_employees field's type must be "solidified" to an actual type
+    ASSERT_EQ("num_employees", schema[9].name);
+    ASSERT_EQ(field_types::STRING, schema[9].type);
+
+    ASSERT_EQ("s_name", schema[10].name);
+    ASSERT_EQ(field_types::STRING, schema[10].type);
+
+    auto results = coll1->search("rand", {"title"}, "i_age: 28", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
     Collection *coll1;
 
@@ -827,7 +918,7 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
 
     auto op = collectionManager.create_collection("coll1", 1, bad_fields, "", 0);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `.*_name` with wildcard name must be an optional field.", op.error());
+    ASSERT_EQ("Field `.*_name` must be an optional field.", op.error());
 
     // string* fields should only be optional
     std::vector<field> bad_fields2 = {field("title", field_types::STRING, true),
@@ -848,6 +939,66 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
     }
 
     ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, AutoAndStringStarFieldsShouldAcceptNullValues) {
+    Collection *coll1;
+
+    std::vector<field> fields = {
+        field("foo", "string*", true, true),
+        field("buzz", "auto", true, true),
+        field("bar.*", "string*", true, true),
+        field("baz.*", "auto", true, true),
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto coll_op = collectionManager.create_collection("coll1", 1, fields, "", 0);
+        ASSERT_TRUE(coll_op.ok());
+        coll1 = coll_op.get();
+    }
+
+    nlohmann::json doc;
+    doc["foo"]  = nullptr;
+    doc["buzz"]  = nullptr;
+    doc["bar_one"]  = nullptr;
+    doc["baz_one"]  = nullptr;
+
+    // should allow indexing of null values since all are optional
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto res = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ(4, schema.size());
+
+    doc["foo"]  = {"hello", "world"};
+    doc["buzz"]  = 123;
+    doc["bar_one"]  = "hello";
+    doc["baz_one"]  = true;
+
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    schema = coll1->get_fields();
+    ASSERT_EQ(8, schema.size());
+
+    ASSERT_EQ("bar_one", schema[4].name);
+    ASSERT_EQ(field_types::STRING, schema[4].type);
+
+    ASSERT_EQ("baz_one", schema[5].name);
+    ASSERT_EQ(field_types::BOOL, schema[5].type);
+
+    ASSERT_EQ("buzz", schema[6].name);
+    ASSERT_EQ(field_types::INT64, schema[6].type);
+
+    ASSERT_EQ("foo", schema[7].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[7].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -888,6 +1039,11 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
+    // org_year should be of type int32
+    auto schema = coll1->get_fields();
+    ASSERT_EQ("org_year", schema[5].name);
+    ASSERT_EQ(field_types::INT32, schema[5].type);
+
     auto res_op = coll1->search("Amazon", {"org_name"}, "", {"org_name"}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a facet field named `org_name` in the schema.", res_op.error());
@@ -900,6 +1056,45 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
 
     results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, RegexpIntFieldWithFallbackStringType) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("n.*", field_types::INT32, false, true),
+                                 field("s.*", "string*", false, true),
+                                 field(".*", field_types::STRING, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["title"]  = "Amazon Inc.";
+    doc["n_age"]  = 32;
+    doc["s_tags"]  = {"shopping"};
+    doc["rand_str"]  = "fizzbuzz";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // n_age should be of type int32
+    auto schema = coll1->get_fields();
+
+    ASSERT_EQ("n_age", schema[4].name);
+    ASSERT_EQ(field_types::INT32, schema[4].type);
+
+    ASSERT_EQ("rand_str", schema[5].name);
+    ASSERT_EQ(field_types::STRING, schema[5].type);
+
+    ASSERT_EQ("s_tags", schema[6].name);
+    ASSERT_EQ(field_types::STRING_ARRAY, schema[6].type);
 
     collectionManager.drop_collection("coll1");
 }
@@ -936,7 +1131,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     std::vector<field> fields = {field("company_name", field_types::STRING, false),
                                  field("num_employees", field_types::INT32, false),
                                  field("post", field_types::STRING, false, true, false),
-                                 field(".*_txt", field_types::STRING, true, true, false),
+                                 field(".*_txt", field_types::STRING, false, true, false),
                                  field(".*", field_types::AUTO, false, true)};
 
     coll1 = collectionManager.get_collection("coll1").get();
@@ -955,7 +1150,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().count("post"));
 
     auto res_op = coll1->search("Amazon", {"description_txt"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false});
     ASSERT_FALSE(res_op.ok());
@@ -970,7 +1165,7 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
     auto update_op = coll1->add(doc.dump(), UPDATE, "0");
     ASSERT_TRUE(add_op.ok());
 
-    ASSERT_EQ(0, coll1->_get_indexes()[0]->_get_search_index().count("post"));
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().count("post"));
 
     auto res = coll1->search("Amazon", {"company_name"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ("Some post updated.", res["hits"][0]["document"]["post"].get<std::string>());
@@ -1002,18 +1197,161 @@ TEST_F(CollectionAllFieldsTest, DoNotIndexFieldMarkedAsNonIndex) {
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
-    ASSERT_EQ("Field `.*_txt` with wildcard name must be an optional field.", op.error());
+    ASSERT_EQ("Field `.*_txt` must be an optional field.", op.error());
 
-    // don't allow catch all field to contain non-index field
+    // don't allow catch all field to be non-indexable
 
     fields = {field("company_name", field_types::STRING, false),
               field("num_employees", field_types::INT32, false),
-              field(".*_txt", field_types::STRING, true, true, false),
+              field(".*_txt", field_types::STRING, false, true, false),
               field(".*", field_types::AUTO, false, true, false)};
 
     op = collectionManager.create_collection("coll2", 1, fields, "", 0, field_types::AUTO);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Field `.*` cannot be marked as non-indexable.", op.error());
+
+    // allow auto field to be non-indexable
+
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("noidx_.*", field_types::AUTO, false, true, false)};
+
+    op = collectionManager.create_collection("coll3", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_TRUE(op.ok());
+
+    // don't allow facet to be true when index is false
+    fields = {field("company_name", field_types::STRING, false),
+              field("num_employees", field_types::INT32, false),
+              field("facet_noindex", field_types::STRING, true, true, false)};
+
+    op = collectionManager.create_collection("coll4", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_FALSE(op.ok());
+    ASSERT_EQ("Field `facet_noindex` cannot be a facet since it's marked as non-indexable.", op.error());
+
+    collectionManager.drop_collection("coll1");
+    collectionManager.drop_collection("coll2");
+    collectionManager.drop_collection("coll3");
+    collectionManager.drop_collection("coll4");
+}
+
+TEST_F(CollectionAllFieldsTest, NullValueUpdate) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, true),
+                                 field(".*_name", field_types::STRING, true, true),
+                                 field("unindexed", field_types::STRING, false, true, false),
+                                 field(".*", field_types::STRING, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["id"]  = "0";
+    doc["title"]  = "Running Shoes";
+    doc["company_name"]  = "Nike";
+    doc["country"]  = "USA";
+    doc["unindexed"]  = "Hello";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    doc["title"] = nullptr;
+    doc["company_name"]  = nullptr;
+    doc["country"]  = nullptr;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // try updating the doc with null value again
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // ensure that the fields are removed from the document
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());
+    ASSERT_EQ("Hello", results["hits"][0]["document"]["unindexed"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, NullValueArrayUpdate) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("titles", field_types::STRING_ARRAY, false, true),
+                                 field(".*_names", field_types::STRING_ARRAY, true, true),
+                                 field("unindexed", field_types::STRING, false, true, false),
+                                 field(".*", field_types::STRING_ARRAY, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::STRING_ARRAY);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["id"]  = "0";
+    doc["titles"]  = {"Running Shoes"};
+    doc["company_names"]  = {"Nike"};
+    doc["countries"]  = {"USA", nullptr};
+    doc["unindexed"]  = "Hello";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {nullptr};
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {"USA"};
+    add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
+    ASSERT_EQ(1, coll1->_get_index()->num_seq_ids());
+
+    doc["titles"] = nullptr;
+    doc["company_names"]  = nullptr;
+    doc["countries"]  = nullptr;
+
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // try updating the doc with null value again
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
+
+    // ensure that the fields are removed from the document
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"].size());
+    ASSERT_EQ("Hello", results["hits"][0]["document"]["unindexed"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // update with null values inside array
+    doc["countries"]  = {nullptr};
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    doc["countries"]  = {"USA", nullptr};
+    add_op = coll1->add(doc.dump(), UPDATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
+
+    ASSERT_EQ(1, coll1->get_num_documents());
 
     collectionManager.drop_collection("coll1");
 }

@@ -4,7 +4,21 @@
 #include <chrono>
 #include <vector>
 
-TEST(PostingListTest, Insert) {
+class PostingListTest : public ::testing::Test {
+protected:
+    ThreadPool* pool;
+
+    virtual void SetUp() {
+        pool = new ThreadPool(4);
+    }
+
+    virtual void TearDown() {
+        pool->shutdown();
+        delete pool;
+    }
+};
+
+TEST_F(PostingListTest, Insert) {
     std::vector<uint32_t> offsets = {0, 1, 3};
 
     posting_list_t pl(5);
@@ -115,7 +129,7 @@ TEST(PostingListTest, Insert) {
     }
 }
 
-TEST(PostingListTest, InplaceUpserts) {
+TEST_F(PostingListTest, InplaceUpserts) {
     std::vector<uint32_t> offsets = {1, 2, 3};
     posting_list_t pl(5);
 
@@ -272,7 +286,7 @@ TEST(PostingListTest, InplaceUpserts) {
     ASSERT_EQ(6, pl.get_root()->offset_index.at(2));
 }
 
-TEST(PostingListTest, RemovalsOnFirstBlock) {
+TEST_F(PostingListTest, RemovalsOnFirstBlock) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(5);
 
@@ -369,7 +383,7 @@ TEST(PostingListTest, RemovalsOnFirstBlock) {
     }
 }
 
-TEST(PostingListTest, RemovalsOnLaterBlocks) {
+TEST_F(PostingListTest, RemovalsOnLaterBlocks) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(5);
 
@@ -433,13 +447,13 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
     // only part of the next node contents can be moved over when we delete 8 since (1 + 5) > 5
     pl.erase(8);
 
-    // [0..4], [9], [10..14] => [0..4], [9,10,11,12,13], [14]
+    // [0..4], [9], [10..14] => [0..4], [9,10,11], [12,13,14]
 
     ASSERT_EQ(3, pl.num_blocks());
     ASSERT_EQ(11, pl.num_ids());
-    ASSERT_EQ(5, pl.get_root()->next->size());
-    ASSERT_EQ(1, pl.get_root()->next->next->size());
-    ASSERT_EQ(13, pl.get_root()->next->ids.last());
+    ASSERT_EQ(3, pl.get_root()->next->size());
+    ASSERT_EQ(3, pl.get_root()->next->next->size());
+    ASSERT_EQ(11, pl.get_root()->next->ids.last());
     ASSERT_EQ(14, pl.get_root()->next->next->ids.last());
 
     for(size_t i = 0; i < pl.get_root()->next->offset_index.getLength(); i++) {
@@ -459,7 +473,7 @@ TEST(PostingListTest, RemovalsOnLaterBlocks) {
     }
 }
 
-TEST(PostingListTest, OutOfOrderUpserts) {
+TEST_F(PostingListTest, OutOfOrderUpserts) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(5);
 
@@ -492,7 +506,7 @@ TEST(PostingListTest, OutOfOrderUpserts) {
     }
 }
 
-TEST(PostingListTest, RandomInsertAndDeletes) {
+TEST_F(PostingListTest, RandomInsertAndDeletes) {
     time_t t;
     srand((unsigned) time(&t));
 
@@ -522,7 +536,7 @@ TEST(PostingListTest, RandomInsertAndDeletes) {
     ASSERT_LT(pl.num_blocks(), 1000);
 }
 
-TEST(PostingListTest, MergeBasics) {
+TEST_F(PostingListTest, MergeBasics) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     std::vector<posting_list_t*> lists;
 
@@ -566,9 +580,8 @@ TEST(PostingListTest, MergeBasics) {
     }
 }
 
-TEST(PostingListTest, IntersectionBasics) {
+TEST_F(PostingListTest, SplittingOfListsSimple) {
     std::vector<uint32_t> offsets = {0, 1, 3};
-    std::vector<posting_list_t*> lists;
 
     // [0, 2] [3, 20]
     // [1, 3], [5, 10], [20]
@@ -594,13 +607,75 @@ TEST(PostingListTest, IntersectionBasics) {
     p3.upsert(7, offsets);
     p3.upsert(20, offsets);
 
-    lists.push_back(&p1);
-    lists.push_back(&p2);
-    lists.push_back(&p3);
+    std::vector<void*> raw_lists = {&p1, &p2, &p3};
 
+    std::vector<posting_list_t::iterator_t> its;
+    posting_list_t::result_iter_state_t iter_state;
+    posting_t::block_intersector_t intersector(raw_lists, iter_state, pool);
+
+    std::vector<std::vector<posting_list_t::iterator_t>> partial_its_vec(4);
+    intersector.split_lists(4, partial_its_vec);
+
+    std::vector<std::vector<std::vector<uint32_t>>> split_ids = {
+        {{0, 2}, {1, 3}, {2, 3}},
+        {{3, 20}, {1, 3, 5, 10, 20}, {2, 3, 5, 7, 20}}
+    };
+
+    ASSERT_EQ(4, partial_its_vec.size());
+    ASSERT_EQ(3, partial_its_vec[0].size());
+    ASSERT_EQ(3, partial_its_vec[1].size());
+
+    for(size_t i = 0; i < partial_its_vec.size(); i++) {
+        auto& partial_its = partial_its_vec[i];
+        for (size_t j = 0; j < partial_its.size(); j++) {
+            auto& it = partial_its[j];
+            size_t k = 0;
+
+            while (it.valid()) {
+                //LOG(INFO) << it.id();
+                ASSERT_EQ(split_ids[i][j][k], it.id());
+                k++;
+                it.next();
+            }
+
+            //LOG(INFO) << "---";
+        }
+    }
+}
+
+TEST_F(PostingListTest, IntersectionBasics) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+
+    // [0, 2] [3, 20]
+    // [1, 3], [5, 10], [20]
+    // [2, 3], [5, 7], [20]
+
+    posting_list_t p1(2);
+    p1.upsert(0, offsets);
+    p1.upsert(2, offsets);
+    p1.upsert(3, offsets);
+    p1.upsert(20, offsets);
+
+    posting_list_t p2(2);
+    p2.upsert(1, offsets);
+    p2.upsert(3, offsets);
+    p2.upsert(5, offsets);
+    p2.upsert(10, offsets);
+    p2.upsert(20, offsets);
+
+    posting_list_t p3(2);
+    p3.upsert(2, offsets);
+    p3.upsert(3, offsets);
+    p3.upsert(5, offsets);
+    p3.upsert(7, offsets);
+    p3.upsert(20, offsets);
+
+    std::vector<void*> raw_lists = {&p1, &p2, &p3};
+    std::vector<posting_list_t*> posting_lists = {&p1, &p2, &p3};
     std::vector<uint32_t> result_ids;
+    std::mutex vecm;
 
-    posting_list_t::intersect(lists, result_ids);
+    posting_list_t::intersect(posting_lists, result_ids);
 
     ASSERT_EQ(2, result_ids.size());
     ASSERT_EQ(3, result_ids[0]);
@@ -608,31 +683,18 @@ TEST(PostingListTest, IntersectionBasics) {
 
     std::vector<posting_list_t::iterator_t> its;
     posting_list_t::result_iter_state_t iter_state;
-    bool has_more = posting_list_t::block_intersect(lists, 2, its, iter_state);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(2, iter_state.ids.size());
-    ASSERT_EQ(3, iter_state.ids[0]);
-    ASSERT_EQ(20, iter_state.ids[1]);
+    result_ids.clear();
 
-    ASSERT_EQ(2, iter_state.blocks.size());
-    ASSERT_EQ(3, iter_state.blocks[0].size());
-    ASSERT_EQ(3, iter_state.blocks[1].size());
+    posting_t::block_intersector_t(raw_lists, iter_state, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
+        result_ids.push_back(id);
+    });
 
-    ASSERT_EQ(2, iter_state.indices.size());
+    std::sort(result_ids.begin(), result_ids.end());
 
-    // try with smaller batch size
-
-    std::vector<posting_list_t::iterator_t> its2;
-    posting_list_t::result_iter_state_t iter_state2;
-    has_more = posting_list_t::block_intersect(lists, 1, its2, iter_state2);
-    ASSERT_TRUE(has_more);
-    ASSERT_EQ(1, iter_state2.ids.size());
-    ASSERT_EQ(3, iter_state2.ids[0]);
-
-    has_more = posting_list_t::block_intersect(lists, 1, its2, iter_state2);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(1, iter_state2.ids.size());
-    ASSERT_EQ(20, iter_state2.ids[0]);
+    ASSERT_EQ(2, result_ids.size());
+    ASSERT_EQ(3, result_ids[0]);
+    ASSERT_EQ(20, result_ids[1]);
 
     // single item itersection
     std::vector<posting_list_t*> single_item_list = {&p1};
@@ -645,14 +707,22 @@ TEST(PostingListTest, IntersectionBasics) {
         ASSERT_EQ(expected_ids[i], result_ids[i]);
     }
 
-    std::vector<posting_list_t::iterator_t> its3;
-    posting_list_t::result_iter_state_t iter_state3;
-    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
-    ASSERT_TRUE(has_more);
-    ASSERT_EQ(2, iter_state3.ids.size());
-    has_more = posting_list_t::block_intersect(single_item_list, 2, its3, iter_state3);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(2, iter_state3.ids.size());
+    posting_list_t::result_iter_state_t iter_state2;
+    result_ids.clear();
+    raw_lists = {&p1};
+
+    posting_t::block_intersector_t(raw_lists, iter_state2, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
+        result_ids.push_back(id);
+    });
+
+    std::sort(result_ids.begin(), result_ids.end());  // because of concurrent intersection order is not guaranteed
+
+    ASSERT_EQ(4, result_ids.size());
+    ASSERT_EQ(0, result_ids[0]);
+    ASSERT_EQ(2, result_ids[1]);
+    ASSERT_EQ(3, result_ids[2]);
+    ASSERT_EQ(20, result_ids[3]);
 
     // empty intersection list
     std::vector<posting_list_t*> empty_list;
@@ -660,14 +730,19 @@ TEST(PostingListTest, IntersectionBasics) {
     posting_list_t::intersect(empty_list, result_ids);
     ASSERT_EQ(0, result_ids.size());
 
-    std::vector<posting_list_t::iterator_t> its4;
-    posting_list_t::result_iter_state_t iter_state4;
-    has_more = posting_list_t::block_intersect(empty_list, 1, its4, iter_state4);
-    ASSERT_FALSE(has_more);
-    ASSERT_EQ(0, iter_state4.ids.size());
+    posting_list_t::result_iter_state_t iter_state3;
+    result_ids.clear();
+    raw_lists.clear();
+
+    posting_t::block_intersector_t(raw_lists, iter_state3, pool).intersect([&](auto id, auto& its, size_t index){
+        std::unique_lock lk(vecm);
+        result_ids.push_back(id);
+    });
+
+    ASSERT_EQ(0, result_ids.size());
 }
 
-TEST(PostingListTest, ResultsAndOffsetsBasics) {
+TEST_F(PostingListTest, ResultsAndOffsetsBasics) {
     // NOTE: due to the way offsets1 are parsed, the actual positions are 1 less than the offset values stored
     // (to account for the special offset `0` which indicates last offset
     std::vector<uint32_t> offsets1 = {1, 2, 4};
@@ -719,6 +794,7 @@ TEST(PostingListTest, ResultsAndOffsetsBasics) {
     lists.push_back(&p2);
     lists.push_back(&p3);
 
+    /*
     std::vector<posting_list_t::iterator_t> its;
     posting_list_t::result_iter_state_t iter_state;
     bool has_more = posting_list_t::block_intersect(lists, 2, its, iter_state);
@@ -735,9 +811,10 @@ TEST(PostingListTest, ResultsAndOffsetsBasics) {
     ASSERT_EQ(actual_offsets_20[0].positions, array_token_positions_vec[1].at(0)[0].positions);
     ASSERT_EQ(actual_offsets_20[1].positions, array_token_positions_vec[1].at(0)[1].positions);
     ASSERT_EQ(actual_offsets_20[2].positions, array_token_positions_vec[1].at(0)[2].positions);
+    */
 }
 
-TEST(PostingListTest, IntersectionSkipBlocks) {
+TEST_F(PostingListTest, IntersectionSkipBlocks) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     std::vector<posting_list_t*> lists;
 
@@ -788,7 +865,7 @@ TEST(PostingListTest, IntersectionSkipBlocks) {
     delete [] final_results;
 }
 
-TEST(PostingListTest, PostingListContainsAtleastOne) {
+TEST_F(PostingListTest, PostingListContainsAtleastOne) {
     // when posting list is larger than target IDs
     posting_list_t p1(100);
 
@@ -824,7 +901,7 @@ TEST(PostingListTest, PostingListContainsAtleastOne) {
     ASSERT_FALSE(p2.contains_atleast_one(&target_ids2[0], target_ids2.size()));
 }
 
-TEST(PostingListTest, PostingListMergeAdjancentBlocks) {
+TEST_F(PostingListTest, PostingListMergeAdjancentBlocks) {
     // when posting list is larger than target IDs
     posting_list_t p1(6);
 
@@ -913,7 +990,7 @@ TEST(PostingListTest, PostingListMergeAdjancentBlocks) {
     ASSERT_EQ(0, block2->offsets.getLength());
 }
 
-TEST(PostingListTest, PostingListSplitBlock) {
+TEST_F(PostingListTest, PostingListSplitBlock) {
     posting_list_t p1(6);
 
     for (size_t i = 0; i < 6; i++) {
@@ -963,7 +1040,7 @@ TEST(PostingListTest, PostingListSplitBlock) {
     }
 }
 
-TEST(PostingListTest, CompactPostingListUpsertAppends) {
+TEST_F(PostingListTest, CompactPostingListUpsertAppends) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1022,7 +1099,7 @@ TEST(PostingListTest, CompactPostingListUpsertAppends) {
     delete ((posting_list_t*)(obj));
 }
 
-TEST(PostingListTest, CompactPostingListUpserts) {
+TEST_F(PostingListTest, CompactPostingListUpserts) {
     uint32_t ids[] = {3, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1066,7 +1143,7 @@ TEST(PostingListTest, CompactPostingListUpserts) {
     free(COMPACT_POSTING_PTR(obj));
 }
 
-TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
+TEST_F(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1114,7 +1191,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithLessOffsets) {
     free(list);
 }
 
-TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
+TEST_F(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1163,7 +1240,7 @@ TEST(PostingListTest, CompactPostingListUpdateWithMoreOffsets) {
     free(list);
 }
 
-TEST(PostingListTest, CompactPostingListErase) {
+TEST_F(PostingListTest, CompactPostingListErase) {
     uint32_t ids[] = {0, 1000, 1002};
     uint32_t offset_index[] = {0, 3, 6};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1203,7 +1280,7 @@ TEST(PostingListTest, CompactPostingListErase) {
     free(list);
 }
 
-TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
+TEST_F(PostingListTest, CompactPostingListContainsAtleastOne) {
     uint32_t ids[] = {5, 6, 7, 8};
     uint32_t offset_index[] = {0, 3, 6, 9};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1227,10 +1304,16 @@ TEST(PostingListTest, CompactPostingListContainsAtleastOne) {
     ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids3[0], target_ids3.size()));
     ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids4[0], target_ids4.size()));
 
+    std::vector<uint32_t> target_ids5 = {2, 3};
+    ASSERT_TRUE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids5[0], target_ids5.size()));
+
+    std::vector<uint32_t> target_ids6 = {0, 1, 2};
+    ASSERT_FALSE(COMPACT_POSTING_PTR(obj)->contains_atleast_one(&target_ids6[0], target_ids6.size()));
+
     posting_t::destroy_list(obj);
 }
 
-TEST(PostingListTest, CompactToFullPostingListConversion) {
+TEST_F(PostingListTest, CompactToFullPostingListConversion) {
     uint32_t ids[] = {5, 6, 7, 8};
     uint32_t offset_index[] = {0, 3, 6, 9};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1240,9 +1323,12 @@ TEST(PostingListTest, CompactToFullPostingListConversion) {
 
     ASSERT_EQ(4, c1->num_ids());
     ASSERT_EQ(4, p1->num_ids());
+
+    free(c1);
+    delete p1;
 }
 
-TEST(PostingListTest, BlockIntersectionOnMixedLists) {
+TEST_F(PostingListTest, BlockIntersectionOnMixedLists) {
     uint32_t ids[] = {5, 6, 7, 8};
     uint32_t offset_index[] = {0, 3, 6, 9};
     uint32_t offsets[] = {0, 3, 4, 0, 3, 4, 0, 3, 4, 0, 3, 4};
@@ -1259,20 +1345,113 @@ TEST(PostingListTest, BlockIntersectionOnMixedLists) {
 
     std::vector<void*> raw_posting_lists = {SET_COMPACT_POSTING(list1), &p1};
     posting_list_t::result_iter_state_t iter_state;
-    posting_t::block_intersector_t intersector(raw_posting_lists, 1, iter_state);
+    std::vector<uint32_t> result_ids;
+    std::mutex vecm;
 
-    ASSERT_TRUE(intersector.intersect());
-    ASSERT_EQ(1, iter_state.ids.size());
-    ASSERT_EQ(5, iter_state.ids[0]);
+    posting_t::block_intersector_t(raw_posting_lists, iter_state, pool)
+    .intersect([&](auto seq_id, auto& its, size_t index) {
+        std::unique_lock lock(vecm);
+        result_ids.push_back(seq_id);
+    });
 
-    ASSERT_FALSE(intersector.intersect());
-    ASSERT_EQ(1, iter_state.ids.size());
-    ASSERT_EQ(8, iter_state.ids[0]);
+    std::sort(result_ids.begin(), result_ids.end());
+
+    ASSERT_EQ(2, result_ids.size());
+    ASSERT_EQ(5, result_ids[0]);
+    ASSERT_EQ(8, result_ids[1]);
 
     free(list1);
 }
 
-TEST(PostingListTest, DISABLED_Benchmark) {
+TEST_F(PostingListTest, InsertAndEraseSequence) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(5);
+
+    pl.upsert(0, offsets);
+    pl.upsert(2, offsets);
+    pl.upsert(4, offsets);
+    pl.upsert(6, offsets);
+    pl.upsert(8, offsets);
+
+    // this will cause a split of the root block
+    pl.upsert(3, offsets); // 0,2,3 | 4,6,8
+    pl.erase(0); // 2,3 | 4,6,8
+    pl.upsert(5, offsets); // 2,3 | 4,5,6,8
+    pl.upsert(7, offsets); // 2,3 | 4,5,6,7,8
+    pl.upsert(10, offsets); // 2,3 | 4,5,6,7,8 | 10
+
+    // this will cause adjacent block refill
+    pl.erase(2); // 3,4,5,6,7 | 8 | 10
+
+    // deletes second block
+    pl.erase(8);
+
+    // remove all elements
+    pl.erase(3);
+    pl.erase(4);
+    pl.erase(5);
+    pl.erase(6);
+    pl.erase(7);
+    pl.erase(10);
+
+    ASSERT_EQ(0, pl.num_ids());
+}
+
+TEST_F(PostingListTest, InsertAndEraseSequenceWithBlockSizeTwo) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(2);
+
+    pl.upsert(2, offsets);
+    pl.upsert(3, offsets);
+    pl.upsert(1, offsets);  // inserting 2 again here?  // inserting 4 here?
+
+    // 1 | 2,3
+
+    pl.erase(1);
+
+    ASSERT_EQ(1, pl.get_root()->size());
+    ASSERT_EQ(2, pl.num_blocks());
+
+    pl.erase(3);
+    pl.erase(2);
+
+    ASSERT_EQ(0, pl.get_root()->size());
+}
+
+TEST_F(PostingListTest, PostingListMustHaveAtleast1Element) {
+    try {
+        std::vector<uint32_t> offsets = {0, 1, 3};
+        posting_list_t pl(1);
+        FAIL() << "Expected std::invalid_argument";
+    }
+    catch(std::invalid_argument const & err) {
+        EXPECT_EQ(err.what(),std::string("max_block_elements must be > 1"));
+    } catch(...) {
+        FAIL() << "Expected std::invalid_argument";
+    }
+}
+
+TEST_F(PostingListTest, DISABLED_RandInsertAndErase) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+    posting_list_t pl(5);
+
+    time_t t;
+    srand((unsigned) time(&t));
+
+    for(size_t i = 0; i < 10000; i++) {
+        LOG(INFO) << "i: " << i;
+        uint32_t add_id = rand() % 15;
+        pl.upsert(add_id, offsets);
+
+        uint32_t del_id = rand() % 15;
+        LOG(INFO) << "add: " << add_id << ", erase: " << del_id;
+        pl.erase(del_id);
+    }
+
+    LOG(INFO) << "Num ids: " << pl.num_ids() << ", num bocks: " << pl.num_blocks();
+}
+
+TEST_F(PostingListTest, DISABLED_Benchmark) {
     std::vector<uint32_t> offsets = {0, 1, 3};
     posting_list_t pl(4096);
     sorted_array arr;
@@ -1306,7 +1485,7 @@ TEST(PostingListTest, DISABLED_Benchmark) {
     LOG(INFO) << "Time taken for 5 sorted array updates: " << timeMicros;
 }
 
-TEST(PostingListTest, DISABLED_BenchmarkIntersection) {
+TEST_F(PostingListTest, DISABLED_BenchmarkIntersection) {
     std::vector<uint32_t> offsets = {0, 1, 3};
 
     time_t t;

@@ -1,4 +1,3 @@
-#include <regex>
 #include <chrono>
 #include <thread>
 #include <app_metrics.h>
@@ -15,7 +14,7 @@
 using namespace std::chrono_literals;
 
 std::shared_mutex mutex;
-LRU::TimedCache<uint64_t, cached_res_t> res_cache(60*1000ms, 1000);
+LRU::Cache<uint64_t, cached_res_t> res_cache;
 
 bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body,
                            const route_path& rpath, const std::string& auth_key) {
@@ -34,7 +33,17 @@ bool handle_authentication(std::map<std::string, std::string>& req_params, const
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    auto req_res = new deferred_req_res_t(req, res, server, true);
+    if(!res->is_alive) {
+        // underlying request is dead or this is a raft log playback
+        return ;
+    }
+
+    if(req->_req->res.status != 0) {
+        // not the first response chunk, so wait for previous chunk to finish
+        res->wait();
+    }
+
+    auto req_res = new async_req_res_t(req, res, true);
     server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 }
 
@@ -64,9 +73,19 @@ void get_collections_for_auth(std::map<std::string, std::string> &req_params, co
                 }
             }
         }
+    } else if(rpath.handler == post_create_collection) {
+        nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+
+        if(obj == nlohmann::json::value_t::discarded) {
+            LOG(ERROR) << "Create collection request body is malformed.";
+        }
+
+        if(obj != nlohmann::json::value_t::discarded && obj.count("name") != 0 && obj["name"].is_string()) {
+            collections.emplace_back(obj["name"].get<std::string>());
+        }
     }
 
-    if(collections.empty()) {
+    else if(collections.empty()) {
         collections.emplace_back("");
     }
 }
@@ -183,6 +202,7 @@ bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_pt
 bool get_stats_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     nlohmann::json result;
     AppMetrics::get_instance().get("requests_per_second", "latency_ms", result);
+    result["pending_write_batches"] = server->get_num_queued_writes();
 
     res->set_body(200, result.dump(2));
     return true;
@@ -211,8 +231,8 @@ uint64_t hash_request(const std::shared_ptr<http_req>& req) {
 }
 
 bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto cache_it = req->params.find("use_cache");
-    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    const auto use_cache_it = req->params.find("use_cache");
+    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
 
     if(use_cache) {
@@ -226,8 +246,18 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
-            return true;
+
+            // we still need to check that TTL has not expired
+            uint32_t ttl = cached_value.ttl;
+            uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
+
+            if(seconds_elapsed < cached_value.ttl) {
+                res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                return true;
+            }
+
+            //LOG(INFO) << "Result found in cache but ttl lapsed.";
         }
     }
 
@@ -244,12 +274,17 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     // we will cache only successful requests
     if(use_cache) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
-        cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
-        std::unique_lock lock(mutex);
+        auto now = std::chrono::high_resolution_clock::now();
+        const auto cache_ttl_it = req->params.find("cache_ttl");
+        uint32_t cache_ttl = 60;
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+            cache_ttl = std::stoul(cache_ttl_it->second);
+        }
 
-        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
-        res_cache.erase(req_hash);
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+
+        std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
     }
 
@@ -257,8 +292,8 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 }
 
 bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    const auto cache_it = req->params.find("use_cache");
-    bool use_cache = (cache_it != req->params.end()) && (cache_it->second == "1" || cache_it->second == "true");
+    const auto use_cache_it = req->params.find("use_cache");
+    bool use_cache = (use_cache_it != req->params.end()) && (use_cache_it->second == "1" || use_cache_it->second == "true");
     uint64_t req_hash = 0;
 
     if(use_cache) {
@@ -272,8 +307,16 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         if(hit_it != res_cache.end()) {
             //LOG(INFO) << "Result found in cache.";
             const auto& cached_value = hit_it.value();
-            res->load(cached_value.status_code, cached_value.content_type_header, cached_value.body);
-            return true;
+
+            // we still need to check that TTL has not expired
+            uint32_t ttl = cached_value.ttl;
+            uint64_t seconds_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - cached_value.created_at).count();
+
+            if(seconds_elapsed < cached_value.ttl) {
+                res->set_content(cached_value.status_code, cached_value.content_type_header, cached_value.body, true);
+                return true;
+            }
         }
     }
 
@@ -325,6 +368,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         req->params = orig_req_params;
 
         for(auto& search_item: search_params.items()) {
+            if(search_item.key() == "cache_ttl") {
+                // cache ttl can be applied only from an embedded key: cannot be a multi search param
+                continue;
+            }
+
             // overwrite = false since req params will contain embedded params and so has higher priority
             bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
             if(!populated) {
@@ -351,12 +399,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     // we will cache only successful requests
     if(use_cache) {
         //LOG(INFO) << "Adding to cache, key = " << req_hash;
-        cached_res_t cached_res;
-        cached_res.load(res->status_code, res->content_type_header, res->body, req_hash);
-        std::unique_lock lock(mutex);
+        auto now = std::chrono::high_resolution_clock::now();
+        const auto cache_ttl_it = req->params.find("cache_ttl");
+        uint32_t cache_ttl = 60;
+        if(cache_ttl_it != req->params.end() && StringUtils::is_int32_t(cache_ttl_it->second)) {
+            cache_ttl = std::stoul(cache_ttl_it->second);
+        }
 
-        // NOTE: due to an implementation quirk, erase is required for dealing with expired keys that might still exist
-        res_cache.erase(req_hash);
+        cached_res_t cached_res;
+        cached_res.load(res->status_code, res->content_type_header, res->body, now, cache_ttl, req_hash);
+
+        std::unique_lock lock(mutex);
         res_cache.insert(req_hash, cached_res);
     }
 
@@ -561,6 +614,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     auto collection = collectionManager.get_collection(req->params["collection"]);
 
     if(collection == nullptr) {
+        //LOG(INFO) << "collection == nullptr, for collection: " << req->params["collection"];
         res->final = true;
         res->set_404();
         stream_response(req, res);
@@ -571,45 +625,37 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     //LOG(INFO) << "req body %: " << (float(req->body_index)/req->body.size())*100;
 
     std::vector<std::string> json_lines;
-    req->body_index = StringUtils::split(req->body, json_lines, "\n", false, req->body_index, IMPORT_BATCH_SIZE);
+    StringUtils::split(req->body, json_lines, "\n", false);
 
     //LOG(INFO) << "json_lines.size before: " << json_lines.size() << ", req->body_index: " << req->body_index;
 
-    bool stream_proceed = false;  // default state
+    if(req->last_chunk_aggregate) {
+        //LOG(INFO) << "req->last_chunk_aggregate is true";
+        req->body = "";
+    } else {
+        if(!json_lines.empty()) {
+            // check if req->body had complete last record
+            bool complete_document;
 
-    if(req->body_index == req->body.size()) {
-        // body has been consumed fully, see whether we can fetch more request body
-        req->body_index = 0;
-        stream_proceed = true;
+            try {
+                nlohmann::json document = nlohmann::json::parse(json_lines.back());
+                complete_document = document.is_object();
+            } catch(const std::exception& e) {
+                complete_document = false;
+            }
 
-        if(req->last_chunk_aggregate) {
-            //LOG(INFO) << "req->last_chunk_aggregate is true";
-            req->body = "";
-        } else {
-            if(!json_lines.empty()) {
-                // check if req->body had complete last record
-                bool complete_document;
-
-                try {
-                    nlohmann::json document = nlohmann::json::parse(json_lines.back());
-                    complete_document = document.is_object();
-                } catch(const std::exception& e) {
-                    complete_document = false;
-                }
-
-                if(!complete_document) {
-                    // eject partial record
-                    req->body = json_lines.back();
-                    json_lines.pop_back();
-                } else {
-                    req->body = "";
-                }
+            if(!complete_document) {
+                // eject partial record
+                req->body = json_lines.back();
+                json_lines.pop_back();
+            } else {
+                req->body = "";
             }
         }
     }
 
     //LOG(INFO) << "json_lines.size after: " << json_lines.size() << ", stream_proceed: " << stream_proceed;
-    //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->stream_state: " << req->stream_state;
+    //LOG(INFO) << "json_lines.size: " << json_lines.size() << ", req->res_state: " << req->res_state;
 
     // When only one partial record arrives as a chunk, an empty body is pushed to response stream
     bool single_partial_record_body = (json_lines.empty() && !req->body.empty());
@@ -629,7 +675,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         //response_stream << import_summary_json << "\n";
 
         for (size_t i = 0; i < json_lines.size(); i++) {
-            if(i == json_lines.size()-1 && req->body_index == req->body.size() && req->last_chunk_aggregate) {
+            bool res_final = req->last_chunk_aggregate && (i == json_lines.size()-1);
+
+            if(res_final) {
                 // indicates last record of last batch
                 response_stream << json_lines[i];
             } else {
@@ -640,15 +688,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
 
     res->content_type_header = "text/plain; charset=utf8";
     res->status_code = 200;
-    res->body += response_stream.str();
+    res->body = response_stream.str();
 
-    if(stream_proceed) {
-        res->final = req->last_chunk_aggregate;
-        stream_response(req, res);
-    } else {
-        // push handler back onto the event loop: we must process the next batch without blocking the event loop
-        defer_processing(req, res, 0);
-    }
+    res->final.store(req->last_chunk_aggregate);
+    stream_response(req, res);
 
     return true;
 }
@@ -1240,6 +1283,8 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
+    bool found_config = false;
+
     if(req_json.count("log-slow-requests-time-ms") != 0) {
         if(!req_json["log-slow-requests-time-ms"].is_number_integer()) {
             res->set_400("Configuration `log-slow-requests-time-ms` must be an integer.");
@@ -1247,13 +1292,61 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         }
 
         Config::get_instance().set_log_slow_requests_time_ms(req_json["log-slow-requests-time-ms"].get<int>());
+        found_config = true;
+    }
 
+    if(req_json.count("healthy-read-lag") != 0) {
+        if(!req_json["healthy-read-lag"].is_number_integer()) {
+            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
+            return false;
+        }
+
+        size_t read_lag = req_json["healthy-read-lag"].get<int>();
+        if(read_lag <= 0) {
+            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
+            return false;
+        }
+
+        Config::get_instance().set_healthy_read_lag(read_lag);
+        found_config = true;
+    }
+
+    if(req_json.count("healthy-write-lag") != 0) {
+        if(!req_json["healthy-write-lag"].is_number_integer()) {
+            res->set_400("Configuration `healthy-write-lag` must be an integer.");
+            return false;
+        }
+
+        size_t write_lag = req_json["healthy-write-lag"].get<int>();
+        if(write_lag <= 0) {
+            res->set_400("Configuration `healthy-write-lag` must be a positive integer.");
+            return false;
+        }
+
+        Config::get_instance().set_healthy_write_lag(req_json["healthy-write-lag"].get<int>());
+        found_config = true;
+    }
+
+    if(!found_config) {
+        res->set_400("Invalid configuration.");
+    } else {
         nlohmann::json response;
         response["success"] = true;
         res->set_201(response.dump());
-    } else {
-        res->set_400("Invalid configuration.");
     }
+
+    return true;
+}
+
+bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    {
+        std::unique_lock lock(mutex);
+        res_cache.clear();
+    }
+
+    nlohmann::json response;
+    response["success"] = true;
+    res->set_200(response.dump());
 
     return true;
 }
@@ -1366,4 +1459,22 @@ bool del_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 
     res->set_200(res_json.dump());
     return true;
+}
+
+bool is_doc_import_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_import_documents);
+}
+
+bool is_doc_write_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == post_add_document || rpath->handler == patch_update_document);
+}
+
+bool is_doc_del_route(uint64_t route_hash) {
+    route_path* rpath;
+    bool found = server->get_route(route_hash, &rpath);
+    return found && (rpath->handler == del_remove_document || rpath->handler == del_remove_documents);
 }

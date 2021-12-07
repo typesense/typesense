@@ -17,6 +17,8 @@ extern "C" {
     #include "h2o.h"
 }
 
+using TimePoint = std::chrono::high_resolution_clock::time_point;
+
 struct h2o_custom_timer_t {
     h2o_timer_t timer;
     void *data;
@@ -33,40 +35,14 @@ enum class ROUTE_CODES {
     ALREADY_HANDLED = 2,
 };
 
-class await_t {
-private:
-
-    std::mutex mcv;
-    std::condition_variable cv;
-    bool ready;
-
-public:
-
-    await_t(): ready(false) {}
-
-    void notify() {
-        // Ideally we don't need lock over notify but it is needed here because
-        // the parent object could be deleted after lock on mutex is released but
-        // before notify can be called on condition variable.
-        std::lock_guard<std::mutex> lk(mcv);
-        ready = true;
-        cv.notify_all();
-    }
-
-    void wait() {
-        auto lk = std::unique_lock<std::mutex>(mcv);
-        cv.wait(lk, [&] { return ready; });
-        ready = false;
-    }
-};
-
 struct http_res {
     uint32_t status_code;
     std::string content_type_header;
     std::string body;
     std::atomic<bool> final;
 
-    void* generator = nullptr;
+    std::atomic<bool> is_alive;
+    std::atomic<void*> generator = nullptr;
 
     // indicates whether follower is proxying this response stream from leader
     bool proxied_stream = false;
@@ -75,18 +51,20 @@ struct http_res {
     std::condition_variable cv;
     bool ready;
 
-    http_res(): status_code(0), content_type_header("application/json; charset=utf-8"), final(true), ready(false) {
+    http_res(void* generator): status_code(0), content_type_header("application/json; charset=utf-8"), final(true),
+                               is_alive(generator != nullptr), generator(generator), ready(false) {
 
     }
 
     ~http_res() {
-        //LOG(INFO) << "http_res " << this;
+        //LOG(INFO) << "~http_res " << this;
     }
 
-    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body) {
+    void set_content(uint32_t status_code, const std::string& content_type_header, const std::string& body, const bool final) {
         this->status_code = status_code;
         this->content_type_header = content_type_header;
         this->body = body;
+        this->final = final;
     }
 
     void wait() {
@@ -191,6 +169,8 @@ struct cached_res_t {
     uint32_t status_code;
     std::string content_type_header;
     std::string body;
+    TimePoint created_at;
+    uint32_t ttl;
     uint64_t hash;
 
     bool operator == (const cached_res_t& res) const {
@@ -201,16 +181,20 @@ struct cached_res_t {
         return hash != res.hash;
     }
 
-    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body, uint64_t hash) {
+    void load(uint32_t status_code, const std::string& content_type_header, const std::string& body,
+              const TimePoint created_at, const uint32_t ttl, uint64_t hash) {
         this->status_code = status_code;
         this->content_type_header = content_type_header;
         this->body = body;
+        this->created_at = created_at;
+        this->ttl = ttl;
         this->hash = hash;
     }
 };
 
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
+    static constexpr const char* AGENT_HEADER = "user-agent";
 
     h2o_req_t* _req;
     std::string http_method;
@@ -219,7 +203,7 @@ struct http_req {
     std::map<std::string, std::string> params;
 
     bool first_chunk_aggregate;
-    bool last_chunk_aggregate;
+    std::atomic<bool> last_chunk_aggregate;
     size_t chunk_len;
 
     std::string body;
@@ -232,18 +216,20 @@ struct http_req {
     h2o_custom_timer_t defer_timer;
 
     uint64_t start_ts;
-    bool deserialized_request;
 
     std::mutex mcv;
     std::condition_variable cv;
     bool ready;
 
+    int64_t log_index;
+
+    std::atomic<bool> is_http_v1;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), deserialized_request(true), ready(false) {
+                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true) {
 
-        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
 
     }
@@ -252,24 +238,29 @@ struct http_req {
             const std::map<std::string, std::string> & params, const std::string& body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
-            chunk_len(0), body(body), body_index(0), data(nullptr), deserialized_request(false), ready(false) {
+            chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
+            log_index(0) {
 
-        start_ts = std::chrono::duration_cast<std::chrono::milliseconds>(
+        start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if(_req != nullptr) {
+            is_http_v1 = (_req->version < 0x200);
+        }
     }
 
     ~http_req() {
 
         //LOG(INFO) << "~http_req " << this;
-
-        if(!deserialized_request) {
-            uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        if(_req != nullptr) {
+            uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
+            uint64_t ms_since_start = (now - start_ts) / 1000;
 
-            uint64_t ms_since_start = (now - start_ts);
             std::string metric_identifier = http_method + " " + path_without_query;
-
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
+
+            AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
             // log slow request if logging is enabled
             Config& config = Config::get_instance();
@@ -306,10 +297,16 @@ struct http_req {
     // NOTE: we don't ser/de all fields, only ones needed for write forwarding
     // Take care to check for existence of key to ensure backward compatibility during upgrade
 
-    void deserialize(const std::string& serialized_content) {
+    void load_from_json(const std::string& serialized_content) {
         nlohmann::json content = nlohmann::json::parse(serialized_content);
         route_hash = content["route_hash"];
-        body = content["body"];
+
+        if(start_ts == 0) {
+            // Serialized request from an older version (v0.21 and below) which serializes import data differently.
+            body = content["body"];
+        } else {
+            body += content["body"];
+        }
 
         for (nlohmann::json::iterator it = content["params"].begin(); it != content["params"].end(); ++it) {
             params.emplace(it.key(), it.value());
@@ -318,25 +315,22 @@ struct http_req {
         metadata = content.count("metadata") != 0 ? content["metadata"] : "";
         first_chunk_aggregate = content.count("first_chunk_aggregate") != 0 ? content["first_chunk_aggregate"].get<bool>() : true;
         last_chunk_aggregate = content.count("last_chunk_aggregate") != 0 ? content["last_chunk_aggregate"].get<bool>() : false;
-        _req = nullptr;
-
-        deserialized_request = true;
+        start_ts = content.count("start_ts") != 0 ? content["start_ts"].get<uint64_t>() : 0;
+        log_index = content.count("log_index") != 0 ? content["log_index"].get<int64_t>() : 0;
     }
 
-    std::string serialize() const {
+    std::string to_json() const {
         nlohmann::json content;
         content["route_hash"] = route_hash;
         content["params"] = params;
         content["first_chunk_aggregate"] = first_chunk_aggregate;
-        content["last_chunk_aggregate"] = last_chunk_aggregate;
+        content["last_chunk_aggregate"] = last_chunk_aggregate.load();
         content["body"] = body;
         content["metadata"] = metadata;
+        content["start_ts"] = start_ts;
+        content["log_index"] = log_index;
 
         return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
-    }
-
-    bool is_http_v1() {
-        return (_req->version < 0x200);
     }
 };
 

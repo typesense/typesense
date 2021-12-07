@@ -44,7 +44,8 @@ struct Match {
 
     }
 
-    Match(uint8_t words_present, uint8_t distance) : words_present(words_present), distance(distance), exact_match(0) {
+    Match(uint8_t words_present, uint8_t distance, uint8_t exact_match = 0) :
+            words_present(words_present), distance(distance), exact_match(exact_match) {
 
     }
 
@@ -54,7 +55,7 @@ struct Match {
             (int64_t(words_present) << 24) |
             (int64_t(255 - total_cost) << 16) |
             (int64_t(100 - distance) << 8) |
-            (int64_t(0) << 1)
+            (int64_t(0) << 0)
         );
 
         return match_score;
@@ -66,7 +67,7 @@ struct Match {
             (int64_t(words_present) << 24) |
             (int64_t(255 - total_cost) << 16) |
             (int64_t(100 - distance) << 8) |
-            (int64_t(exact_match) << 1)
+            (int64_t(exact_match) << 0)
         );
 
         return match_score;
@@ -217,6 +218,12 @@ struct Match {
         exact_match = 0;
 
         if(check_exact_match) {
+
+            if(distance != token_offsets.size()-1) {
+                // we can exit early and don't have to care about other requirements
+                return;
+            }
+
             int last_token_index = -1;
             size_t total_offsets = 0;
 
@@ -231,8 +238,7 @@ struct Match {
                 }
             }
 
-            if(last_token_index == int(token_offsets.size())-1 &&
-               total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
+            if(last_token_index == int(token_offsets.size())-1 && total_offsets == token_offsets.size()) {
                 exact_match = 1;
             }
         }

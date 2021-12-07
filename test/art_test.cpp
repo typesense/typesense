@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <art.h>
 #include <chrono>
+#include <posting.h>
 
 #define words_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/words.txt").c_str()
 #define uuid_file_path std::string(std::string(ROOT_DIR)+"/build/test_resources/uuid.txt").c_str()
@@ -13,12 +14,7 @@
 #define ill_file_path std::string(std::string(ROOT_DIR)+"/test/ill.txt").c_str()
 
 art_document get_document(uint32_t id) {
-    art_document document;
-    document.score = id;
-    document.id = id;
-    document.offsets = new uint32_t[1]{0};
-    document.offsets_len = 1;
-
+    art_document document(id, id, {0});
     return document;
 }
 
@@ -48,11 +44,9 @@ TEST(ArtTest, test_art_insert) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document document = get_document(line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &document, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &document));
         ASSERT_TRUE(art_size(&t) == line);
         line++;
-
-        delete [] document.offsets;
     }
 
     res = art_tree_destroy(&t);
@@ -105,9 +99,9 @@ TEST(ArtTest, test_art_insert_verylong) {
     art_document doc1 = get_document(1);
     art_document doc2 = get_document(2);
 
-    ASSERT_TRUE(NULL == art_insert(&t, key1, 299, &doc1, 1));
-    ASSERT_TRUE(NULL == art_insert(&t, key2, 302, &doc2, 2));
-    art_insert(&t, key2, 302, &doc2, 2);
+    ASSERT_TRUE(NULL == art_insert(&t, key1, 299, &doc1));
+    ASSERT_TRUE(NULL == art_insert(&t, key2, 302, &doc2));
+    art_insert(&t, key2, 302, &doc2);
     EXPECT_EQ(art_size(&t), 2);
 
     res = art_tree_destroy(&t);
@@ -128,7 +122,7 @@ TEST(ArtTest, test_art_insert_search) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc));
         line++;
     }
 
@@ -142,7 +136,7 @@ TEST(ArtTest, test_art_insert_search) {
         buf[len-1] = '\0';
 
         art_leaf* l = (art_leaf *) art_search(&t, (unsigned char*)buf, len);
-        EXPECT_EQ(line, l->values->ids.at(0));
+        EXPECT_EQ(line, posting_t::first_id(l->values));
         line++;
     }
 
@@ -173,7 +167,7 @@ TEST(ArtTest, test_art_insert_delete) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc));
         line++;
     }
 
@@ -191,12 +185,12 @@ TEST(ArtTest, test_art_insert_delete) {
         // Search first, ensure all entries still
         // visible
         art_leaf* l = (art_leaf *) art_search(&t, (unsigned char*)buf, len);
-        EXPECT_EQ(line, l->values->ids.at(0));
+        EXPECT_EQ(line, posting_t::first_id(l->values));
 
         // Delete, should get lineno back
-        art_values* values = (art_values*)art_delete(&t, (unsigned char*)buf, len);
-        EXPECT_EQ(line, values->ids.at(0));
-        delete values;
+        void* values = (art_values*)art_delete(&t, (unsigned char*)buf, len);
+        EXPECT_EQ(line, posting_t::first_id(values));
+        posting_t::destroy_list(values);
 
         // Check the size
         ASSERT_TRUE(art_size(&t) == nlines - line);
@@ -214,7 +208,7 @@ TEST(ArtTest, test_art_insert_delete) {
 
 int iter_cb(void *data, const unsigned char* key, uint32_t key_len, void *val) {
     uint64_t *out = (uint64_t*)data;
-    uintptr_t line = ((art_values*)val)->ids.at(0);
+    uintptr_t line = posting_t::first_id(val);
     uint64_t mask = (line * (key[0] + key_len));
     out[0]++;
     out[1] ^= mask;
@@ -222,35 +216,35 @@ int iter_cb(void *data, const unsigned char* key, uint32_t key_len, void *val) {
 }
 
 TEST(ArtTest, test_art_insert_iter) {
-                art_tree t;
-        int res = art_tree_init(&t);
-        ASSERT_TRUE(res == 0);
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
 
-        int len;
-        char buf[512];
-        FILE *f = fopen(words_file_path, "r");
+    int len;
+    char buf[512];
+    FILE *f = fopen(words_file_path, "r");
 
-        uint64_t xor_mask = 0;
-        uintptr_t line = 1, nlines;
-        while (fgets(buf, sizeof buf, f)) {
-            len = strlen(buf);
-            buf[len-1] = '\0';
-            art_document doc = get_document((uint32_t) line);
-            ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
+    uint64_t xor_mask = 0;
+    uintptr_t line = 1, nlines;
+    while (fgets(buf, sizeof buf, f)) {
+        len = strlen(buf);
+        buf[len-1] = '\0';
+        art_document doc = get_document((uint32_t) line);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc));
 
-            xor_mask ^= (line * (buf[0] + len));
-            line++;
-        }
-        nlines = line - 1;
+        xor_mask ^= (line * (buf[0] + len));
+        line++;
+    }
+    nlines = line - 1;
 
-        uint64_t out[] = {0, 0};
-        ASSERT_TRUE(art_iter(&t, iter_cb, &out) == 0);
+    uint64_t out[] = {0, 0};
+    ASSERT_TRUE(art_iter(&t, iter_cb, &out) == 0);
 
-        ASSERT_TRUE(out[0] == nlines);
-        ASSERT_TRUE(out[1] == xor_mask);
+    ASSERT_TRUE(out[0] == nlines);
+    ASSERT_TRUE(out[1] == xor_mask);
 
-        res = art_tree_destroy(&t);
-        ASSERT_TRUE(res == 0);
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 
@@ -275,27 +269,27 @@ TEST(ArtTest, test_art_iter_prefix) {
 
         const char *s = "api.foo.bar";
         art_document doc = get_document((uint32_t) 1);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
 
         s = "api.foo.baz";
-        doc = get_document((uint32_t) 2);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        auto doc2 = get_document((uint32_t) 2);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc2));
 
         s = "api.foe.fum";
-        doc = get_document((uint32_t) 3);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        auto doc3 = get_document((uint32_t) 3);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc3));
 
         s = "abc.123.456";
-        doc = get_document((uint32_t) 4);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        auto doc4 = get_document((uint32_t) 4);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc4));
 
         s = "api.foo";
-        doc = get_document((uint32_t) 5);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        auto doc5 = get_document((uint32_t) 5);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc5));
 
         s = "api";
-        doc = get_document((uint32_t) 6);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+        auto doc6 = get_document((uint32_t) 6);
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc6));
 
         // Iterate over api
         const char *expected[] = {"api", "api.foe.fum", "api.foo", "api.foo.bar", "api.foo.baz"};
@@ -352,27 +346,27 @@ TEST(ArtTest, test_art_long_prefix) {
     s = "this:key:has:a:long:prefix:3";
     id = 3;
     art_document doc = get_document((uint32_t) id);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc));
 
     s = "this:key:has:a:long:common:prefix:2";
     id = 2;
-    doc = get_document((uint32_t) id);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+    auto doc2 = get_document((uint32_t) id);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc2));
 
     s = "this:key:has:a:long:common:prefix:1";
     id = 1;
-    doc = get_document((uint32_t) id);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc, 1));
+    auto doc3 = get_document((uint32_t) id);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)s, strlen(s)+1, &doc3));
 
     // Search for the keys
     s = "this:key:has:a:long:common:prefix:1";
-    EXPECT_EQ(1, (((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values->ids.at(0)));
+    EXPECT_EQ(1, posting_t::first_id(((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values));
 
     s = "this:key:has:a:long:common:prefix:2";
-    EXPECT_EQ(2, (((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values->ids.at(0)));
+    EXPECT_EQ(2, posting_t::first_id(((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values));
 
     s = "this:key:has:a:long:prefix:3";
-    EXPECT_EQ(3, (((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values->ids.at(0)));
+    EXPECT_EQ(3, posting_t::first_id(((art_leaf *)art_search(&t, (unsigned char*)s, strlen(s)+1))->values));
 
     const char *expected[] = {
             "this:key:has:a:long:common:prefix:1",
@@ -401,7 +395,7 @@ TEST(ArtTest, test_art_insert_search_uuid) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc));
         line++;
     }
 
@@ -414,7 +408,7 @@ TEST(ArtTest, test_art_insert_search_uuid) {
         len = strlen(buf);
         buf[len-1] = '\0';
 
-        uintptr_t id = ((art_leaf*)art_search(&t, (unsigned char*)buf, len))->values->ids.at(0);
+        uintptr_t id = posting_t::first_id(((art_leaf*)art_search(&t, (unsigned char*)buf, len))->values);
         ASSERT_TRUE(line == id);
         line++;
     }
@@ -438,15 +432,15 @@ TEST(ArtTest, test_art_max_prefix_len_scan_prefix) {
 
     const char* key1 = "foobarbaz1-test1-foo";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -469,15 +463,15 @@ TEST(ArtTest, test_art_prefix_iter_out_of_bounds) {
 
     const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -500,15 +494,15 @@ TEST(ArtTest, test_art_search_out_of_bounds) {
 
     const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+    auto doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+    auto doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -529,15 +523,15 @@ TEST(ArtTest, test_art_delete_out_of_bounds) {
 
     const char* key1 = "foobarbaz1-long-test1-foo";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
     const char *key2 = "foobarbaz1-long-test1-bar";
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc, 1));
+    art_document doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key2, strlen(key2)+1, &doc2));
 
     const char *key3 = "foobarbaz1-long-test2-foo";
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc, 2));
+    art_document doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key3, strlen(key3)+1, &doc3));
 
     ASSERT_TRUE(art_size(&t) == 3);
 
@@ -557,20 +551,24 @@ TEST(ArtTest, test_art_insert_multiple_ids_for_same_token) {
 
     const char* key1 = "implement";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc));
 
-    doc = get_document((uint32_t) 2);
-    art_values* value = (art_values*) art_insert(&t, (unsigned char*)key1, strlen(key1) + 1, &doc, 2);
+    art_document doc2 = get_document((uint32_t) 2);
+    void* value = art_insert(&t, (unsigned char*)key1, strlen(key1) + 1, &doc2);
     ASSERT_TRUE(value != NULL);
 
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(value == (art_values*) art_insert(&t, (unsigned char*)key1, strlen(key1)+1, &doc, 3));
+    ASSERT_EQ(posting_t::num_ids(value), 2);
+    ASSERT_EQ(posting_t::first_id(value), 1);
+    ASSERT_TRUE(posting_t::contains(value, 2));
+
+    art_document doc3 = get_document((uint32_t) 3);
+    void* reinsert_value = art_insert(&t, (unsigned char*) key1, strlen(key1) + 1, &doc3);
 
     ASSERT_TRUE(art_size(&t) == 1);
-    ASSERT_EQ(value->ids.getLength(), 3);
-    ASSERT_EQ(value->ids.at(0), 1);
-    ASSERT_EQ(value->ids.at(1), 2);
-    ASSERT_EQ(value->ids.at(2), 3);
+    ASSERT_EQ(posting_t::num_ids(reinsert_value), 3);
+    ASSERT_EQ(posting_t::first_id(reinsert_value), 1);
+    ASSERT_TRUE(posting_t::contains(reinsert_value, 2));
+    ASSERT_TRUE(posting_t::contains(reinsert_value, 3));
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
@@ -583,10 +581,10 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf) {
 
     const char* implement_key = "implement";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)implement_key, strlen(implement_key)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)implement_key, strlen(implement_key)+1, &doc));
 
     art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)implement_key, strlen(implement_key)+1);
-    EXPECT_EQ(1, l->values->ids.at(0));
+    EXPECT_EQ(1, posting_t::first_id(l->values));
 
     std::vector<art_leaf*> leaves;
     art_fuzzy_search(&t, (const unsigned char *) implement_key, strlen(implement_key) + 1, 0, 0, 10, FREQUENCY, false, nullptr, 0, leaves);
@@ -618,10 +616,10 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
 
     const char* key = "application";
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
 
     art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key, strlen(key)+1);
-    EXPECT_EQ(1, l->values->ids.at(0));
+    EXPECT_EQ(1, posting_t::first_id(l->values));
 
     std::vector<art_leaf*> leaves;
     art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key)-1, 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
@@ -629,6 +627,28 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_prefix) {
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "aplication", strlen(key)-1, 0, 2, 10, FREQUENCY, true, nullptr, 0, leaves);
+    ASSERT_EQ(1, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
+TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    const char* key = "spz005";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
+
+    std::string term = "spz";
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size()+1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
+    ASSERT_EQ(0, leaves.size());
+
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size(), 0, 1, 10, FREQUENCY, true, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
 
     res = art_tree_destroy(&t);
@@ -649,7 +669,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
         len = strlen(buf);
         buf[len-1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)buf, len, &doc));
         line++;
     }
 
@@ -711,9 +731,12 @@ TEST(ArtTest, test_art_fuzzy_search) {
     art_fuzzy_search(&t, (const unsigned char *) "hown", strlen("hown") + 1, 0, 1, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(10, leaves.size());
 
-    std::vector<const char*> words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
+    std::set<std::string> expected_words = {"town", "sown", "shown", "own", "mown", "lown", "howl", "howk", "howe", "how"};
+
     for(size_t leaf_index = 0; leaf_index < leaves.size(); leaf_index++) {
-        ASSERT_STREQ(words.at(leaf_index), (const char *)leaves.at(leaf_index)->key);
+        art_leaf*& leaf = leaves.at(leaf_index);
+        std::string tok(reinterpret_cast<char*>(leaf->key), leaf->key_len - 1);
+        ASSERT_NE(expected_words.count(tok), 0);
     }
 
     // fuzzy prefix search
@@ -757,12 +780,12 @@ TEST(ArtTest, test_art_fuzzy_search_unicode_chars) {
 
     for(const char* key: keys) {
         art_document doc = get_document((uint32_t) 1);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
     }
 
     for(const char* key: keys) {
         art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key, strlen(key)+1);
-        EXPECT_EQ(1, l->values->ids.at(0));
+        EXPECT_EQ(1, posting_t::first_id(l->values));
 
         std::vector<art_leaf*> leaves;
         art_fuzzy_search(&t, (unsigned char *)key, strlen(key), 0, 0, 10, FREQUENCY, true, nullptr, 0, leaves);
@@ -789,7 +812,7 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
         len = strlen(buf);
         buf[len - 1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc));
         keys.push_back(std::string(buf, len-1));
         line++;
     }
@@ -798,7 +821,7 @@ TEST(ArtTest, test_art_search_sku_like_tokens) {
 
     // exact search
     art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key1, strlen(key1)+1);
-    EXPECT_EQ(1, l->values->ids.getLength());
+    EXPECT_EQ(1, posting_t::num_ids(l->values));
 
     // exact search all tokens via fuzzy API
 
@@ -838,7 +861,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
         len = strlen(buf);
         buf[len - 1] = '\0';
         art_document doc = get_document((uint32_t) line);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) buf, len, &doc));
         keys.push_back(std::string(buf, len-1));
         line++;
     }
@@ -860,7 +883,7 @@ TEST(ArtTest, test_art_search_ill_like_tokens) {
     for (const auto &key : keys) {
         art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
         ASSERT_FALSE(l == nullptr);
-        EXPECT_EQ(1, l->values->ids.getLength());
+        EXPECT_EQ(1, posting_t::num_ids(l->values));
 
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size(), 0, 0, 10,
@@ -895,18 +918,18 @@ TEST(ArtTest, test_art_search_ill_like_tokens2) {
     keys = {"input", "illustrations", "illustration"};
 
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc));
 
-    doc = get_document((uint32_t) 2);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[1].c_str(), keys[1].size()+1, &doc, 1));
+    art_document doc2 = get_document((uint32_t) 2);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[1].c_str(), keys[1].size()+1, &doc2));
 
-    doc = get_document((uint32_t) 3);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[2].c_str(), keys[2].size()+1, &doc, 1));
+    art_document doc3 = get_document((uint32_t) 3);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[2].c_str(), keys[2].size()+1, &doc3));
 
     for (const auto &key : keys) {
         art_leaf* l = (art_leaf *) art_search(&t, (const unsigned char *)key.c_str(), key.size()+1);
         ASSERT_FALSE(l == nullptr);
-        EXPECT_EQ(1, l->values->ids.getLength());
+        EXPECT_EQ(1, posting_t::num_ids(l->values));
 
         std::vector<art_leaf *> leaves;
         art_fuzzy_search(&t, (const unsigned char*)key.c_str(), key.size(), 0, 0, 10,
@@ -941,7 +964,7 @@ TEST(ArtTest, test_art_search_roche_chews) {
     keys = {"roche"};
 
     art_document doc = get_document((uint32_t) 1);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) keys[0].c_str(), keys[0].size()+1, &doc));
 
     std::string term = "chews";
     std::vector<art_leaf *> leaves;
@@ -969,7 +992,7 @@ TEST(ArtTest, test_art_search_raspberry) {
 
     for (const auto &key : keys) {
         art_document doc = get_document((uint32_t) 1);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) key.c_str(), key.size()+1, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) key.c_str(), key.size()+1, &doc));
     }
 
     // prefix search
@@ -1002,7 +1025,7 @@ TEST(ArtTest, test_art_search_highliving) {
 
     for (const auto &key : keys) {
         art_document doc = get_document((uint32_t) 1);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) key.c_str(), key.size()+1, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) key.c_str(), key.size()+1, &doc));
     }
 
     // prefix search
@@ -1073,7 +1096,6 @@ TEST(ArtTest, test_int32_overlap) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
@@ -1085,8 +1107,8 @@ TEST(ArtTest, test_int32_overlap) {
     for(uint32_t i = 0; i < values.size(); i++) {
         for(size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
-            doc.id = i;
-            art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1);
+            art_document doc = get_document(i);
+            art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc);
         }
     }
 
@@ -1110,7 +1132,7 @@ TEST(ArtTest, test_int32_range_hundreds) {
 
     for(uint32_t i = 100; i < 110; i++) {
         encode_int32(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     encode_int32(106, chars);
@@ -1148,15 +1170,14 @@ TEST(ArtTest, test_int32_duplicates) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
     for(size_t i = 0; i < 10000; i++) {
-        doc.id = i;
+        art_document doc = get_document(i);
         int value = 1900 + (rand() % static_cast<int>(2018 - 1900 + 1));
         encode_int32(value, chars);
-        art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1);
+        art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc);
     }
 
     std::vector<const art_leaf*> results;
@@ -1166,7 +1187,7 @@ TEST(ArtTest, test_int32_duplicates) {
     size_t counter = 0;
 
     for(auto res: results) {
-        counter += res->values->ids.getLength();
+        counter += posting_t::num_ids(res->values);
     }
 
     ASSERT_EQ(10000, counter);
@@ -1183,7 +1204,7 @@ TEST(ArtTest, test_int32_negative) {
 
     for(int32_t i = -100; i < 0; i++) {
         encode_int32(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     encode_int32(-99, chars);
@@ -1235,7 +1256,7 @@ TEST(ArtTest, test_int32_million) {
 
     for(uint32_t i = 0; i < 1000000; i++) {
         encode_int32(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     encode_int32(5, chars);
@@ -1314,7 +1335,7 @@ TEST(ArtTest, test_int_range_byte_boundary) {
 
     for(uint32_t i = 200; i < 300; i++) {
         encode_int32(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     encode_int32(255, chars);
@@ -1376,7 +1397,7 @@ TEST(ArtTest, test_search_int64) {
 
     for(uint64_t i = lmax; i < lmax+100; i++) {
         encode_int64(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     std::vector<const art_leaf*> results;
@@ -1419,7 +1440,7 @@ TEST(ArtTest, test_search_negative_int64) {
 
     for(int64_t i = lmax-100; i < lmax; i++) {
         encode_int64(i, chars);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars, CHAR_LEN, &doc));
     }
 
     std::vector<const art_leaf*> results;
@@ -1458,10 +1479,8 @@ TEST(ArtTest, test_search_negative_int64_large) {
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
-    const int64_t lmax = -1 * std::numeric_limits<std::int32_t>::max();
-
     encode_int64(-2, chars);
-    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc, 1));
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc));
 
     std::vector<const art_leaf *> results;
 
@@ -1475,7 +1494,6 @@ TEST(ArtTest, test_int32_array) {
     art_tree t;
     art_tree_init(&t);
 
-    art_document doc = get_document(1);
     const int CHAR_LEN = 8;
     unsigned char chars[CHAR_LEN];
 
@@ -1490,8 +1508,8 @@ TEST(ArtTest, test_int32_array) {
     for (uint32_t i = 0; i < values.size(); i++) {
         for (size_t j = 0; j < values[i].size(); j++) {
             encode_int32(values[i][j], chars);
-            doc.id = i;
-            art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc, 1);
+            art_document doc = get_document(i);
+            art_insert(&t, (unsigned char *) chars, CHAR_LEN, &doc);
         }
     }
 
@@ -1511,7 +1529,7 @@ TEST(ArtTest, test_encode_float_positive) {
         unsigned char chars0[CHAR_LEN];
         encode_float(floats[i], chars0);
         art_document doc = get_document(i);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc));
     }
 
     std::vector<const art_leaf*> results;
@@ -1568,7 +1586,7 @@ TEST(ArtTest, test_encode_float_positive_negative) {
         unsigned char chars0[CHAR_LEN];
         encode_float(floats[i], chars0);
         art_document doc = get_document(i);
-        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc, 1));
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)chars0, CHAR_LEN, &doc));
     }
 
     std::vector<const art_leaf*> results;

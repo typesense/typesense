@@ -19,151 +19,6 @@
 #include <option.h>
 #include "tokenizer.h"
 
-
-struct override_t {
-    static const std::string MATCH_EXACT;
-    static const std::string MATCH_CONTAINS;
-
-    struct rule_t {
-        std::string query;
-        std::string match;
-    };
-
-    struct add_hit_t {
-        std::string doc_id;
-        uint32_t position;
-    };
-
-    struct drop_hit_t {
-        std::string doc_id;
-    };
-
-    std::string id;
-    rule_t rule;
-    std::vector<add_hit_t> add_hits;
-    std::vector<drop_hit_t> drop_hits;
-
-    override_t() {}
-
-    static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
-        if(!override_json.is_object()) {
-            return Option<bool>(400, "Bad JSON.");
-        }
-
-        if(override_json.count("rule") == 0 || !override_json["rule"].is_object()) {
-            return Option<bool>(400, "Missing `rule` definition.");
-        }
-
-        if(override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0) {
-            return Option<bool>(400, "The `rule` definition must contain a `query` or `match`.");
-        }
-
-        if(override_json.count("includes") == 0 && override_json.count("excludes") == 0) {
-            return Option<bool>(400, "Must contain either `includes` or `excludes`.");
-        }
-
-        if(override_json.count("includes") != 0) {
-            if(!override_json["includes"].is_array()) {
-                return Option<bool>(400, "The `includes` value must be an array.");
-            }
-
-            for(const auto & include_obj: override_json["includes"]) {
-                if(!include_obj.is_object()) {
-                    return Option<bool>(400, "The `includes` value must be an array of objects.");
-                }
-
-                if(include_obj.count("id") == 0 || include_obj.count("position") == 0) {
-                    return Option<bool>(400, "Inclusion definition must define both `id` and `position` keys.");
-                }
-
-                if(!include_obj["id"].is_string()) {
-                    return Option<bool>(400, "Inclusion `id` must be a string.");
-                }
-
-                if(!include_obj["position"].is_number_integer()) {
-                    return Option<bool>(400, "Inclusion `position` must be an integer.");
-                }
-            }
-        }
-
-        if(override_json.count("excludes") != 0) {
-            if(!override_json["excludes"].is_array()) {
-                return Option<bool>(400, "The `excludes` value must be an array.");
-            }
-
-            for(const auto & exclude_obj: override_json["excludes"]) {
-                if(!exclude_obj.is_object()) {
-                    return Option<bool>(400, "The `excludes` value must be an array of objects.");
-                }
-
-                if(exclude_obj.count("id") == 0) {
-                    return Option<bool>(400, "Exclusion definition must define an `id`.");
-                }
-
-                if(!exclude_obj["id"].is_string()) {
-                    return Option<bool>(400, "Exclusion `id` must be a string.");
-                }
-            }
-
-        }
-
-        if(!id.empty()) {
-            override.id = id;
-        } else if(override_json.count("id") != 0) {
-            override.id = override_json["id"].get<std::string>();
-        } else {
-            return Option<bool>(400, "Override `id` not provided.");
-        }
-
-        override.rule.query = override_json["rule"]["query"].get<std::string>();
-        override.rule.match = override_json["rule"]["match"].get<std::string>();
-
-        if (override_json.count("includes") != 0) {
-            for(const auto & include: override_json["includes"]) {
-                add_hit_t add_hit;
-                add_hit.doc_id = include["id"].get<std::string>();
-                add_hit.position = include["position"].get<uint32_t>();
-                override.add_hits.push_back(add_hit);
-            }
-        }
-
-        if (override_json.count("excludes") != 0) {
-            for(const auto & exclude: override_json["excludes"]) {
-                drop_hit_t drop_hit;
-                drop_hit.doc_id = exclude["id"].get<std::string>();
-                override.drop_hits.push_back(drop_hit);
-            }
-        }
-
-        return Option<bool>(true);
-    }
-
-    nlohmann::json to_json() const {
-        nlohmann::json override;
-        override["id"] = id;
-        override["rule"]["query"] = rule.query;
-        override["rule"]["match"] = rule.match;
-
-        override["includes"] = nlohmann::json::array();
-
-        for(const auto & add_hit: add_hits) {
-            nlohmann::json include;
-            include["id"] = add_hit.doc_id;
-            include["position"] = add_hit.position;
-            override["includes"].push_back(include);
-        }
-
-        override["excludes"] = nlohmann::json::array();
-        for(const auto & drop_hit: drop_hits) {
-            nlohmann::json exclude;
-            exclude["id"] = drop_hit.doc_id;
-            override["excludes"].push_back(exclude);
-        }
-
-        return override;
-    }
-};
-
 struct doc_seq_id_t {
     uint32_t seq_id;
     bool is_new;
@@ -317,15 +172,17 @@ private:
 
     const std::string default_sorting_field;
 
-    std::atomic<size_t> num_memory_shards;
-
     const float max_memory_ratio;
 
     const std::string fallback_field_type;
 
     std::vector<field> dynamic_fields;
 
-    const std::vector<Index*> indices;
+    std::vector<char> symbols_to_index;
+
+    std::vector<char> token_separators;
+
+    Index* index;
 
     // methods
 
@@ -346,12 +203,11 @@ private:
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void curate_results(std::string query,
+    void curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::map<size_t, std::vector<uint32_t>>& include_ids,
-                        std::vector<uint32_t> & excluded_ids,
-                        bool enable_overrides) const;
+                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
@@ -371,15 +227,6 @@ private:
         return std::tie(a_count, a_value_size) > std::tie(b_count, b_value_size);
     }
 
-    void free_leaf_indices(std::vector<uint32_t*>& leaf_to_indices) const;
-
-    Option<bool> parse_filter_query(const std::string& simple_filter_query, std::vector<filter>& filters) const;
-
-    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
-                                                    const std::string& format_err_msg,
-                                                    std::string& processed_filter_val,
-                                                    NUM_COMPARATOR& num_comparator);
-
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
@@ -389,7 +236,9 @@ private:
                                     std::set<uint64_t>& processed_syn_hashes,
                                     std::vector<std::vector<std::string>>& results) const;
 
-    std::vector<Index *> init_indices();
+    Index* init_index();
+
+    static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
 public:
 
@@ -415,10 +264,8 @@ public:
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
 
-    // DON'T CHANGE THESE VALUES!
-    // this key is used as namespace key to store metadata about the document
-    static constexpr const char* DOC_META_KEY = "$TSM$_";
-    static constexpr const char* DOC_META_DIRTY_VALUES_KEY = "dirty_values";
+    static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
+    static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
 
     // methods
 
@@ -426,8 +273,9 @@ public:
 
     Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
-               const std::string& default_sorting_field, const size_t num_memory_shards,
-               const float max_memory_ratio, const std::string& fallback_field_type);
+               const std::string& default_sorting_field,
+               const float max_memory_ratio, const std::string& fallback_field_type,
+               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators);
 
     ~Collection();
 
@@ -480,17 +328,14 @@ public:
     static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
                                const spp::sparse_hash_set<std::string> & exclude_fields);
 
-    const std::vector<Index *> &_get_indexes() const;
+    const Index* _get_index() const;
 
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value) const;
 
-    static void aggregate_topster(size_t query_index, Topster &topster, Topster *index_topster);
-
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
-    void batch_index(std::vector<std::vector<index_record>> &index_batches, std::vector<std::string>& json_out,
-                     size_t &num_indexed);
+    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -502,7 +347,7 @@ public:
 
     nlohmann::json get_summary_json() const;
 
-    size_t par_index_in_memory(std::vector<std::vector<index_record>> & iter_batch, std::vector<size_t>& indexed_counts);
+    size_t batch_index_in_memory(std::vector<index_record>& index_records);
 
     Option<nlohmann::json> add(const std::string & json_str,
                                const index_operation_t& operation=CREATE, const std::string& id="",
@@ -537,7 +382,11 @@ public:
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
                                   bool enable_overrides=true,
-                                  const std::string& highlight_fields="") const;
+                                  const std::string& highlight_fields="",
+                                  const bool exhaustive_search = false,
+                                  size_t search_stop_millis = 6000*1000,
+                                  size_t min_len_1typo = 4,
+                                  size_t min_len_2typo = 7) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
@@ -551,11 +400,13 @@ public:
     bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
                                std::string &value);
 
-    size_t get_num_memory_shards();
-
     size_t get_num_documents() const;
 
     DIRTY_VALUES parse_dirty_values_option(std::string& dirty_values) const;
+
+    std::vector<char> get_symbols_to_index();
+
+    std::vector<char> get_token_separators();
 
     // Override operations
 

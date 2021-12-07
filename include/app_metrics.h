@@ -35,6 +35,10 @@ private:
     }
 
 public:
+    static inline const std::string SEARCH_LABEL = "search";
+    static inline const std::string DOC_WRITE_LABEL = "write";
+    static inline const std::string IMPORT_LABEL = "import";
+    static inline const std::string DOC_DELETE_LABEL = "delete";
 
     static const uint64_t METRICS_REFRESH_INTERVAL_MS = 10 * 1000;
 
@@ -56,37 +60,9 @@ public:
         (*current_durations)[identifier] += duration;
     }
 
-    void window_reset() {
-        std::unique_lock lock(mutex);
+    void increment_write_metrics(uint64_t route_hash, uint64_t duration);
 
-        delete counts;
-        counts = current_counts;
-        current_counts = new spp::sparse_hash_map<std::string, uint64_t>();
+    void window_reset();
 
-        delete durations;
-        durations = current_durations;
-        current_durations = new spp::sparse_hash_map<std::string, uint64_t>();
-    }
-
-    void get(const std::string& count_key, const std::string& latency_key, nlohmann::json &result) const {
-        std::shared_lock lock(mutex);
-
-        uint64_t total_counts = 0;
-
-        result[count_key] = nlohmann::json::object();
-        for(const auto& kv: *counts) {
-            result[count_key][kv.first] = (double(kv.second) / (METRICS_REFRESH_INTERVAL_MS / 1000));
-            total_counts += kv.second;
-        }
-
-        result["total_"+count_key] = double(total_counts) / (METRICS_REFRESH_INTERVAL_MS / 1000);
-
-        result[latency_key] = nlohmann::json::object();
-        for(const auto& kv: *durations) {
-            auto counter_it = counts->find(kv.first);
-            if(counter_it != counts->end() && counter_it->second != 0) {
-                result[latency_key][kv.first] = (double(kv.second) / counter_it->second);
-            }
-        }
-    }
+    void get(const std::string& rps_key, const std::string& latency_key, nlohmann::json &result) const;
 };

@@ -47,33 +47,49 @@ public:
         block_t* curr_block;
         uint32_t curr_index;
 
-        // uncompressed data structures for performance
-        block_t* uncompressed_block;
-        uint32_t* ids;
+        block_t* end_block;
 
     public:
-        explicit iterator_t(block_t* root);
+        // uncompressed data structures for performance
+        uint32_t* ids = nullptr;
+        uint32_t* offset_index = nullptr;
+        uint32_t* offsets = nullptr;
+
+        explicit iterator_t(block_t* start, block_t* end);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
-        [[nodiscard]] inline uint32_t id();
+        [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
     };
 
     struct result_iter_state_t {
-        std::vector<std::vector<block_t*>> blocks;
-        std::vector<std::vector<uint32_t>> indices;
-        std::vector<uint32_t> ids;
+        const uint32_t* excluded_result_ids = nullptr;
+        const size_t excluded_result_ids_size = 0;
+
+        const uint32_t* filter_ids = nullptr;
+        const size_t filter_ids_length = 0;
+
+        size_t excluded_result_ids_index = 0;
+        size_t filter_ids_index = 0;
+        size_t index = 0;
+
+        result_iter_state_t() = default;
+
+        result_iter_state_t(uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                            const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
+                                                        excluded_result_ids_size(excluded_result_ids_size),
+                                                        filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
     };
 
 private:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
     const uint16_t BLOCK_MAX_ELEMENTS;
-    uint16_t ids_length = 0;
+    uint32_t ids_length = 0;
 
     block_t root_block;
 
@@ -115,9 +131,9 @@ public:
 
     block_t* get_root();
 
-    size_t num_blocks();
+    size_t num_blocks() const;
 
-    size_t num_ids();
+    size_t num_ids() const;
 
     uint32_t first_id();
 
@@ -127,21 +143,79 @@ public:
 
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
-    iterator_t new_iterator();
+    iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr);
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
     static void intersect(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
+    template<class T>
     static bool block_intersect(
-        const std::vector<posting_list_t*>& posting_lists,
-        size_t batch_size,
         std::vector<posting_list_t::iterator_t>& its,
-        result_iter_state_t& iter_state
+        result_iter_state_t& istate,
+        T func
     );
 
+    static bool take_id(result_iter_state_t& istate, uint32_t id);
+
     static bool get_offsets(
-        result_iter_state_t& iter_state,
-        std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions
+        const std::vector<iterator_t>& its,
+        std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
+
+    static bool is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array);
+
+    static void get_exact_matches(std::vector<iterator_t>& its, bool field_is_array,
+                                  const uint32_t* ids, const uint32_t num_ids,
+                                  uint32_t*& exact_ids, size_t& num_exact_ids);
+
+    static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
+                                           std::vector<size_t>& indices);
 };
+
+template<class T>
+bool posting_list_t::block_intersect(std::vector<posting_list_t::iterator_t>& its, result_iter_state_t& istate,
+                                     T func) {
+
+    switch (its.size()) {
+        case 0:
+            break;
+        case 1:
+            while(its[0].valid()) {
+                if(posting_list_t::take_id(istate, its[0].id())) {
+                    func(its[0].id(), its, istate.index);
+                }
+
+                its[0].next();
+            }
+            break;
+        case 2:
+            while(!at_end2(its)) {
+                if(equals2(its)) {
+                    if(posting_list_t::take_id(istate, its[0].id())) {
+                        func(its[0].id(), its, istate.index);
+                    }
+
+                    advance_all2(its);
+                } else {
+                    advance_non_largest2(its);
+                }
+            }
+            break;
+        default:
+            while(!at_end(its)) {
+                if(equals(its)) {
+                    //LOG(INFO) << its[0].id();
+                    if(posting_list_t::take_id(istate, its[0].id())) {
+                        func(its[0].id(), its, istate.index);
+                    }
+
+                    advance_all(its);
+                } else {
+                    advance_non_largest(its);
+                }
+            }
+    }
+
+    return false;
+}

@@ -3,6 +3,8 @@ project(typesense)
 
 cmake_policy(SET CMP0074 NEW)
 
+set(USE_SANTINIZER OFF)
+
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -O2 -g -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -Wextra -Wno-unused-parameter -Werror=return-type -std=c++17 -O0 -g")
 set(DEP_ROOT_DIR ${CMAKE_SOURCE_DIR}/external-${CMAKE_SYSTEM_NAME})
@@ -11,6 +13,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-class-memaccess")
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wno-class-memaccess")
+else()
+    if(USE_SANTINIZER)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -fsanitize=thread -fsanitize-recover=all -fPIE")
+    endif()
 endif()
 
 # will be overridden from command line during build
@@ -58,7 +64,6 @@ include(cmake/GoogleTest.cmake)
 include(cmake/TestResources.cmake)
 include(cmake/Iconv.cmake)
 include(cmake/Jemalloc.cmake)
-include(cmake/h3.cmake)
 include(cmake/s2.cmake)
 include(cmake/lrucache.cmake)
 include(cmake/kakasi.cmake)
@@ -86,12 +91,12 @@ include_directories(${ICU_INCLUDE_DIRS})
 include_directories(${DEP_ROOT_DIR}/${FOR_NAME})
 include_directories(${DEP_ROOT_DIR}/${GTEST_NAME}/googletest/include)
 include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include)
+include_directories(${DEP_ROOT_DIR}/${H2O_NAME}/include/h2o)
 include_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${BRPC_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${BRAFT_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${JEMALLOC_NAME}/include/jemalloc)
-include_directories(${DEP_ROOT_DIR}/${H3_NAME}/build/src/h3lib/include)
 include_directories(${DEP_ROOT_DIR}/${S2_NAME}/src)
 include_directories(${DEP_ROOT_DIR}/${LRUCACHE_NAME}/include)
 include_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/build/include)
@@ -104,7 +109,6 @@ link_directories(${DEP_ROOT_DIR}/${H2O_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${ROCKSDB_NAME})
 link_directories(${DEP_ROOT_DIR}/${ICONV_NAME}/lib/.libs)
 link_directories(${DEP_ROOT_DIR}/${JEMALLOC_NAME}/lib)
-link_directories(${DEP_ROOT_DIR}/${H3_NAME}/build/lib)
 link_directories(${DEP_ROOT_DIR}/${S2_NAME}/build)
 link_directories(${DEP_ROOT_DIR}/${KAKASI_NAME}/build/lib)
 
@@ -146,7 +150,7 @@ if (APPLE)
     FIND_PACKAGE(ngHTTP2 REQUIRED)
     set(CURL_LIBRARIES ${NGHTTP2_LIBRARIES} ${CURL_LIBRARIES}) # nghttp2 was not being statically built
     set(SYSTEM_LIBS "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreData"
-            "-framework CoreText" "-framework Security" "-framework Foundation"
+            "-framework SystemConfiguration" "-framework CoreText" "-framework Security" "-framework Foundation"
             "-Wl,-U,_MallocExtension_ReleaseFreeMemory" "-Wl,-U,_ProfilerStart" "-Wl,-U,_ProfilerStop")
 else()
     set(STD_LIB -static-libgcc -static-libstdc++)
@@ -155,7 +159,7 @@ else()
 endif()
 
 set(ICU_ALL_LIBRARIES ${ICU_I18N_LIBRARIES} ${ICU_LIBRARIES} ${ICU_DATA_LIBRARIES})
-set(CORE_LIBS kakasi h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for s2 h3
+set(CORE_LIBS kakasi h2o-evloop braft brpc iconv ${ICU_ALL_LIBRARIES} ${CURL_LIBRARIES} for s2
               ${LevelDB_LIBRARIES} ${ROCKSDB_LIBS}
               glog ${GFLAGS_LIBRARIES} ${PROTOBUF_LIBRARIES} ${STACKTRACE_LIBS}
               ${OPENSSL_LIBRARIES} ${ZLIB_LIBRARIES} ${JEMALLOC_LIBRARIES}

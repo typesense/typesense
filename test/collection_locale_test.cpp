@@ -6,6 +6,7 @@ class CollectionLocaleTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
@@ -16,7 +17,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
 
@@ -263,7 +264,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
     ASSERT_EQ("ติดกับดัก<mark>ราย</mark><mark>ได้</mark>ปานกลาง",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
-    ASSERT_EQ("ข้อมูลรายคนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
+    ASSERT_EQ("ข้อมูล<mark>ราย</mark>คนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
               results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
 }
@@ -349,7 +350,10 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // To ensure that NFKD works, we will test for both &#4352; (Hangul Choseong Kiyeok)
     auto results = coll1->search("서울특별시 ᄀ",
-                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -357,7 +361,10 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // and &#12593; (Hangul Letter Kiyeok)
     results = coll1->search("서울특별시 ㄱ",
-                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, 10,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -365,7 +372,10 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixConsonant) {
 
     // search for full word
     results = coll1->search("서울특별시 관",
-                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+                             {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, 10,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());
@@ -407,7 +417,10 @@ TEST_F(CollectionLocaleTest, KoreanTextPrefixVowel) {
     std::vector<sort_by> sort_fields = { sort_by(sort_field_const::text_match, "DESC"), sort_by("points", "DESC") };
 
     auto results = coll1->search("서울특별시 고",
-                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+                                 {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
 
     ASSERT_EQ(6, results["found"].get<size_t>());
     ASSERT_EQ(6, results["hits"].size());

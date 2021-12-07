@@ -135,7 +135,7 @@ void compact_posting_list_t::erase(const uint32_t id) {
 }
 
 compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const uint32_t* ids, const uint32_t* offset_index,
-                                                       uint32_t num_offsets, uint32_t* offsets) {
+                                                       uint32_t num_offsets, const uint32_t* offsets) {
     // format: num_offsets, offset1,..,offsetn, id1 | num_offsets, offset1,..,offsetn, id2
 
     size_t length_required = num_offsets + (2 * num_ids);
@@ -155,8 +155,8 @@ compact_posting_list_t* compact_posting_list_t::create(uint32_t num_ids, const u
     return pl;
 }
 
-posting_list_t* compact_posting_list_t::to_full_posting_list() {
-    posting_list_t* pl = new posting_list_t(1024);
+posting_list_t* compact_posting_list_t::to_full_posting_list() const {
+    posting_list_t* pl = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
 
     size_t i = 0;
     while(i < length) {
@@ -221,17 +221,23 @@ bool compact_posting_list_t::contains_atleast_one(const uint32_t* target_ids, si
         size_t num_existing_offsets = id_offsets[i];
         size_t existing_id = id_offsets[i + num_existing_offsets + 1];
 
-        if(existing_id == target_ids[target_ids_index]) {
-            return true;
+        // Returns iterator to the first element that is >= to value or last if no such element is found.
+        size_t found_index = std::lower_bound(target_ids + target_ids_index,
+                                              target_ids + target_ids_size, existing_id) - target_ids;
+
+        if(found_index == target_ids_size) {
+            // all elements are lesser than lowest value (existing_id), so we can stop looking
+            return false;
+        } else {
+            if(target_ids[found_index] == existing_id) {
+                return true;
+            }
+
+            // adjust lower bound to found_index+1 whose value is >= `existing_id`
+            target_ids_index = found_index;
         }
 
-        if(target_ids[target_ids_index] < existing_id) {
-            while(target_ids_index < target_ids_size && target_ids[target_ids_index] < existing_id) {
-                target_ids_index++;
-            }
-        } else {
-            i += num_existing_offsets + 2;
-        }
+        i += num_existing_offsets + 2;
     }
 
     return false;
@@ -244,9 +250,23 @@ void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& off
         compact_posting_list_t* list = (compact_posting_list_t*) RAW_POSTING_PTR(obj);
         int64_t extra_capacity_required = list->upsert(id, offsets);
 
-        if(extra_capacity_required != 0) {
+        if(extra_capacity_required == 0) {
+            // upsert succeeded
+            return;
+        }
+
+        if((list->capacity + extra_capacity_required) > COMPACT_LIST_THRESHOLD_LENGTH) {
+            // we have to convert to a full posting list
+            posting_list_t* full_list = list->to_full_posting_list();
+            free(list);
+            obj = full_list;
+        }
+
+        else {
             // grow the container by 30%
-            size_t new_capacity = (list->capacity + extra_capacity_required) * 1.3;
+            size_t new_capacity = std::min<size_t>((list->capacity + extra_capacity_required) * 1.3,
+                                                   COMPACT_LIST_THRESHOLD_LENGTH);
+
             size_t new_capacity_bytes = sizeof(compact_posting_list_t) + (new_capacity * sizeof(uint32_t));
             auto new_list = (compact_posting_list_t *) realloc(list, new_capacity_bytes);
             if(new_list == nullptr) {
@@ -258,20 +278,14 @@ void posting_t::upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& off
             obj = SET_COMPACT_POSTING(list);
 
             list->upsert(id, offsets);
-        }
 
-        if(list->length > COMPACT_LIST_THRESHOLD_LENGTH) {
-            // we will store anything over this threshold as a full posting list
-            posting_list_t* full_list = list->to_full_posting_list();
-            free(list);
-            obj = full_list;
-            return;
+            return ;
         }
-
-    } else {
-        posting_list_t* list = (posting_list_t*)(obj);
-        list->upsert(id, offsets);
     }
+
+    // either `obj` is already a full list or was converted to a full list above
+    posting_list_t* list = (posting_list_t*)(obj);
+    list->upsert(id, offsets);
 }
 
 void posting_t::erase(void*& obj, uint32_t id) {
@@ -362,38 +376,39 @@ bool posting_t::contains_atleast_one(const void* obj, const uint32_t* target_ids
 void posting_t::merge(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
-    std::vector<uint32_t> expanded_plist_indices;
-    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
     posting_list_t::merge(plists, result_ids);
 
-    for(uint32_t expanded_plist_index: expanded_plist_indices) {
-        delete plists[expanded_plist_index];
+    for(posting_list_t* expanded_plist: expanded_plists) {
+        delete expanded_plist;
     }
 }
 
 void posting_t::intersect(const std::vector<void*>& raw_posting_lists, std::vector<uint32_t>& result_ids) {
     // we will have to convert the compact posting list (if any) to full form
     std::vector<posting_list_t*> plists;
-    std::vector<uint32_t> expanded_plist_indices;
-    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
     posting_list_t::intersect(plists, result_ids);
 
-    for(uint32_t expanded_plist_index: expanded_plist_indices) {
-        delete plists[expanded_plist_index];
+    for(auto expanded_plist: expanded_plists) {
+        delete expanded_plist;
     }
 }
 
 void posting_t::to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
-                                   std::vector<uint32_t>& expanded_plist_indices) {
+                                   std::vector<posting_list_t*>& expanded_plists) {
     for(size_t i = 0; i < raw_posting_lists.size(); i++) {
         auto raw_posting_list = raw_posting_lists[i];
 
         if(IS_COMPACT_POSTING(raw_posting_list)) {
             auto compact_posting_list = COMPACT_POSTING_PTR(raw_posting_list);
-            plists.emplace_back(compact_posting_list->to_full_posting_list());
-            expanded_plist_indices.push_back(i);
+            posting_list_t* full_posting_list = compact_posting_list->to_full_posting_list();
+            plists.emplace_back(full_posting_list);
+            expanded_plists.push_back(full_posting_list);
         } else {
             posting_list_t* full_posting_list = (posting_list_t*)(raw_posting_list);
             plists.emplace_back(full_posting_list);
@@ -418,43 +433,115 @@ void posting_t::destroy_list(void*& obj) {
 }
 
 void posting_t::get_array_token_positions(uint32_t id, const std::vector<void*>& raw_posting_lists,
-                                          std::vector<std::unordered_map<size_t, std::vector<token_positions_t>>>& array_token_positions_vec) {
+                                          std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions) {
 
     std::vector<posting_list_t*> plists;
-    std::vector<uint32_t> expanded_plist_indices;
-    to_expanded_plists(raw_posting_lists, plists, expanded_plist_indices);
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
 
-    posting_list_t::result_iter_state_t iter_state;
-    iter_state.ids.push_back(id);
-
-    iter_state.indices.emplace_back();
-    iter_state.blocks.emplace_back();
-
-    std::vector<posting_list_t::block_t*>& block_vec = iter_state.blocks.back();
-    std::vector<uint32_t>& index_vec = iter_state.indices.back();
+    std::vector<posting_list_t::iterator_t> its;
 
     for(posting_list_t* pl: plists) {
-        posting_list_t::block_t* block = pl->block_of(id);
-        block_vec.push_back(block);
-
-        bool found_index = false;
-
-        if(block != nullptr) {
-            uint32_t index = block->ids.indexOf(id);
-            if(index != block->ids.getLength()) {
-                index_vec.push_back(index);
-                found_index = true;
-            }
-        }
-
-        if(!found_index) {
-            index_vec.push_back(UINT32_MAX);
-        }
+        its.push_back(pl->new_iterator());
+        its.back().skip_to(id);
     }
 
-    posting_list_t::get_offsets(iter_state, array_token_positions_vec);
+    posting_list_t::get_offsets(its, array_token_positions);
 
-    for(uint32_t expanded_plist_index: expanded_plist_indices) {
-        delete plists[expanded_plist_index];
+    for(posting_list_t* expanded_plist: expanded_plists) {
+        delete expanded_plist;
+    }
+}
+
+void posting_t::get_exact_matches(const std::vector<void*>& raw_posting_lists, const bool field_is_array,
+                                  const uint32_t* ids, const uint32_t num_ids,
+                                  uint32_t*& exact_ids, size_t& num_exact_ids) {
+
+    std::vector<posting_list_t*> plists;
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+
+    std::vector<posting_list_t::iterator_t> its;
+
+    for(posting_list_t* pl: plists) {
+        its.push_back(pl->new_iterator());
+    }
+
+    posting_list_t::get_exact_matches(its, field_is_array, ids, num_ids, exact_ids, num_exact_ids);
+
+    for(posting_list_t* expanded_plist: expanded_plists) {
+        delete expanded_plist;
+    }
+}
+
+void posting_t::get_matching_array_indices(const std::vector<void*>& raw_posting_lists,
+                                           uint32_t id, std::vector<size_t>& indices) {
+    std::vector<posting_list_t*> plists;
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+
+    std::vector<posting_list_t::iterator_t> its;
+
+    for(posting_list_t* pl: plists) {
+        its.push_back(pl->new_iterator());
+    }
+
+    posting_list_t::get_matching_array_indices(id, its, indices);
+
+    for(posting_list_t* expanded_plist: expanded_plists) {
+        delete expanded_plist;
+    }
+}
+
+void posting_t::block_intersector_t::split_lists(size_t concurrency,
+                                                 std::vector<std::vector<posting_list_t::iterator_t>>& partial_its_vec) {
+    const size_t num_blocks = this->plists[0]->num_blocks();
+    const size_t window_size = (num_blocks + concurrency - 1) / concurrency;  // rounds up
+
+    size_t blocks_traversed = 0;
+    posting_list_t::block_t* start_block = this->plists[0]->get_root();
+    posting_list_t::block_t* curr_block = start_block;
+
+    size_t window_index = 0;
+
+    while(curr_block != nullptr) {
+        blocks_traversed++;
+        if(blocks_traversed % window_size == 0 || blocks_traversed == num_blocks) {
+            // construct partial iterators and intersect within them
+
+            std::vector<posting_list_t::iterator_t>& partial_its = partial_its_vec[window_index];
+
+            for(size_t i = 0; i < this->plists.size(); i++) {
+                posting_list_t::block_t* p_start_block = nullptr;
+                posting_list_t::block_t* p_end_block = nullptr;
+
+                // [1, 2] [3, 4] [5, 6]
+                // [3, 5] [6]
+
+                if(i == 0) {
+                    p_start_block = start_block;
+                    p_end_block = curr_block->next;
+                } else {
+                    auto start_block_first_id = start_block->ids.at(0);
+                    auto end_block_last_id = curr_block->ids.last();
+
+                    p_start_block = this->plists[i]->block_of(start_block_first_id);
+                    posting_list_t::block_t* last_block = this->plists[i]->block_of(end_block_last_id);
+
+                    if(p_start_block == last_block && p_start_block != nullptr) {
+                        p_end_block = p_start_block->next;
+                    } else {
+                        p_end_block = last_block == nullptr ? nullptr : last_block->next;
+                    }
+                }
+
+                partial_its.emplace_back(p_start_block, p_end_block);
+            }
+
+            start_block = curr_block->next;
+            window_index++;
+        }
+
+        curr_block = curr_block->next;
     }
 }

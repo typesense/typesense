@@ -333,6 +333,11 @@ public:
         return status;
     }
 
+    rocksdb::Status delete_range(const std::string& begin_key, const std::string& end_key) {
+        std::shared_lock lock(mutex);
+        return db->DeleteRange(rocksdb::WriteOptions(), db->DefaultColumnFamily(), begin_key, end_key);
+    }
+
     // Only for internal tests
     rocksdb::DB* _get_db_unsafe() const {
         return db;

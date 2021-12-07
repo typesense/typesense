@@ -10,6 +10,7 @@ class CollectionGroupingTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
     Collection *coll_group;
 
     void setupCollection() {
@@ -18,7 +19,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
         std::vector<field> fields = {
@@ -153,8 +154,8 @@ TEST_F(CollectionGroupingTest, GroupingCompoundKey) {
 
     ASSERT_EQ(10, res["found"].get<size_t>());
     ASSERT_EQ(10, res["grouped_hits"].size());
-    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
 
+    ASSERT_EQ(11, res["grouped_hits"][0]["group_key"][0].get<size_t>());
     ASSERT_STREQ("Beta", res["grouped_hits"][0]["group_key"][1].get<std::string>().c_str());
 
     // optional field should have no value in the group key component
@@ -287,7 +288,7 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
                                  {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
-                                 {false}, Index::DROP_TOKENS_THRESHOLD,
+                                 {false}, 10,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10,
@@ -427,4 +428,108 @@ TEST_F(CollectionGroupingTest, GroupingWithArrayFieldAndOverride) {
 
     ASSERT_EQ(1, (int) res["facet_counts"][0]["counts"][3]["count"]);
     ASSERT_STREQ("Zeta", res["facet_counts"][0]["counts"][3]["value"].get<std::string>().c_str());
+}
+
+TEST_F(CollectionGroupingTest, GroupOrderIndependence) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("group", field_types::STRING, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+
+    for(size_t i = 0; i < 256; i++) {
+        int64_t points = 100 + i;
+        doc["id"] = std::to_string(i);
+        doc["group"] = std::to_string(i);
+        doc["points"] = points;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // doc id "255" will have points of 255
+    // try to insert doc id "256" with group "256" but having lesser points than all records
+
+    doc["id"] = "256";
+    doc["group"] = "256";
+    doc["points"] = 50;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // insert doc id "257" of same group "256" with greatest point
+
+    doc["id"] = "257";
+    doc["group"] = "256";
+    doc["points"] = 500;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // when we search by grouping records, sorting descending on points, both records of group "256" should show up
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    auto res = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                                  {false}, Index::DROP_TOKENS_THRESHOLD,
+                                  spp::sparse_hash_set<std::string>(),
+                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                  "", 10,
+                                  {}, {}, {"group"}, 10).get();
+
+    ASSERT_EQ(1, res["grouped_hits"][0]["group_key"].size());
+    ASSERT_STREQ("256", res["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
+}
+
+TEST_F(CollectionGroupingTest, UseHighestValueInGroupForOrdering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("group", field_types::STRING, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc;
+
+    for(size_t i = 0; i < 250; i++) {
+        int64_t points = 100 + i;
+        doc["id"] = std::to_string(i);
+        doc["group"] = std::to_string(i);
+        doc["points"] = points;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // points: 100 -> 349
+
+    // group with highest point is "249" with 349 points
+    // insert another document for that group with 50 points
+    doc["id"] = "250";
+    doc["group"] = "249";
+    doc["points"] = 50;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // now insert another new group whose points is greater than 50
+    doc["id"] = "251";
+    doc["group"] = "1000";
+    doc["points"] = 60;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    auto res = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY,
+                             {false}, Index::DROP_TOKENS_THRESHOLD,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10,
+                             {}, {}, {"group"}, 10).get();
+
+    ASSERT_EQ(1, res["grouped_hits"][0]["group_key"].size());
+    ASSERT_STREQ("249", res["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
+    ASSERT_EQ(2, res["grouped_hits"][0]["hits"].size());
 }

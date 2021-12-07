@@ -1,6 +1,6 @@
 # Download and build H2O
 
-set(H2O_VERSION 5accc794404996fb056f1826f5a172693de95f22)
+set(H2O_VERSION 6dda7d6f21610ecd5256543384fa4b4b345a88ac)
 set(H2O_NAME h2o-${H2O_VERSION})
 set(H2O_TAR_PATH ${DEP_ROOT_DIR}/${H2O_NAME}.tar.gz)
 
@@ -20,6 +20,9 @@ if(NOT EXISTS ${DEP_ROOT_DIR}/${H2O_NAME}/build/libh2o-evloop.a)
 
     execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory deps/picotls/include include/h2o
                     WORKING_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME})
+
+    execute_process(COMMAND ${CMAKE_COMMAND} -E copy_directory deps/quicly/include include/h2o
+            WORKING_DIRECTORY ${DEP_ROOT_DIR}/${H2O_NAME})
 
     execute_process(COMMAND ${CMAKE_COMMAND}
             -DCMAKE_FIND_LIBRARY_SUFFIXES=.a

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <vector>
+#include <set>
 #include "array.h"
 #include "sorted_array.h"
 
@@ -99,7 +100,7 @@ typedef struct {
 typedef struct {
     uint32_t key_len;
     int64_t max_score;
-    art_values* values;
+    void* values;
     unsigned char key[];
 } art_leaf;
 
@@ -115,12 +116,16 @@ typedef struct {
  * Represents a document to be indexed.
  * `offsets` refer to the index locations where a token appeared in the document
  */
-typedef struct {
-    int32_t score;
-    uint32_t id;
-    uint32_t offsets_len;
-    uint32_t* offsets;
-} art_document;
+struct art_document {
+    const uint32_t id;
+    const int64_t score;
+    const std::vector<uint32_t> offsets;
+
+    art_document(const uint32_t id, const int64_t score, const std::vector<uint32_t>& offsets):
+            id(id), score(score), offsets(offsets) {
+
+    }
+};
 
 enum token_ordering {
     NOT_SET,
@@ -186,7 +191,11 @@ inline uint64_t art_size(art_tree *t) {
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document, uint32_t num_hits);
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document);
+
+/* Insert multiple docs sharing the same key */
+void* art_inserts(art_tree *t, const unsigned char *key, int key_len, const int64_t docs_max_score,
+                  std::vector<art_document>& documents);
 
 /**
  * Deletes a value from the ART tree
@@ -252,10 +261,7 @@ int art_iter_prefix(art_tree *t, const unsigned char *prefix, int prefix_len, ar
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                      const int max_words, const token_ordering token_order, const bool prefix,
                      const uint32_t *filter_ids, size_t filter_ids_length,
-                     std::vector<art_leaf *> &results);
-
-int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
-                         std::vector<art_leaf *> &results);
+                     std::vector<art_leaf *> &results, const std::set<art_leaf *>& exclude_leaves = {});
 
 void encode_int32(int32_t n, unsigned char *chars);
 

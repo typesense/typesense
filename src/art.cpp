@@ -11,7 +11,9 @@
 #include <iostream>
 #include <limits>
 #include <queue>
+#include <list>
 #include <stdint.h>
+#include <posting.h>
 #include "art.h"
 #include "logger.h"
 
@@ -30,6 +32,8 @@
 
 #define microseconds std::chrono::duration_cast<std::chrono::microseconds>
 
+#define USE_FREQUENCY_SCORE INT64_MIN
+
 enum recurse_progress { RECURSE, ABORT, ITERATE };
 
 static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *n, int depth, const unsigned char *term,
@@ -39,10 +43,8 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 void art_int_fuzzy_recurse(art_node *n, int depth, const unsigned char* int_str, int int_str_len,
                            NUM_COMPARATOR comparator, std::vector<const art_leaf *> &results);
 
-static void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets);
-
 bool compare_art_leaf_frequency(const art_leaf *a, const art_leaf *b) {
-    return a->values->ids.getLength() > b->values->ids.getLength();
+    return posting_t::num_ids(a->values) > posting_t::num_ids(b->values);
 }
 
 bool compare_art_leaf_score(const art_leaf *a, const art_leaf *b) {
@@ -54,12 +56,12 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
-        a_value = al->values->ids.getLength();
+        a_value = posting_t::num_ids(al->values);
     }
 
     if(IS_LEAF(b)) {
         art_leaf* bl = (art_leaf *) LEAF_RAW(b);
-        b_value = bl->values->ids.getLength();
+        b_value = posting_t::num_ids(bl->values);
     }
 
     return a_value > b_value;
@@ -138,7 +140,7 @@ static void destroy_node(art_node *n) {
     // Special case leafs
     if (IS_LEAF(n)) {
         art_leaf *leaf = (art_leaf *) LEAF_RAW(n);
-        delete leaf->values;
+        posting_t::destroy_list(leaf->values);
         free(leaf);
         return;
     }
@@ -413,49 +415,33 @@ art_leaf* art_maximum(art_tree *t) {
     return maximum((art_node*)t->root);
 }
 
-static void add_document_to_leaf(const art_document *document, art_leaf *leaf) {
+static void add_document_to_leaf(art_document *document, art_leaf *leaf) {
     leaf->max_score = MAX(leaf->max_score, document->score);
-    size_t inserted_index = leaf->values->ids.append(document->id);
+    posting_t::upsert(leaf->values, document->id, document->offsets);
 
-    if(inserted_index == leaf->values->ids.getLength()-1) {
-        // treat as appends
-        uint32_t curr_index = leaf->values->offsets.getLength();
-        leaf->values->offset_index.append(curr_index);
-        for(uint32_t i=0; i<document->offsets_len; i++) {
-            leaf->values->offsets.append(document->offsets[i]);
-        }
-    } else {
-        uint32_t existing_offset_index = leaf->values->offset_index.at(inserted_index);
-        insert_and_shift_offset_index(leaf->values->offset_index, inserted_index, document->offsets_len);
-        leaf->values->offsets.insert(existing_offset_index, document->offsets, document->offsets_len);
+    if(document->score == USE_FREQUENCY_SCORE) {
+        leaf->max_score = posting_t::num_ids(leaf->values);
     }
-}
-
-void insert_and_shift_offset_index(sorted_array& offset_index, const uint32_t index, const uint32_t num_offsets) {
-    uint32_t existing_offset_index = offset_index.at(index);
-    uint32_t length = offset_index.getLength();
-    uint32_t new_length = length + 1;
-    uint32_t *curr_array = offset_index.uncompress(new_length);
-
-    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length - index));
-    curr_array[index] = existing_offset_index;
-
-    uint32_t curr_index = index + 1;
-    while(curr_index < new_length) {
-        curr_array[curr_index] += num_offsets;
-        curr_index++;
-    }
-
-    offset_index.load(curr_array, new_length);
-
-    delete [] curr_array;
 }
 
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
-    l->values = new art_values;
-    l->max_score = 0;
     l->key_len = key_len;
+    l->max_score = 0;
+
+    uint32_t ids[1] = {document->id};
+    uint32_t offset_index[1] = {0};
+
+    if((2 + document->offsets.size()) <= posting_t::COMPACT_LIST_THRESHOLD_LENGTH) {
+        compact_posting_list_t* list = compact_posting_list_t::create(1, ids, offset_index, document->offsets.size(),
+                                                                      &document->offsets[0]);
+        l->values = SET_COMPACT_POSTING(list);
+    } else {
+        posting_list_t* pl = new posting_list_t(posting_t::MAX_BLOCK_ELEMENTS);
+        pl->upsert(document->id, document->offsets);
+        l->values = pl;
+    }
+
     memcpy(l->key, key, key_len);
     add_document_to_leaf(document, l);
     return l;
@@ -622,10 +608,17 @@ static int prefix_mismatch(const art_node *n, const unsigned char *key, int key_
     return idx;
 }
 
-static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *key, uint32_t key_len, art_document *document, uint32_t num_hits, int depth, int *old) {
+static void* recursive_insert(art_node* n, art_node** ref, const unsigned char* key, uint32_t key_len,
+                              const int64_t docs_max_score, std::vector<art_document>& documents, int depth,
+                              std::list<art_node*>& path, int* old) {
     // If we are at a NULL node, inject a leaf
     if (!n) {
-        *ref = (art_node*)SET_LEAF(make_leaf(key, key_len, document));
+        art_leaf* new_leaf = make_leaf(key, key_len, &documents[0]);
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], new_leaf);
+        }
+
+        *ref = (art_node*)SET_LEAF(new_leaf);
         return NULL;
     }
 
@@ -636,25 +629,25 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         // Check if we are updating an existing value
         if (!leaf_matches(l, key, key_len, depth)) {
             *old = 1;
-            art_values *ret_val = l->values;
-
-            // updates are not supported
-            if(!l->values->ids.contains(document->id)) {
-                add_document_to_leaf(document, l);
+            for(size_t i = 0; i < documents.size(); i++) {
+                add_document_to_leaf(&documents[i], l);
             }
-            
-            return ret_val;
+            return l->values;
         }
 
         // New value, we must split the leaf into a node4
         art_node4 *new_n = (art_node4*)alloc_node(NODE4);
 
         // Create a new leaf
-        art_leaf *l2 = make_leaf(key, key_len, document);
+        art_leaf *l2 = make_leaf(key, key_len, &documents[0]);
 
         uint32_t longest_prefix = longest_common_prefix(l, l2, depth);
         new_n->n.partial_len = longest_prefix;
         memcpy(new_n->n.partial, key+depth, min(MAX_PREFIX_LEN, longest_prefix));
+
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], l2);
+        }
 
         // Add the leafs to the new node4
         *ref = (art_node*)new_n;
@@ -663,7 +656,9 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         return NULL;
     }
 
-    n->max_score = MAX(n->max_score, document->score);
+    if(docs_max_score != USE_FREQUENCY_SCORE) {
+        n->max_score = MAX(n->max_score, docs_max_score);
+    }
 
     // Check if given node has a prefix
     if (n->partial_len) {
@@ -695,8 +690,13 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
         }
 
         // Insert the new leaf
-        art_leaf *l = make_leaf(key, key_len, document);
+        art_leaf *l = make_leaf(key, key_len, &documents[0]);
+        for(size_t i = 1; i < documents.size(); i++) {
+            add_document_to_leaf(&documents[i], l);
+        }
+
         add_child4(new_n, ref, key[depth+prefix_diff], SET_LEAF(l));
+        path.push_back(*ref);
         return NULL;
     }
 
@@ -705,12 +705,17 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
     // Find a child to recurse to
     art_node **child = find_child(n, key[depth]);
     if (child) {
-        return recursive_insert(*child, child, key, key_len, document, num_hits, depth + 1, old);
+        return recursive_insert(*child, child, key, key_len, docs_max_score, documents, depth + 1, path, old);
     }
 
     // No child, node goes within us
-    art_leaf *l = make_leaf(key, key_len, document);
+    art_leaf *l = make_leaf(key, key_len, &documents[0]);
+    for(size_t i = 1; i < documents.size(); i++) {
+        add_document_to_leaf(&documents[i], l);
+    }
+
     add_child(n, ref, key[depth], SET_LEAF(l));
+    path.push_back(*ref);
     return NULL;
 }
 
@@ -723,11 +728,26 @@ static void* recursive_insert(art_node *n, art_node **ref, const unsigned char *
  * @return NULL if the item was newly inserted, otherwise
  * the old value pointer is returned.
  */
-void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document, uint32_t num_hits) {
+void* art_insert(art_tree *t, const unsigned char *key, int key_len, art_document* document) {
+    std::vector<art_document> documents = {*document};
+    return art_inserts(t, key, key_len, document->score, documents);
+}
+
+void* art_inserts(art_tree *t, const unsigned char *key, int key_len, const int64_t docs_max_score,
+                  std::vector<art_document>& documents) {
     int old_val = 0;
 
-    void *old = recursive_insert(t->root, &t->root, key, key_len, document, num_hits, 0, &old_val);
+    std::list<art_node*> path;
+    bool frequency_based_ordering = (docs_max_score == USE_FREQUENCY_SCORE);
+    void *old = recursive_insert(t->root, &t->root, key, key_len, docs_max_score, documents, 0, path, &old_val);
     if (!old_val) t->size++;
+
+    if(frequency_based_ordering) {
+        for(art_node* n: path) {
+            n->max_score = MAX(n->max_score, docs_max_score);
+        }
+    }
+
     return old;
 }
 
@@ -917,7 +937,7 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                   const uint32_t* filter_ids, size_t filter_ids_length,
-                  std::vector<art_leaf *> &results) {
+                  const std::set<art_leaf*>& exclude_leaves, std::vector<art_leaf *> &results) {
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
     std::priority_queue<const art_node *, std::vector<const art_node *>,
@@ -930,7 +950,9 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
 
     q.push(root);
 
-    while(!q.empty() && results.size() < max_results) {
+    size_t num_large_lists = 0;
+
+    while(!q.empty() && results.size() < max_results*4) {
         art_node *n = (art_node *) q.top();
         q.pop();
 
@@ -946,13 +968,20 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
 
             //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
+            if(exclude_leaves.count(l) != 0) {
+                continue;
+            }
 
             if(filter_ids_length == 0) {
                 results.push_back(l);
             } else {
                 // we will push leaf only if filter matches with leaf IDs
-                size_t found_len = l->values->ids.numFoundOf(filter_ids, filter_ids_length);
-                if(found_len != 0) {
+                if(!IS_COMPACT_POSTING(l->values)) {
+                    num_large_lists++;
+                }
+
+                bool found_atleast_one = posting_t::contains_atleast_one(l->values, filter_ids, filter_ids_length);
+                if(found_atleast_one) {
                     results.push_back(l);
                 }
             }
@@ -1000,6 +1029,10 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
                 abort();
         }
     }
+
+    /*LOG(INFO) << "leaf results.size: " << results.size()
+              << ", filter_ids_length: " << filter_ids_length
+              << ", num_large_lists: " << num_large_lists;*/
 
     printf("OUTSIDE art_topk_iter: results size: %d\n", results.size());
     return 0;
@@ -1285,14 +1318,15 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
         return -1;
     }
 
-    if(key_len >= term_len) {
-        // b) we might iterate past term_len to catch trailing typos
+    // b) we might iterate past term_len to catch trailing typos
+    if(key_len >= term_len && prefix) {
         cost = cost_row[term_len];
         if(cost >= min_cost && cost <= max_cost) {
             return 1;
         }
     } else {
-        cost = cost_row[key_len];
+        // `key_len` can't exceed `term_len` since length of `cost_row` is `term_len + 1`
+        cost = cost_row[std::min(key_len, term_len)];
     }
 
     int bounded_cost = (max_cost == 0) ? max_cost : (max_cost + 1);
@@ -1450,7 +1484,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                      const int max_words, const token_ordering token_order, const bool prefix,
                      const uint32_t *filter_ids, size_t filter_ids_length,
-                     std::vector<art_leaf *> &results) {
+                     std::vector<art_leaf *> &results, const std::set<art_leaf *>& exclude_leaves) {
 
     std::vector<const art_node*> nodes;
     int irow[term_len + 1];
@@ -1479,13 +1513,17 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
     //auto begin = std::chrono::high_resolution_clock::now();
 
     for(auto node: nodes) {
-        art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, results);
+        art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, exclude_leaves, results);
     }
 
     if(token_order == FREQUENCY) {
         std::sort(results.begin(), results.end(), compare_art_leaf_frequency);
     } else {
         std::sort(results.begin(), results.end(), compare_art_leaf_score);
+    }
+
+    if(results.size() > max_words) {
+        results.resize(max_words);
     }
 
     /*auto time_micro = microseconds(std::chrono::high_resolution_clock::now() - begin).count();
