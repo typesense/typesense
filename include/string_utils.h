@@ -269,6 +269,20 @@ struct StringUtils {
         return std::string(bytes, bytes+4);
     }
 
+    static std::string serialize_uint64_t(uint64_t num) {
+        unsigned char bytes[8];
+        bytes[0] = (unsigned char) ((num >> 56) & 0xFF);
+        bytes[1] = (unsigned char) ((num >> 48) & 0xFF);
+        bytes[2] = (unsigned char) ((num >> 40) & 0xFF);
+        bytes[3] = (unsigned char) ((num >> 32) & 0xFF);
+        bytes[4] = (unsigned char) ((num >> 24) & 0xFF);
+        bytes[5] = (unsigned char) ((num >> 16) & 0xFF);
+        bytes[6] = (unsigned char) ((num >> 8) & 0xFF);
+        bytes[7] = (unsigned char) ((num & 0xFF));
+
+        return std::string(bytes, bytes+8);
+    }
+
     static uint32_t deserialize_uint32_t(std::string serialized_num) {
         uint32_t seq_id = ((serialized_num[0] & 0xFF) << 24) | ((serialized_num[1] & 0xFF) << 16) |
                           ((serialized_num[2] & 0xFF) << 8)  | (serialized_num[3] & 0xFF);
@@ -295,7 +309,14 @@ struct StringUtils {
         return str.rfind(prefix, 0) == 0;
     }
 
-    static std::map<std::string, std::string> parse_query_string(const std::string& query);
+    static void parse_query_string(const std::string& query, std::map<std::string, std::string>& query_map);
 
     static std::string float_to_str(float value);
+
+    static void replace_all(std::string& subject, const std::string& search,
+                            const std::string& replace);
+
+    static std::string trim_curly_spaces(const std::string& str);
+
+    static bool ends_with(std::string const &str, std::string const &ending);
 };

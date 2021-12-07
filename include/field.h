@@ -5,6 +5,8 @@
 #include "art.h"
 #include "option.h"
 #include "string_utils.h"
+#include "logger.h"
+#include <sparsepp.h>
 #include "json.hpp"
 
 namespace field_types {
@@ -22,6 +24,7 @@ namespace field_types {
     static const std::string INT64_ARRAY = "int64[]";
     static const std::string FLOAT_ARRAY = "float[]";
     static const std::string BOOL_ARRAY = "bool[]";
+    static const std::string GEOPOINT_ARRAY = "geopoint[]";
 
     static bool is_string_or_array(const std::string& type_def) {
         return type_def == "string*";
@@ -68,6 +71,10 @@ struct field {
         return (type == field_types::BOOL);
     }
 
+    bool is_single_geopoint() const {
+        return (type == field_types::GEOPOINT);
+    }
+
     bool is_integer() const {
         return (type == field_types::INT32 || type == field_types::INT32_ARRAY ||
                type == field_types::INT64 || type == field_types::INT64_ARRAY);
@@ -90,7 +97,7 @@ struct field {
     }
 
     bool is_geopoint() const {
-        return (type == field_types::GEOPOINT);
+        return (type == field_types::GEOPOINT || type == field_types::GEOPOINT_ARRAY);
     }
 
     bool is_string() const {
@@ -104,7 +111,8 @@ struct field {
     bool is_array() const {
         return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
                 type == field_types::FLOAT_ARRAY ||
-                type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY);
+                type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY ||
+                type == field_types::GEOPOINT_ARRAY);
     }
 
     bool is_singular() const {
@@ -116,7 +124,7 @@ struct field {
     }
 
     static bool is_dynamic(const std::string& name, const std::string& type) {
-        return type == "string*" || (name != ".*" && name.find(".*") != std::string::npos);
+        return type == "string*" || (name != ".*" && type == field_types::AUTO) || (name != ".*" && name.find(".*") != std::string::npos);
     }
 
     bool has_numerical_index() const {
@@ -192,6 +200,10 @@ struct field {
         bool found_default_sorting_field = false;
 
         for(const field & field: fields) {
+            if(field.name == "id") {
+                continue;
+            }
+
             nlohmann::json field_val;
             field_val[fields::name] = field.name;
             field_val[fields::type] = field.type;
@@ -224,27 +236,21 @@ struct field {
                 found_default_sorting_field = true;
             }
 
-            if(field.type == field_types::AUTO) {
-                if(field.name.find(".*") == std::string::npos) {
-                    return Option<bool>(400, std::string("Cannot use type `auto` for `") +
-                                             field.name + "`. It can be used only for a field name containing `.*`");
-                }
-            }
-
             if(field.is_dynamic() && !field.optional) {
-                if(field_types::is_string_or_array(field.type)) {
-                    return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
-                }
-
-                return Option<bool>(400, "Field `" + field.name + "` with wildcard name must be an optional field.");
+                return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 
             if(!field.index && !field.optional) {
                 return Option<bool>(400, "Field `" + field.name + "` must be optional since it is marked as non-indexable.");
             }
 
-            if(!field.index && field.is_auto()) {
+            if(field.name == ".*" && !field.index) {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be marked as non-indexable.");
+            }
+
+            if(!field.index && field.facet) {
+                return Option<bool>(400, "Field `" + field.name + "` cannot be a facet since "
+                                                                  "it's marked as non-indexable.");
             }
         }
 
@@ -263,6 +269,13 @@ struct field {
         size_t num_auto_detect_fields = 0;
 
         for(nlohmann::json & field_json: fields_json) {
+            if(field_json["name"] == "id") {
+                // No field should exist with the name "id" as it is reserved for internal use
+                // We cannot throw an error here anymore since that will break backward compatibility!
+                LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+                continue;
+            }
+
             if(!field_json.is_object() ||
                field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
                !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
@@ -284,15 +297,6 @@ struct field {
             if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
                 return Option<bool>(400, std::string("The `index` property of the field `") +
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
-            }
-
-            // field of type auto can be used only on a field name containing .*
-            if(field_json.at(fields::type) == "auto") {
-                if(field_json.at(fields::name).get<std::string>().find(".*") == std::string::npos) {
-                    return Option<bool>(400, std::string("Cannot use type `auto` for `") +
-                                             field_json[fields::name].get<std::string>() +
-                                             "`. It can be used only for a field name containing `.*`");
-                }
             }
 
             if(field_json.count(fields::locale) != 0){
@@ -451,6 +455,17 @@ struct filter {
 
         return Option<NUM_COMPARATOR>(num_comparator);
     }
+
+    static Option<bool> parse_geopoint_filter_value(std::string& raw_value,
+                                                    const std::string& format_err_msg,
+                                                    std::string& processed_filter_val,
+                                                    NUM_COMPARATOR& num_comparator);
+
+    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
+                                           const std::unordered_map<std::string, field>& search_schema,
+                                           const Store* store,
+                                           const std::string& doc_id_prefix,
+                                           std::vector<filter>& filters);
 };
 
 namespace sort_field_const {
@@ -463,6 +478,7 @@ namespace sort_field_const {
     static const std::string seq_id = "_seq_id";
 
     static const std::string exclude_radius = "exclude_radius";
+    static const std::string precision = "precision";
 }
 
 struct sort_by {
@@ -472,14 +488,16 @@ struct sort_by {
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
+    uint32_t geo_precision;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), geopoint(0), exclude_radius(0) {
+        name(name), order(order), geopoint(0), exclude_radius(0), geo_precision(0) {
 
     }
 
-    sort_by(const std::string &name, const std::string &order, int64_t geopoint, uint32_t exclude_radius) :
-            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius) {
+    sort_by(const std::string &name, const std::string &order, int64_t geopoint,
+            uint32_t exclude_radius, uint32_t geo_precision) :
+            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
 
     }
 
@@ -488,6 +506,7 @@ struct sort_by {
         order = other.order;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
+        geo_precision = other.geo_precision;
         return *this;
     }
 };
@@ -520,20 +539,11 @@ public:
     }
 };
 
-struct token_pos_cost_t {
-    size_t pos;
-    uint32_t cost;
-};
-
 struct facet_count_t {
-    uint32_t count;
-    spp::sparse_hash_set<uint64_t> groups;  // used for faceting grouped results
-
+    uint32_t count = 0;
     // used to fetch the actual document and value for representation
-    uint32_t doc_id;
-    uint32_t array_pos;
-
-    std::unordered_map<uint32_t, token_pos_cost_t> query_token_pos;
+    uint32_t doc_id = 0;
+    uint32_t array_pos = 0;
 };
 
 struct facet_stats_t {
@@ -545,12 +555,27 @@ struct facet_stats_t {
 
 struct facet {
     const std::string field_name;
-    std::unordered_map<uint64_t, facet_count_t> result_map;
+    spp::sparse_hash_map<uint64_t, facet_count_t> result_map;
+
+    // used for facet value query
+    spp::sparse_hash_map<uint64_t, std::vector<std::string>> hash_tokens;
+
+    // used for faceting grouped results
+    spp::sparse_hash_map<uint64_t, spp::sparse_hash_set<uint64_t>> hash_groups;
+
     facet_stats_t stats;
 
-    facet(const std::string & field_name): field_name(field_name) {
+    explicit facet(const std::string& field_name): field_name(field_name) {
 
     }
+};
+
+struct facet_info_t {
+    // facet hash => resolved tokens
+    std::unordered_map<uint64_t, std::vector<std::string>> hashes;
+    bool use_facet_query = false;
+    bool should_compute_stats = false;
+    field facet_field{"", "", false};
 };
 
 struct facet_query_t {

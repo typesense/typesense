@@ -8,6 +8,7 @@
 #include <collection_manager.h>
 #include <http_client.h>
 #include "rocksdb/utilities/checkpoint.h"
+#include "thread_local_vars.h"
 
 namespace braft {
     DECLARE_int32(raft_do_snapshot_min_index_gap);
@@ -79,7 +80,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     // flag controls snapshot download size of each RPC
     braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
 
-    node_options.catchup_margin = healthy_read_lag;
+    node_options.catchup_margin = config->get_healthy_read_lag();
     node_options.election_timeout_ms = election_timeout_ms;
     node_options.fsm = this;
     node_options.node_owns_fsm = false;
@@ -123,26 +124,10 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::NodeStatus node_status;
     node->get_status(&node_status);
 
-    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
-    populate_skip_index();
-
-    LOG(INFO) << "Node last_index: " << node_status.last_index << ", skip_index: " << skip_index;
+    LOG(INFO) << "Node last_index: " << node_status.last_index;
 
     this->node = node;
     return 0;
-}
-
-void ReplicationState::populate_skip_index() {
-    if(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
-        const std::string& index_value = skip_index_iter->value().ToString();
-        if(StringUtils::is_int64_t(index_value)) {
-            skip_index = std::stoll(index_value);
-        }
-
-        skip_index_iter->Next();
-    } else {
-        skip_index = UNSET_SKIP_INDEX;
-    }
 }
 
 std::string ReplicationState::to_nodes_config(const butil::EndPoint& peering_endpoint, const int api_port,
@@ -192,7 +177,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         //LOG(INFO) << "write(), force shutdown";
         response->set_503("Shutting down.");
         response->final = true;
-        request->_req = nullptr;
+        response->is_alive = false;
         request->notify();
         return ;
     }
@@ -211,7 +196,7 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
     // NOTE: actual write must be done only on the `on_apply` method to maintain consistency.
 
     butil::IOBufBuilder bufBuilder;
-    bufBuilder << request->serialize();
+    bufBuilder << request->to_json();
 
     //LOG(INFO) << "write() pre request ref count " << request.use_count();
 
@@ -244,13 +229,13 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
         if(request->_req->proceed_req && response->proxied_stream) {
             // streaming in progress: ensure graceful termination (cannot start response again)
             LOG(ERROR) << "Terminating streaming request gracefully.";
-            request->_req = nullptr;
+            response->is_alive = false;
             request->notify();
             return ;
         }
 
         response->set_500("Could not find a leader.");
-        auto req_res = new deferred_req_res_t(request, response, server, true);
+        auto req_res = new async_req_res_t(request, response, true);
         return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
     }
 
@@ -264,7 +249,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
     const std::string & leader_addr = node->leader_id().to_string();
     //LOG(INFO) << "Redirecting write to leader at: " << leader_addr;
 
-    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator);
+    h2o_custom_generator_t* custom_generator = reinterpret_cast<h2o_custom_generator_t *>(response->generator.load());
     HttpServer* server = custom_generator->h2o_handler->http_server;
 
     auto raw_req = request->_req;
@@ -320,7 +305,7 @@ void ReplicationState::write_to_leader(const std::shared_ptr<http_req>& request,
             response->set_500(err);
         }
 
-        auto req_res = new deferred_req_res_t(request, response, server, true);
+        auto req_res = new async_req_res_t(request, response, true);
         message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
         pending_writes--;
     });
@@ -344,13 +329,6 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         // Guard invokes replication_arg->done->Run() asynchronously to avoid the callback blocking the main thread
         braft::AsyncClosureGuard closure_guard(iter.done());
 
-        if(iter.index() == skip_index) {
-            LOG(ERROR) << "Skipping write log index " << iter.index()
-                       << " which seems to have triggered a crash previously.";
-            populate_skip_index();
-            continue;
-        }
-
         //LOG(INFO) << "Apply entry";
 
         const std::shared_ptr<http_req>& request_generated = iter.done() ?
@@ -359,41 +337,19 @@ void ReplicationState::on_apply(braft::Iterator& iter) {
         //LOG(INFO) << "Post assignment " << request_generated.get() << ", use count: " << request_generated.use_count();
 
         const std::shared_ptr<http_res>& response_generated = iter.done() ?
-                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>();
+                dynamic_cast<ReplicationClosure*>(iter.done())->get_response() : std::make_shared<http_res>(nullptr);
 
         if(!iter.done()) {
             // indicates log serialized request
-            request_generated->deserialize(iter.data().to_string());
+            request_generated->load_from_json(iter.data().to_string());
         }
 
-        // Now that the log has been parsed, perform the actual operation
+        request_generated->log_index = iter.index();
 
-        bool async_res = false;
+        // To avoid blocking the serial Raft write thread persist the log entry in local storage.
+        // Actual operations will be done in collection-sharded batch indexing threads.
 
-        route_path* found_rpath = nullptr;
-        bool route_found = server->get_route(request_generated->route_hash, &found_rpath);
-
-        //LOG(INFO) << "Pre handler " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        if(route_found) {
-            async_res = found_rpath->async_res;
-            found_rpath->handler(request_generated, response_generated);
-        } else {
-            response_generated->set_404();
-        }
-
-        //LOG(INFO) << "Pre dispatch " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        if(!async_res) {
-            deferred_req_res_t* req_res = new deferred_req_res_t(request_generated, response_generated, server, true);
-            message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
-        }
-
-        //LOG(INFO) << "Raft write pre wait " << request_generated.get() << ", use count: " << request_generated.use_count();
-
-        response_generated->wait();
-
-        //LOG(INFO) << "Raft write post wait " << request_generated.get() << ", use count: " << request_generated.use_count();
+        batched_indexer->enqueue(request_generated, response_generated);
 
         if(iter.done()) {
             pending_writes--;
@@ -468,13 +424,28 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
     LOG(INFO) << "on_snapshot_save";
 
     std::string db_snapshot_path = writer->get_path() + "/" + db_snapshot_name;
-    rocksdb::Checkpoint* checkpoint = nullptr;
-    rocksdb::Status status = store->create_check_point(&checkpoint, db_snapshot_path);
-    std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
 
-    if(!status.ok()) {
-        LOG(ERROR) << "Failure during checkpoint creation, msg:" << status.ToString();
-        done->status().set_error(EIO, "Checkpoint creation failure.");
+    {
+        // grab batch indexer lock so that we can take a clean snapshot
+        std::shared_mutex& pause_mutex = batched_indexer->get_pause_mutex();
+        std::unique_lock lk(pause_mutex);
+
+        nlohmann::json batch_index_state;
+        batched_indexer->serialize_state(batch_index_state);
+        store->insert(CollectionManager::BATCHED_INDEXER_STATE_KEY, batch_index_state.dump());
+
+        // we will delete all the skip indices in meta store and flush that DB
+        // this will block writes, but should be pretty fast
+        batched_indexer->clear_skip_indices();
+
+        rocksdb::Checkpoint* checkpoint = nullptr;
+        rocksdb::Status status = store->create_check_point(&checkpoint, db_snapshot_path);
+        std::unique_ptr<rocksdb::Checkpoint> checkpoint_guard(checkpoint);
+
+        if(!status.ok()) {
+            LOG(ERROR) << "Failure during checkpoint creation, msg:" << status.ToString();
+            done->status().set_error(EIO, "Checkpoint creation failure.");
+        }
     }
 
     SnapshotArg* arg = new SnapshotArg;
@@ -488,18 +459,6 @@ void ReplicationState::on_snapshot_save(braft::SnapshotWriter* writer, braft::Cl
         arg->ext_snapshot_path = ext_snapshot_path;
         ext_snapshot_path = "";
     }
-
-    // we will also delete all the skip indices in meta store and flush that DB
-    // this will block raft writes, but should be pretty fast
-    delete skip_index_iter;
-    skip_index_iter = meta_store->scan(SKIP_INDICES_PREFIX);
-
-    while(skip_index_iter->Valid() && skip_index_iter->key().starts_with(SKIP_INDICES_PREFIX)) {
-        meta_store->remove(skip_index_iter->key().ToString());
-        skip_index_iter->Next();
-    }
-
-    meta_store->flush();
 
     // Start a new bthread to avoid blocking StateMachine for slower operations that don't need a blocking view
     bthread_t tid;
@@ -567,8 +526,7 @@ void ReplicationState::refresh_nodes(const std::string & nodes) {
              << ", committed_index: " << nodeStatus.committed_index
              << ", known_applied_index: " << nodeStatus.known_applied_index
              << ", applying_index: " << nodeStatus.applying_index
-             << ", pending_index: " << nodeStatus.pending_index
-             << ", disk_index: " << nodeStatus.disk_index
+             << ", queued_writes: " << batched_indexer->get_queued_writes()
              << ", pending_queue_size: " << nodeStatus.pending_queue_size
              << ", local_sequence: " << store->get_latest_seq_number();
 
@@ -626,32 +584,49 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
     int64_t current_index = (n_status.applying_index == 0) ? n_status.known_applied_index : n_status.applying_index;
     int64_t apply_lag = n_status.last_index - current_index;
 
+    // in addition to raft level lag, we should also account for internal batched write queue
+    int64_t num_queued_writes = batched_indexer->get_queued_writes();
+
     //LOG(INFO) << "last_index: " << n_status.applying_index << ", known_applied_index: " << n_status.known_applied_index;
     //LOG(INFO) << "apply_lag: " << apply_lag;
+
+    int healthy_read_lag = config->get_healthy_read_lag();
+    int healthy_write_lag = config->get_healthy_write_lag();
 
     if (apply_lag > healthy_read_lag) {
         LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy read lag of " << healthy_read_lag;
         this->read_caught_up = false;
     } else {
-        this->read_caught_up = true;
+        if(num_queued_writes > healthy_read_lag) {
+            LOG_IF(ERROR, log_msg) << num_queued_writes << " queued writes > healthy read lag of " << healthy_read_lag;
+            this->read_caught_up = false;
+        } else {
+            this->read_caught_up = true;
+        }
     }
 
     if (apply_lag > healthy_write_lag) {
         LOG_IF(ERROR, log_msg) << apply_lag << " lagging entries > healthy write lag of " << healthy_write_lag;
         this->write_caught_up = false;
     } else {
-        this->write_caught_up = true;
+        if(num_queued_writes > healthy_write_lag) {
+            LOG_IF(ERROR, log_msg) << num_queued_writes << " queued writes > healthy write lag of " << healthy_write_lag;
+            this->write_caught_up = false;
+        } else {
+            this->write_caught_up = true;
+        }
     }
 }
 
-ReplicationState::ReplicationState(HttpServer* server, Store *store, Store* meta_store, ThreadPool* thread_pool,
+ReplicationState::ReplicationState(HttpServer* server, BatchedIndexer* batched_indexer,
+                                   Store *store, ThreadPool* thread_pool,
                                    http_message_dispatcher *message_dispatcher,
-                                   bool api_uses_ssl,
-                                   int64_t healthy_read_lag, int64_t healthy_write_lag,
+                                   bool api_uses_ssl, const Config* config,
                                    size_t num_collections_parallel_load, size_t num_documents_parallel_load):
-        node(nullptr), leader_term(-1), server(server), store(store), meta_store(meta_store),
+        node(nullptr), leader_term(-1), server(server), batched_indexer(batched_indexer),
+        store(store),
         thread_pool(thread_pool), message_dispatcher(message_dispatcher), api_uses_ssl(api_uses_ssl),
-        healthy_read_lag(healthy_read_lag), healthy_write_lag(healthy_write_lag),
+        config(config),
         num_collections_parallel_load(num_collections_parallel_load),
         num_documents_parallel_load(num_documents_parallel_load),
         ready(false), shutting_down(false), pending_writes(0) {
@@ -761,8 +736,6 @@ void ReplicationState::shutdown() {
         delete node;
         node = nullptr;
     }
-
-    delete skip_index_iter;
 }
 
 void ReplicationState::persist_applying_index() {
@@ -772,15 +745,23 @@ void ReplicationState::persist_applying_index() {
         return ;
     }
 
-    braft::NodeStatus node_status;
-    node->get_status(&node_status);
-
     lock.unlock();
 
-    LOG(INFO) << "Saving currently applying index: " << node_status.applying_index;
+    batched_indexer->persist_applying_index();
+}
 
-    std::string key = SKIP_INDICES_PREFIX + std::to_string(node_status.applying_index);
-    meta_store->insert(key, std::to_string(node_status.applying_index));
+int64_t ReplicationState::get_num_queued_writes() {
+    return batched_indexer->get_queued_writes();
+}
+
+bool ReplicationState::is_leader() {
+    std::shared_lock lock(node_mutex);
+
+    if(!node) {
+        return false;
+    }
+
+    return node->is_leader();
 }
 
 void OnDemandSnapshotClosure::Run() {
@@ -810,7 +791,7 @@ void OnDemandSnapshotClosure::Run() {
     res->status_code = status_code;
     res->body = response.dump();
 
-    auto req_res = new deferred_req_res_t(req, res, nullptr, true);
+    auto req_res = new async_req_res_t(req, res, true);
     replication_state->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
 
     // wait for response to be sent

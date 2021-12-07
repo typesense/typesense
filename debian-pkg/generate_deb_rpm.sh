@@ -35,7 +35,8 @@ rm -rf /tmp/typesense-server-$TS_VERSION /tmp/typesense-server-$TS_VERSION.tar.g
 
 sed -i "s/\$VERSION/$TS_VERSION/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
 
-dpkg -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TS_VERSION}-amd64.deb"
+dpkg-deb -Zgzip -z6 \
+         -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TS_VERSION}-amd64.deb"
 
 # Generate RPM
 

@@ -4,8 +4,8 @@
 #include "logger.h"
 
 class ExecTime {
-    static auto begin = std::chrono::high_resolution_clock::now();
-
+    inline static std::chrono::time_point<std::chrono::high_resolution_clock> begin;
+public:
     static void start() {
         begin = std::chrono::high_resolution_clock::now();
     }

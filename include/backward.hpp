@@ -4148,9 +4148,9 @@ private:
 
         bool loaded() const { return _loaded; }
 
-        static void (*_callback)(StackTrace&);
+        static void (*_callback)(int sig, StackTrace&);
 
-        static void handleSignal(int, siginfo_t *info, void *_ctx) {
+        static void handleSignal(int sig, siginfo_t *info, void *_ctx) {
             ucontext_t *uctx = static_cast<ucontext_t *>(_ctx);
 
             StackTrace st;
@@ -4189,10 +4189,6 @@ private:
                 st.load_here(32, reinterpret_cast<void *>(uctx), info->si_addr);
             }
 
-            if(_callback) {
-                _callback(st);
-            }
-
             Printer printer;
             printer.address = true;
             //printer.print(st, stderr);
@@ -4208,6 +4204,10 @@ private:
 #else
             (void)info;
 #endif
+
+            if(_callback) {
+                _callback(sig, st);
+            }
         }
 
     private:
@@ -4225,7 +4225,7 @@ private:
             raise(info->si_signo);
 
             // terminate the process immediately.
-            puts("watf? exit");
+            puts("wat? exit");
             _exit(EXIT_FAILURE);
         }
     };

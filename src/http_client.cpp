@@ -20,7 +20,7 @@ long HttpClient::post_response(const std::string &url, const std::string &body, 
 
 long HttpClient::post_response_async(const std::string &url, const std::shared_ptr<http_req> request,
                                      const std::shared_ptr<http_res> response, HttpServer* server) {
-    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server);
+    deferred_req_res_t* req_res = new deferred_req_res_t(request, response, server, false);
     std::unique_ptr<deferred_req_res_t> req_res_guard(req_res);
     struct curl_slist* chunk = nullptr;
 
@@ -136,8 +136,10 @@ long HttpClient::perform_curl(CURL *curl, std::map<std::string, std::string>& re
 
 void HttpClient::extract_response_headers(CURL* curl, std::map<std::string, std::string> &res_headers) {
     char* content_type;
-    curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
-    res_headers.emplace("content-type", content_type);
+    CURLcode res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+    if(res == CURLE_OK && content_type != nullptr) {
+        res_headers.emplace("content-type", content_type);
+    }
 }
 
 size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
@@ -145,9 +147,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
     // callback for request body to be sent to remote host
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(userdata);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't proxy anymore data to upstream (leader)
-        //LOG(INFO) << "req_res->req->_req is: null";
+        //LOG(INFO) << "req_res->req->req is: null";
         return 0;
     }
 
@@ -175,13 +177,9 @@ size_t HttpClient::curl_req_send_callback(char* buffer, size_t size, size_t nite
 
         HttpServer *server = req_res->server;
 
-        if(req_res->req->last_chunk_aggregate) {
-            //LOG(INFO) << "Request forwarding done.";
-            server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
-        } else {
-            //LOG(INFO) << "Pausing forwarding and requesting more input.";
-            server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
+        server->get_message_dispatcher()->send_message(HttpServer::REQUEST_PROCEED_MESSAGE, req_res);
 
+        if(!req_res->req->last_chunk_aggregate) {
             //LOG(INFO) << "Waiting for request body to be ready";
             req_res->req->wait();
             //LOG(INFO) << "Request body is ready";
@@ -197,7 +195,7 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     //LOG(INFO) << "curl_write_async";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
         return 0;
     }
@@ -208,13 +206,16 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
     if(req_res->res->status_code == 0) {
         CURL* curl = req_res->req->data;
         long http_code = 500;
-        curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        CURLcode res = curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+        if(res == CURLE_OK) {
+            req_res->res->status_code = http_code;
+        }
 
         char* content_type;
-        curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
-
-        req_res->res->status_code = http_code;
-        req_res->res->content_type_header = content_type;
+        res = curl_easy_getinfo (curl, CURLINFO_CONTENT_TYPE, &content_type);
+        if(res == CURLE_OK && content_type != nullptr) {
+            req_res->res->content_type_header = content_type;
+        }
     }
 
     // we've got response from remote host: write to client and ask for more request body
@@ -224,7 +225,8 @@ size_t HttpClient::curl_write_async(char *buffer, size_t size, size_t nmemb, voi
 
     //LOG(INFO) << "curl_write_async response, res body size: " << req_res->res->body.size();
 
-    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
 
     // wait until response is sent
     //LOG(INFO) << "Waiting on req_res " << req_res->res;
@@ -238,7 +240,7 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     //LOG(INFO) << "curl_write_async_done";
     deferred_req_res_t* req_res = static_cast<deferred_req_res_t *>(context);
 
-    if(req_res->req->_req == nullptr) {
+    if(!req_res->res->is_alive) {
         // underlying client request is dead, don't try to send anymore data
         return 0;
     }
@@ -246,10 +248,14 @@ size_t HttpClient::curl_write_async_done(void *context, curl_socket_t item) {
     req_res->res->body = "";
     req_res->res->final = true;
 
-    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    async_req_res_t* async_req_res = new async_req_res_t(req_res->req, req_res->res, true);
+    req_res->server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
 
     // wait until final response is flushed or response object will be destroyed by caller
     req_res->res->wait();
+
+    // Close the socket as we've overridden the close socket handler!
+    close(item);
 
     return 0;
 }

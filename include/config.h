@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cmdline.h>
 #include "option.h"
 #include "string_utils.h"
@@ -33,13 +34,13 @@ private:
     float max_memory_ratio;
     int snapshot_interval_seconds;
 
-    size_t healthy_read_lag;
-    size_t healthy_write_lag;
+    std::atomic<size_t> healthy_read_lag;
+    std::atomic<size_t> healthy_write_lag;
 
     std::string config_file;
     int config_file_validity;
 
-    int log_slow_requests_time_ms;
+    std::atomic<int> log_slow_requests_time_ms;
 
     uint32_t num_collections_parallel_load;
     uint32_t num_documents_parallel_load;
@@ -124,6 +125,14 @@ public:
         this->log_slow_requests_time_ms = log_slow_requests_time_ms;
     }
 
+    void set_healthy_read_lag(size_t healthy_read_lag) {
+        this->healthy_read_lag = healthy_read_lag;
+    }
+
+    void set_healthy_write_lag(size_t healthy_write_lag) {
+        this->healthy_write_lag = healthy_write_lag;
+    }
+
     // getters
 
     std::string get_data_dir() const {
@@ -191,11 +200,11 @@ public:
         return this->snapshot_interval_seconds;
     }
 
-    int get_healthy_read_lag() const {
+    size_t get_healthy_read_lag() const {
         return this->healthy_read_lag;
     }
 
-    int get_healthy_write_lag() const {
+    size_t get_healthy_write_lag() const {
         return this->healthy_write_lag;
     }
 
@@ -397,11 +406,11 @@ public:
         }
 
         if(reader.Exists("server", "healthy-read-lag")) {
-            this->healthy_read_lag = (int) reader.GetInteger("server", "healthy-read-lag", 1000);
+            this->healthy_read_lag = (size_t) reader.GetInteger("server", "healthy-read-lag", 1000);
         }
 
         if(reader.Exists("server", "healthy-write-lag")) {
-            this->healthy_write_lag = (int) reader.GetInteger("server", "healthy-write-lag", 100);
+            this->healthy_write_lag = (size_t) reader.GetInteger("server", "healthy-write-lag", 100);
         }
 
         if(reader.Exists("server", "log-slow-requests-time-ms")) {
@@ -496,11 +505,11 @@ public:
         }
 
         if(options.exist("healthy-read-lag")) {
-            this->healthy_read_lag = options.get<int>("healthy-read-lag");
+            this->healthy_read_lag = options.get<size_t>("healthy-read-lag");
         }
 
         if(options.exist("healthy-write-lag")) {
-            this->healthy_write_lag = options.get<int>("healthy-write-lag");
+            this->healthy_write_lag = options.get<size_t>("healthy-write-lag");
         }
 
         if(options.exist("log-slow-requests-time-ms")) {

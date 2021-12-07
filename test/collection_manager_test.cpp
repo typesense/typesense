@@ -10,6 +10,7 @@ class CollectionManagerTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
     Collection *collection1;
     std::vector<field> search_fields;
     std::vector<sort_by> sort_fields;
@@ -20,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
 
         search_fields = {
@@ -33,7 +34,8 @@ protected:
         };
 
         sort_fields = { sort_by("points", "DESC") };
-        collection1 = collectionManager.create_collection("collection1", 4, search_fields, "points", 12345).get();
+        collection1 = collectionManager.create_collection("collection1", 4, search_fields,
+                                                          "points", 12345, "", {"+"}, {"-"}).get();
     }
 
     virtual void SetUp() {
@@ -94,7 +96,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
               "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
-              "\"name\":\"collection1\",\"num_memory_shards\":4}",
+              "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }
@@ -113,15 +115,26 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 
     delete collection;
 
-    // with created_at ts
+    // with non-default values
 
     nlohmann::json collection_meta2 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
                                   "\"string\", \"facet\": false}], \"created_at\": 12345,"
-                                  "\"default_sorting_field\": \"foo\"}");
+                                  "\"default_sorting_field\": \"foo\","
+                                  "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
+
 
     collection = collectionManager.init_collection(collection_meta2, 100, store, 1.0f);
     ASSERT_EQ(12345, collection->get_created_at());
+
+    std::vector<char> expected_symbols = {'+'};
+    std::vector<char> expected_separators = {'-'};
+
+    ASSERT_EQ(1, collection->get_token_separators().size());
+    ASSERT_EQ('-', collection->get_token_separators()[0]);
+
+    ASSERT_EQ(1, collection->get_symbols_to_index().size());
+    ASSERT_EQ('+', collection->get_symbols_to_index()[0]);
 
     delete collection;
 }
@@ -232,14 +245,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     std::vector<std::string> facets;
 
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    LOG(INFO) << results;
     ASSERT_EQ(4, results["hits"].size());
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 1.0, "auth_key");
+    collectionManager2.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
@@ -283,6 +295,15 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(0, synonyms.at("id3").root.size());
     ASSERT_EQ(2, synonyms.at("id3").synonyms.size());
 
+    std::vector<char> expected_symbols = {'+'};
+    std::vector<char> expected_separators = {'-'};
+
+    ASSERT_EQ(1, collection1->get_token_separators().size());
+    ASSERT_EQ('-', collection1->get_token_separators()[0]);
+
+    ASSERT_EQ(1, collection1->get_symbols_to_index().size());
+    ASSERT_EQ('+', collection1->get_symbols_to_index()[0]);
+
     results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 }
@@ -325,7 +346,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 1.0, "auth_key");
+    collectionManager2.init(store, 1.0, "auth_key", quit);
     auto load_op = collectionManager2.load(8, 1000);
 
     if(!load_op.ok()) {
@@ -434,7 +455,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     // try resolving on a blank slate
@@ -509,7 +530,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
     // should be able to restore state on init
     CollectionManager & cmanager2 = CollectionManager::get_instance();
-    cmanager2.init(store, 1.0, "auth_key");
+    cmanager2.init(store, 1.0, "auth_key", quit);
     cmanager2.load(8, 1000);
 
     collection_option = cmanager2.resolve_symlink("company");
@@ -529,6 +550,7 @@ TEST_F(CollectionManagerTest, Symlinking) {
 
 TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     // to prevent fixture tear down from running as we are fudging with CollectionManager singleton
+    collectionManager.dispose();
     delete store;
     store = nullptr;
 
@@ -536,7 +558,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     std::string state_dir_path = "/tmp/typesense_test/cmanager_test_db";
     system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
     Store *new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     for(size_t i = 0; i < 100; i++) {
@@ -558,7 +580,7 @@ TEST_F(CollectionManagerTest, LoadMultipleCollections) {
     delete new_store;
 
     new_store = new Store(state_dir_path);
-    cmanager.init(new_store, 1.0, "auth_key");
+    cmanager.init(new_store, 1.0, "auth_key", quit);
     cmanager.load(8, 1000);
 
     ASSERT_EQ(100, cmanager.get_collections().size());

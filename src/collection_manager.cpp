@@ -1,7 +1,9 @@
 #include <string>
 #include <vector>
 #include <json.hpp>
+#include <app_metrics.h>
 #include "collection_manager.h"
+#include "batched_indexer.h"
 #include "logger.h"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
@@ -52,6 +54,17 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
 
+    std::vector<std::string> symbols_to_index;
+    std::vector<std::string> token_separators;
+
+    if(collection_meta.count(Collection::COLLECTION_SYMBOLS_TO_INDEX) != 0) {
+        symbols_to_index = collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX].get<std::vector<std::string>>();
+    }
+
+    if(collection_meta.count(Collection::COLLECTION_SEPARATORS) != 0) {
+        token_separators = collection_meta[Collection::COLLECTION_SEPARATORS].get<std::vector<std::string>>();
+    }
+
     LOG(INFO) << "Found collection " << this_collection_name << " with " << num_memory_shards << " memory shards.";
 
     Collection* collection = new Collection(this_collection_name,
@@ -61,9 +74,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             store,
                                             fields,
                                             default_sorting_field,
-                                            num_memory_shards,
                                             max_memory_ratio,
-                                            fallback_field_type);
+                                            fallback_field_type,
+                                            symbols_to_index,
+                                            token_separators);
 
     return collection;
 }
@@ -78,19 +92,24 @@ void CollectionManager::add_to_collections(Collection* collection) {
 
 void CollectionManager::init(Store *store, ThreadPool* thread_pool,
                              const float max_memory_ratio,
-                             const std::string & auth_key) {
+                             const std::string & auth_key,
+                             std::atomic<bool>& quit,
+                             BatchedIndexer* batch_indexer) {
     std::unique_lock lock(mutex);
 
     this->store = store;
     this->thread_pool = thread_pool;
     this->bootstrap_auth_key = auth_key;
     this->max_memory_ratio = max_memory_ratio;
+    this->quit = &quit;
+    this->batch_indexer = batch_indexer;
 }
 
 // used only in tests!
-void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key) {
+void CollectionManager::init(Store *store, const float max_memory_ratio, const std::string & auth_key,
+                             std::atomic<bool>& quit) {
     ThreadPool* thread_pool = new ThreadPool(8);
-    init(store, thread_pool, max_memory_ratio, auth_key);
+    init(store, thread_pool, max_memory_ratio, auth_key, quit, nullptr);
 }
 
 Option<bool> CollectionManager::load(const size_t collection_batch_size, const size_t document_batch_size) {
@@ -141,8 +160,14 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
 
         auto captured_store = store;
         loading_pool.enqueue([captured_store, num_collections, collection_meta, document_batch_size,
-                              &m_process, &cv_process, &num_processed, &next_coll_id_status]() {
-            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status);
+                              &m_process, &cv_process, &num_processed, &next_coll_id_status, quit = quit]() {
+
+            //auto begin = std::chrono::high_resolution_clock::now();
+            Option<bool> res = load_collection(collection_meta, document_batch_size, next_coll_id_status, *quit);
+            /*long long int timeMillis =
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
+            LOG(INFO) << "Time taken for indexing: " << timeMillis << "ms";*/
+
             if(!res.ok()) {
                 LOG(ERROR) << "Error while loading collection. " << res.error();
                 LOG(ERROR) << "Typesense is quitting.";
@@ -181,6 +206,16 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
     LOG(INFO) << "Loaded " << num_collections << " collection(s).";
 
     loading_pool.shutdown();
+
+    LOG(INFO) << "Initializing batched indexer from snapshot state...";
+    if(batch_indexer != nullptr) {
+        std::string batched_indexer_state_str;
+        StoreStatus s = store->get(BATCHED_INDEXER_STATE_KEY, batched_indexer_state_str);
+        if(s == FOUND) {
+            nlohmann::json batch_indexer_state = nlohmann::json::parse(batched_indexer_state_str);
+            batch_indexer->load_state(batch_indexer_state);
+        }
+    }
 
     return Option<bool>(true);
 }
@@ -222,7 +257,9 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const std::vector<field> & fields,
                                                          const std::string& default_sorting_field,
                                                          const uint64_t created_at,
-                                                         const std::string& fallback_field_type) {
+                                                         const std::string& fallback_field_type,
+                                                         const std::vector<std::string>& symbols_to_index,
+                                                         const std::vector<std::string>& token_separators) {
 
     if(store->contains(Collection::get_meta_key(name))) {
         return Option<Collection*>(409, std::string("A collection with name `") + name + "` already exists.");
@@ -252,10 +289,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_CREATED] = created_at;
     collection_meta[Collection::COLLECTION_NUM_MEMORY_SHARDS] = num_memory_shards;
     collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
+    collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
+    collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
-                                                default_sorting_field, num_memory_shards,
-                                                this->max_memory_ratio, fallback_field_type);
+                                                default_sorting_field,
+                                                this->max_memory_ratio, fallback_field_type,
+                                                symbols_to_index, token_separators);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -473,6 +513,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
+    const char *MIN_LEN_1TYPO = "min_len_1typo";
+    const char *MIN_LEN_2TYPO = "min_len_2typo";
+
     const char *PREFIX = "prefix";
     const char *DROP_TOKENS_THRESHOLD = "drop_tokens_threshold";
     const char *TYPO_TOKENS_THRESHOLD = "typo_tokens_threshold";
@@ -516,8 +559,23 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PRIORITIZE_EXACT_MATCH = "prioritize_exact_match";
     const char *PRE_SEGMENTED_QUERY = "pre_segmented_query";
 
+    const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
+    const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
+
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
+    }
+
+    if(req_params.count(MIN_LEN_1TYPO) == 0) {
+        req_params[MIN_LEN_1TYPO] = "4";
+    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_1TYPO])) {
+        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_1TYPO) + "` must be an unsigned integer.");
+    }
+
+    if(req_params.count(MIN_LEN_2TYPO) == 0) {
+        req_params[MIN_LEN_2TYPO] = "7";
+    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_2TYPO])) {
+        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_2TYPO) + "` must be an unsigned integer.");
     }
 
     if(req_params.count(PREFIX) == 0) {
@@ -613,6 +671,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[PRE_SEGMENTED_QUERY] = "false";
     }
 
+    if(req_params.count(SEARCH_CUTOFF_MS) == 0) {
+        req_params[SEARCH_CUTOFF_MS] = "3600000";
+    }
+
+    if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
+        req_params[EXHAUSTIVE_SEARCH] = "false";
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -682,8 +748,13 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(400,"Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
     }
 
+    if(!StringUtils::is_uint32_t(req_params[SEARCH_CUTOFF_MS])) {
+        return Option<bool>(400,"Parameter `" + std::string(SEARCH_CUTOFF_MS) + "` must be an unsigned integer.");
+    }
+
     bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
     bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
+    bool exhaustive_search = (req_params[EXHAUSTIVE_SEARCH] == "true");
 
     std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
 
@@ -787,12 +858,16 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           prioritize_exact_match,
                                                           pre_segmented_query,
                                                           enable_overrides,
-                                                          req_params[HIGHLIGHT_FIELDS]
+                                                          req_params[HIGHLIGHT_FIELDS],
+                                                          exhaustive_search,
+                                                          static_cast<size_t>(std::stol(req_params[SEARCH_CUTOFF_MS]))
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
 
+    AppMetrics::get_instance().increment_count(AppMetrics::SEARCH_LABEL, 1);
+    AppMetrics::get_instance().increment_duration(AppMetrics::SEARCH_LABEL, timeMillis);
 
     if(!result_op.ok()) {
         return Option<bool>(result_op.code(), result_op.error());
@@ -828,6 +903,8 @@ nlohmann::json CollectionManager::get_collection_summaries() const {
 
 Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_json) {
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
+    const char* SYMBOLS_TO_INDEX = "symbols_to_index";
+    const char* TOKEN_SEPARATORS = "token_separators";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     // validate presence of mandatory fields
@@ -842,6 +919,14 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(NUM_MEMORY_SHARDS) == 0) {
         req_json[NUM_MEMORY_SHARDS] = CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
+    }
+
+    if(req_json.count(SYMBOLS_TO_INDEX) == 0) {
+        req_json[SYMBOLS_TO_INDEX] = std::vector<std::string>();
+    }
+
+    if(req_json.count(TOKEN_SEPARATORS) == 0) {
+        req_json[TOKEN_SEPARATORS] = std::vector<std::string>();
     }
 
     if(req_json.count("fields") == 0) {
@@ -859,6 +944,26 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(!req_json[NUM_MEMORY_SHARDS].is_number_unsigned()) {
         return Option<Collection*>(400, std::string("`") + NUM_MEMORY_SHARDS + "` should be a positive integer.");
+    }
+
+    if(!req_json[SYMBOLS_TO_INDEX].is_array()) {
+        return Option<Collection*>(400, std::string("`") + SYMBOLS_TO_INDEX + "` should be an array of character symbols.");
+    }
+
+    if(!req_json[TOKEN_SEPARATORS].is_array()) {
+        return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+    }
+
+    for (auto it = req_json[SYMBOLS_TO_INDEX].begin(); it != req_json[SYMBOLS_TO_INDEX].end(); ++it) {
+        if(!it->is_string() || it->get<std::string>().size() != 1 ) {
+            return Option<Collection*>(400, std::string("`") + SYMBOLS_TO_INDEX + "` should be an array of character symbols.");
+        }
+    }
+
+    for (auto it = req_json[TOKEN_SEPARATORS].begin(); it != req_json[TOKEN_SEPARATORS].end(); ++it) {
+        if(!it->is_string() || it->get<std::string>().size() != 1 ) {
+            return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+        }
     }
 
     size_t num_memory_shards = req_json[NUM_MEMORY_SHARDS].get<size_t>();
@@ -887,12 +992,15 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     return CollectionManager::get_instance().create_collection(req_json["name"], num_memory_shards,
                                                                 fields, default_sorting_field, created_at,
-                                                                fallback_field_type);
+                                                                fallback_field_type,
+                                                                req_json[SYMBOLS_TO_INDEX],
+                                                                req_json[TOKEN_SEPARATORS]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,
-                                                const size_t init_batch_size,
-                                                const StoreStatus& next_coll_id_status) {
+                                                const size_t batch_size,
+                                                const StoreStatus& next_coll_id_status,
+                                                const std::atomic<bool>& quit) {
 
     auto& cm = CollectionManager::get_instance();
 
@@ -974,15 +1082,13 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     rocksdb::Iterator* iter = cm.store->scan(seq_id_prefix);
     std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
 
-    std::vector<std::vector<index_record>> iter_batch;
-
-    for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-        iter_batch.emplace_back(std::vector<index_record>());
-    }
+    std::vector<index_record> index_records;
 
     size_t num_found_docs = 0;
     size_t num_valid_docs = 0;
     size_t num_indexed_docs = 0;
+
+    auto begin = std::chrono::high_resolution_clock::now();
 
     while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
         num_found_docs++;
@@ -1001,7 +1107,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
         num_valid_docs++;
 
-        iter_batch[seq_id % collection->get_num_memory_shards()].emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
+        index_records.emplace_back(index_record(0, seq_id, document, CREATE, dirty_values));
 
         // Peek and check for last record right here so that we handle batched indexing correctly
         // Without doing this, the "last batch" would have to be indexed outside the loop.
@@ -1009,27 +1115,34 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
         bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
 
         // batch must match atleast the number of shards
-        const size_t batch_size = std::max(init_batch_size, collection->get_num_memory_shards());
-
         if((num_valid_docs % batch_size == 0) || last_record) {
-            std::vector<size_t> indexed_counts;
-            indexed_counts.reserve(iter_batch.size());
+            size_t num_records = index_records.size();
+            size_t num_indexed = collection->batch_index_in_memory(index_records);
 
-            collection->par_index_in_memory(iter_batch, indexed_counts);
-
-            for(size_t i = 0; i < collection->get_num_memory_shards(); i++) {
-                size_t num_records = iter_batch[i].size();
-                size_t num_indexed = indexed_counts[i];
-
-                if(num_indexed != num_records) {
-                    const Option<std::string> & index_error_op = get_first_index_error(iter_batch[i]);
-                    if(!index_error_op.ok()) {
-                        return Option<bool>(false, index_error_op.get());
-                    }
+            if(num_indexed != num_records) {
+                const Option<std::string> & index_error_op = get_first_index_error(index_records);
+                if(!index_error_op.ok()) {
+                    return Option<bool>(false, index_error_op.get());
                 }
-                iter_batch[i].clear();
-                num_indexed_docs += num_indexed;
             }
+
+            index_records.clear();
+            num_indexed_docs += num_indexed;
+        }
+
+        if(num_found_docs % ((1 << 14)) == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Loaded " << num_found_docs << " documents from " << collection->get_name() << " so far.";
+            }
+        }
+
+        if(quit) {
+            break;
         }
     }
 

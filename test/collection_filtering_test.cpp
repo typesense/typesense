@@ -4,13 +4,13 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
-#include <h3api.h>
 #include "collection.h"
 
 class CollectionFilteringTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
@@ -21,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
 
@@ -184,6 +184,11 @@ TEST_F(CollectionFilteringTest, FacetFieldStringFiltering) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ(2, results["found"].get<size_t>());
 
+    // with backticks
+    results = coll_str->search("*", query_fields, "starring:= `samuel l. Jackson`", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+
     // contains filter with a single token should work as well
     results = coll_str->search("*", query_fields, "starring: jackson", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(2, results["hits"].size());
@@ -260,10 +265,10 @@ TEST_F(CollectionFilteringTest, FacetFieldStringArrayFiltering) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(1, results["found"].get<size_t>());
 
-    // don't allow exact filter on non-faceted field
-    auto res_op = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false});
-    ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("To perform exact filtering, filter field `name` must be a facet field.", res_op.error().c_str());
+    // allow exact filter on non-faceted field
+    results = coll_array_fields->search("Jeremy", query_fields, "name:= Jeremy Howard", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(5, results["found"].get<size_t>());
 
     // multi match exact query (OR condition)
     results = coll_array_fields->search("Jeremy", query_fields, "tags:= [Gold, bronze]", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
@@ -1069,10 +1074,151 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFilteringTest, GeoPointArrayFiltering) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::vector<std::string>>> records = {
+        {   {"Alpha Inc", "Ennore", "13.22112, 80.30511"},
+            {"Alpha Inc", "Velachery", "12.98973, 80.23095"}
+        },
+
+        {
+            {"Veera Inc", "Thiruvallur", "13.12752, 79.90136"},
+        },
+
+        {
+            {"B1 Inc", "Bengaluru", "12.98246, 77.5847"},
+            {"B1 Inc", "Hosur", "12.74147, 77.82915"},
+            {"B1 Inc", "Vellore", "12.91866, 79.13075"},
+        },
+
+        {
+            {"M Inc", "Nashik", "20.11282, 73.79458"},
+            {"M Inc", "Pune", "18.56309, 73.855"},
+        }
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0][0];
+        doc["points"] = i;
+
+        std::vector<std::vector<double>> lat_lngs;
+        for(size_t k = 0; k < records[i].size(); k++) {
+            std::vector<std::string> lat_lng_str;
+            StringUtils::split(records[i][k][2], lat_lng_str, ", ");
+
+            std::vector<double> lat_lng = {
+                std::stod(lat_lng_str[0]),
+                std::stod(lat_lng_str[1])
+            };
+
+            lat_lngs.push_back(lat_lng);
+        }
+
+        doc["loc"] = lat_lngs;
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    // pick a location close to Chennai
+    auto results = coll1->search("*",
+                                 {}, "loc: (13.12631, 80.20252, 100 km)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // pick location close to none of the spots
+    results = coll1->search("*",
+                            {}, "loc: (13.62601, 79.39559, 10 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // pick a large radius covering all points
+
+    results = coll1->search("*",
+                            {}, "loc: (21.20714729927276, 78.99153966917213, 1000 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    // 1 mile radius
+
+    results = coll1->search("*",
+                            {}, "loc: (12.98941, 80.23073, 1 mi)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // when geo field is formatted badly, show meaningful error
+    nlohmann::json bad_doc;
+    bad_doc["id"] = "1000";
+    bad_doc["title"] = "Test record";
+    bad_doc["loc"] = {"48.91", "2.33"};
+    bad_doc["points"] = 1000;
+
+    auto add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must contain 2 element arrays: [ [lat, lng],... ].", add_op.error());
+
+    bad_doc["loc"] = "foobar";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array.", add_op.error());
+
+    bad_doc["loc"] = nlohmann::json::array();
+    nlohmann::json points = nlohmann::json::array();
+    points.push_back("foo");
+    points.push_back("bar");
+    bad_doc["loc"].push_back(points);
+
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    bad_doc["loc"][0][0] = "2.33";
+    bad_doc["loc"][0][1] = "bar";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    bad_doc["loc"][0][0] = "foo";
+    bad_doc["loc"][0][1] = "2.33";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be an array of geopoint.", add_op.error());
+
+    // under coercion mode, it should work
+    bad_doc["loc"][0][0] = "48.91";
+    bad_doc["loc"][0][1] = "2.33";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
+    ASSERT_TRUE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("loc1", field_types::GEOPOINT, false),
-                                 field("loc2", field_types::GEOPOINT, false),
+                                 field("loc2", field_types::GEOPOINT_ARRAY, false),
                                  field("points", field_types::INT32, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
@@ -1081,7 +1227,8 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     doc["id"] = "0";
     doc["title"] = "Palais Garnier";
     doc["loc1"] = {48.872576479306765, 2.332291112241466};
-    doc["loc2"] = {48.84620987789056, 2.345152755563131};
+    doc["loc2"] = nlohmann::json::array();
+    doc["loc2"][0] = {48.84620987789056, 2.345152755563131};
     doc["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -1089,6 +1236,13 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
     auto results = coll1->search("*",
                                  {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
                                  {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "loc2: (48.87491151802846, 2.343945883701618, 10 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
@@ -1101,6 +1255,13 @@ TEST_F(CollectionFilteringTest, GeoPointRemoval) {
 
     results = coll1->search("*",
                             {}, "loc1: (48.87491151802846, 2.343945883701618, 1 km)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*",
+                            {}, "loc2: (48.87491151802846, 2.343945883701618, 10 km)",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -1163,6 +1324,18 @@ TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
     ASSERT_STREQ("8", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // should work even if points of polygon are clockwise
+
+    results = coll1->search("*",
+                            {}, "loc: (48.87756059389807, 2.3443610121873206, "
+                                    "48.859636574404355,2.351469427048221, "
+                                    "48.85745408145392, 2.3267084486160856, "
+                                    "48.875223042424125,2.323509661928681)",
+                            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1304,6 +1477,119 @@ TEST_F(CollectionFilteringTest, NumericalFilteringWithAnd) {
     // no match
     results = coll1->search("*",
                             {}, "num_employees:>3000 && num_employees:<10",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("company_name", field_types::STRING, false),
+                                 field("num_employees", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "num_employees").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"123", "Company 1", "50"},
+        {"125", "Company 2", "150"},
+        {"127", "Company 3", "250"},
+        {"129", "Stark Industries 4", "500"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = records[i][0];
+        doc["company_name"] = records[i][1];
+        doc["num_employees"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = { sort_by("num_employees", "ASC") };
+
+    auto results = coll1->search("*",
+                                 {}, "id: 123",
+                                 {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // single ID with backtick
+
+    results = coll1->search("*",
+                            {}, "id: `123`",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // single ID with condition
+    results = coll1->search("*",
+                            {}, "id: 125 && num_employees: 150",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("125", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // multiple IDs
+    results = coll1->search("*",
+                            {}, "id: [123, 125, 127, 129] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // multiple IDs with exact equals operator with IDs not being ordered
+    results = coll1->search("*",
+                            {}, "id:= [129, 123, 127, 125] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // multiple IDs with exact equals operator and backticks
+    results = coll1->search("*",
+                            {}, "id:= [`123`, `125`, `127`, `129`] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_STREQ("123", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+
+    // not equals is not supported yet
+    auto res_op = coll1->search("*",
+                            {}, "id:!= [123,125] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Not equals filtering is not supported on the `id` field.", res_op.error());
+
+    // when no IDs exist
+    results = coll1->search("*",
+                            {}, "id: [1000] && num_employees: <300",
+                            {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*",
+                            {}, "id: 1000",
                             {}, sort_fields, {0}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
@@ -1478,6 +1764,12 @@ TEST_F(CollectionFilteringTest, FilterStringsWithComma) {
 
     auto results = coll1->search("*", {"place"}, "place:= St. John's Cathedral, Denver, Colorado", {}, {}, {0}, 10, 1,
                                  FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*", {"place"}, "place:= `St. John's Cathedral, Denver, Colorado`", {}, {}, {0}, 10, 1,
+                            FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -1671,4 +1963,190 @@ TEST_F(CollectionFilteringTest, QueryBoolFields) {
     ASSERT_EQ("Error with filter field `bool_array`: Filter value cannot be empty.", res_op.error());
 
     collectionManager.drop_collection("coll_bool");
+}
+
+TEST_F(CollectionFilteringTest, FilteringWithTokenSeparators) {
+    std::vector<field> fields = {field("code", field_types::STRING, true)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["code"] = "7318.15";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("*", {},"code:=7318.15", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("*", {},"code:=`7318.15`", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+
+    Collection* coll2 = collectionManager.create_collection(
+            "coll2", 1, fields, "", 0, "", {"."}, {}
+    ).get();
+
+    doc1["id"] = "0";
+    doc1["code"] = "7318.15";
+
+    ASSERT_TRUE(coll2->add(doc1.dump()).ok());
+
+    results = coll2->search("*", {},"code:=7318.15", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll2");
+}
+
+TEST_F(CollectionFilteringTest, ExactFilteringSingleQueryTerm) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "AT&T GoPhone";
+    doc1["tags"] = {"AT&T GoPhone"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "AT&T";
+    doc2["tags"] = {"AT&T"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=AT&T", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"tags:=AT&T", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Phone";
+    doc3["tags"] = {"Samsung Phone", "Phone"};
+
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    results = coll1->search("*", {},"tags:=Phone", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensSingularField) {
+    std::vector<field> fields = {field("name", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Cardiology - Interventional Cardiology";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Cardiology - Interventional";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Cardiology - Interventional Cardiology Department";
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = "Interventional Cardiology - Interventional Cardiology";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=Cardiology - Interventional Cardiology", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Cardiology - Interventional", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Interventional Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {},"name:=Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensArrayField) {
+    std::vector<field> fields = {field("name", field_types::STRING_ARRAY, false)};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "", 0, "", {}, {"."}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = {"Cardiology - Interventional Cardiology"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = {"Cardiology - Interventional"};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = {"Cardiology - Interventional Cardiology Department"};
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["name"] = {"Interventional Cardiology - Interventional Cardiology"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    auto results = coll1->search("*", {},"name:=Cardiology - Interventional Cardiology", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Cardiology - Interventional", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("*", {},"name:=Interventional Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("*", {},"name:=Cardiology", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
 }

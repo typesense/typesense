@@ -3,7 +3,8 @@
 #include "tokenizer.h"
 
 Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const std::string& locale,
-                     const std::vector<char>& symbols_to_index):
+                     const std::vector<char>& symbols_to_index,
+                     const std::vector<char>& separators):
                      i(0), normalize(normalize), no_op(no_op), locale(locale) {
 
     if(locale == "zh") {
@@ -50,6 +51,10 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
         index_symbols[uint8_t(c)] = 1;
     }
 
+    for(char c: separators) {
+        separator_symbols[uint8_t(c)] = 1;
+    }
+
     UErrorCode errcode = U_ZERO_ERROR;
     nfkd = icu::Normalizer2::getNFKDInstance(errcode);
 }
@@ -91,7 +96,7 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                         LOG(ERROR) << "Unicode error during parsing: " << errcode;
                     }
                 } else {
-                    token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+                    token = unicode_text.toLower().tempSubString(prev_position, length).toUTF8String(word);
                 }
 
                 if(!token.empty()) {

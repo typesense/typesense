@@ -44,9 +44,9 @@ RUN make -C /opt/openssl-1.1.1d depend
 RUN make -C /opt/openssl-1.1.1d -j8
 RUN make -C /opt/openssl-1.1.1d install
 
-ADD https://github.com/curl/curl/releases/download/curl-7_65_3/curl-7.65.3.tar.gz /opt/curl-7.65.3.tar.gz
-RUN tar -C /opt -xf /opt/curl-7.65.3.tar.gz
-RUN cd /opt/curl-7.65.3 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
+ADD https://github.com/curl/curl/releases/download/curl-7_78_0/curl-7.78.0.tar.gz /opt/curl-7.78.0.tar.gz
+RUN tar -C /opt -xf /opt/curl-7.78.0.tar.gz
+RUN cd /opt/curl-7.78.0 && LIBS="-ldl -lpthread" ./configure --disable-shared --with-ssl=/usr/local \
 --without-ca-bundle --without-ca-path && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/gflags/gflags/archive/v2.2.2.tar.gz /opt/gflags-2.2.2.tar.gz
@@ -69,7 +69,7 @@ ADD https://github.com/google/glog/archive/0a2e593.tar.gz /opt/glog-0a2e593.tar.
 RUN tar -C /opt -xf /opt/glog-0a2e593.tar.gz
 RUN mkdir -p /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
     cd /opt/glog-0a2e5931bd5ff22fd3bf8999eb8ce776f159cda6/bld && \
-    cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_UNWIND=OFF .. && \
+    cmake -DBUILD_TESTING=0 -DWITH_GFLAGS=ON -DWITH_TLS=OFF -DWITH_UNWIND=OFF .. && \
     cmake --build . && make install && rm -rf /usr/local/lib/*.so*
 
 ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
@@ -87,7 +87,7 @@ COPY patches/braft_cmakelists.txt /opt/braft-c649789133566dc06e39ebd0c69a824f8e9
 RUN chown root:root /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/src/CMakeLists.txt
 RUN mkdir -p /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
     cd /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld && \
-    cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j8 && \
+    cmake -DWITH_DEBUG_SYMBOLS=ON -DBRPC_WITH_GLOG=ON .. && make -j4 && \
     make install && rm -rf /usr/local/lib/*.so* && \
     rm -rf /opt/braft-c649789133566dc06e39ebd0c69a824f8e98993a/bld/output/bin
 

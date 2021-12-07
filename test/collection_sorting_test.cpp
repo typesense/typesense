@@ -4,13 +4,13 @@
 #include <fstream>
 #include <algorithm>
 #include <collection_manager.h>
-#include <h3api.h>
 #include "collection.h"
 
 class CollectionSortingTest : public ::testing::Test {
 protected:
     Store *store;
     CollectionManager & collectionManager = CollectionManager::get_instance();
+    std::atomic<bool> quit = false;
 
     std::vector<std::string> query_fields;
     std::vector<sort_by> sort_fields;
@@ -21,7 +21,7 @@ protected:
         system(("rm -rf "+state_dir_path+" && mkdir -p "+state_dir_path).c_str());
 
         store = new Store(state_dir_path);
-        collectionManager.init(store, 1.0, "auth_key");
+        collectionManager.init(store, 1.0, "auth_key", quit);
         collectionManager.load(8, 1000);
     }
 
@@ -165,11 +165,11 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
     // without a default sorting field, matches should be sorted by (text_match, seq_id)
     auto results = coll1->search("rocket", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
 
-    ASSERT_EQ(5, results["found"]);
-    ASSERT_EQ(5, results["hits"].size());
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(24, results["out_of"]);
 
-    std::vector<std::string> ids = {"16", "15", "7", "0", "22"};
+    std::vector<std::string> ids = {"16", "15", "7", "0"};
 
     for(size_t i=0; i < results["hits"].size(); i++) {
         ASSERT_EQ(ids[i], results["hits"][i]["document"]["id"].get<std::string>());
@@ -181,7 +181,7 @@ TEST_F(CollectionSortingTest, NoDefaultSortingField) {
 
     results = coll1->search("*", {}, "", {}, {}, {1}, 30, 1, FREQUENCY, {false}).get();
 
-    ASSERT_EQ(23, results["found"]);
+    ASSERT_EQ(23, results["found"].get<size_t>());
     ASSERT_EQ(23, results["hits"].size());
     ASSERT_EQ(23, results["out_of"]);
 
@@ -202,7 +202,7 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
         coll1 = collectionManager.create_collection("coll1", 1, fields).get();
     }
 
-    // since only top 10 tokens are fetched for prefixes, the "end" should not show up in the results
+    // since only top 4 tokens are fetched for prefixes, the "enyzme" should not show up in the results
     std::vector<std::string> tokens = {
         "enter", "elephant", "enamel", "ercot", "enyzme", "energy",
         "epoch", "epyc", "express", "everest", "end"
@@ -223,13 +223,13 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
 
     auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, {true}).get();
 
-    // 11 + 10 + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2
-    ASSERT_EQ(65, results["found"]);
+    // [11 + 10 + 9 + 8] + 7 + 6 + 5 + 4 + 3 + 2
+    ASSERT_EQ(38, results["found"].get<size_t>());
 
     // we have to ensure that no result contains the word "end" since it occurs least number of times
     bool found_end = false;
     for(auto& res: results["hits"].items()) {
-        if(res.value()["document"]["title"] == "end") {
+        if(res.value()["document"]["title"] == "enyzme") {
             found_end = true;
         }
     }
@@ -438,7 +438,10 @@ TEST_F(CollectionSortingTest, ThreeSortFieldsTextMatchLast) {
     std::vector<sort_by> sort_fields = { sort_by("popularity", "DESC"), sort_by("points", "DESC"), sort_by(sort_field_const::text_match, "DESC") };
 
     auto res = coll1->search("grant",
-                                 {"title","artist"}, "", {}, sort_fields, {1}, 10, 1, FREQUENCY).get();
+                             {"title","artist"}, "", {}, sort_fields, {1}, 10, 1, FREQUENCY, {false}, 10,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                             "", 10).get();
 
     ASSERT_EQ(2, res["found"].get<size_t>());
     ASSERT_STREQ("1", res["hits"][0]["document"]["id"].get<std::string>().c_str());
@@ -460,9 +463,9 @@ TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
     }
 
     std::vector<std::vector<std::string>> records = {
-        {"Ayxha Beta"},
-        {"Alpha Beta"},
         {"Alppha Beta"},
+        {"Alpha Beta"},
+        {"Alphas Beta"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -479,7 +482,10 @@ TEST_F(CollectionSortingTest, SingleFieldTextMatchScoreDefault) {
 
     auto results = coll1->search("alpha",
                                  {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY,
-                                 {false}, 10).get();
+                                 {false}, 10,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -756,7 +762,255 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Sort field's exclude radius unit must be either `km` or `mi`.", res_op.error());
+    ASSERT_EQ("Sort field's parameter unit must be either `km` or `mi`.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: -10 km)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Tibetan Colony",     "32.24678, 77.19239"},
+        {"Civil Hospital",     "32.23959, 77.18763"},
+        {"Johnson Lodge",      "32.24751, 77.18814"},
+
+        {"Lion King Rock",     "32.24493, 77.17038"},
+        {"Jai Durga Handloom", "32.25749, 77.17583"},
+        {"Panduropa",          "32.26059, 77.21798"},
+
+        {"Police Station",     "32.23743, 77.18639"},
+        {"Panduropa Post",     "32.26263, 77.2196"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(32.24348, 77.1893, precision: 0.9 km)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*",
+                                 {}, "loc: (32.24348, 77.1893, 20 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(8, results["found"].get<size_t>());
+
+    std::vector<std::string> expected_ids = {
+        "6", "2", "1", "0", "3", "4", "7", "5"
+    };
+
+    for (size_t i = 0; i < expected_ids.size(); i++) {
+        ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
+    }
+
+    // badly formatted precision
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision 1 km)", "ASC") };
+    auto res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                                {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: 1 meter)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter unit must be either `km` or `mi`.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: -10 km)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointAsOptionalField) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Tibetan Colony",     "32.24678, 77.19239"},
+        {"Civil Hospital",     "32.23959, 77.18763"},
+        {"Johnson Lodge",      "32.24751, 77.18814"},
+
+        {"Lion King Rock",     "32.24493, 77.17038"},
+        {"Jai Durga Handloom", "32.25749, 77.17583"},
+        {"Panduropa",          "32.26059, 77.21798"},
+
+        {"Police Station",     "32.23743, 77.18639"},
+        {"Panduropa Post",     "32.26263, 77.2196"},
+    };
+
+    for (size_t i = 0; i < records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+
+        if(i != 2) {
+            doc["loc"] = {lat, lng};
+        }
+
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(32.24348, 77.1893, precision: 0.9 km)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("*",
+                                 {}, "loc: (32.24348, 77.1893, 20 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(7, results["found"].get<size_t>());
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, GeoPointArraySorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT_ARRAY, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::vector<std::string>>> records = {
+        {   {"Alpha Inc", "Ennore", "13.22112, 80.30511"},
+            {"Alpha Inc", "Velachery", "12.98973, 80.23095"}
+        },
+
+        {
+            {"Veera Inc", "Thiruvallur", "13.12752, 79.90136"},
+        },
+
+        {
+            {"B1 Inc", "Bengaluru", "12.98246, 77.5847"},
+            {"B1 Inc", "Hosur", "12.74147, 77.82915"},
+            {"B1 Inc", "Vellore", "12.91866, 79.13075"},
+        },
+
+        {
+            {"M Inc", "Nashik", "20.11282, 73.79458"},
+            {"M Inc", "Pune", "18.56309, 73.855"},
+        }
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0][0];
+        doc["points"] = i;
+
+        std::vector<std::vector<double>> lat_lngs;
+        for(size_t k = 0; k < records[i].size(); k++) {
+            std::vector<std::string> lat_lng_str;
+            StringUtils::split(records[i][k][2], lat_lng_str, ", ");
+
+            std::vector<double> lat_lng = {
+                    std::stod(lat_lng_str[0]),
+                    std::stod(lat_lng_str[1])
+            };
+
+            lat_lngs.push_back(lat_lng);
+        }
+
+        doc["loc"] = lat_lngs;
+        auto add_op = coll1->add(doc.dump());
+        ASSERT_TRUE(add_op.ok());
+    }
+
+    std::vector<sort_by> geo_sort_fields = {
+        sort_by("loc(13.12631, 80.20252)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    // pick a location close to Chennai
+    auto results = coll1->search("*",
+                                 {}, "loc: (13.12631, 80.20252, 100 km)",
+                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // pick a large radius covering all points
+
+    geo_sort_fields = {
+        sort_by("loc(13.03388, 79.25868)", "ASC"),
+        sort_by("points", "DESC"),
+    };
+
+    results = coll1->search("*",
+                            {}, "loc: (13.03388, 79.25868, 1000 km)",
+                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

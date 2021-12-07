@@ -223,54 +223,13 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
     ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:create", {"collection1"}, sparams));
     ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:delete", {"collection1", "collection2"}, sparams));
     ASSERT_FALSE(auth_manager.authenticate(wildcard_action_coll_key.value, "documents:create", {"collection1"}, sparams));
-}
 
-TEST_F(AuthManagerTest, HandleAuthentication) {
-    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
-    std::map<std::string, std::string> req_params;
+    // create action on a specific collection
+    api_key_t create_action_coll_key = api_key_t("abcd11", "create action+coll key", {"collections:create"}, {"collection1"}, FUTURE_TS);
+    auth_manager.create_key(create_action_coll_key);
 
-    std::vector<std::string> collections;
-    get_collections_for_auth(req_params, "{]", rpath_multi_search, collections);
-
-    ASSERT_EQ(1, collections.size());
-    ASSERT_STREQ("", collections[0].c_str());
-
-    nlohmann::json sample_search_body;
-    sample_search_body["searches"] = nlohmann::json::array();
-    nlohmann::json search_query;
-    search_query["q"] = "aaa";
-    search_query["collection"] = "company1";
-
-    sample_search_body["searches"].push_back(search_query);
-
-    search_query["collection"] = "company2";
-    sample_search_body["searches"].push_back(search_query);
-
-    collections.clear();
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, collections);
-
-    ASSERT_EQ(2, collections.size());
-    ASSERT_STREQ("company1", collections[0].c_str());
-    ASSERT_STREQ("company2", collections[1].c_str());
-
-    collections.clear();
-    req_params["collection"] = "foo";
-
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, collections);
-
-    ASSERT_EQ(3, collections.size());
-    ASSERT_STREQ("foo", collections[0].c_str());
-    ASSERT_STREQ("company1", collections[1].c_str());
-    ASSERT_STREQ("company2", collections[2].c_str());
-
-    collections.clear();
-    req_params.clear();
-
-    route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, get_search, false, false);
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_search, collections);
-
-    ASSERT_EQ(1, collections.size());
-    ASSERT_STREQ("", collections[0].c_str());
+    ASSERT_TRUE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection1"}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection2"}, sparams));
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
