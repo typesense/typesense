@@ -31,8 +31,8 @@ private:
     std::string locale;
     icu::BreakIterator* bi = nullptr;
     icu::UnicodeString unicode_text;
-    int32_t position = 0;
-    int32_t prev_position = -1;
+    int32_t start_pos = 0;
+    int32_t end_pos = 0;
     int32_t utf8_start_index = 0;
     char* normalized_text = nullptr;
 
@@ -65,6 +65,8 @@ public:
         delete bi;
         delete transliterator;
     }
+
+    void init(const std::string& input);
 
     bool next(std::string& token, size_t& token_index, size_t& start_index, size_t& end_index);
 

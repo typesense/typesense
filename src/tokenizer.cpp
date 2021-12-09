@@ -7,6 +7,24 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
                      const std::vector<char>& separators):
                      i(0), normalize(normalize), no_op(no_op), locale(locale) {
 
+    for(char c: symbols_to_index) {
+        index_symbols[uint8_t(c)] = 1;
+    }
+
+    for(char c: separators) {
+        separator_symbols[uint8_t(c)] = 1;
+    }
+
+    UErrorCode errcode = U_ZERO_ERROR;
+    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+
+    cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
+
+    init(input);
+}
+
+
+void Tokenizer::init(const std::string& input) {
     if(locale == "zh") {
         UErrorCode translit_status = U_ZERO_ERROR;
         transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
@@ -39,8 +57,6 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
         text = input;
     }
 
-    cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
-
     if(!locale.empty() && locale != "en") {
         UErrorCode status = U_ZERO_ERROR;
         const icu::Locale& icu_locale = icu::Locale(locale.c_str());
@@ -49,20 +65,10 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
         unicode_text = icu::UnicodeString::fromUTF8(text);
         bi->setText(unicode_text);
 
-        position = bi->first();
-        prev_position = -1;
+        start_pos = bi->first();
+        end_pos = bi->next();
+        utf8_start_index = 0;
     }
-
-    for(char c: symbols_to_index) {
-        index_symbols[uint8_t(c)] = 1;
-    }
-
-    for(char c: separators) {
-        separator_symbols[uint8_t(c)] = 1;
-    }
-
-    UErrorCode errcode = U_ZERO_ERROR;
-    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
 }
 
 bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_index, size_t& end_index) {
@@ -79,62 +85,59 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
     }
 
     if(!locale.empty() && locale != "en") {
-        while (position != icu::BreakIterator::DONE) {
-            //LOG(INFO) << "Position: " << position;
+        while (end_pos != icu::BreakIterator::DONE) {
+            //LOG(INFO) << "Position: " << start_pos;
             bool found_token = false;
 
-            if(prev_position != -1) {
-                std::string word;
-                size_t length = position - prev_position;
-                //LOG(INFO) << "token: " << token;
+            std::string word;
+            //LOG(INFO) << "token: " << token;
 
-                if(locale == "ko") {
-                    UErrorCode errcode = U_ZERO_ERROR;
-                    icu::UnicodeString src = unicode_text.tempSubString(prev_position, length);
-                    icu::UnicodeString dst;
-                    nfkd->normalize(src, dst, errcode);
+            if(locale == "ko") {
+                UErrorCode errcode = U_ZERO_ERROR;
+                icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                icu::UnicodeString dst;
+                nfkd->normalize(src, dst, errcode);
 
-                    if(!U_FAILURE(errcode)) {
-                        token = dst.toUTF8String(word);
-                    } else {
-                        LOG(ERROR) << "Unicode error during parsing: " << errcode;
-                    }
-                } else if(normalize && is_cyrillic(locale)) {
-                    auto raw_text = unicode_text.tempSubString(prev_position, length);
-                    transliterator->transliterate(raw_text);
-                    token = raw_text.toUTF8String(word);
+                if(!U_FAILURE(errcode)) {
+                    token = dst.toUTF8String(word);
                 } else {
-                    token = unicode_text.tempSubString(prev_position, length).toUTF8String(word);
+                    LOG(ERROR) << "Unicode error during parsing: " << errcode;
                 }
-
-                if(!token.empty()) {
-                    if (!std::isalnum(token[0]) && is_ascii_char(token[i])) {
-                        // ignore ascii symbols
-                        found_token = false;
-                    } else if(locale == "ko" && token == "·") {
-                        found_token = false;
-                    } else if(locale == "zh" && (token == "，" || token == "─" || token == "。")) {
-                        found_token = false;
-                    } else {
-
-                        if(std::isalnum(token[0]) && is_ascii_char(token[0])) {
-                            // normalize an ascii string
-                            std::transform(token.begin(), token.end(), token.begin(),
-                                           [](unsigned char c){ return std::tolower(c); });
-                        }
-
-                        found_token = true;
-                        token_index = token_counter++;
-                    }
-
-                    start_index = utf8_start_index;
-                    end_index = utf8_start_index + token.size() - 1;
-                    utf8_start_index = end_index + 1;
-                }
+            } else if(normalize && is_cyrillic(locale)) {
+                auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                transliterator->transliterate(raw_text);
+                token = raw_text.toUTF8String(word);
+            } else {
+                token = unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
             }
 
-            prev_position = position;
-            position = bi->next();
+            if(!token.empty()) {
+                if (!std::isalnum(token[0]) && is_ascii_char(token[i])) {
+                    // ignore ascii symbols
+                    found_token = false;
+                } else if(locale == "ko" && token == "·") {
+                    found_token = false;
+                } else if(locale == "zh" && (token == "，" || token == "─" || token == "。")) {
+                    found_token = false;
+                } else {
+
+                    if(std::isalnum(token[0]) && is_ascii_char(token[0])) {
+                        // normalize an ascii string
+                        std::transform(token.begin(), token.end(), token.begin(),
+                                       [](unsigned char c){ return std::tolower(c); });
+                    }
+
+                    found_token = true;
+                    token_index = token_counter++;
+                }
+
+                start_index = utf8_start_index;
+                end_index = utf8_start_index + token.size() - 1;
+                utf8_start_index = end_index + 1;
+            }
+
+            start_pos = end_pos;
+            end_pos = bi->next();
 
             if(found_token) {
                 return true;
@@ -252,12 +255,13 @@ void Tokenizer::tokenize(std::vector<std::string> &tokens) {
 }
 
 void Tokenizer::tokenize(std::string& token) {
-    size_t token_index;
+    size_t token_index = 0;
+    init(token);
     next(token, token_index);
 }
 
 bool Tokenizer::next(std::string &token, size_t &token_index) {
-    size_t start_index, end_index;
+    size_t start_index = 0, end_index = 0;
     return next(token, token_index, start_index, end_index);
 }
 

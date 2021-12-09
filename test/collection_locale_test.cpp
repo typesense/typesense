@@ -489,8 +489,8 @@ TEST_F(CollectionLocaleTest, SearchCyrillicText) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ("<mark>TEST</mark> ТЕСТ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
-    ASSERT_EQ("<mark>Test</mark> Тест", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>TEST</mark> <mark>ТЕСТ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Test</mark> <mark>Тест</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
     // with typo
 
@@ -500,8 +500,8 @@ TEST_F(CollectionLocaleTest, SearchCyrillicText) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ("<mark>TEST</mark> ТЕСТ", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
-    ASSERT_EQ("<mark>Test</mark> Тест", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>TEST</mark> <mark>ТЕСТ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Test</mark> <mark>Тест</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -538,8 +538,8 @@ TEST_F(CollectionLocaleTest, SearchCyrillicTextWithDropTokens) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionLocaleTest, SearchGreekText) {
-    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "el"),};
+TEST_F(CollectionLocaleTest, SearchAndFacetSearchForGreekText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "el"),};
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
 
     nlohmann::json doc;
@@ -555,6 +555,30 @@ TEST_F(CollectionLocaleTest, SearchGreekText) {
     results = coll1->search("Εμφάιση", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("<mark>Εμφάνιση</mark> κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    // facet search with prefix
+
+    results = coll1->search("*", {"title"}, "", {"title"}, {}, {1}, 10, 1, FREQUENCY, {false},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "title: Εμφάν").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("<mark>Εμφάν</mark>ιση κάθε μέρα.", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
+
+    // facet search with prefix typo
+
+    results = coll1->search("*", {"title"}, "", {"title"}, {}, {1}, 10, 1, FREQUENCY, {false},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "title: Εμφάνση").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("<mark>Εμφάνισ</mark>η κάθε μέρα.", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
