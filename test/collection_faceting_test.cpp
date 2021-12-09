@@ -716,7 +716,7 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringWithColon) {
     auto results = res_op.get();
 
     ASSERT_STREQ("foo:bar", results["facet_counts"][0]["counts"][0]["value"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>foo:ba</mark>r", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>foo:b</mark>ar", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     results = coll1->search("*", {}, "", {"title"}, sort_fields, {0}, 10, 1,
                             token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),

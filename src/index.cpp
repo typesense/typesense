@@ -2541,7 +2541,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
             //LOG(INFO) << "facet_query.query: " << facet_query.query;
 
             std::vector<std::string> query_tokens;
-            Tokenizer(facet_query.query, true, !facet_field.is_string()).tokenize(query_tokens);
+            Tokenizer(facet_query.query, true, !facet_field.is_string(),
+                      facet_field.locale, symbols_to_index, token_separators).tokenize(query_tokens);
 
             std::vector<token_t> search_tokens, qtokens;
 
