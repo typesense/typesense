@@ -47,6 +47,8 @@ Option<bool> stateful_remove_docs(deletion_state_t* deletion_state, size_t batch
 Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_size, bool& done) {
     size_t batch_count = 0;
 
+    export_state->res_body->clear();
+
     for(size_t i = 0; i < export_state->index_ids.size(); i++) {
         std::pair<size_t, uint32_t*>& size_ids = export_state->index_ids[i];
         size_t ids_len = size_ids.first;

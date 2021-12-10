@@ -474,8 +474,7 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         }
 
         if(simple_filter_query.empty()) {
-            export_state->it = collectionManager.get_store()->get_iterator();
-            export_state->it->Seek(seq_id_prefix);
+            export_state->it = collectionManager.get_store()->scan(seq_id_prefix);
         } else {
             auto filter_ids_op = collection->get_filter_ids(simple_filter_query, export_state->index_ids);
 
