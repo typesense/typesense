@@ -74,15 +74,14 @@ RUN tar -C /opt -xf /opt/elfutils-0.182.tar.bz2
 RUN cd /opt/elfutils-0.182 && ./configure --disable-libdebuginfod --disable-debuginfod --without-lzma --without-bzlib \
 && make -j8 && make install && rm -rf /usr/local/lib/*.so*
 
-ADD https://github.com/typesense/incubator-brpc/archive/7d4d601.tar.gz /opt/brpc-7d4d601.tar.gz
-RUN tar -C /opt -xf /opt/brpc-7d4d601.tar.gz
-COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-7d4d60126bcc0aefbef9fa8b3bc784bff18540be/src/CMakeLists.txt
-RUN chown root:root /opt/incubator-brpc-7d4d60126bcc0aefbef9fa8b3bc784bff18540be/src/CMakeLists.txt
-RUN mkdir -p /opt/incubator-brpc-7d4d60126bcc0aefbef9fa8b3bc784bff18540be/bld && \
-    cd /opt/incubator-brpc-7d4d60126bcc0aefbef9fa8b3bc784bff18540be/bld && \
+ADD https://github.com/apache/incubator-brpc/archive/0.9.7-rc03.tar.gz /opt/brpc-0.9.7-rc03.tar.gz
+RUN tar -C /opt -xf /opt/brpc-0.9.7-rc03.tar.gz
+COPY patches/brpc_cmakelists.txt /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
+RUN chown root:root /opt/incubator-brpc-0.9.7-rc03/src/CMakeLists.txt
+RUN mkdir -p /opt/incubator-brpc-0.9.7-rc03/bld && cd /opt/incubator-brpc-0.9.7-rc03/bld && \
     cmake -DWITH_DEBUG_SYMBOLS=OFF -DWITH_GLOG=ON .. && \
     make -j8 && make install && rm -rf /usr/local/lib/*.so* && \
-    rm -rf /opt/incubator-brpc-7d4d60126bcc0aefbef9fa8b3bc784bff18540be/bld/output/bin
+    rm -rf /opt/incubator-brpc-0.9.7-rc03/bld/output/bin
 
 ADD https://github.com/typesense/braft/archive/938eeb5.tar.gz /opt/braft-938eeb5.tar.gz
 RUN tar -C /opt -xf /opt/braft-938eeb5.tar.gz
