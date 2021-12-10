@@ -406,6 +406,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     doc["title"] = "THIRD";
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `int_values` must be an array of string.", add_op.error());
 
     // singular field coercion
     doc["single_int"] = 100;
@@ -413,40 +414,63 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
 
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `single_int` must be a string.", add_op.error());
 
-    // uncoercable field, e.g. nested dict
-    doc["dict"] = nlohmann::json::object();
-    doc["dict"]["one"] = 1;
-    doc["dict"]["two"] = 2;
+    // try with empty array
+    doc["title"] = "FIFTH";
+    doc["int_values"] = {"100"};
+    doc["int_values_2"] = nlohmann::json::array();
+    doc["single_int"] = "200";
 
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Type of field `dict` is invalid.", add_op.error());
+    ASSERT_EQ("Type of field `int_values_2` is invalid.", add_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, IntegerAllValues) {
+    Collection *coll1;
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, {}, "", 0, "int32").get();
+    }
+
+    nlohmann::json doc;
+    doc["age"] = 100;
+    doc["year"] = 2000;
+
+    Option<nlohmann::json> add_op = coll1->add(doc.dump(), CREATE, "0");
+    ASSERT_TRUE(add_op.ok());
+    auto added_doc = add_op.get();
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // try with DROP
+    doc["age"] = "SECOND";
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    // try with REJECT
+    doc["age"] = "THIRD";
+    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `age` must be an int32.", add_op.error());
 
     // try with coerce_or_reject
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Type of field `dict` is invalid.", add_op.error());
-
-    // try with drop
-    doc["title"] = "FIFTH";
-    add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::DROP);
-    ASSERT_TRUE(add_op.ok());
-
-    results = coll1->search("fifth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("FIFTH", results["hits"][0]["document"]["title"].get<std::string>());
-    ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
+    ASSERT_EQ("Field `age` must be an int32.", add_op.error());
 
     // try with coerce_or_drop
-    doc["title"] = "SIXTH";
+    doc["age"] = "FOURTH";
     add_op = coll1->add(doc.dump(), CREATE, "66", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
-
-    results = coll1->search("sixth", {"title"}, "", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("SIXTH", results["hits"][0]["document"]["title"].get<std::string>());
-    ASSERT_EQ(0, results["hits"][0]["document"].count("dict"));
 
     collectionManager.drop_collection("coll1");
 }
@@ -1056,6 +1080,54 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
 
     results = coll1->search("fizzbuzz", {"rand_str"}, "", {"org_year"}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, WildcardFieldAndDictionaryField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["kinds"]  = nlohmann::json::object();
+    doc["kinds"]["CGXX"]  = 13;
+    doc["kinds"]["ZBXX"]  = 24;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, DynamicFieldAndDictionaryField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("k.*", field_types::STRING, false, true),
+                                 field(".*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["kinds"]  = nlohmann::json::object();
+    doc["kinds"]["CGXX"]  = 13;
+    doc["kinds"]["ZBXX"]  = 24;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `kinds` must be a string.", add_op.error());
 
     collectionManager.drop_collection("coll1");
 }

@@ -309,15 +309,6 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                     return coerce_op;
                 }
             }
-
-            if(document[field_name].get<int64_t>() > INT32_MAX) {
-                if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT)) {
-                    document.erase(field_name);
-                    continue;
-                } else {
-                    return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
-                }
-            }
         } else if(a_field.type == field_types::INT64 && !document[field_name].is_number_integer()) {
             Option<uint32_t> coerce_op = coerce_int64_t(dirty_values, a_field, document, field_name, dummy_iter, false, array_ele_erased);
             if(!coerce_op.ok()) {
@@ -537,6 +528,12 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
     for(size_t i = 0; i < iter_batch.size(); i++) {
         auto& index_rec = iter_batch[i];
+
+        if(!index_rec.indexed.ok()) {
+            // some records could have been invalidated upstream
+            continue;
+        }
+
         if(index_rec.is_update) {
             index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
         } else if(index_rec.indexed.ok()) {
@@ -581,6 +578,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
     if(afield.name == "id") {
         for(const auto& record: iter_batch) {
+            if(!record.indexed.ok()) {
+                // some records could have been invalidated upstream
+                continue;
+            }
             if(!record.is_update && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
                 seq_ids.append(record.seq_id);
@@ -602,6 +603,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         int64_t max_score = INT64_MIN;
 
         for(const auto& record: iter_batch) {
+            if(!record.indexed.ok()) {
+                // some records could have been invalidated upstream
+                continue;
+            }
+
             const auto& document = record.doc;
             const auto seq_id = record.seq_id;
 
@@ -3615,6 +3621,7 @@ Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, const f
             array_iter = document[field_name].erase(array_iter);
             array_ele_erased = true;
         }
+
         return Option<uint32_t>(200);
     }
 
@@ -3647,6 +3654,14 @@ Option<uint32_t> Index::coerce_int32_t(const DIRTY_VALUES& dirty_values, const f
         } else {
             // COERCE_OR_REJECT / non-optional + DROP
             return Option<>(400, "Field `" + field_name  + "` must be " + suffix + " int32.");
+        }
+    }
+
+    if(document.contains(field_name) && document[field_name].get<int64_t>() > INT32_MAX) {
+        if(a_field.optional && (dirty_values == DIRTY_VALUES::DROP || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT)) {
+            document.erase(field_name);
+        } else {
+            return Option<>(400, "Field `" + field_name  + "` exceeds maximum value of int32.");
         }
     }
 

@@ -2320,7 +2320,6 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
                     new_field = dynamic_field;
                     new_field.name = fname;
-                    new_field.type = dynamic_field.type;
                     found_dynamic_field = true;
                     break;
                 }
@@ -2354,6 +2353,11 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                     if(kv.value().is_null() && new_field.optional) {
                         // null values are allowed only if field is optional
                         kv = document.erase(kv);
+                        continue;
+                    }
+
+                    if(kv.value().is_object()) {
+                        kv++;
                         continue;
                     }
 
