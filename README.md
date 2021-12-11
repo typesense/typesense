@@ -14,11 +14,12 @@
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
   <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
+  <a href="https://twitter.com/typesense"><img src="https://img.shields.io/badge/%40typesense-follow-blue"></a>
   <br/>
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg"><img src="https://img.shields.io/badge/slack%20community-join-d90368"></a>
   <a href="https://typesense.org/api"><img src="https://img.shields.io/badge/documentation-read-d90368"></a>
-  <a href="https://calendly.com/jason-typesense/typesense-office-hours"><img src="https://img.shields.io/badge/office%20hours-join-d90368"></a>
-  <a href="https://twitter.com/typesense"><img src="https://img.shields.io/badge/%40typesense-follow-blue"></a>
+  <a href="https://github.com/typesense/typesense/projects/2"><img src="https://img.shields.io/badge/roadmap-view-d90368"></a>  
+  <a href="https://calendly.com/jason-typesense/typesense-office-hours"><img src="https://img.shields.io/badge/office%20hours-schedule-d90368"></a>
 </p>
 <br>
 <p align="center">
@@ -33,6 +34,7 @@
 - Search 1M Git commit messages from the Linux Kernel: [linux-commits-search.typesense.org](https://linux-commits-search.typesense.org/)
 - Spellchecker with type-ahead, with 333K English words: [spellcheck.typesense.org](https://spellcheck.typesense.org/)
 - An E-Commerce Store Browsing experience: [ecommerce-store.typesense.org](https://ecommerce-store.typesense.org/)
+- GeoSearch / Browsing experience: [airbnb-geosearch.typesense.org](https://airbnb-geosearch.typesense.org/)
 
 🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
 
@@ -40,6 +42,7 @@
 
 - [Features](#features)
 - [Benchmarks](#benchmarks)
+- [Roadmap](#roadmap)
 - [Who's using this](#whos-using-this)
 - [Install](#install)
 - [Quick Start](#quick-start)
@@ -63,7 +66,7 @@
 - **Faceting & Filtering:** Drill down and refine results.
 - **Grouping & Distinct:** Group similar results together to show more variety.
 - **Federated Search:** Search across multiple collections (indices) in a single HTTP request.
-- **Geo Search:** Search and sort by results around a geographic location - [in beta](https://github.com/typesense/typesense/issues/78#issuecomment-842308057).
+- **Geo Search:** Search and sort by results around a geographic location.
 - **Scoped API Keys:** Generate API keys that only allow access to certain records, for multi-tenant applications.
 - **Synonyms:** Define words as equivalents of each other, so searching for a word will also return results for the synonyms defined.
 - **Curation & Merchandizing:** Boost particular records to a fixed position in the search results, to feature them.
@@ -71,7 +74,13 @@
 - **Seamless Version Upgrades:** As new versions of Typesense come out, upgrading is as simple as swapping out the binary and restarting Typesense.
 - **No Runtime Dependencies:** Typesense is a single binary that you can run locally or in production with a single command.
 
-**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and upvote it, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+**Don't see a feature on this list?** Search our issue tracker if someone has already requested it and add a comment to it explaining your use-case, or open a new issue if not. We prioritize our roadmap based on user feedback, so we'd love to hear from you. 
+
+## Roadmap
+
+Here's Typesense's public roadmap: https://github.com/typesense/typesense/projects/2.
+
+The first column also explains how we prioritize features, how you can influence prioritization and our release cadence. 
 
 ## Benchmarks
 
@@ -93,6 +102,8 @@ Typesense is used by a range of users across different industries. We've only re
 
 If you'd like to be included in the list, please feel free to edit [SHOWCASE.md](SHOWCASE.md) and send us a PR.
 
+You'll also see a list of user logos on the [Typesense Cloud](https://cloud.typesense.org) home page.
+
 ## Install
 
 **Option 1:** You can download the [binary packages](https://typesense.org/downloads) that we publish for 
@@ -111,7 +122,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.21.0 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.22.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -202,6 +213,7 @@ If we don't offer an API client in your language, you can still use any popular 
 Here are some community-contributed clients and integrations:
 
 - [API client for Go](https://github.com/typesense/typesense-go)
+- [API client for Dart](https://github.com/typesense/typesense-dart)
 - [API client for C#](https://github.com/DAXGRID/typesense-dotnet)
 - [Laravel Scout driver](https://github.com/devloopsnet/laravel-scout-typesense-engine)
 - [Symfony integration](https://github.com/acseo/TypesenseBundle)
@@ -213,7 +225,7 @@ We welcome community contributions to add more official client libraries and int
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.21.0/guide/#search-ui](https://typesense.org/docs/0.21.0/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/0.22.1/guide/#search-ui](https://typesense.org/docs/0.22.1/guide/#search-ui) 
 
 ## FAQ
 
@@ -256,9 +268,9 @@ With Typesense, these settings can be configured at search time via query parame
 and unlocks new use cases. Typesense is also able to give you sorted results with a single index, vs having to create multiple.
 This helps reduce memory consumption.
 
-Algolia offers the following features that Typesense does not have currently: 
-geo spatial searches, personalization & server-based search analytics.
-With Typesense, we intend to bridge this gap, but in the meantime, please let us know
+Algolia offers the following features that Typesense does not have currently: personalization & server-based search analytics. For analytics, you can still instrument your search on the client-side and send search metrics to your web analytics tool of choice. 
+
+We intend to bridge this gap in Typesense, but in the meantime, please let us know
 if any of these are a show stopper for your use case by creating a feature request in our issue tracker. 
 
 See a side-by-side feature comparison [here](https://typesense.org/typesense-vs-algolia-vs-elasticsearch-vs-meilisearch/).
