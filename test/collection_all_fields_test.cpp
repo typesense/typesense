@@ -1097,12 +1097,21 @@ TEST_F(CollectionAllFieldsTest, WildcardFieldAndDictionaryField) {
     }
 
     nlohmann::json doc;
+    doc["year"]  = 2000;
     doc["kinds"]  = nlohmann::json::object();
     doc["kinds"]["CGXX"]  = 13;
     doc["kinds"]["ZBXX"]  = 24;
 
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
+
+    auto results = coll1->search("*", {}, "year: 2000", {}, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    auto schema = coll1->get_fields();
+    ASSERT_EQ(2, schema.size());
+    ASSERT_EQ(".*", schema[0].name);
+    ASSERT_EQ("year", schema[1].name);
 
     collectionManager.drop_collection("coll1");
 }
