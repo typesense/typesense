@@ -203,6 +203,7 @@ struct field {
         std::set<std::string> field_names;
 
         for(const field & field: fields) {
+            field_names.insert(field.name);
             if(field.name == "id") {
                 continue;
             }
@@ -255,7 +256,6 @@ struct field {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be a facet since "
                                                                   "it's marked as non-indexable.");
             }
-            field_names.insert(field.name);
         }
 
         if(!default_sorting_field.empty() && !found_default_sorting_field) {
@@ -263,9 +263,11 @@ struct field {
                                             "` but is not found in the schema.");
         }
 
-        if (field_names.size() != fields.size()) {
-            return Option<bool>(400, "Duplicate field names should not be present in `fields`");
+        LOG(WARNING) << "Fields size: " << fields.size() << " Field set size: " << field_names.size();
+        if(field_names.size() != fields.size()) {
+            return Option<bool>(400, "Duplicates are not allowed in `fields`");
         }
+
 
         return Option<bool>(true);
     }

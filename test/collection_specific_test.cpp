@@ -1991,3 +1991,11 @@ TEST_F(CollectionSpecificTest, SingleHyphenInQueryNotToBeTreatedAsExclusion) {
     ASSERT_EQ(1, results["hits"].size());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, DuplicateFieldsNotAllowed) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("title", field_types::INT32, true),};
+    Option<Collection*> response = collectionManager.create_collection("collection", 1, fields);
+
+    ASSERT_FALSE(response.ok());
+}
