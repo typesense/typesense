@@ -329,6 +329,61 @@ TEST_F(CollectionSynonymsTest, OneWaySynonym) {
     ASSERT_EQ(1, res["found"].get<uint32_t>());
 }
 
+
+TEST_F(CollectionSynonymsTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAllFieldsWithSynonyms) {
+    std::vector<field> fields = {field("category", field_types::STRING_ARRAY, false),
+                                 field("location", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json syn_json = {
+        {"id", "syn-1"},
+        {"root", "us"},
+        {"synonyms", {"united states"} }
+    };
+
+    synonym_t synonym;
+    auto syn_op = synonym_t::parse(syn_json, synonym);
+    ASSERT_TRUE(syn_op.ok());
+    coll1->add_synonym(synonym);
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["category"].push_back("sneakers");
+    doc1["category"].push_back("jewellery");
+    doc1["location"] = "united states";
+    doc1["points"] = 10;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["category"].push_back("gloves");
+    doc2["category"].push_back("wallets");
+    doc2["location"] = "united states";
+    doc2["points"] = 20;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["category"].push_back("sneakers");
+    doc3["category"].push_back("jewellery");
+    doc3["location"] = "england";
+    doc3["points"] = 30;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto res = coll1->search("us sneakers", {"category", "location"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(3, res["hits"].size());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
     nlohmann::json syn_json = {
         {"id",       "syn-1"},
