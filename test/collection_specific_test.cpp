@@ -1762,6 +1762,7 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAll
 
     collectionManager.drop_collection("coll1");
 }
+
 TEST_F(CollectionSpecificTest, CustomNumTyposConfiguration) {
     // dropped tokens on a single field cannot be deemed as verbatim match
 

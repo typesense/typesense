@@ -2348,7 +2348,18 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
             // verbtaim match should not consider dropped-token cases
             if(uniq_tokens_found != field_query_tokens[0].q_include_tokens.size()) {
-                verbatim_match_fields = 0;
+                // also check for synonyms
+                bool found_verbatim_syn = false;
+                for(const auto& synonym: field_query_tokens[0].q_synonyms) {
+                    if(uniq_tokens_found == synonym.size()) {
+                        found_verbatim_syn = true;
+                        break;
+                    }
+                }
+
+                if(!found_verbatim_syn) {
+                    verbatim_match_fields = 0;
+                }
             }
 
             verbatim_match_fields = std::min<uint64_t>(255, verbatim_match_fields);
