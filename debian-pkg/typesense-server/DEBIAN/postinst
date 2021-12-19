@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Generate a random API key
-API_KEY=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 48 | head -n 1)
+API_KEY=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 48 ; echo)
 sed -i "s/\$API_KEY/$API_KEY/g" /etc/typesense/typesense-server.ini
 
 systemctl enable typesense-server
