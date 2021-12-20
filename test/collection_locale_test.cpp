@@ -533,7 +533,7 @@ TEST_F(CollectionLocaleTest, SearchCyrillicTextWithDropTokens) {
     ASSERT_EQ("<mark>HPE</mark> <mark>Aruba</mark> <mark>AP575</mark> 802.11ax Wireless Access Point - "
               "TAA Compliant - 2.40 GHz, <mark>5</mark> GHz - MIMO <mark>Technology</mark> - 1 x Network (RJ-45) - "
               "<mark>Gigabit</mark> Ethernet - <mark>Bluetooth</mark> <mark>5</mark>",
-              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+              results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
