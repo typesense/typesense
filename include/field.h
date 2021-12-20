@@ -37,6 +37,7 @@ namespace fields {
     static const std::string facet = "facet";
     static const std::string optional = "optional";
     static const std::string index = "index";
+    static const std::string sort = "sort";
     static const std::string locale = "locale";
 }
 
@@ -46,13 +47,18 @@ struct field {
     bool facet;
     bool optional;
     bool index;
-
     std::string locale;
+    bool sort;
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, std::string locale = "") :
+          bool index = true, std::string locale = "", int sort = -1) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
 
+        if(sort != -1) {
+            this->sort = bool(sort);
+        } else {
+            this->sort = is_num_sort_field();
+        }
     }
 
     bool is_auto() const {
@@ -132,8 +138,24 @@ struct field {
                 type == field_types::FLOAT || type == field_types::BOOL);
     }
 
+    bool is_num_sort_field() const {
+        return (has_numerical_index() || is_geopoint());
+    }
+
+    bool is_sort_field() const {
+        return is_num_sort_field() || (type == field_types::STRING);
+    }
+
+    bool is_num_sortable() const {
+        return sort && is_num_sort_field();
+    }
+
+    bool is_str_sortable() const {
+        return sort && type == field_types::STRING;
+    }
+
     bool is_sortable() const {
-        return is_single_integer() || is_single_float() || is_single_bool() || is_geopoint();
+        return is_num_sortable() || is_str_sortable();
     }
 
     bool has_valid_type() const {
@@ -209,6 +231,7 @@ struct field {
             field_val[fields::type] = field.type;
             field_val[fields::facet] = field.facet;
             field_val[fields::optional] = field.optional;
+            field_val[fields::sort] = field.sort;
 
             field_val[fields::locale] = field.locale;
 
@@ -251,6 +274,10 @@ struct field {
             if(!field.index && field.facet) {
                 return Option<bool>(400, "Field `" + field.name + "` cannot be a facet since "
                                                                   "it's marked as non-indexable.");
+            }
+
+            if(!field.is_sort_field() && field.sort) {
+                return Option<bool>(400, "Field `" + field.name + "` cannot be a sortabale field.");
             }
         }
 
@@ -299,6 +326,11 @@ struct field {
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
             }
 
+            if(field_json.count(fields::sort) != 0 && !field_json.at(fields::sort).is_boolean()) {
+                return Option<bool>(400, std::string("The `sort` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
             if(field_json.count(fields::locale) != 0){
                 if(!field_json.at(fields::locale).is_string()) {
                     return Option<bool>(400, std::string("The `locale` property of the field `") +
@@ -329,6 +361,10 @@ struct field {
                     field_json[fields::locale] = "";
                 }
 
+                if(field_json.count(fields::sort) == 0) {
+                    field_json[fields::sort] = false;
+                }
+
                 if(field_json[fields::optional] == false) {
                     return Option<bool>(400, "Field `.*` must be an optional field.");
                 }
@@ -342,7 +378,8 @@ struct field {
                 }
 
                 field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
-                                     field_json["optional"], field_json[fields::index], field_json[fields::locale]);
+                                     field_json["optional"], field_json[fields::index], field_json[fields::locale],
+                                     field_json[fields::sort]);
 
                 if(fallback_field.has_valid_type()) {
                     fallback_field_type = fallback_field.type;
@@ -367,6 +404,15 @@ struct field {
                 field_json[fields::locale] = "";
             }
 
+            if(field_json.count(fields::sort) == 0) {
+                if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
+                   field_json["type"] == field_types::BOOL || field_json["type"] == field_types::GEOPOINT) {
+                    field_json[fields::sort] = true;
+                } else {
+                    field_json[fields::sort] = false;
+                }
+            }
+
             if(field_json.count(fields::optional) == 0) {
                 // dynamic fields are always optional
                 bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
@@ -375,7 +421,8 @@ struct field {
 
             fields.emplace_back(
                 field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
-                      field_json[fields::optional], field_json[fields::index], field_json[fields::locale])
+                      field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
+                      field_json[fields::sort])
             );
         }
 

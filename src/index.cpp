@@ -36,6 +36,7 @@
 spp::sparse_hash_map<uint32_t, int64_t> Index::text_match_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::seq_id_sentinel_value;
 spp::sparse_hash_map<uint32_t, int64_t> Index::geo_sentinel_value;
+spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store, ThreadPool* thread_pool,
              const std::unordered_map<std::string, field> & search_schema,
@@ -74,7 +75,10 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
     }
 
     for(const auto & pair: sort_schema) {
-        if(pair.second.type != field_types::GEOPOINT_ARRAY) {
+        if(pair.second.type == field_types::STRING) {
+            adi_tree_t* tree = new adi_tree_t();
+            str_sort_index.emplace(pair.first, tree);
+        } else if(pair.second.type != field_types::GEOPOINT_ARRAY) {
             spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
             sort_index.emplace(pair.first, doc_to_score);
         }
@@ -134,6 +138,13 @@ Index::~Index() {
     }
 
     sort_index.clear();
+
+    for(auto& name_tree: str_sort_index) {
+        delete name_tree.second;
+        name_tree.second = nullptr;
+    }
+
+    str_sort_index.clear();
 
     for(auto& field_name_facet_map_array: facet_index_v3) {
         for(auto& facet_map: field_name_facet_map_array.second) {
@@ -774,10 +785,8 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             });
         }
 
-        // add numerical values automatically into sort index
-        if(afield.type == field_types::INT32 || afield.type == field_types::INT64 ||
-           afield.type == field_types::FLOAT || afield.type == field_types::BOOL ||
-           afield.type == field_types::GEOPOINT) {
+        // add numerical values automatically into sort index if sorting is enabled
+        if(afield.is_num_sortable() && afield.type != field_types::GEOPOINT_ARRAY) {
             spp::sparse_hash_map<uint32_t, int64_t> *doc_to_score = sort_index.at(afield.name);
 
             bool is_integer = afield.is_integer();
@@ -810,6 +819,25 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     doc_to_score->emplace(seq_id, lat_lng);
                 }
             }
+        }
+    } else if(afield.is_str_sortable()) {
+        adi_tree_t* str_tree = str_sort_index.at(afield.name);
+
+        for(const auto& record: iter_batch) {
+            if(!record.indexed.ok()) {
+                continue;
+            }
+
+            const auto& document = record.doc;
+            const auto seq_id = record.seq_id;
+
+            if (document.count(afield.name) == 0 || !afield.index) {
+                continue;
+            }
+
+            std::string raw_str = document[afield.name].get<std::string>();
+            StringUtils::tolowercase(raw_str);
+            str_tree->index(seq_id, raw_str);
         }
     }
 }
@@ -873,32 +901,6 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
     if(is_facet) {
         uint64_t hash = Index::facet_token_hash(a_field, text);
         facet_hashes.push_back(hash);
-    }
-}
-
-void Index::index_strings_field(const int64_t score, art_tree *t,
-                               uint32_t seq_id, bool is_facet, const field & a_field,
-                               const std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                               const std::vector<uint64_t>& facet_hashes) {
-
-    // requires unique lock from caller
-
-    if(token_to_offsets.empty()) {
-        return;
-    }
-
-    insert_doc(score, t, seq_id, token_to_offsets);
-
-    if(is_facet) {
-        facet_hash_values_t fhashvalues;
-        fhashvalues.length = facet_hashes.size();
-        fhashvalues.hashes = new uint64_t[facet_hashes.size()];
-
-        for(size_t i  = 0; i < facet_hashes.size(); i++) {
-            fhashvalues.hashes[i] = facet_hashes[i];
-        }
-
-        facet_index_v3[a_field.name][seq_id % ARRAY_FACET_DIM]->emplace(seq_id, std::move(fhashvalues));
     }
 }
 
@@ -2810,6 +2812,8 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             if (sort_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);
                 field_values[i] = nullptr; // GEOPOINT_ARRAY uses a multi-valued index
+            } else if(sort_schema.at(sort_fields_std[i].name).type == field_types::STRING) {
+                field_values[i] = &str_sentinel_value;
             } else {
                 field_values[i] = sort_index.at(sort_fields_std[i].name);
 
@@ -3212,6 +3216,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             scores[0] = seq_id;
         } else if(field_values[0] == &geo_sentinel_value) {
             scores[0] = geopoint_distances[0];
+        } else if(field_values[0] == &str_sentinel_value) {
+            scores[0] = str_sort_index.at(sort_fields[0].name)->rank(seq_id);
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -3230,6 +3236,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             scores[1] = seq_id;
         } else if(field_values[1] == &geo_sentinel_value) {
             scores[1] = geopoint_distances[1];
+        } else if(field_values[0] == &str_sentinel_value) {
+            scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -3248,6 +3256,8 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             scores[2] = seq_id;
         } else if(field_values[2] == &geo_sentinel_value) {
             scores[2] = geopoint_distances[2];
+        } else if(field_values[0] == &str_sentinel_value) {
+            scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
@@ -3464,6 +3474,10 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
         if(sort_index.count(field_name) != 0) {
             sort_index[field_name]->erase(seq_id);
         }
+
+        if(str_sort_index.count(field_name) != 0) {
+            str_sort_index[field_name]->remove(seq_id);
+        }
     }
 
     if(!is_update) {
@@ -3507,7 +3521,17 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
 
     for(const auto & new_field: new_fields) {
         search_schema.emplace(new_field.name, new_field);
-        sort_schema.emplace(new_field.name, new_field);
+
+        if(new_field.is_sortable()) {
+            sort_schema.emplace(new_field.name, new_field);
+
+            if(new_field.is_num_sortable()) {
+                spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+                sort_index.emplace(new_field.name, doc_to_score);
+            } else if(new_field.is_str_sortable()) {
+                str_sort_index.emplace(new_field.name, new adi_tree_t);
+            }
+        }
 
         if(search_index.count(new_field.name) == 0) {
             if(new_field.is_string() || field_types::is_string_or_array(new_field.type)) {
@@ -3543,11 +3567,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
                 art_tree_init(ft);
                 search_index.emplace(new_field.faceted_name(), ft);
             }
-        }
-
-        if(sort_index.count(new_field.name) == 0) {
-            spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
-            sort_index.emplace(new_field.name, doc_to_score);
         }
     }
 }
