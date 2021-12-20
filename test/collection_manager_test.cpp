@@ -25,9 +25,9 @@ protected:
         collectionManager.load(8, 1000);
 
         search_fields = {
-            field("title", field_types::STRING, false, false, true, "en"),
-            field("starring", field_types::STRING, false),
-            field("cast", field_types::STRING_ARRAY, true, true),
+            field("title", field_types::STRING, false, false, true, "en", false),
+            field("starring", field_types::STRING, false, false, true, "", false),
+            field("cast", field_types::STRING_ARRAY, true, true, true, "", false),
             field(".*_year", field_types::INT32, true, true),
             field("location", field_types::GEOPOINT, false, true, true),
             field("points", field_types::INT32, false)
@@ -90,12 +90,12 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"type\":\"int32\"}],\"id\":0,"
+              "\"fields\":[{\"facet\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);

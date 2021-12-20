@@ -21,6 +21,7 @@
 #include "match_score.h"
 #include "posting_list.h"
 #include "threadpool.h"
+#include "adi_tree.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -418,6 +419,9 @@ private:
     // sort_field => (seq_id => value)
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t>*> sort_index;
 
+    // str_sort_field => adi_tree_t
+    spp::sparse_hash_map<std::string, adi_tree_t*> str_sort_index;
+
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
@@ -435,6 +439,7 @@ private:
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> seq_id_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
 
     // Internal utility functions
 
@@ -529,11 +534,6 @@ private:
                                             const std::vector<char>& token_separators,
                                             std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
                                             std::vector<uint64_t>& facet_hashes);
-
-    void index_strings_field(const int64_t score, art_tree *t,
-                            uint32_t seq_id, bool is_facet, const field & a_field,
-                            const std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
-                            const std::vector<uint64_t>& facet_hashes);
 
     static void tokenize_string_array_with_facets(const std::vector<std::string>& strings, bool is_facet,
                                            const field& a_field,

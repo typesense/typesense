@@ -37,8 +37,18 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::locale] = "";
         }
 
-        fields.push_back({field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
-                          field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale]});
+        field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
+                field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
+                true);
+
+        // value of `sort` depends on field type
+        if(field_obj.count(fields::sort) == 0) {
+            f.sort = f.is_num_sort_field();
+        } else {
+            f.sort = field_obj[fields::sort];
+        }
+
+        fields.push_back(f);
     }
 
     std::string default_sorting_field = collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY].get<std::string>();
