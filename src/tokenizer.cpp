@@ -112,13 +112,16 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
             }
 
             if(!token.empty()) {
-                if (!std::isalnum(token[0]) && is_ascii_char(token[i])) {
+                if (!std::isalnum(token[0]) && is_ascii_char(token[0])) {
                     // ignore ascii symbols
                     found_token = false;
+                    token_counter++;
                 } else if(locale == "ko" && token == "·") {
                     found_token = false;
+                    token_counter++;
                 } else if(locale == "zh" && (token == "，" || token == "─" || token == "。")) {
                     found_token = false;
+                    token_counter++;
                 } else {
 
                     if(std::isalnum(token[0]) && is_ascii_char(token[0])) {
