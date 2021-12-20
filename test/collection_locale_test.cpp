@@ -582,3 +582,23 @@ TEST_F(CollectionLocaleTest, SearchAndFacetSearchForGreekText) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "ru"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "«Сирый», «несчастный», «никчёмный» — принятое "
+                   "особ, сейчас, впрочем, оттенок скромности. Посыл, "
+                   "среди которых отсутствие мобильного страшное.";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("отсутствие", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
