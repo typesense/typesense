@@ -221,7 +221,11 @@ struct field {
                                               nlohmann::json& fields_json) {
         bool found_default_sorting_field = false;
 
+        // Check for duplicates in field names
+        std::set<std::string> field_names;
+
         for(const field & field: fields) {
+            field_names.insert(field.name);
             if(field.name == "id") {
                 continue;
             }
@@ -285,6 +289,11 @@ struct field {
             return Option<bool>(400, "Default sorting field is defined as `" + default_sorting_field +
                                             "` but is not found in the schema.");
         }
+
+        if(field_names.size() != fields.size()) {
+            return Option<bool>(400, "There are duplicate field names in the schema.");
+        }
+
 
         return Option<bool>(true);
     }
