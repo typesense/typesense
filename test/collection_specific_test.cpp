@@ -1997,5 +1997,7 @@ TEST_F(CollectionSpecificTest, DuplicateFieldsNotAllowed) {
                                  field("title", field_types::INT32, true),};
     Option<Collection*> response = collectionManager.create_collection("collection", 1, fields);
 
+    ASSERT_EQ(response.error(), "There are duplicate field names in the schema.");
+    ASSERT_EQ(response.code(), 400);
     ASSERT_FALSE(response.ok());
 }
