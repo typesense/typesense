@@ -222,10 +222,11 @@ struct field {
         bool found_default_sorting_field = false;
 
         // Check for duplicates in field names
-        std::set<std::string> field_names;
+        std::map<std::string, std::vector<const field*>> unique_fields;
 
         for(const field & field: fields) {
-            field_names.insert(field.name);
+            unique_fields[field.name].push_back(&field);
+
             if(field.name == "id") {
                 continue;
             }
@@ -290,10 +291,32 @@ struct field {
                                             "` but is not found in the schema.");
         }
 
-        if(field_names.size() != fields.size()) {
-            return Option<bool>(400, "There are duplicate field names in the schema.");
-        }
+        // check for duplicate field names in schema
+        for(auto& fname_fields: unique_fields) {
+            if(fname_fields.second.size() > 1) {
+                // if there are more than 1 field with the same field name, then
+                // a) only 1 field can be of static type
+                // b) only 1 field can be of dynamic type
+                size_t num_static = 0;
+                size_t num_dynamic = 0;
 
+                for(const field* f: fname_fields.second) {
+                    if(f->name == ".*" || f->is_dynamic()) {
+                        num_dynamic++;
+                    } else {
+                        num_static++;
+                    }
+                }
+
+                if(num_static != 0 && num_static > 1) {
+                    return Option<bool>(400, "There are duplicate field names in the schema.");
+                }
+
+                if(num_dynamic != 0 && num_dynamic > 1) {
+                    return Option<bool>(400, "There are duplicate field names in the schema.");
+                }
+            }
+        }
 
         return Option<bool>(true);
     }

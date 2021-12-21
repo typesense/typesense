@@ -1996,9 +1996,27 @@ TEST_F(CollectionSpecificTest, SingleHyphenInQueryNotToBeTreatedAsExclusion) {
 TEST_F(CollectionSpecificTest, DuplicateFieldsNotAllowed) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("title", field_types::INT32, true),};
-    Option<Collection*> response = collectionManager.create_collection("collection", 1, fields);
+    Option<Collection*> create_op = collectionManager.create_collection("collection", 1, fields);
 
-    ASSERT_EQ(response.error(), "There are duplicate field names in the schema.");
-    ASSERT_EQ(response.code(), 400);
-    ASSERT_FALSE(response.ok());
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ(create_op.error(), "There are duplicate field names in the schema.");
+    ASSERT_EQ(create_op.code(), 400);
+
+    // with dynamic field
+    fields = {field("title_.*", field_types::STRING, false, true),
+              field("title_.*", field_types::INT32, true, true),};
+
+    create_op = collectionManager.create_collection("collection", 1, fields);
+
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ(create_op.error(), "There are duplicate field names in the schema.");
+    ASSERT_EQ(create_op.code(), 400);
+
+    // but allow string* with resolved field
+    fields = {field("title", "string*", false, true),
+              field("title", field_types::STRING, true),};
+
+    create_op = collectionManager.create_collection("collection", 1, fields);
+
+    ASSERT_TRUE(create_op.ok());
 }
