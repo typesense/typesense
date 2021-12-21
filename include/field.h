@@ -263,9 +263,8 @@ struct field {
                                             "` but is not found in the schema.");
         }
 
-        LOG(WARNING) << "Fields size: " << fields.size() << " Field set size: " << field_names.size();
         if(field_names.size() != fields.size()) {
-            return Option<bool>(400, "Duplicates are not allowed in `fields`");
+            return Option<bool>(400, "There are duplicate field names in the schema.");
         }
 
 
