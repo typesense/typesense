@@ -2414,6 +2414,11 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                         continue;
                     }
 
+                    if(kv.value().is_array() && kv.value().empty()) {
+                        kv++;
+                        continue;
+                    }
+
                     if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
                         return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
                     } else {
