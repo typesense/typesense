@@ -423,8 +423,7 @@ TEST_F(CollectionAllFieldsTest, StringifyAllValues) {
     doc["single_int"] = "200";
 
     add_op = coll1->add(doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
-    ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Type of field `int_values_2` is invalid.", add_op.error());
+    ASSERT_TRUE(add_op.ok());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1433,6 +1432,30 @@ TEST_F(CollectionAllFieldsTest, NullValueArrayUpdate) {
     ASSERT_EQ("Field `countries` must be an array of string.", add_op.error());
 
     ASSERT_EQ(1, coll1->get_num_documents());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionAllFieldsTest, EmptyArrayShouldBeAcceptedAsFirstValueOfAutoField) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "",
+                                                      0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["company_name"]  = "Amazon Inc.";
+    doc["tags"]  = nlohmann::json::array();
+    doc["country"]  = "USA";
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
 
     collectionManager.drop_collection("coll1");
 }
