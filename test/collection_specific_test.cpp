@@ -1984,3 +1984,26 @@ TEST_F(CollectionSpecificTest, SingleHyphenInQueryNotToBeTreatedAsExclusion) {
     ASSERT_EQ(1, results["hits"].size());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, EmptyArrayShouldBeAcceptedAsFirstValue) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, false, true)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "");
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    nlohmann::json doc;
+    doc["company_name"]  = "Amazon Inc.";
+    doc["tags"]  = nlohmann::json::array();
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
+
