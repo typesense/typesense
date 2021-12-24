@@ -558,7 +558,15 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         index->thread_pool->enqueue([&]() {
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : search_schema.at(field_name);
-            index->index_field_in_memory(f, iter_batch);
+            try {
+                index->index_field_in_memory(f, iter_batch);
+            } catch(std::exception& e) {
+                LOG(ERROR) << "Unhandled Typesense error: " << e.what();
+                for(auto& record: iter_batch) {
+                    record.index_failure(500, "Unhandled Typesense error in index batch, check logs for details.");
+                }
+            }
+
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
             cv_process.notify_one();

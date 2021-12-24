@@ -2391,19 +2391,24 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
                 new_field.type = test_field_type;
             }
 
-            search_schema.emplace(new_field.name, new_field);
-            fields.emplace_back(new_field);
             new_fields.emplace_back(new_field);
-            if (new_field.is_sortable()) {
-                sort_schema.emplace(new_field.name, new_field);
-            }
-
-            if(new_field.is_facet()) {
-                facet_schema.emplace(new_field.name, new_field);
-            }
         }
 
         kv++;
+    }
+
+    for(auto& new_field: new_fields) {
+        if (new_field.is_sortable()) {
+            // only numerical fields are added to sort index in dynamic type detection
+            sort_schema.emplace(new_field.name, new_field);
+        }
+
+        search_schema.emplace(new_field.name, new_field);
+        if(new_field.is_facet()) {
+            facet_schema.emplace(new_field.name, new_field);
+        }
+
+        fields.emplace_back(new_field);
     }
 
     if(!new_fields.empty()) {
