@@ -600,5 +600,21 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
     ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
+    results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
+                            spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                            10, "title: отсутствие").get();
+
+    ASSERT_STREQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
+                 "Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
+                 results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
+    results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
+                            spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                            10, "title: отсутст").get();
+
+    ASSERT_STREQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
+                 "Посыл, среди которых <mark>отсутст</mark>вие мобильного страшное.",
+                 results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+
     collectionManager.drop_collection("coll1");
 }
