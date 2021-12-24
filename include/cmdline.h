@@ -654,8 +654,9 @@ namespace cmdline{
                 return true;
             }
 
-            bool set(const std::string &){
-                return false;
+            bool set(const std::string &v){
+                has = (v == "true");
+                return true;
             }
 
             bool has_set() const {
