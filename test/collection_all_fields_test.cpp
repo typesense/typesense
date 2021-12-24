@@ -1459,3 +1459,47 @@ TEST_F(CollectionAllFieldsTest, EmptyArrayShouldBeAcceptedAsFirstValueOfAutoFiel
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionAllFieldsTest, SchemaUpdateShouldBeAtomicForAllFields) {
+    // when a given field in a document is "bad", other fields should not be partially added to schema
+    Collection *coll1;
+
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "",
+                                                      0, field_types::AUTO);
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    // insert a document with bad data for that key, but surrounded by "good" keys
+    // this should NOT end up creating schema changes
+    nlohmann::json doc;
+    doc["int_1"]  = 100;
+    doc["int_2"]  = nlohmann::json::array();
+    doc["int_2"].push_back(nlohmann::json::object());
+    doc["int_3"]  = 300;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_sort_fields().size());
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().size());
+    ASSERT_EQ(0, coll1->_get_index()->_get_numerical_index().size());
+
+    // now insert document with just "int_1" key
+    nlohmann::json doc2;
+    doc2["int_1"]  = 200;
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_sort_fields().size());
+    ASSERT_EQ(0, coll1->_get_index()->_get_search_index().size());
+    ASSERT_EQ(1, coll1->_get_index()->_get_numerical_index().size());
+
+    collectionManager.drop_collection("coll1");
+}
