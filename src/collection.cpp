@@ -99,7 +99,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
         if(operation == UPDATE) {
             return Option<doc_seq_id_t>(400, "For update, the `id` key must be provided.");
         }
-        // for UPSERT or CREATE, if a document does not have an ID, we will treat it as a new doc
+        // for UPSERT, EMPLACE or CREATE, if a document does not have an ID, we will treat it as a new doc
         uint32_t seq_id = get_next_seq_id();
         document["id"] = std::to_string(seq_id);
         return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
@@ -123,7 +123,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
                 return Option<doc_seq_id_t>(409, std::string("A document with id ") + doc_id + " already exists.");
             }
 
-            // UPSERT or UPDATE
+            // UPSERT, EMPLACE or UPDATE
             uint32_t seq_id = (uint32_t) std::stoul(seq_id_str);
             return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, false});
 
@@ -132,7 +132,7 @@ Option<doc_seq_id_t> Collection::to_doc(const std::string & json_str, nlohmann::
                 // for UPDATE, a document with given ID must be found
                 return Option<doc_seq_id_t>(404, "Could not find a document with id: " + doc_id);
             } else {
-                // for UPSERT or CREATE, if a document with given ID is not found, we will treat it as a new doc
+                // for UPSERT, EMPLACE or CREATE, if a document with given ID is not found, we will treat it as a new doc
                 uint32_t seq_id = get_next_seq_id();
                 return Option<doc_seq_id_t>(doc_seq_id_t{seq_id, true});
             }

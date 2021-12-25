@@ -1246,6 +1246,109 @@ TEST_F(CollectionTest, ImportDocumentsUpsert) {
     ASSERT_EQ(409, import_results[1]["code"].get<size_t>());
 }
 
+TEST_F(CollectionTest, ImportDocumentsEmplace) {
+    Collection* coll1;
+    std::vector<field> fields = {
+            field("title", field_types::STRING, false, false),
+            field("points", field_types::INT32, false, true)
+    };
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 4, fields).get();
+    }
+
+    nlohmann::json document;
+    std::vector<std::string> records = {R"({"id": "0", "title": "The Matrix", "points":0})",
+                                        R"({"id": "1", "title": "Inception", "points":1})"};
+
+    // use `emplace` mode for creating documents
+    auto import_response = coll1->add_many(records, document, EMPLACE);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    std::vector<nlohmann::json> import_results = import_res_to_json(records);
+    ASSERT_EQ(2, import_results.size());
+
+    for (size_t i = 0; i < 2; i++) {
+        ASSERT_TRUE(import_results[i]["success"].get<bool>());
+        ASSERT_EQ(1, import_results[i].size());
+    }
+
+    auto res = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, token_ordering::FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    // emplace both update + create
+    records = {R"({"id": "1", "title": "The Inception"})",
+               R"({"id": "2", "title": "Spiderman", "points":2})"};
+
+    import_response = coll1->add_many(records, document, EMPLACE);
+
+    ASSERT_TRUE(import_response["success"].get<bool>());
+    ASSERT_EQ(2, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(records);
+    ASSERT_EQ(2, import_results.size());
+
+    for (size_t i = 0; i < 2; i++) {
+        ASSERT_TRUE(import_results[i]["success"].get<bool>());
+        ASSERT_EQ(1, import_results[i].size());
+    }
+
+    res = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, token_ordering::FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(3, res["found"].get<size_t>());
+
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, res["hits"][0]["document"]["points"].get<size_t>());
+
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, res["hits"][1]["document"]["points"].get<size_t>());
+    ASSERT_EQ("The Inception", res["hits"][1]["document"]["title"].get<std::string>());
+
+    ASSERT_EQ("0", res["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, res["hits"][2]["document"]["points"].get<size_t>());
+
+    // emplace with an error due to bad data
+    records = {R"({"id": "2", "points": "abcd"})",
+               R"({"id": "3", "title": "Superman", "points":3})"};
+
+    import_response = coll1->add_many(records, document, EMPLACE);
+
+    ASSERT_FALSE(import_response["success"].get<bool>());
+    ASSERT_EQ(1, import_response["num_imported"].get<int>());
+
+    import_results = import_res_to_json(records);
+
+    ASSERT_EQ(2, import_results.size());
+
+    ASSERT_FALSE(import_results[0]["success"].get<bool>());
+
+    ASSERT_TRUE(import_results[1]["success"].get<bool>());
+    ASSERT_EQ(1, import_results[1].size());
+    ASSERT_EQ(1, import_results[1].size());
+
+    // can update individual document via "emplace"
+    std::string doc_3_update = R"({"id": "3", "title": "The Superman"})";
+    auto add_op = coll1->add(doc_3_update, EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("superman", {"title"}, "", {}, {}, {0}, 10, 1, token_ordering::FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, res["found"].get<size_t>());
+
+    ASSERT_EQ("3", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(3, res["hits"][0]["document"]["points"].get<size_t>());
+    ASSERT_EQ("The Superman", res["hits"][0]["document"]["title"].get<std::string>());
+
+    // can create individual document via "emplace"
+    std::string doc_4_create = R"({"id": "4", "title": "The Avengers", "points": 4})";
+    add_op = coll1->add(doc_4_create, EMPLACE);
+    ASSERT_TRUE(add_op.ok());
+
+    res = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, token_ordering::FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(5, res["found"].get<size_t>());
+}
+
 TEST_F(CollectionTest, DISABLED_CrashTroubleshooting) {
     Collection *coll1;
     std::vector<field> fields = {
