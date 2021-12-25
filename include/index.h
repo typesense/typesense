@@ -332,6 +332,7 @@ enum index_operation_t {
     CREATE,
     UPSERT,
     UPDATE,
+    EMPLACE,
     DELETE
 };
 

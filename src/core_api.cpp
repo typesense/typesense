@@ -97,6 +97,8 @@ index_operation_t get_index_operation(const std::string& action) {
         return UPDATE;
     } else if(action == "upsert") {
         return UPSERT;
+    } else if(action == "emplace") {
+        return EMPLACE;
     }
 
     return CREATE;
@@ -586,7 +588,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert") {
+    if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert" &&
+       req->params[ACTION] != "emplace") {
         res->final = true;
         res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         stream_response(req, res);
@@ -703,7 +706,8 @@ bool post_add_document(const std::shared_ptr<http_req>& req, const std::shared_p
         req->params[ACTION] = "create";
     }
 
-    if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert") {
+    if(req->params[ACTION] != "create" && req->params[ACTION] != "update" && req->params[ACTION] != "upsert" &&
+       req->params[ACTION] != "emplace") {
         res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
         return false;
     }
