@@ -493,6 +493,26 @@ void posting_t::get_matching_array_indices(const std::vector<void*>& raw_posting
     }
 }
 
+void posting_t::get_phrase_matches(const std::vector<void*>& raw_posting_lists, bool field_is_array,
+                                   const uint32_t* ids, uint32_t num_ids, uint32_t*& phrase_ids, size_t& num_phrase_ids) {
+
+    std::vector<posting_list_t*> plists;
+    std::vector<posting_list_t*> expanded_plists;
+    to_expanded_plists(raw_posting_lists, plists, expanded_plists);
+
+    std::vector<posting_list_t::iterator_t> its;
+
+    for(posting_list_t* pl: plists) {
+        its.push_back(pl->new_iterator());
+    }
+
+    posting_list_t::get_phrase_matches(its, field_is_array, ids, num_ids, phrase_ids, num_phrase_ids);
+
+    for(posting_list_t* expanded_plist: expanded_plists) {
+        delete expanded_plist;
+    }
+}
+
 void posting_t::block_intersector_t::split_lists(size_t concurrency,
                                                  std::vector<std::vector<posting_list_t::iterator_t>>& partial_its_vec) {
     const size_t num_blocks = this->plists[0]->num_blocks();

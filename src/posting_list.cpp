@@ -1148,6 +1148,42 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
     num_exact_ids = exact_id_index;
 }
 
+void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field_is_array, const uint32_t* ids,
+                                        const uint32_t num_ids, uint32_t*& phrase_ids, size_t& num_phrase_ids) {
+
+    size_t phrase_id_index = 0;
+
+    if(its.size() == 1) {
+        for(size_t i = 0; i < num_ids; i++) {
+            phrase_ids[phrase_id_index] = ids[i];
+            phrase_id_index++;
+        }
+    } else {
+        for(size_t i = 0; i < num_ids; i++) {
+            uint32_t id = ids[i];
+
+            for (int j = its.size() - 1; j >= 0; j--) {
+                posting_list_t::iterator_t& it = its[j];
+                it.skip_to(id);
+            }
+
+            std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
+            get_offsets(its, array_token_positions);
+
+            for(auto& kv: array_token_positions) {
+                auto dist = Match(id, kv.second, false, false).distance;
+                if(dist == its.size() - 1) {
+                    phrase_ids[phrase_id_index] = ids[i];
+                    phrase_id_index++;
+                    break;
+                }
+            }
+        }
+    }
+
+    num_phrase_ids = phrase_id_index;
+}
+
 void posting_list_t::get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                                 std::vector<size_t>& indices) {
     std::map<size_t, std::bitset<32>> array_index_to_token_index;

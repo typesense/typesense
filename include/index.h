@@ -52,7 +52,8 @@ struct search_field_t {
 
 struct query_tokens_t {
     std::vector<std::string> q_include_tokens;
-    std::vector<std::string> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_phrases;
     std::vector<std::vector<std::string>> q_synonyms;
 };
 

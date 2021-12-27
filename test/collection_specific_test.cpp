@@ -2042,3 +2042,102 @@ TEST_F(CollectionSpecificTest, EmptyArrayShouldBeAcceptedAsFirstValue) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, PhraseSearch) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false, true),
+                                 field("points", field_types::INT32, false, true)};
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        auto op = collectionManager.create_collection("coll1", 1, fields, "");
+        ASSERT_TRUE(op.ok());
+        coll1 = op.get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Then and there by the down"},
+        {"Down There by the Train"},
+        {"The State Trooper"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // without phrase search
+
+    auto results = coll1->search(R"(down there by)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // with phrase search
+    results = coll1->search(R"("down there by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // phrase search with exclusion
+    results = coll1->search(R"("by the" -train)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // exclusion of an entire phrase
+    results = coll1->search(R"(-"by the down")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search(R"(-"by the")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // phrase search with token with no matching doc
+    results = coll1->search(R"("by the dinosaur")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // phrase search with no matching document
+    results = coll1->search(R"("by the state")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // phrase search with filter condition
+    results = coll1->search(R"("there by the")", {"title"}, "points:>=1", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // exclude phrase with tokens that don't have any document matched
+    results = coll1->search(R"(-"by the dinosaur")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(3, results["hits"].size());
+
+    // phrase with normal non-matching token
+    results = coll1->search(R"("by the" state)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // phrase with normal matching token
+    results = coll1->search(R"("by the" and)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // two phrases
+    results = coll1->search(R"("by the" "then and")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search(R"("by the" "there by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(2, results["hits"].size());
+
+    // two phrases with filter
+    results = coll1->search(R"("by the" "there by")", {"title"}, "points:>=1", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // single token phrase
+    results = coll1->search(R"("trooper")", {"title"}, "points:>=1", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}

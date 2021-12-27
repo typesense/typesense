@@ -2060,36 +2060,101 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     uint32_t* all_result_ids = nullptr;
 
     const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
-    uint32_t *exclude_token_ids = nullptr;
+    uint32_t* exclude_token_ids = nullptr;
     size_t exclude_token_ids_size = 0;
 
-    // find documents that contain the excluded tokens to exclude them from results later
+    uint32_t* phrase_match_ids = nullptr;
+    size_t phrase_match_ids_size = 0;
+
+    // handle exclude tokens and phrase search if needed
     for(size_t i = 0; i < num_search_fields; i++) {
         const std::string & field_name = search_fields[i].name;
+        bool is_array = search_schema.at(field_name).is_array();
 
-        std::vector<void*> posting_lists;
+        // do AND of `q_phrases` to add to filters
+        for(const auto& phrase: field_query_tokens[i].q_phrases) {
+            std::vector<void*> posting_lists;
+            for(const std::string& token: phrase) {
+                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
+                                                         (const unsigned char *) token.c_str(),
+                                                         token.size() + 1);
 
-        for(const std::string& exclude_token: field_query_tokens[i].q_exclude_tokens) {
-            art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
-                                                     (const unsigned char *) exclude_token.c_str(),
-                                                     exclude_token.size() + 1);
+                if(leaf) {
+                    posting_lists.push_back(leaf->values);
+                }
+            }
 
-            if(leaf) {
-                posting_lists.push_back(leaf->values);
+            if(posting_lists.size() != phrase.size()) {
+                // unmatched length should mean zero results should be returned
+                delete [] filter_ids;
+                filter_ids = nullptr;
+                filter_ids_length = 0;
+                return;
+            }
+
+            std::vector<uint32_t> contains_ids;
+            posting_t::intersect(posting_lists, contains_ids);
+
+            uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
+            size_t phrase_ids_size = 0;
+            posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
+                                          phrase_ids, phrase_ids_size);
+
+            if(phrase_ids_size != 0) {
+                if(filter_ids_length == 0) {
+                    filter_ids_length = phrase_ids_size;
+                    filter_ids = phrase_ids;
+                } else {
+                    uint32_t *filter_ids_merged = nullptr;
+                    filter_ids_length = ArrayUtils::and_scalar(phrase_ids, phrase_ids_size, filter_ids, filter_ids_length,
+                                                               &filter_ids_merged);
+                    delete [] phrase_ids;
+                    delete [] filter_ids;
+                    filter_ids = filter_ids_merged;
+                }
+            } else {
+                // no results should be returned
+                delete [] phrase_ids;
+                delete [] filter_ids;
+                filter_ids = nullptr;
+                filter_ids_length = 0;
+                return;
             }
         }
 
-        std::vector<uint32_t> exclude_token_id_vec;
-        if(!posting_lists.empty()) {
-            posting_t::merge(posting_lists, exclude_token_id_vec);
-        }
+        for(const auto& q_exclude_phrase: field_query_tokens[i].q_exclude_tokens) {
+            // if phrase has multiple words, then we have to do exclusion of phrase match results
+            std::vector<void*> posting_lists;
+            for(const std::string& exclude_token: q_exclude_phrase) {
+                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
+                                                         (const unsigned char *) exclude_token.c_str(),
+                                                         exclude_token.size() + 1);
+                if(leaf) {
+                    posting_lists.push_back(leaf->values);
+                }
+            }
 
-        uint32_t *exclude_token_ids_merged = nullptr;
-        exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
-                                                       &exclude_token_id_vec[0], exclude_token_id_vec.size(),
-                                                       &exclude_token_ids_merged);
-        delete[] exclude_token_ids;
-        exclude_token_ids = exclude_token_ids_merged;
+            if(posting_lists.size() != q_exclude_phrase.size()) {
+                continue;
+            }
+
+            std::vector<uint32_t> contains_ids;
+            posting_t::intersect(posting_lists, contains_ids);
+
+            uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
+            size_t phrase_ids_size = 0;
+
+            posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
+                                          phrase_ids, phrase_ids_size);
+
+            uint32_t *exclude_token_ids_merged = nullptr;
+            exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                           phrase_ids, phrase_ids_size,
+                                                           &exclude_token_ids_merged);
+            delete [] phrase_ids;
+            delete [] exclude_token_ids;
+            exclude_token_ids = exclude_token_ids_merged;
+        }
     }
 
     std::vector<Topster*> ftopsters;
