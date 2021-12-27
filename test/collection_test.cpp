@@ -4083,3 +4083,134 @@ TEST_F(CollectionTest, FieldLevelPrefixConfiguration) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionTest, QueryParsingForPhraseSearch) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> q_include_tokens;
+    std::vector<std::vector<std::string>> q_exclude_tokens;
+    std::vector<std::vector<std::string>> q_phrases;
+
+    std::string q = R"(the "phrase search" query)";
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+
+    ASSERT_EQ(2, q_include_tokens.size());
+    ASSERT_EQ("the", q_include_tokens[0]);
+    ASSERT_EQ("query", q_include_tokens[1]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("phrase", q_phrases[0][0]);
+    ASSERT_EQ("search", q_phrases[0][1]);
+
+    // quoted string has trailing padded space
+
+    q = R"("space padded " query)";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("query", q_include_tokens[0]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("space", q_phrases[0][0]);
+    ASSERT_EQ("padded", q_phrases[0][1]);
+
+    // multiple quoted strings
+
+    q = R"("first phrase" "second phrase")";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("*", q_include_tokens[0]);
+    ASSERT_EQ(2, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("first", q_phrases[0][0]);
+    ASSERT_EQ("phrase", q_phrases[0][1]);
+    ASSERT_EQ("second", q_phrases[1][0]);
+    ASSERT_EQ("phrase", q_phrases[1][1]);
+
+    // single quoted string
+
+    q = R"("hello")";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("*", q_include_tokens[0]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(1, q_phrases[0].size());
+    ASSERT_EQ("hello", q_phrases[0][0]);
+
+    // stray trailing quote
+
+    q = R"(hello")";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("hello", q_include_tokens[0]);
+    ASSERT_EQ(0, q_phrases.size());
+
+    // padded space one either side of quote
+    q = R"("some query " here)";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("here", q_include_tokens[0]);
+    ASSERT_EQ(1, q_phrases.size());
+    ASSERT_EQ(2, q_phrases[0].size());
+    ASSERT_EQ("some", q_phrases[0][0]);
+    ASSERT_EQ("query", q_phrases[0][1]);
+
+    // with exclude operator
+    q = R"(-"some phrase" here)";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("here", q_include_tokens[0]);
+    ASSERT_EQ(0, q_phrases.size());
+    ASSERT_EQ(1, q_exclude_tokens.size());
+    ASSERT_EQ(2, q_exclude_tokens[0].size());
+    ASSERT_EQ("some", q_exclude_tokens[0][0]);
+    ASSERT_EQ("phrase", q_exclude_tokens[0][1]);
+
+    // with multiple exclude operators
+    q = R"(-"some phrase" here -token)";
+    q_include_tokens.clear();
+    q_exclude_tokens.clear();
+    q_phrases.clear();
+    coll1->parse_search_query(q, q_include_tokens, q_exclude_tokens, q_phrases, "en", false);
+    ASSERT_EQ(1, q_include_tokens.size());
+    ASSERT_EQ("here", q_include_tokens[0]);
+    ASSERT_EQ(0, q_phrases.size());
+    ASSERT_EQ(2, q_exclude_tokens.size());
+    ASSERT_EQ(2, q_exclude_tokens[0].size());
+    ASSERT_EQ("some", q_exclude_tokens[0][0]);
+    ASSERT_EQ("phrase", q_exclude_tokens[0][1]);
+    ASSERT_EQ(1, q_exclude_tokens[1].size());
+    ASSERT_EQ("token", q_exclude_tokens[1][0]);
+
+    collectionManager.drop_collection("coll1");
+}

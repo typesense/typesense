@@ -112,6 +112,10 @@ public:
                                   const uint32_t* ids, uint32_t num_ids,
                                   uint32_t*& exact_ids, size_t& num_exact_ids);
 
+    static void get_phrase_matches(const std::vector<void*>& raw_posting_lists, bool field_is_array,
+                                   const uint32_t* ids, uint32_t num_ids,
+                                   uint32_t*& phrase_ids, size_t& num_phrase_ids);
+
     static void get_matching_array_indices(const std::vector<void*>& raw_posting_lists,
                                            uint32_t id, std::vector<size_t>& indices);
 };

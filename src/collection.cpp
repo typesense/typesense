@@ -896,7 +896,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     if(search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(query, field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_exclude_tokens, "",
+        parse_search_query(query, field_query_tokens[0].q_include_tokens,
+                           field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false);
     } else {
         for(size_t i = 0; i < search_fields.size(); i++) {
@@ -904,7 +905,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             field_query_tokens.emplace_back(query_tokens_t{});
 
             const std::string & field_locale = search_schema.at(search_field).locale;
-            parse_search_query(query, field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_exclude_tokens,
+            parse_search_query(query, field_query_tokens[i].q_include_tokens,
+                               field_query_tokens[i].q_exclude_tokens,
+                               field_query_tokens[i].q_phrases,
                                field_locale, pre_segmented_query);
 
             // get synonyms
@@ -1367,7 +1370,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 }
 
 void Collection::parse_search_query(const std::string &query, std::vector<std::string>& q_include_tokens,
-                                    std::vector<std::string>& q_exclude_tokens,
+                                    std::vector<std::vector<std::string>>& q_exclude_tokens,
+                                    std::vector<std::vector<std::string>>& q_phrases,
                                     const std::string& locale, const bool already_segmented) const {
     if(query == "*") {
         q_exclude_tokens = {};
@@ -1380,13 +1384,18 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         } else {
             std::vector<char> custom_symbols = symbols_to_index;
             custom_symbols.push_back('-');
+            custom_symbols.push_back('"');
 
             Tokenizer(query, true, false, locale, custom_symbols, token_separators).tokenize(tokens);
         }
 
         bool exclude_operator_prior = false;
+        bool phrase_search_op_prior = false;
+        std::vector<std::string> phrase;
 
         for(auto& token: tokens) {
+            bool end_of_phrase = false;
+
             if(token == "-") {
                 continue;
             } else if(token[0] == '-') {
@@ -1394,7 +1403,18 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
                 token = token.substr(1);
             }
 
-            // retokenize using collection config
+            if(token[0] == '"' && token.size() > 1) {
+                phrase_search_op_prior = true;
+                token = token.substr(1);
+            }
+
+            if(!token.empty() && (token.back() == '"' || (token[0] == '"' && token.size() == 1))) {
+                // handles single token phrase and a phrase with padded space, like: "some query " here
+                end_of_phrase = true;
+                token = token.substr(0, token.size()-1);
+            }
+
+            // retokenize using collection config (handles hyphens being part of the query)
             std::vector<std::string> sub_tokens;
 
             if(already_segmented) {
@@ -1405,11 +1425,37 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
 
             for(auto& sub_token: sub_tokens) {
                 if(exclude_operator_prior) {
-                    q_exclude_tokens.push_back(sub_token);
-                    exclude_operator_prior = false;
+                    if(phrase_search_op_prior) {
+                        phrase.push_back(sub_token);
+                    } else {
+                        q_exclude_tokens.push_back({sub_token});
+                        exclude_operator_prior = false;
+                    }
+                } else if(phrase_search_op_prior) {
+                    phrase.push_back(sub_token);
                 } else {
                     q_include_tokens.push_back(sub_token);
                 }
+            }
+
+            if(end_of_phrase && phrase_search_op_prior) {
+                if(exclude_operator_prior) {
+                    q_exclude_tokens.push_back(phrase);
+                } else {
+                    q_phrases.push_back(phrase);
+                }
+
+                phrase_search_op_prior = false;
+                exclude_operator_prior = false;
+                phrase.clear();
+            }
+        }
+
+        if(!phrase.empty()) {
+            if(exclude_operator_prior) {
+                q_exclude_tokens.push_back(phrase);
+            } else {
+                q_phrases.push_back(phrase);
             }
         }
 
