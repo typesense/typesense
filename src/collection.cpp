@@ -1101,7 +1101,14 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
             for(size_t i = 0; i < fields_highlighted_vec.size(); i++) {
                 const std::string& field_name = fields_highlighted_vec[i];
-                const std::vector<std::string>& q_tokens = field_query_tokens[fields_highlighted_indices[i]].q_include_tokens;
+                std::vector<std::string> q_tokens = field_query_tokens[fields_highlighted_indices[i]].q_include_tokens;
+
+                // we will also add phrase search tokens to the list
+                for(auto& phrase: field_query_tokens[fields_highlighted_indices[i]].q_phrases) {
+                    for(auto& token: phrase) {
+                        q_tokens.push_back(token);
+                    }
+                }
 
                 if(search_schema.count(field_name) == 0) {
                     continue;

@@ -2079,17 +2079,21 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     results = coll1->search(R"("down there by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>Down</mark> <mark>There</mark> <mark>by</mark> the Train", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // phrase search with exclusion
     results = coll1->search(R"("by the" -train)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>Then</mark> and <mark>there</mark> <mark>by</mark> <mark>the</mark> down", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // exclusion of an entire phrase
     results = coll1->search(R"(-"by the down")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+    ASSERT_EQ(0, results["hits"][1]["highlights"].size());
 
     results = coll1->search(R"(-"by the")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
@@ -2125,6 +2129,7 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     results = coll1->search(R"("by the" "then and")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>Then</mark> <mark>and</mark> there <mark>by</mark> <mark>the</mark> down", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search(R"("by the" "there by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(2, results["hits"].size());
