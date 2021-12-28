@@ -1709,9 +1709,13 @@ void Collection::highlight_result(const field &search_field,
         const Match& match = match_index.match;
 
         size_t last_valid_offset = 0;
-        for (auto token_offset : match.offsets) {
+        int last_valid_offset_index = -1;
+
+        for(size_t match_offset_index = 0; match_offset_index < match.offsets.size(); match_offset_index++) {
+            const auto& token_offset = match.offsets[match_offset_index];
             if(token_offset.offset != MAX_DISPLACEMENT) {
                 last_valid_offset = token_offset.offset;
+                last_valid_offset_index = match_offset_index;
             } else {
                 break;
             }
@@ -1753,7 +1757,7 @@ void Collection::highlight_result(const field &search_field,
         // need an ordered map here to ensure that it is ordered by the key (start offset)
         std::map<size_t, size_t> token_offsets;
 
-        size_t match_offset_index = 0;
+        int match_offset_index = 0;
         std::string raw_token;
         std::set<std::string> token_hits;  // used to identify repeating tokens
         size_t raw_token_index = 0, tok_start = 0, tok_end = 0;
@@ -1788,7 +1792,7 @@ void Collection::highlight_result(const field &search_field,
 
             // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
             if ((found_first_match && token_already_found) ||
-                (match_offset_index < match.offsets.size() &&
+                (match_offset_index <= last_valid_offset_index &&
                  match.offsets[match_offset_index].offset == raw_token_index)) {
 
                 token_offsets.emplace(tok_start, tok_end);
@@ -1797,7 +1801,7 @@ void Collection::highlight_result(const field &search_field,
                 // to skip over duplicate tokens in the query
                 do {
                     match_offset_index++;
-                } while(match_offset_index < match.offsets.size() &&
+                } while(match_offset_index <= last_valid_offset_index &&
                         match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
 
                 if(!found_first_match) {
@@ -1812,9 +1816,11 @@ void Collection::highlight_result(const field &search_field,
                 token_hits.insert(raw_token);
             }
 
-            if(raw_token_index == last_valid_offset + highlight_affix_num_tokens) {
+            if(raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
                 // register end of highlight snippet
-                snippet_end_offset = tok_end;
+                if(snippet_end_offset == text.size() - 1) {
+                    snippet_end_offset = tok_end;
+                }
             }
 
             // We can break early only if we have:
@@ -1823,8 +1829,8 @@ void Collection::highlight_result(const field &search_field,
             // c) raw_token_index exceeds snippet threshold
             // d) highlight fully is not requested
 
-            if(raw_token_index >= snippet_threshold - 1 &&
-               match_offset_index == match.offsets.size() &&
+            if(raw_token_index >= snippet_threshold &&
+               match_offset_index > last_valid_offset_index &&
                raw_token_index >= last_valid_offset + highlight_affix_num_tokens &&
                !highlighted_fully) {
                 break;
@@ -1835,7 +1841,7 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        if(raw_token_index + 1 < snippet_threshold) {
+        if(highlighted_fully || raw_token_index <= snippet_threshold-1) {
             // fully highlight field whose token size is less than given snippet threshold
             snippet_start_offset = 0;
             snippet_end_offset = text.size() - 1;

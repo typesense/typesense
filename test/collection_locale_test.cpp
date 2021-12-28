@@ -594,15 +594,18 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    auto results = coll1->search("отсутствие", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    auto results = coll1->search("отсутствие", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                 10, "", 10).get();
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное",
+    ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("принятое", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("Сирый», «несчастный», «никчёмный» — <mark>принятое</mark> особ, сейчас, впрочем, оттенок скромности. Посыл, среди которых отсутствие мобильного страшное.",
+    ASSERT_EQ("«Сирый», «несчастный», «никчёмный» — <mark>принятое</mark> особ, сейчас, впрочем, оттенок скромности. Посыл, среди которых отсутствие мобильного страшное.",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
@@ -622,4 +625,25 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
                  results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
+    std::vector<field> fields = {field("title", field_types::STRING, true, false, true, "ru"),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Петр Великий, царь России, в начале 18 века санкционировал использование западных буквенных форм "
+                   "(ru). Со временем они были в значительной степени приняты на других языках, использующих этот "
+                   "сценарий. Таким образом, в отличие от большинства современных греческих шрифтов, которые сохранили "
+                   "свой собственный набор принципов дизайна для строчных букв (таких как размещение засечек, форма "
+                   "концов штриха и правила толщины штриха, хотя греческие заглавные буквы действительно используют "
+                   "латинский дизайн принципы) современные кириллические шрифты во многом такие же, как современные "
+                   "латинские шрифты того же семейства. Развитие некоторых кириллических компьютерных шрифтов из "
+                   "латинских также способствовало визуальной латинизации кириллического шрифта.";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("Великий", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_STREQ("Петр <mark>Великий</mark>, царь России, в начале",
+                 results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
