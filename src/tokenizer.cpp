@@ -257,10 +257,10 @@ void Tokenizer::tokenize(std::vector<std::string> &tokens) {
     }
 }
 
-void Tokenizer::tokenize(std::string& token) {
+bool Tokenizer::tokenize(std::string& token) {
     size_t token_index = 0;
     init(token);
-    next(token, token_index);
+    return next(token, token_index);
 }
 
 bool Tokenizer::next(std::string &token, size_t &token_index) {

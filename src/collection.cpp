@@ -1770,7 +1770,10 @@ void Collection::highlight_result(const field &search_field,
 
         while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
             if(is_cyrillic) {
-                word_tokenizer.tokenize(raw_token);
+                bool found_token = word_tokenizer.tokenize(raw_token);
+                if(!found_token) {
+                    continue;
+                }
             }
 
             if(!found_first_match) {

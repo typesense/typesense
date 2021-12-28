@@ -600,6 +600,11 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
     ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
+    results = coll1->search("принятое", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Сирый», «несчастный», «никчёмный» — <mark>принятое</mark> особ, сейчас, впрочем, оттенок скромности. Посыл, среди которых отсутствие мобильного страшное.",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
     results = coll1->search("*", {}, "", {"title"}, {}, {0}, 0, 1, FREQUENCY, {true}, 10,
                             spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
                             10, "title: отсутствие").get();
