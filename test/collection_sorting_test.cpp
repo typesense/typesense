@@ -237,6 +237,36 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
     ASSERT_FALSE(found_end);
 }
 
+TEST_F(CollectionSortingTest, TokenOrderingOnFloatValue) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::FLOAT, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "enter", "elephant", "enamel", "ercot", "enyzme", "energy",
+        "epoch", "epyc", "express", "everest", "end"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        float fpoint = (0.01 * i);
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points"] = fpoint;
+        coll1->add(doc.dump());
+    }
+
+    auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 3, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ("10", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("9", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("8", results["hits"][2]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSortingTest, Int64AsDefaultSortingField) {
     Collection *coll_mul_fields;
 
