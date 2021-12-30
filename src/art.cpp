@@ -427,7 +427,7 @@ static void add_document_to_leaf(art_document *document, art_leaf *leaf) {
 static art_leaf* make_leaf(const unsigned char *key, uint32_t key_len, art_document *document) {
     art_leaf *l = (art_leaf *) malloc(sizeof(art_leaf) + key_len);
     l->key_len = key_len;
-    l->max_score = 0;
+    l->max_score = document->score;
 
     uint32_t ids[1] = {document->id};
     uint32_t offset_index[1] = {0};
