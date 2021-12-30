@@ -144,7 +144,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         next_collection_id = 0;
     }
 
-    LOG(INFO) << "Loading " << collection_batch_size << " collections in parallel, "
+    LOG(INFO) << "Loading upto " << collection_batch_size << " collections in parallel, "
               << document_batch_size << " documents at a time.";
 
     std::vector<std::string> collection_meta_jsons;
