@@ -73,7 +73,7 @@ bool compare_art_node_frequency(const art_node *a, const art_node *b) {
 }
 
 bool compare_art_node_score(const art_node* a, const art_node* b) {
-    int64_t a_value = 0, b_value = 0;
+    int64_t a_value = std::numeric_limits<int64_t>::min(), b_value = std::numeric_limits<int64_t>::min();
 
     if(IS_LEAF(a)) {
         art_leaf* al = (art_leaf *) LEAF_RAW(a);
@@ -942,7 +942,9 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                   const uint32_t* filter_ids, size_t filter_ids_length,
-                  const std::set<art_leaf*>& exclude_leaves, std::vector<art_leaf *> &results) {
+                  const std::set<art_leaf*>& exclude_leaves, const art_leaf* exact_leaf,
+                  std::vector<art_leaf *> &results) {
+
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
     std::priority_queue<const art_node *, std::vector<const art_node *>,
@@ -973,7 +975,7 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
 
             //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
-            if(exclude_leaves.count(l) != 0) {
+            if(exclude_leaves.count(l) != 0 || l == exact_leaf) {
                 continue;
             }
 
@@ -1517,14 +1519,22 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
 
     //auto begin = std::chrono::high_resolution_clock::now();
 
+    size_t key_len = prefix ? term_len + 1 : term_len;
+    art_leaf* exact_leaf = (art_leaf *) art_search(t, term, key_len);
+    //LOG(INFO) << "exact_leaf: " << exact_leaf << ", term: " << term << ", term_len: " << term_len;
+
     for(auto node: nodes) {
-        art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, exclude_leaves, results);
+        art_topk_iter(node, token_order, max_words, filter_ids, filter_ids_length, exclude_leaves, exact_leaf, results);
     }
 
     if(token_order == FREQUENCY) {
         std::sort(results.begin(), results.end(), compare_art_leaf_frequency);
     } else {
         std::sort(results.begin(), results.end(), compare_art_leaf_score);
+    }
+
+    if(exact_leaf) {
+        results.insert(results.begin(), exact_leaf);
     }
 
     if(results.size() > max_words) {
