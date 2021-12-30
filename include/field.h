@@ -438,7 +438,8 @@ struct field {
 
             if(field_json.count(fields::sort) == 0) {
                 if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
-                   field_json["type"] == field_types::BOOL || field_json["type"] == field_types::GEOPOINT) {
+                   field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
+                   field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY) {
                     field_json[fields::sort] = true;
                 } else {
                     field_json[fields::sort] = false;
