@@ -655,6 +655,38 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_fuzzy_search_prefix_token_ordering) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    // the last "e" should be returned first because of exact match
+    std::vector<const char*> keys = {
+        "enter", "elephant", "enamel", "ercot", "enyzme", "energy",
+        "epoch", "epyc", "express", "everest", "end", "e"
+    };
+
+    for(size_t i = 0; i < keys.size(); i++) {
+        art_document doc(i, keys.size() - i, {0});
+        ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)keys[i], strlen(keys[i])+1, &doc));
+    }
+
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (const unsigned char *) "e", 1, 0, 0, 3, MAX_SCORE, true, nullptr, 0, leaves);
+
+    std::string first_key(reinterpret_cast<char*>(leaves[0]->key), leaves[0]->key_len - 1);
+    ASSERT_EQ("e", first_key);
+
+    std::string second_key(reinterpret_cast<char*>(leaves[1]->key), leaves[1]->key_len - 1);
+    ASSERT_EQ("enter", second_key);
+
+    std::string third_key(reinterpret_cast<char*>(leaves[2]->key), leaves[2]->key_len - 1);
+    ASSERT_EQ("elephant", third_key);
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_art_fuzzy_search) {
     art_tree t;
     int res = art_tree_init(&t);
