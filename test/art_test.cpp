@@ -1224,6 +1224,9 @@ TEST(ArtTest, test_int32_duplicates) {
 
     ASSERT_EQ(10000, counter);
     results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_int32_negative) {
@@ -1354,6 +1357,9 @@ TEST(ArtTest, test_int32_million) {
     results.clear();
     art_int32_search(&t, 5, LESS_THAN, results);
     ASSERT_EQ(5, results.size());
+
+    auto res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_int_range_byte_boundary) {
@@ -1380,6 +1386,9 @@ TEST(ArtTest, test_int_range_byte_boundary) {
     results.clear();
     art_int32_search(&t, 255, GREATER_THAN, results);
     ASSERT_EQ(44, results.size());
+
+    auto res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_encode_int64) {
@@ -1458,6 +1467,9 @@ TEST(ArtTest, test_search_int64) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(50, results.size());
     results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_search_negative_int64) {
@@ -1501,6 +1513,9 @@ TEST(ArtTest, test_search_negative_int64) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(50, results.size());
     results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_search_negative_int64_large) {
@@ -1520,6 +1535,9 @@ TEST(ArtTest, test_search_negative_int64_large) {
     //ASSERT_TRUE(res == 0);
     //ASSERT_EQ(0, results.size());
     //results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_int32_array) {
@@ -1548,6 +1566,9 @@ TEST(ArtTest, test_int32_array) {
     int res = art_int32_search(&t, 2002, GREATER_THAN, results);
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(3, results.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_encode_float_positive) {
@@ -1605,6 +1626,9 @@ TEST(ArtTest, test_encode_float_positive) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(2, results.size());
     results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
 
 TEST(ArtTest, test_encode_float_positive_negative) {
@@ -1657,4 +1681,7 @@ TEST(ArtTest, test_encode_float_positive_negative) {
     ASSERT_TRUE(res == 0);
     ASSERT_EQ(5, results.size());
     results.clear();
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
 }
