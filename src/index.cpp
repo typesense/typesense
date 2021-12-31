@@ -2285,6 +2285,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             auto& kvs = seq_id_kvs.second; // each `kv` can be from a different field
 
             std::sort(kvs.begin(), kvs.end(), Topster::is_greater);
+
+            // kvs[0] will store query indices of the kv group (across fields)
             kvs[0]->query_indices = new uint64_t[kvs.size() + 1];
             kvs[0]->query_indices[0] = kvs.size();
 
@@ -2400,7 +2402,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
                     if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
                         exact_match_fields += weight;
-                        verbatim_match_fields += weight;  // this is only an approximate
+                        // not possible to calculate verbatim_match_fields accurately here, so we won't
                     }
 
                     auto weighted_tokens_match = (tokens_found * weight);
