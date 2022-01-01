@@ -1360,9 +1360,9 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
             }
 
         } else if(f.is_geopoint()) {
-            std::set<uint32_t> geo_result_ids;
-
             for(const std::string& filter_value: a_filter.values) {
+                std::vector<uint32_t> geo_result_ids;
+
                 std::vector<std::string> filter_value_parts;
                 StringUtils::split(filter_value, filter_value_parts, ",");  // x, y, 2 km (or) list of points
 
@@ -1420,9 +1420,12 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     auto geo_index = geopoint_index.at(a_filter.field_name);
                     const auto& ids_it = geo_index->find(term);
                     if(ids_it != geo_index->end()) {
-                        geo_result_ids.insert(ids_it->second.begin(), ids_it->second.end());
+                        geo_result_ids.insert(geo_result_ids.end(), ids_it->second.begin(), ids_it->second.end());
                     }
                 }
+
+                std::sort(geo_result_ids.begin(), geo_result_ids.end());
+                geo_result_ids.erase(std::unique( geo_result_ids.begin(), geo_result_ids.end() ), geo_result_ids.end());
 
                 // `geo_result_ids` will contain all IDs that are within approximately within query radius
                 // we still need to do another round of exact filtering on them
@@ -1430,9 +1433,11 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 std::vector<uint32_t> exact_geo_result_ids;
 
                 if(f.is_single_geopoint()) {
+                    spp::sparse_hash_map<uint32_t, int64_t>* sort_field_index = sort_index.at(f.name);
+                    
                     for(auto result_id: geo_result_ids) {
                         // no need to check for existence of `result_id` because of indexer based pre-filtering above
-                        int64_t lat_lng = sort_index.at(f.name)->at(result_id);
+                        int64_t lat_lng = sort_field_index->at(result_id);
                         S2LatLng s2_lat_lng;
                         GeoPoint::unpack_lat_lng(lat_lng, s2_lat_lng);
                         if (query_region->Contains(s2_lat_lng.ToPoint())) {
@@ -1440,8 +1445,10 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                         }
                     }
                 } else {
+                    spp::sparse_hash_map<uint32_t, int64_t*>* geo_field_index = geo_array_index.at(f.name);
+
                     for(auto result_id: geo_result_ids) {
-                        int64_t* lat_lngs = geo_array_index.at(f.name)->at(result_id);
+                        int64_t* lat_lngs = geo_field_index->at(result_id);
 
                         bool point_found = false;
 
@@ -1461,8 +1468,6 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                         }
                     }
                 }
-
-                std::sort(exact_geo_result_ids.begin(), exact_geo_result_ids.end());
 
                 uint32_t *out = nullptr;
                 result_ids_len = ArrayUtils::or_scalar(&exact_geo_result_ids[0], exact_geo_result_ids.size(),
