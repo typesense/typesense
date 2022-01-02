@@ -1124,7 +1124,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                     /*if(document["title"] == "Quantum Quest: A Cassini Space Odyssey") {
                         LOG(INFO) << "here!";
                     }*/
-                    highlight_result(search_field, searched_queries, q_tokens, field_order_kv, document,
+                    highlight_result(raw_query, search_field, searched_queries, q_tokens, field_order_kv, document,
                                      string_utils, snippet_threshold, highlight_affix_num_tokens,
                                      highlighted_fully, highlight_start_tag, highlight_end_tag, highlight);
                     //LOG(INFO) << "End";
@@ -1588,7 +1588,7 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     return true;
 }
 
-void Collection::highlight_result(const field &search_field,
+void Collection::highlight_result(const std::string& raw_query, const field &search_field,
                                   const std::vector<std::vector<art_leaf *>> &searched_queries,
                                   const std::vector<std::string>& q_tokens,
                                   const KV* field_order_kv, const nlohmann::json & document,
@@ -1600,8 +1600,22 @@ void Collection::highlight_result(const field &search_field,
                                   const std::string& highlight_end_tag,
                                   highlight_t & highlight) const {
 
+    if(q_tokens.size() == 1 && q_tokens[0] == "*") {
+        return;
+    }
+
     std::vector<art_leaf*> query_suggestion;
     std::set<std::string> query_suggestion_tokens;
+
+    bool is_cyrillic = Tokenizer::is_cyrillic(search_field.locale);
+    bool normalise = is_cyrillic ? false : true;
+
+    std::vector<std::string> raw_query_tokens;
+    Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
+    const std::string& last_raw_q_token = raw_query_tokens.back();
+    const std::string& last_q_token = q_tokens.back();
+
+    std::set<std::string> last_full_q_tokens;
 
     size_t qindex = 0;
 
@@ -1616,7 +1630,8 @@ void Collection::highlight_result(const field &search_field,
                 (field_order_kv->query_indices == nullptr) ? searched_queries[field_order_kv->query_index] :
                 searched_queries[field_order_kv->query_indices[qindex + 1]];
 
-        for (art_leaf* token_leaf : searched_query) {
+        for (size_t i = 0; i < searched_query.size(); i++) {
+            art_leaf* token_leaf = searched_query[i];
             std::string token(reinterpret_cast<char*>(token_leaf->key), token_leaf->key_len - 1);
 
             if(query_suggestion_tokens.count(token) != 0) {
@@ -1631,6 +1646,10 @@ void Collection::highlight_result(const field &search_field,
                 query_suggestion.push_back(actual_leaf);
                 query_suggestion_tokens.insert(token);
                 //LOG(INFO) << "field: " << search_field.name << ", key: " << token;
+                if(i == searched_query.size()-1 &&
+                   (q_tokens.size() == searched_query.size() || token.rfind(last_q_token, 0) == 0)) {
+                    last_full_q_tokens.insert(token);
+                }
             }
         }
 
@@ -1689,8 +1708,6 @@ void Collection::highlight_result(const field &search_field,
                                                << ", match.distance: " << size_t(this_match.distance);*/
     }
 
-    const std::string& prefix_token = q_tokens.back();
-
     if(match_indices.empty()) {
         // none of the tokens from the query were found on this field
         // let's try to look only for prefix matches
@@ -1743,8 +1760,6 @@ void Collection::highlight_result(const field &search_field,
             text = document[search_field.name][match_index.index];
         }
 
-        bool is_cyrillic = Tokenizer::is_cyrillic(search_field.locale);
-        bool normalise = is_cyrillic ? false : true;
         Tokenizer tokenizer(text, normalise, false, search_field.locale, symbols_to_index, token_separators);
 
         // word tokenizer is a secondary tokenizer used for specific languages that requires transliteration
@@ -1756,6 +1771,7 @@ void Collection::highlight_result(const field &search_field,
 
         // need an ordered map here to ensure that it is ordered by the key (start offset)
         std::map<size_t, size_t> token_offsets;
+        std::map<size_t, std::string> prefix_start_offsets;
 
         int match_offset_index = 0;
         std::string raw_token;
@@ -1811,9 +1827,13 @@ void Collection::highlight_result(const field &search_field,
                 found_first_match = true;
 
             } else if(query_suggestion_tokens.find(raw_token) != query_suggestion_tokens.end() ||
-                      raw_token.rfind(prefix_token, 0) == 0) {
+                      raw_token.rfind(last_raw_q_token, 0) == 0) {
                 token_offsets.emplace(tok_start, tok_end);
                 token_hits.insert(raw_token);
+            }
+
+            if(last_full_q_tokens.find(raw_token) != last_full_q_tokens.end()) {
+                prefix_start_offsets.emplace(tok_start, raw_token);
             }
 
             if(raw_token_index >= last_valid_offset + highlight_affix_num_tokens) {
@@ -1841,39 +1861,23 @@ void Collection::highlight_result(const field &search_field,
             continue;
         }
 
-        if(highlighted_fully || raw_token_index <= snippet_threshold-1) {
+        if(raw_token_index <= snippet_threshold-1) {
             // fully highlight field whose token size is less than given snippet threshold
             snippet_start_offset = 0;
             snippet_end_offset = text.size() - 1;
         }
 
         // `token_offsets` has a list of ranges to target for highlighting
-
-        auto offset_it = token_offsets.begin();
-        std::stringstream highlighted_text;
-
         // tokens from query might occur before actual snippet start offset: we skip that
+        auto offset_it = token_offsets.begin();
         while(offset_it != token_offsets.end() && offset_it->first < snippet_start_offset) {
             offset_it++;
         }
 
-        for(size_t i = snippet_start_offset; i <= snippet_end_offset; i++) {
-            if(offset_it != token_offsets.end()) {
-                if (i == offset_it->first) {
-                    highlighted_text << highlight_start_tag;
-                    matched_tokens.push_back(text.substr(i, (offset_it->second - i) + 1));
-                }
-
-                if (i == offset_it->second) {
-                    highlighted_text << text[i];
-                    highlighted_text << highlight_end_tag;
-                    offset_it++;
-                    continue;
-                }
-            }
-
-            highlighted_text << text[i];
-        }
+        std::stringstream highlighted_text;
+        highlight_text(highlight_start_tag, highlight_end_tag, last_raw_q_token, text, token_offsets,
+                       prefix_start_offsets, snippet_end_offset, matched_tokens, offset_it,
+                       highlighted_text, snippet_start_offset);
 
         highlight.snippets.push_back(highlighted_text.str());
         if(search_field.type == field_types::STRING_ARRAY) {
@@ -1883,30 +1887,69 @@ void Collection::highlight_result(const field &search_field,
         if(highlighted_fully) {
             std::stringstream value_stream;
             offset_it = token_offsets.begin();
-
-            for(size_t i = 0; i < text.size(); i++) {
-                if(offset_it != token_offsets.end()) {
-                    if (i == offset_it->first) {
-                        value_stream << highlight_start_tag;
-                    }
-
-                    if (i == offset_it->second) {
-                        value_stream << text[i];
-                        value_stream << highlight_end_tag;
-                        offset_it++;
-                        continue;
-                    }
-                }
-
-                value_stream << text[i];
-            }
-
+            std::vector<std::string> full_matched_tokens;
+            highlight_text(highlight_start_tag, highlight_end_tag, last_raw_q_token, text, token_offsets,
+                           prefix_start_offsets, text.size()-1, full_matched_tokens, offset_it,
+                           value_stream, 0);
             highlight.values.push_back(value_stream.str());
         }
     }
 
     highlight.field = search_field.name;
     highlight.match_score = match_indices[0].match_score;
+}
+
+void Collection::highlight_text(const string& highlight_start_tag, const string& highlight_end_tag,
+                                  const string& last_raw_q_token, const string& text,
+                                  const std::map<size_t, size_t>& token_offsets,
+                                  const std::map<size_t, std::string>& prefix_start_offsets,
+                                  size_t snippet_end_offset, std::vector<std::string>& matched_tokens,
+                                  std::map<size_t, size_t>::iterator& offset_it,
+                                  std::stringstream& highlighted_text,
+                                  size_t snippet_start_offset) {
+
+    while(snippet_start_offset <= snippet_end_offset) {
+        if(offset_it != token_offsets.end()) {
+            if (snippet_start_offset == offset_it->first) {
+                highlighted_text << highlight_start_tag;
+                const std::string& text_token = text.substr(snippet_start_offset, (offset_it->second - snippet_start_offset) + 1);
+                matched_tokens.push_back(text_token);
+
+                size_t token_len = offset_it->second - snippet_start_offset + 1;
+
+                if(prefix_start_offsets.find(offset_it->first) != prefix_start_offsets.end() &&
+                   last_raw_q_token.size() < token_len) {
+                    // if length diff is within 2, we still might not want to highlight partially in some cases
+                    // e.g. "samsng" vs "samsung" -> full highlight is preferred
+                    bool within_two_chars = (abs(int64_t(last_raw_q_token.size()) - (int64_t)token_len) <= 2);
+
+                    if(!within_two_chars || last_raw_q_token.back() == text_token[last_raw_q_token.size()-1]) {
+                        // also account for presence ascii symbols in the text
+                        size_t num_symbols = 0;
+                        for(size_t j = 0; j < text_token.size(); j++) {
+                            char c = text_token[j];
+                            if(Tokenizer::is_ascii_char(c) && !isalnum(c)) {
+                                num_symbols++;
+                            }
+                        }
+                        token_len = std::min(token_len, last_raw_q_token.size() + num_symbols);
+                    }
+                }
+
+                for(size_t j = 0; j < token_len; j++) {
+                    highlighted_text << text[snippet_start_offset + j];
+                }
+
+                highlighted_text << highlight_end_tag;
+                offset_it++;
+                snippet_start_offset += token_len;
+                continue;
+            }
+        }
+
+        highlighted_text << text[snippet_start_offset];
+        snippet_start_offset++;
+    }
 }
 
 Option<nlohmann::json> Collection::get(const std::string & id) const {

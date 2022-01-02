@@ -190,7 +190,8 @@ private:
 
     std::string get_seq_id_key(uint32_t seq_id) const;
 
-    void highlight_result(const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
+    void highlight_result(const std::string& raw_query,
+                          const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
                           const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils,
@@ -432,5 +433,11 @@ public:
     Option<bool> add_synonym(const synonym_t& synonym);
 
     Option<bool> remove_synonym(const std::string & id);
+
+    static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag, const string& last_raw_q_token,
+                   const string& text, const std::map<size_t, size_t>& token_offsets,
+                   const std::map<size_t, std::string>& prefix_start_offsets, size_t snippet_end_offset,
+                   std::vector<std::string>& matched_tokens, std::map<size_t, size_t>::iterator& offset_it,
+                   std::stringstream& highlighted_text, size_t snippet_start_offset) ;
 };
 

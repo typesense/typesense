@@ -104,7 +104,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("爱<mark>并不</mark>会因时间而", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("爱<mark>并</mark>不会因时间而", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // partial token should not match as prefix when prefix is set to false
 
@@ -119,7 +119,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("看誰先跑到小山丘<mark>上</mark>。<mark>媽媽</mark>總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("看誰先跑到小山丘<mark>上</mark>。<mark>媽</mark>媽總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // search using simplified chinese
 
@@ -129,7 +129,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("看誰先跑到小山丘上。<mark>媽媽</mark>總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("看誰先跑到小山丘上。<mark>媽</mark>媽總是第", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
@@ -546,9 +546,12 @@ TEST_F(CollectionLocaleTest, SearchAndFacetSearchForGreekText) {
     doc["title"] = "Εμφάνιση κάθε μέρα.";
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
-    auto results = coll1->search("Εμφάν", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
+    auto results = coll1->search("Εμφάν", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title").get();
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("<mark>Εμφάνιση</mark> κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Εμφάν</mark>ιση κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Εμφάν</mark>ιση κάθε μέρα.", results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     // with typo
 
@@ -596,11 +599,14 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicTextWithSpecialCharacters) {
 
     auto results = coll1->search("отсутствие", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true},
                                  10, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
-                                 10, "", 10).get();
+                                 10, "", 10, 4, "title").get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("скромности. Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("«Сирый», «несчастный», «никчёмный» — принятое особ, сейчас, впрочем, оттенок скромности. "
+              "Посыл, среди которых <mark>отсутствие</mark> мобильного страшное.",
+              results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     results = coll1->search("принятое", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}).get();
 

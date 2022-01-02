@@ -687,7 +687,7 @@ TEST_F(CollectionSpecificTest, HighlightSecondaryFieldWithPrefixMatch) {
 
     ASSERT_EQ(2, results["hits"][0]["highlights"].size());
 
-    ASSERT_EQ("<mark>Functions</mark> and Equations",
+    ASSERT_EQ("<mark>Function</mark>s and Equations",
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     ASSERT_EQ("Use a <mark>function</mark> to solve an equation.",
@@ -2043,6 +2043,57 @@ TEST_F(CollectionSpecificTest, EmptyArrayShouldBeAcceptedAsFirstValue) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, SimplePrefixQueryHighlight) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "The Hound of the Baskervilles";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("basker", {"title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("The Hound of the <mark>Basker</mark>villes", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("The Hound of the <mark>Basker</mark>villes", results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    results = coll1->search("bassker", {"title"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("The Hound of the <mark>Baskerv</mark>illes", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("The Hound of the <mark>Baskerv</mark>illes", results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    // multiple tokens with typo in prefix
+
+    results = coll1->search("hound of bassker", {"title"},
+                            "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("The <mark>Hound</mark> <mark>of</mark> the <mark>Baskerv</mark>illes", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("The <mark>Hound</mark> <mark>of</mark> the <mark>Baskerv</mark>illes", results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, PhraseSearch) {
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false, true),
@@ -2085,7 +2136,7 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     results = coll1->search(R"("by the" -train)", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("<mark>Then</mark> and <mark>there</mark> <mark>by</mark> <mark>the</mark> down", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Then and there <mark>by</mark> <mark>the</mark> down", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // exclusion of an entire phrase
     results = coll1->search(R"(-"by the down")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
