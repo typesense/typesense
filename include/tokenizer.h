@@ -47,10 +47,6 @@ private:
         );
     }
 
-    static inline bool is_ascii_char(char c) {
-        return (c & ~0x7f) == 0;
-    }
-
 public:
 
     explicit Tokenizer(const std::string& input,
@@ -77,4 +73,8 @@ public:
     bool tokenize(std::string& token);
 
     static bool is_cyrillic(const std::string& locale);
+
+    static inline bool is_ascii_char(char c) {
+        return (c & ~0x7f) == 0;
+    }
 };

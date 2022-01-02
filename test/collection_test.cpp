@@ -3555,7 +3555,7 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
     ASSERT_EQ("categories", results["hits"][0]["highlights"][2]["field"].get<std::string>());
-    ASSERT_EQ("Car <mark>Chargers</mark>", results["hits"][0]["highlights"][2]["snippets"][0].get<std::string>());
+    ASSERT_EQ("Car <mark>Charger</mark>s", results["hits"][0]["highlights"][2]["snippets"][0].get<std::string>());
 
     results = coll1->search("John With Denver",
                             {"description"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
@@ -3809,13 +3809,17 @@ TEST_F(CollectionTest, HighlightWithAccentedCharacters) {
     ASSERT_STREQ("à", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
     ASSERT_STREQ("jour", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
 
-    results = coll1->search("by train", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+    results = coll1->search("by train", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title").get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
     ASSERT_STREQ("Down There <mark>by</mark> the <mark>T.r.a.i.n</mark>",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("Down There <mark>by</mark> the <mark>T.r.a.i.n</mark>",
+                 results["hits"][0]["highlights"][0]["value"].get<std::string>().c_str());
 
     results = coll1->search("state trooper", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
 
