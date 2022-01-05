@@ -2364,7 +2364,9 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                 verbatim_match_fields = 0;
             }
 
-            verbatim_match_fields = std::min<uint64_t>(255, verbatim_match_fields);
+            // protect most significant byte from overflow, since topster uses int64_t
+            verbatim_match_fields = std::min<uint64_t>(INT8_MAX, verbatim_match_fields);
+
             exact_match_fields = std::min<uint64_t>(255, exact_match_fields);
             max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
             total_typos = std::min<uint64_t>(255, total_typos);
