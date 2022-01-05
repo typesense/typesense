@@ -130,7 +130,7 @@ TEST_F(CollectionSortingTest, DefaultSortingFieldValidations) {
 
     Option<Collection*> collection_op = collectionManager.create_collection("sample_collection", 4, fields, "name");
     ASSERT_FALSE(collection_op.ok());
-    ASSERT_EQ("Default sorting field `name` must be a single valued numerical field.", collection_op.error());
+    ASSERT_EQ("Default sorting field `name` is not a sortable type.", collection_op.error());
     collectionManager.drop_collection("sample_collection");
 
     // Default sorting field must exist as a field in schema
@@ -1054,7 +1054,9 @@ TEST_F(CollectionSortingTest, SortByTitle) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {
-        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+        auto create_op = collectionManager.create_collection("coll1", 2, fields, "title");
+        ASSERT_TRUE(create_op.ok());
+        coll1 = create_op.get();
     }
 
     std::vector<std::vector<std::string>> records = {
@@ -1131,6 +1133,16 @@ TEST_F(CollectionSortingTest, SortByTitle) {
     auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 20, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Could not find a field named `artist` in the schema for sorting.", res_op.error());
+
+    // don't allow non-sort string field to be used as default sorting field
+
+    fields = {field("title", field_types::STRING, false, false, true, "", false),
+              field("artist", field_types::STRING, true),
+              field("points", field_types::INT32, false),};
+
+    auto create_op = collectionManager.create_collection("coll2", 2, fields, "title");
+    ASSERT_FALSE(create_op.ok());
+    ASSERT_EQ("Default sorting field `title` is not a sortable type.", create_op.error());
 
     collectionManager.drop_collection("coll1");
 }

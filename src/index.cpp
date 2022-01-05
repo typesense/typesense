@@ -165,6 +165,9 @@ int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::st
         memcpy(&points, &n, sizeof(int32_t));
         points ^= ((points >> (std::numeric_limits<int32_t>::digits - 1)) | INT32_MIN);
         points = -1 * (INT32_MAX - points);
+    } else if(document[default_sorting_field].is_string()) {
+        // not much value in supporting default sorting field as string, so we will just dummy it out
+        points = 0;
     } else {
         points = document[default_sorting_field];
     }

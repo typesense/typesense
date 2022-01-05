@@ -248,11 +248,9 @@ struct field {
                                                 "`, see docs for supported data types.");
             }
 
-            if(field.name == default_sorting_field && !(field.type == field_types::INT32 ||
-                                                        field.type == field_types::INT64 ||
-                                                        field.type == field_types::FLOAT)) {
+            if(field.name == default_sorting_field && !field.is_sortable()) {
                 return Option<bool>(400, "Default sorting field `" + default_sorting_field +
-                                                "` must be a single valued numerical field.");
+                                                "` is not a sortable type.");
             }
 
             if(field.name == default_sorting_field) {
