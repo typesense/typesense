@@ -330,6 +330,7 @@ public:
         INIReader reader(this->config_file);
 
         if (reader.ParseError() != 0) {
+            LOG(ERROR) << "Error while parsing config file, code = " << reader.ParseError();
             config_file_validity = -1;
             return ;
         }
