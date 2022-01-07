@@ -2217,6 +2217,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         }
 
         //auto begin0 = std::chrono::high_resolution_clock::now();
+        /*size_t total_q_tokens = field_query_tokens[0].q_include_tokens.size();
+        for(const auto& phrase: field_query_tokens[0].q_phrases) {
+            total_q_tokens += phrase.size();
+        }*/
 
         for(auto& seq_id_kvs: topster_ids) {
             const uint64_t seq_id = seq_id_kvs.first;
@@ -2240,7 +2244,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             uint32_t token_bits = (uint32_t(1) << 31);      // top most bit set to guarantee atleast 1 bit set
             uint64_t total_typos = 0, total_distances = 0, min_typos = 1000;
 
-            uint64_t verbatim_match_fields = 0;        // query matching field verbatim
+            uint64_t verbatim_match_fields = 0;        // field value *exactly* same as query tokens
             uint64_t exact_match_fields = 0;           // number of fields that contains all of query tokens
             uint64_t max_weighted_tokens_match = 0;    // weighted max number of tokens matched in a field
             uint64_t total_token_matches = 0;          // total matches across fields (including fuzzy ones)
@@ -2253,10 +2257,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                 const size_t weight = search_fields[i].weight;
 
                 //LOG(INFO) << "--- field index: " << i << ", priority: " << priority;
-                // using `5` here because typo + prefix combo score range is: 0 - 5
-                // 0    1    2
-                // 0,1  2,3  4,5
-                int64_t MAX_SUM_TYPOS = 5 * field_query_tokens[i].q_include_tokens.size();
 
                 if(existing_field_kvs.count(field_id) != 0) {
                     // for existing field, we will simply sum field-wise weighted scores
@@ -2298,13 +2298,11 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                     continue;
                 }
 
-                const std::string& field = search_fields[i].name;
-                const bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
-
                 // compute approximate match score for this field from actual query
-
+                const std::string& field = search_fields[i].name;
                 size_t words_present = 0;
 
+                // FIXME: must consider phrase tokens also
                 for(size_t token_index=0; token_index < field_query_tokens[i].q_include_tokens.size(); token_index++) {
                     const auto& token = field_query_tokens[i].q_include_tokens[token_index];
                     const art_leaf* leaf = (art_leaf *) art_search(search_index.at(field), (const unsigned char*) token.c_str(),
@@ -2367,13 +2365,13 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             // protect most significant byte from overflow, since topster uses int64_t
             verbatim_match_fields = std::min<uint64_t>(INT8_MAX, verbatim_match_fields);
 
+            exact_match_fields += verbatim_match_fields;
             exact_match_fields = std::min<uint64_t>(255, exact_match_fields);
             max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
             total_typos = std::min<uint64_t>(255, total_typos);
             total_distances = std::min<uint64_t>(100, total_distances);
 
             uint64_t aggregated_score = (
-                (verbatim_match_fields << 56)  |      // field value *exactly* same as query tokens
                 (exact_match_fields << 48)  |         // number of fields that contain *all tokens* in the query
                 (max_weighted_tokens_match << 40) |   // weighted max number of tokens matched in a field
                 (uniq_tokens_found << 32)   |         // number of unique tokens found across fields including typos
