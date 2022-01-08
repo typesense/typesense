@@ -2245,42 +2245,6 @@ TEST_F(CollectionSpecificTest, HandleLargeWeights) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, DISABLED_ExactMatchOnAFieldIgnoresOtherFieldScores) {
-    std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("description", field_types::STRING, false),
-                                 field("points", field_types::INT32, false),};
-
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
-
-    nlohmann::json doc1;
-    doc1["id"] = "0";
-    doc1["title"] = "Mark Antony";
-    doc1["description"] = "Marriage Counsellor";
-    doc1["points"] = 100;
-
-    nlohmann::json doc2;
-    doc2["id"] = "1";
-    doc2["title"] = "Mark Spencer";
-    doc2["description"] = "Sales Expert";
-    doc2["points"] = 200;
-
-    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
-    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
-
-    auto results = coll1->search("mark", {"title", "description"},
-                                 "", {}, {}, {2, 2}, 10,
-                                 1, FREQUENCY, {true, true},
-                                 10, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {3, 1}, 1000, true).get();
-
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-
-    collectionManager.drop_collection("coll1");
-}
-
 TEST_F(CollectionSpecificTest, VerbatimMatchShouldNotOverpowerHigherWeightedField) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),

@@ -127,6 +127,8 @@ private:
 
     const uint8_t CURATED_RECORD_IDENTIFIER = 100;
 
+    const size_t DEFAULT_TOPSTER_SIZE = 250;
+
     struct highlight_t {
         std::string field;
         std::vector<std::string> snippets;
@@ -240,6 +242,9 @@ private:
     Index* init_index();
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
+
+    Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
+                                                      std::vector<sort_by>& sort_fields_std) const;
 
 public:
 

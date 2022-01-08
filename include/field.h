@@ -562,25 +562,30 @@ struct sort_by {
     std::string name;
     std::string order;
 
+    // for text_match score bucketing
+    uint32_t text_match_buckets;
+
     // geo related fields
     int64_t geopoint;
     uint32_t exclude_radius;
     uint32_t geo_precision;
 
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), geopoint(0), exclude_radius(0), geo_precision(0) {
+        name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0) {
 
     }
 
-    sort_by(const std::string &name, const std::string &order, int64_t geopoint,
+    sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
             uint32_t exclude_radius, uint32_t geo_precision) :
-            name(name), order(order), geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
+            name(name), order(order), text_match_buckets(text_match_buckets),
+            geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
 
     }
 
     sort_by& operator=(const sort_by& other) {
         name = other.name;
         order = other.order;
+        text_match_buckets = other.text_match_buckets;
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;

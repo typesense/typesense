@@ -473,6 +473,169 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
     }
 }
 
+Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
+                                                              std::vector<sort_by>& sort_fields_std) const {
+
+    for(const sort_by& _sort_field: sort_fields) {
+        sort_by sort_field_std(_sort_field.name, _sort_field.order);
+
+        if(sort_field_std.name.back() == ')') {
+            // check if this is a geo field or text match field
+            size_t paran_start = 0;
+            while(paran_start < sort_field_std.name.size() && sort_field_std.name[paran_start] != '(') {
+                paran_start++;
+            }
+
+            const std::string& actual_field_name = sort_field_std.name.substr(0, paran_start);
+
+            if(actual_field_name == sort_field_const::text_match) {
+                std::vector<std::string> match_parts;
+                const std::string& match_config = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+                StringUtils::split(match_config, match_parts, ":");
+                if(match_parts.size() != 2 || match_parts[0] != "buckets") {
+                    return Option<bool>(400, "Invalid sorting parameter passed for _text_match.");
+                }
+
+                if(!StringUtils::is_uint32_t(match_parts[1])) {
+                    return Option<bool>(400, "Invalid value passed for _text_match `buckets` configuration.");
+                }
+
+                sort_field_std.name = actual_field_name;
+                sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+
+            } else {
+                if(sort_schema.count(actual_field_name) == 0) {
+                    std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
+                    return Option<bool>(404, error);
+                }
+
+                const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+
+                // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
+
+                std::vector<std::string> geo_parts;
+                StringUtils::split(geo_coordstr, geo_parts, ",");
+
+                std::string error = "Bad syntax for geopoint sorting field `" + actual_field_name + "`";
+
+                if(geo_parts.size() != 2 && geo_parts.size() != 3) {
+                    return Option<bool>(400, error);
+                }
+
+                if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
+                    return Option<bool>(400, error);
+                }
+
+                if(geo_parts.size() == 3) {
+                    // try to parse the exclude radius option
+                    bool is_exclude_option = false;
+
+                    if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                        is_exclude_option = true;
+                    } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
+                        is_exclude_option = false;
+                    } else {
+                        return Option<bool>(400, error);
+                    }
+
+                    std::vector<std::string> param_parts;
+                    StringUtils::split(geo_parts[2], param_parts, ":");
+
+                    if(param_parts.size() != 2) {
+                        return Option<bool>(400, error);
+                    }
+
+                    std::vector<std::string> param_value_parts;
+                    StringUtils::split(param_parts[1], param_value_parts, " ");
+
+                    if(param_value_parts.size() != 2) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(!StringUtils::is_float(param_value_parts[0])) {
+                        return Option<bool>(400, error);
+                    }
+
+                    int32_t value_meters;
+
+                    if(param_value_parts[1] == "km") {
+                        value_meters = std::stof(param_value_parts[0]) * 1000;
+                    } else if(param_value_parts[1] == "mi") {
+                        value_meters = std::stof(param_value_parts[0]) * 1609.34;
+                    } else {
+                        return Option<bool>(400, "Sort field's parameter "
+                                                 "unit must be either `km` or `mi`.");
+                    }
+
+                    if(value_meters <= 0) {
+                        return Option<bool>(400, "Sort field's parameter must be a positive number.");
+                    }
+
+                    if(is_exclude_option) {
+                        sort_field_std.exclude_radius = value_meters;
+                    } else {
+                        sort_field_std.geo_precision = value_meters;
+                    }
+                }
+
+                double lat = std::stod(geo_parts[0]);
+                double lng = std::stod(geo_parts[1]);
+                int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
+                sort_field_std.name = actual_field_name;
+                sort_field_std.geopoint = lat_lng;
+            }
+        }
+
+        if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
+            std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
+            return Option<bool>(404, error);
+        }
+
+        StringUtils::toupper(sort_field_std.order);
+
+        if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
+            std::string error = "Order for field` " + sort_field_std.name + "` should be either ASC or DESC.";
+            return Option<bool>(400, error);
+        }
+
+        sort_fields_std.emplace_back(sort_field_std);
+    }
+
+    /*
+      1. Empty: [match_score, dsf] upstream
+      2. ONE  : [usf, match_score]
+      3. TWO  : [usf1, usf2, match_score]
+      4. THREE: do nothing
+    */
+    if(sort_fields_std.empty()) {
+        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+        if(!default_sorting_field.empty()) {
+            sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
+        } else {
+            sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
+        }
+    }
+
+    bool found_match_score = false;
+    for(const auto & sort_field : sort_fields_std) {
+        if(sort_field.name == sort_field_const::text_match) {
+            found_match_score = true;
+            break;
+        }
+    }
+
+    if(!found_match_score && sort_fields.size() < 3) {
+        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+    }
+
+    if(sort_fields_std.size() > 3) {
+        std::string message = "Only upto 3 sort_by fields can be specified.";
+        return Option<bool>(422, message);
+    }
+
+    return Option<bool>(true);
+}
+
 Option<nlohmann::json> Collection::search(const std::string & raw_query, const std::vector<std::string>& search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
@@ -655,145 +818,24 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     // validate sort fields and standardize
 
     std::vector<sort_by> sort_fields_std;
-
-    for(const sort_by& _sort_field: sort_fields) {
-        sort_by sort_field_std(_sort_field.name, _sort_field.order);
-
-        if(sort_field_std.name.back() == ')') {
-            // check if this is a geo field
-            size_t paran_start = 0;
-            while(paran_start < sort_field_std.name.size() && sort_field_std.name[paran_start] != '(') {
-                paran_start++;
-            }
-
-            const std::string& actual_field_name = sort_field_std.name.substr(0, paran_start);
-
-            if(sort_schema.count(actual_field_name) == 0) {
-                std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
-                return Option<nlohmann::json>(404, error);
-            }
-
-            const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
-
-            // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
-
-            std::vector<std::string> geo_parts;
-            StringUtils::split(geo_coordstr, geo_parts, ",");
-
-            std::string error = "Bad syntax for geopoint sorting field `" + actual_field_name + "`";
-
-            if(geo_parts.size() != 2 && geo_parts.size() != 3) {
-                return Option<nlohmann::json>(400, error);
-            }
-
-            if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
-                return Option<nlohmann::json>(400, error);
-            }
-
-            if(geo_parts.size() == 3) {
-                // try to parse the exclude radius option
-                bool is_exclude_option = false;
-
-                if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
-                    is_exclude_option = true;
-                } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
-                    is_exclude_option = false;
-                } else {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                std::vector<std::string> param_parts;
-                StringUtils::split(geo_parts[2], param_parts, ":");
-
-                if(param_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                std::vector<std::string> param_value_parts;
-                StringUtils::split(param_parts[1], param_value_parts, " ");
-
-                if(param_value_parts.size() != 2) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                if(!StringUtils::is_float(param_value_parts[0])) {
-                    return Option<nlohmann::json>(400, error);
-                }
-
-                int32_t value_meters;
-
-                if(param_value_parts[1] == "km") {
-                    value_meters = std::stof(param_value_parts[0]) * 1000;
-                } else if(param_value_parts[1] == "mi") {
-                    value_meters = std::stof(param_value_parts[0]) * 1609.34;
-                } else {
-                    return Option<nlohmann::json>(400, "Sort field's parameter "
-                                                       "unit must be either `km` or `mi`.");
-                }
-
-                if(value_meters <= 0) {
-                    return Option<nlohmann::json>(400, "Sort field's parameter must be a positive number.");
-                }
-
-                if(is_exclude_option) {
-                    sort_field_std.exclude_radius = value_meters;
-                } else {
-                    sort_field_std.geo_precision = value_meters;
-                }
-            }
-
-            double lat = std::stod(geo_parts[0]);
-            double lng = std::stod(geo_parts[1]);
-            int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
-            sort_field_std.name = actual_field_name;
-            sort_field_std.geopoint = lat_lng;
-        }
-
-        if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
-            std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
-            return Option<nlohmann::json>(404, error);
-        }
-
-        StringUtils::toupper(sort_field_std.order);
-
-        if(sort_field_std.order != sort_field_const::asc && sort_field_std.order != sort_field_const::desc) {
-            std::string error = "Order for field` " + sort_field_std.name + "` should be either ASC or DESC.";
-            return Option<nlohmann::json>(400, error);
-        }
-
-        sort_fields_std.emplace_back(sort_field_std);
+    auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std);
+    if(!sort_validation_op.ok()) {
+        return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
     }
 
-    /*
-      1. Empty: [match_score, dsf] upstream
-      2. ONE  : [usf, match_score]
-      3. TWO  : [usf1, usf2, match_score]
-      4. THREE: do nothing
-    */
-    if(sort_fields_std.empty()) {
-        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
-        if(!default_sorting_field.empty()) {
-            sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
-        } else {
-            sort_fields_std.emplace_back(sort_field_const::seq_id, sort_field_const::desc);
-        }
-    }
+    // apply bucketing on text match score
+    int match_score_index = -1;
+    for(size_t i = 0; i < sort_fields_std.size(); i++) {
+        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
+            match_score_index = i;
 
-    bool found_match_score = false;
-    for(const auto & sort_field : sort_fields_std) {
-        if(sort_field.name == sort_field_const::text_match) {
-            found_match_score = true;
+            if(sort_fields_std[i].text_match_buckets > 1) {
+                // we will disable prioritize exact match because it's incompatible with bucketing
+                prioritize_exact_match = false;
+            }
+
             break;
         }
-    }
-
-    if(!found_match_score && sort_fields.size() < 3) {
-        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
-    }
-
-    if(sort_fields_std.size() > 3) {
-        std::string message = "Only upto 3 sort_by fields can be specified.";
-        return Option<nlohmann::json>(422, message);
     }
 
     // check for valid pagination
@@ -813,7 +855,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         return Option<nlohmann::json>(422, message);
     }
 
-    size_t max_hits = 250;
+    size_t max_hits = DEFAULT_TOPSTER_SIZE;
 
     // ensure that `max_hits` never exceeds number of documents in collection
     if(search_fields.size() <= 1 || raw_query == "*") {
@@ -965,8 +1007,28 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         total_found = search_params->all_result_ids_len;
     }
 
-    // All fields are sorted descending
-    std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
+    if(match_score_index >= 0 && sort_fields_std[match_score_index].text_match_buckets > 1) {
+        size_t num_buckets = sort_fields_std[match_score_index].text_match_buckets;
+
+        const size_t max_kvs_bucketed = std::min<size_t>(DEFAULT_TOPSTER_SIZE, raw_result_kvs.size());
+        std::vector<int64_t> result_scores(max_kvs_bucketed);
+
+        // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
+        for(size_t i = 0; i < max_kvs_bucketed; i++) {
+            result_scores[i] = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+            size_t block_index = (i / num_buckets) * num_buckets;
+            int64_t text_match = raw_result_kvs[block_index][0]->scores[raw_result_kvs[block_index][0]->match_score_index];
+            raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = text_match;
+        }
+
+        // sort again based on bucketed match score
+        std::sort(raw_result_kvs.begin(), raw_result_kvs.end(), Topster::is_greater_kv_group);
+
+        // restore original scores
+        for(size_t i = 0; i < max_kvs_bucketed; i++) {
+            raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = result_scores[i];
+        }
+    }
 
     // Sort based on position in overridden list
     std::sort(
