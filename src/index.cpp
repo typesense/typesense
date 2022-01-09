@@ -1367,7 +1367,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 std::vector<uint32_t> geo_result_ids;
 
                 std::vector<std::string> filter_value_parts;
-                StringUtils::split(filter_value, filter_value_parts, ",");  // x, y, 2 km (or) list of points
+                StringUtils::split(filter_value, filter_value_parts, ",");  // x, y, 2, km (or) list of points
 
                 bool is_polygon = StringUtils::is_float(filter_value_parts.back());
                 S2Region* query_region;

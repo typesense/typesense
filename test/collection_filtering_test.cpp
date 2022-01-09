@@ -1051,6 +1051,16 @@ TEST_F(CollectionFilteringTest, GeoPointFiltering) {
     ASSERT_FALSE(add_op.ok());
     ASSERT_EQ("Field `loc` must be a 2 element array: [lat, lng].", add_op.error());
 
+    bad_doc["loc"] = "loc: (48.910544830985785, 2.337218333651177, 2k)";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a 2 element array: [lat, lng].", add_op.error());
+
+    bad_doc["loc"] = "loc: (48.910544830985785, 2.337218333651177, 2)";
+    add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::REJECT);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `loc` must be a 2 element array: [lat, lng].", add_op.error());
+
     bad_doc["loc"] = {"foo", "bar"};
     add_op = coll1->add(bad_doc.dump(), CREATE, "", DIRTY_VALUES::COERCE_OR_REJECT);
     ASSERT_FALSE(add_op.ok());
@@ -1134,7 +1144,7 @@ TEST_F(CollectionFilteringTest, GeoPointArrayFiltering) {
 
     // pick a location close to Chennai
     auto results = coll1->search("*",
-                                 {}, "loc: (13.12631, 80.20252, 100 km)",
+                                 {}, "loc: (13.12631, 80.20252, 100km)",
                                  {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -1161,7 +1171,7 @@ TEST_F(CollectionFilteringTest, GeoPointArrayFiltering) {
     // 1 mile radius
 
     results = coll1->search("*",
-                            {}, "loc: (12.98941, 80.23073, 1 mi)",
+                            {}, "loc: (12.98941, 80.23073, 1mi)",
                             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());

@@ -608,7 +608,7 @@ TEST_F(CollectionSortingTest, GeoPointSorting) {
     };
 
     auto results = coll1->search("*",
-                            {}, "loc: (48.84442912268208, 2.3490714964332353, 20 km)",
+                            {}, "loc: (48.84442912268208, 2.3490714964332353, 20km)",
                             {}, geo_sort_fields, {0}, 10, 1, FREQUENCY).get();
 
     ASSERT_EQ(10, results["found"].get<size_t>());
@@ -739,7 +739,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
     }
 
     std::vector<sort_by> geo_sort_fields = {
-        sort_by("loc(32.24348, 77.1893, exclude_radius: 1 km)", "ASC"),
+        sort_by("loc(32.24348, 77.1893, exclude_radius: 1km)", "ASC"),
         sort_by("points", "DESC"),
     };
 
@@ -800,6 +800,25 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
 
     ASSERT_FALSE(res_op.ok());
     ASSERT_EQ("Sort field's parameter must be a positive number.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: 10 km 20 mi)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: 1k)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Sort field's parameter unit must be either `km` or `mi`.", res_op.error());
+
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: 5)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }

@@ -16,7 +16,7 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
     auto raw_val_without_paran = raw_value.substr(1, raw_value.size() - 2);
     StringUtils::split(raw_val_without_paran, filter_values, ",");
 
-    // we will end up with: "10.45 34.56 2 km" or a geo polygon
+    // we will end up with: "10.45 34.56 2 km" or "10.45 34.56 2mi" or a geo polygon
 
     if(filter_values.size() < 3) {
         return Option<bool>(400, format_err_msg);
@@ -43,19 +43,30 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
         processed_filter_val = raw_val_without_paran;
     } else {
         // point + radius
-        std::vector<std::string> dist_values;
-        StringUtils::split(filter_values[2], dist_values, " ");
-
-        if(dist_values.size() != 2) {
-            return Option<bool>(400, format_err_msg);
-        }
-
-        if(dist_values[1] != "km" && dist_values[1] != "mi") {
+        // filter_values[2] is distance, get the unit, validate it and split on that
+        if(filter_values[2].size() < 2) {
             return Option<bool>(400, "Unit must be either `km` or `mi`.");
         }
 
+        std::string unit = filter_values[2].substr(filter_values[2].size()-2, 2);
+
+        if(unit != "km" && unit != "mi") {
+            return Option<bool>(400, "Unit must be either `km` or `mi`.");
+        }
+
+        std::vector<std::string> dist_values;
+        StringUtils::split(filter_values[2], dist_values, unit);
+
+        if(dist_values.size() != 1) {
+            return Option<bool>(400, format_err_msg);
+        }
+
+        if(!StringUtils::is_float(dist_values[0])) {
+            return Option<bool>(400, format_err_msg);
+        }
+
         processed_filter_val = filter_values[0] + ", " + filter_values[1] + ", " + // co-ords
-                               dist_values[0] + ", " +  dist_values[1];           // X km
+                               dist_values[0] + ", " +  unit;           // X km
     }
 
     return Option<bool>(true);
