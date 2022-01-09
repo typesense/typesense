@@ -486,15 +486,28 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
                 sort_field_expr += sort_by_str[i];
             }
 
-            std::vector<std::string> expression_parts;
-            StringUtils::split(sort_field_expr, expression_parts, ":");
+            int colon_index = sort_field_expr.size()-1;
 
-            if(expression_parts.size() != 2) {
+            while(colon_index >= 0) {
+                if(sort_field_expr[colon_index] == ':') {
+                    break;
+                }
+
+                colon_index--;
+            }
+
+            if(colon_index < 0 || colon_index+1 == sort_field_expr.size()) {
                 return false;
             }
 
-            StringUtils::toupper(expression_parts[1]);
-            sort_fields.emplace_back(expression_parts[0], expression_parts[1]);
+            std::string order_str = sort_field_expr.substr(colon_index+1, sort_field_expr.size()-colon_index+1);
+            StringUtils::trim(order_str);
+            StringUtils::toupper(order_str);
+
+            std::string field_name = sort_field_expr.substr(0, colon_index);
+            StringUtils::trim(field_name);
+
+            sort_fields.emplace_back(field_name, order_str);
             sort_field_expr = "";
         } else {
             sort_field_expr += sort_by_str[i];

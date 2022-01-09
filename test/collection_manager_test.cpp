@@ -617,7 +617,7 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
 
     sort_fields.clear();
 
-    sort_by_parsed = CollectionManager::parse_sort_by_str(" loc(24.56,10.45):ASC, points:desc ", sort_fields);
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" loc(24.56,10.45):ASC, points: desc ", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
 
     ASSERT_STREQ("loc(24.56,10.45)", sort_fields[0].name.c_str());
@@ -627,9 +627,29 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_STREQ("DESC", sort_fields[1].order.c_str());
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" location(48.853, 2.344, exclude_radius: 2mi):asc,popularity:desc", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("location(48.853, 2.344, exclude_radius: 2mi)", sort_fields[0].name);
+    ASSERT_STREQ("ASC", sort_fields[0].order.c_str());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" _text_match(buckets: 10):ASC, points:desc ", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("_text_match(buckets: 10)", sort_fields[0].name);
+    ASSERT_EQ("ASC", sort_fields[0].order);
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(0, sort_fields.size());
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("foobar:", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
+
+    sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("foobar:,bar:desc", sort_fields);
+    ASSERT_FALSE(sort_by_parsed);
 
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(",", sort_fields);
@@ -638,5 +658,4 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
     ASSERT_FALSE(sort_by_parsed);
-
 }
