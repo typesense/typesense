@@ -2212,6 +2212,38 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, PhraseSearchMultipleFields) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Dog Shoemaker";
+    doc1["description"] = "A book about a dog and a shoemaker";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Dog and cat";
+    doc2["description"] = "A book about two animals.";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search(R"("dog shoemaker")", {"title", "description"},
+                                 "", {}, {}, {2, 2}, 10, 1, FREQUENCY, {true, true}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search(R"("dog and cat")", {"title", "description"},
+                            "", {}, {}, {2, 2}, 10, 1, FREQUENCY, {true, true}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSpecificTest, HandleLargeWeights) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),

@@ -738,7 +738,7 @@ public:
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
 
-    void search_wildcard(const std::vector<std::string>& qtokens, const std::vector<filter>& filters,
+    void search_wildcard(const std::vector<filter>& filters,
                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
                          const std::vector<sort_by>& sort_fields_std, Topster* topster, Topster* curated_topster,
                          spp::sparse_hash_set<uint64_t>& groups_processed,
