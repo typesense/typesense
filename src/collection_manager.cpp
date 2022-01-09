@@ -584,6 +584,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
+    const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
@@ -702,6 +703,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[EXHAUSTIVE_SEARCH] = "false";
     }
 
+    if(req_params.count(SPLIT_JOIN_TOKENS) == 0) {
+        req_params[SPLIT_JOIN_TOKENS] = "true";
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -778,6 +783,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
     bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
     bool exhaustive_search = (req_params[EXHAUSTIVE_SEARCH] == "true");
+    bool split_join_tokens = (req_params[SPLIT_JOIN_TOKENS] == "true");
 
     std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
 
@@ -883,7 +889,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           enable_overrides,
                                                           req_params[HIGHLIGHT_FIELDS],
                                                           exhaustive_search,
-                                                          static_cast<size_t>(std::stol(req_params[SEARCH_CUTOFF_MS]))
+                                                          static_cast<size_t>(std::stol(req_params[SEARCH_CUTOFF_MS])),
+                                                          static_cast<size_t>(std::stol(req_params[MIN_LEN_1TYPO])),
+                                                          static_cast<size_t>(std::stol(req_params[MIN_LEN_2TYPO])),
+                                                          split_join_tokens
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

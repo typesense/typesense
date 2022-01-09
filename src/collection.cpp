@@ -677,7 +677,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const bool exhaustive_search,
                                   const size_t search_stop_millis,
                                   const size_t min_len_1typo,
-                                  const size_t min_len_2typo) const {
+                                  const size_t min_len_2typo,
+                                  bool split_join_tokens) const {
 
     std::shared_lock lock(mutex);
 
@@ -968,8 +969,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             synonym_reduction(field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_synonyms);
 
             std::vector<std::vector<std::string>> space_resolved_queries;
-            index->resolve_space_as_typos(field_query_tokens[i].q_include_tokens, search_field,
-                                          space_resolved_queries);
+
+            if(split_join_tokens) {
+                index->resolve_space_as_typos(field_query_tokens[i].q_include_tokens, search_field,
+                                              space_resolved_queries);
+            }
 
             // only one query is resolved for now, so just use that
             if(!space_resolved_queries.empty()) {
