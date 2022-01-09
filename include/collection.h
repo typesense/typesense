@@ -393,7 +393,8 @@ public:
                                   const bool exhaustive_search = false,
                                   size_t search_stop_millis = 6000*1000,
                                   size_t min_len_1typo = 4,
-                                  size_t min_len_2typo = 7) const;
+                                  size_t min_len_2typo = 7,
+                                  bool split_join_tokens = true) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
