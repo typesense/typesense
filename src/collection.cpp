@@ -545,23 +545,35 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                         return Option<bool>(400, error);
                     }
 
-                    std::vector<std::string> param_value_parts;
-                    StringUtils::split(param_parts[1], param_value_parts, " ");
+                    // param_parts[1] is the value, in either "20km" or "20 km" format
 
-                    if(param_value_parts.size() != 2) {
+                    if(param_parts[1].size() < 2) {
                         return Option<bool>(400, error);
                     }
 
-                    if(!StringUtils::is_float(param_value_parts[0])) {
+                    std::string unit = param_parts[1].substr(param_parts[1].size()-2, 2);
+
+                    if(unit != "km" && unit != "mi") {
+                        return Option<bool>(400, "Sort field's parameter unit must be either `km` or `mi`.");
+                    }
+
+                    std::vector<std::string> dist_values;
+                    StringUtils::split(param_parts[1], dist_values, unit);
+
+                    if(dist_values.size() != 1) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(!StringUtils::is_float(dist_values[0])) {
                         return Option<bool>(400, error);
                     }
 
                     int32_t value_meters;
 
-                    if(param_value_parts[1] == "km") {
-                        value_meters = std::stof(param_value_parts[0]) * 1000;
-                    } else if(param_value_parts[1] == "mi") {
-                        value_meters = std::stof(param_value_parts[0]) * 1609.34;
+                    if(unit == "km") {
+                        value_meters = std::stof(dist_values[0]) * 1000;
+                    } else if(unit == "mi") {
+                        value_meters = std::stof(dist_values[0]) * 1609.34;
                     } else {
                         return Option<bool>(400, "Sort field's parameter "
                                                  "unit must be either `km` or `mi`.");
