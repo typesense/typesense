@@ -1629,7 +1629,8 @@ void Index::run_search(search_args* search_params) {
            search_params->concurrency,
            search_params->search_cutoff_ms,
            search_params->min_len_1typo,
-           search_params->min_len_2typo);
+           search_params->min_len_2typo,
+           search_params->max_candidates);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1974,7 +1975,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             search_field(0, window_tokens, search_tokens, nullptr, 0, num_toks_dropped, field_it->second, field_name,
                          nullptr, 0, {}, {}, 2, searched_queries, topster, groups_processed,
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
-                         false, 4, query_hashes, token_order, false, 0, 1, false, 3, 7);
+                         false, 4, query_hashes, token_order, false, 0, 1, false, 3, 7, 4);
 
             delete [] result_ids;
 
@@ -2030,7 +2031,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const size_t concurrency,
                    const size_t search_cutoff_ms,
                    size_t min_len_1typo,
-                   size_t min_len_2typo) const {
+                   size_t min_len_2typo,
+                   const size_t max_candidates) const {
 
     search_begin = std::chrono::high_resolution_clock::now();
     search_stop_ms = search_cutoff_ms;
@@ -2258,7 +2260,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                                  field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                                  query_hashes, token_order, field_prefix,
                                  drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
-                                 min_len_1typo, min_len_2typo);
+                                 min_len_1typo, min_len_2typo, max_candidates);
                 } else if(actual_filter_ids_length != 0) {
                     // indicates exact match query
                     curate_filtered_ids(filters, curated_ids, exclude_token_ids,
@@ -2306,7 +2308,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                                      field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                                      query_hashes, token_order, field_prefix,
                                      drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
-                                     min_len_1typo, min_len_2typo);
+                                     min_len_1typo, min_len_2typo, max_candidates);
                     }
                 }
 
@@ -2702,7 +2704,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                          facet_field, facet_field.faceted_name(),
                          all_result_ids, all_result_ids_len, {}, {}, 2, searched_queries, topster, groups_processed,
                          &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
-                         false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, 3, 1000);
+                         false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, 3, 1000, 4);
 
             //LOG(INFO) << "searched_queries.size: " << searched_queries.size();
 
@@ -2974,7 +2976,8 @@ void Index::search_field(const uint8_t & field_id,
                          const size_t typo_tokens_threshold,
                          const bool exhaustive_search,
                          size_t min_len_1typo,
-                         size_t min_len_2typo) const {
+                         size_t min_len_2typo,
+                         const size_t max_candidates) const {
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
@@ -3013,7 +3016,6 @@ void Index::search_field(const uint8_t & field_id,
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
     const size_t combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
-    const size_t num_fuzzy_candidates = exhaustive_search ? 10000 : 4;
 
     while(n < N && n < combination_limit) {
         RETURN_CIRCUIT_BREAKER
@@ -3051,7 +3053,7 @@ void Index::search_field(const uint8_t & field_id,
 
                 // need less candidates for filtered searches since we already only pick tokens with results
                 art_fuzzy_search(search_index.at(field_name), (const unsigned char *) token.c_str(), token_len,
-                                 costs[token_index], costs[token_index], num_fuzzy_candidates, token_order, prefix_search,
+                                 costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                  filter_ids, filter_ids_length, leaves, unique_tokens);
 
                 /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -3168,7 +3170,7 @@ void Index::search_field(const uint8_t & field_id,
                             all_result_ids_len, field_num_results, group_limit, group_by_fields,
                             prioritize_exact_match, concurrency, query_hashes,
                             token_order, prefix, drop_tokens_threshold, typo_tokens_threshold,
-                            exhaustive_search, min_len_1typo, min_len_2typo);
+                            exhaustive_search, min_len_1typo, min_len_2typo, max_candidates);
     }
 }
 

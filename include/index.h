@@ -281,6 +281,7 @@ struct search_args {
     size_t search_cutoff_ms;
     size_t min_len_1typo;
     size_t min_len_2typo;
+    size_t max_candidates;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -305,7 +306,8 @@ struct search_args {
                 const std::vector<const override_t*>& dynamic_overrides,
                 size_t search_cutoff_ms,
                 size_t min_len_1typo,
-                size_t min_len_2typo):
+                size_t min_len_2typo,
+                size_t max_candidates):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -316,7 +318,7 @@ struct search_args {
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
             exhaustive_search(exhaustive_search), concurrency(concurrency),
             filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms),
-            min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo) {
+            min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -503,7 +505,8 @@ private:
                       size_t typo_tokens_threshold,
                       bool exhaustive_search,
                       size_t min_len_1typo,
-                      size_t min_len_2typo) const;
+                      size_t min_len_2typo,
+                      size_t max_candidates) const;
 
     void search_candidates(const uint8_t & field_id,
                            bool field_is_array,
@@ -688,7 +691,8 @@ public:
                 size_t concurrency,
                 size_t search_cutoff_ms,
                 size_t min_len_1typo,
-                size_t min_len_2typo) const;
+                size_t min_len_2typo,
+                size_t max_candidates) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 

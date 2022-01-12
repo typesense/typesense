@@ -678,7 +678,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t search_stop_millis,
                                   const size_t min_len_1typo,
                                   const size_t min_len_2typo,
-                                  bool split_join_tokens) const {
+                                  bool split_join_tokens,
+                                  const size_t max_candidates) const {
 
     std::shared_lock lock(mutex);
 
@@ -994,7 +995,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
                                                  exhaustive_search, 4, filter_overrides,
                                                  search_stop_millis,
-                                                 min_len_1typo, min_len_2typo);
+                                                 min_len_1typo, min_len_2typo, max_candidates);
 
     index->run_search(search_params);
 
