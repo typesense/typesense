@@ -2206,6 +2206,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                 }
             }
 
+            if(!field_query_tokens[i].q_phrases.empty() && phrase_match_ids_size == 0) {
+                continue;
+            }
+
             auto actual_filter_ids = filter_ids;
             auto actual_filter_ids_length = filter_ids_length;
 
@@ -2319,7 +2323,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             }
 
             if(phrase_match_ids_size != 0) {
-                delete actual_filter_ids;
+                delete [] actual_filter_ids;
             }
         }
 
