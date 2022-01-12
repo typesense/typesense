@@ -2241,6 +2241,11 @@ TEST_F(CollectionSpecificTest, PhraseSearchMultipleFields) {
 
     ASSERT_EQ(1, results["hits"].size());
 
+    results = coll1->search(R"("dog and cat")", {"title", "description"},
+                            "description: about", {}, {}, {2, 2}, 10, 1, FREQUENCY, {true, true}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
 
