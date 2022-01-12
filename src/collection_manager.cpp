@@ -565,6 +565,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *PINNED_HITS = "pinned_hits";
     const char *HIDDEN_HITS = "hidden_hits";
     const char *ENABLE_OVERRIDES = "enable_overrides";
+    const char *MAX_CANDIDATES = "max_candidates";
 
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
@@ -828,6 +829,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[ENABLE_OVERRIDES] = "true";
     }
 
+    if(req_params.count(MAX_CANDIDATES) == 0) {
+        req_params[MAX_CANDIDATES] = exhaustive_search ? "10000" : "4";
+    }
+
     bool enable_overrides = (req_params[ENABLE_OVERRIDES] == "true");
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
@@ -892,7 +897,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           static_cast<size_t>(std::stol(req_params[SEARCH_CUTOFF_MS])),
                                                           static_cast<size_t>(std::stol(req_params[MIN_LEN_1TYPO])),
                                                           static_cast<size_t>(std::stol(req_params[MIN_LEN_2TYPO])),
-                                                          split_join_tokens
+                                                          split_join_tokens,
+                                                          static_cast<size_t>(std::stol(req_params[MAX_CANDIDATES]))
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
