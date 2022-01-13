@@ -2097,19 +2097,28 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             std::vector<uint32_t> contains_ids;
             posting_t::intersect(posting_lists, contains_ids);
 
-            uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
-            size_t phrase_ids_size = 0;
+            if(posting_lists.size() == 1) {
+                uint32_t *exclude_token_ids_merged = nullptr;
+                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                               &contains_ids[0], contains_ids.size(),
+                                                               &exclude_token_ids_merged);
+                delete [] exclude_token_ids;
+                exclude_token_ids = exclude_token_ids_merged;
+            } else {
+                uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
+                size_t phrase_ids_size = 0;
 
-            posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
-                                          phrase_ids, phrase_ids_size);
+                posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
+                                              phrase_ids, phrase_ids_size);
 
-            uint32_t *exclude_token_ids_merged = nullptr;
-            exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
-                                                           phrase_ids, phrase_ids_size,
-                                                           &exclude_token_ids_merged);
-            delete [] phrase_ids;
-            delete [] exclude_token_ids;
-            exclude_token_ids = exclude_token_ids_merged;
+                uint32_t *exclude_token_ids_merged = nullptr;
+                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                               phrase_ids, phrase_ids_size,
+                                                               &exclude_token_ids_merged);
+                delete [] phrase_ids;
+                delete [] exclude_token_ids;
+                exclude_token_ids = exclude_token_ids_merged;
+            }
         }
     }
 
