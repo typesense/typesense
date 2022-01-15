@@ -2332,3 +2332,37 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldNotOverpowerHigherWeightedFiel
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, DropTokensTillOneToken) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Harry";
+    doc1["description"] = "Malcolm Roscow";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Malcolm";
+    doc2["description"] = "Something 2";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Roscow";
+    doc3["description"] = "Something 3";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("harry malcolm roscow", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
