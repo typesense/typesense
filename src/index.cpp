@@ -3162,16 +3162,15 @@ void Index::search_field(const uint8_t & field_id,
         std::vector<token_t> truncated_tokens;
         num_tokens_dropped++;
 
-        size_t mid_index = (query_tokens.size() / 2);
-        if(num_tokens_dropped <= mid_index) {
+        if(num_tokens_dropped < query_tokens.size()) {
             // drop from right
-            size_t end_index = (query_tokens.size() - 1) - num_tokens_dropped;
+            size_t end_index = query_tokens.size() - num_tokens_dropped - 1;
             for(size_t i=0; i <= end_index; i++) {
                 truncated_tokens.emplace_back(query_tokens[i].position, query_tokens[i].value, query_tokens[i].prefix);
             }
         } else {
             // drop from left
-            size_t start_index = (num_tokens_dropped - mid_index);
+            size_t start_index = (num_tokens_dropped - query_tokens.size() + 1);
             for(size_t i=start_index; i<query_tokens.size(); i++) {
                 truncated_tokens.emplace_back(query_tokens[i].position, query_tokens[i].value, query_tokens[i].prefix);
             }
