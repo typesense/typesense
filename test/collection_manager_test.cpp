@@ -633,6 +633,12 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_STREQ("ASC", sort_fields[0].order.c_str());
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str(" location(48.853, 2.344, precision: 2mi):asc,popularity:desc", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("location(48.853, 2.344, precision: 2mi)", sort_fields[0].name);
+    ASSERT_STREQ("ASC", sort_fields[0].order.c_str());
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str(" _text_match(buckets: 10):ASC, points:desc ", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ("_text_match(buckets: 10)", sort_fields[0].name);
