@@ -778,10 +778,23 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
         ASSERT_STREQ(expected_ids[i].c_str(), results["hits"][i]["document"]["id"].get<std::string>().c_str());
     }
 
+    geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: 2mi)", "ASC") };
+    auto res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+    ASSERT_TRUE(res_op.ok());
+
+    // bad vertex -- Edge 0 is degenerate (duplicate vertex)
+    geo_sort_fields = { sort_by("loc(28.7040592, 77.10249019999999)", "ASC") };
+    res_op = coll1->search("*", {}, "loc: (28.7040592, 77.10249019999999, 28.7040592, "
+                                    "77.10249019999999, 28.7040592, 77.10249019999999, 28.7040592, 77.10249019999999)",
+                           {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(0, res_op.get()["found"].get<size_t>());
+
     // badly formatted exclusion filter
 
     geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius 1 km)", "ASC") };
-    auto res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
+    res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());

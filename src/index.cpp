@@ -1391,7 +1391,15 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                         std::reverse(vertices.begin(), vertices.end());
                     }
 
-                    query_region = new S2Loop(vertices);
+                    auto loop = new S2Loop(vertices, S2Debug::DISABLE);
+                    S2Error error;
+                    if (loop->FindValidationError(&error)) {
+                        LOG(ERROR) << "Query vertex is bad, skipping. Error: " << error;
+                        delete loop;
+                        continue;
+                    } else {
+                        query_region = loop;
+                    }
                 } else {
                     double radius = std::stof(filter_value_parts[2]);
                     const auto& unit = filter_value_parts[3];
