@@ -83,7 +83,7 @@ struct override_t {
     std::vector<drop_hit_t> drop_hits;
 
     std::string filter_by;
-    bool remove_matched_tokens = true;
+    bool remove_matched_tokens = false;
 
     override_t() = default;
 
@@ -101,8 +101,9 @@ struct override_t {
         }
 
         if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
-           override_json.count("filter_by") == 0) {
-            return Option<bool>(400, "Must contain one of:`includes`, `excludes`, `filter_by`.");
+           override_json.count("filter_by") == 0 && override_json.count("remove_matched_tokens") == 0) {
+            return Option<bool>(400, "Must contain one of:`includes`, `excludes`, "
+                                     "`filter_by`, `remove_matched_tokens`.");
         }
 
         if(override_json.count("includes") != 0) {
@@ -164,8 +165,6 @@ struct override_t {
             if (!override_json["remove_matched_tokens"].is_boolean()) {
                 return Option<bool>(400, "The `remove_matched_tokens` must be a boolean.");
             }
-
-            override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
         }
 
         if(!id.empty()) {
@@ -198,6 +197,12 @@ struct override_t {
 
         if (override_json.count("filter_by") != 0) {
             override.filter_by = override_json["filter_by"].get<std::string>();
+        }
+
+        if(override_json.count("remove_matched_tokens") != 0) {
+            override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
+        } else {
+            override.remove_matched_tokens = (override_json.count("filter_by") != 0);
         }
 
         // we have to also detect if it is a dynamic query rule
