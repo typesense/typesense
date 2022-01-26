@@ -263,7 +263,7 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of:`includes`, `excludes`, `filter_by`.", parse_op.error().c_str());
+    ASSERT_STREQ("Must contain one of:`includes`, `excludes`, `filter_by`, `remove_matched_tokens`.", parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
@@ -1645,6 +1645,103 @@ TEST_F(CollectionOverrideTest, StaticFilterWithAndWithoutQueryStringMutation) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, DynamicFilteringWithJustRemoveTokens) {
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),
+                                 field("brand", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["category"] = "shoes";
+    doc1["brand"] = "Nike";
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Track Gym";
+    doc2["category"] = "shoes";
+    doc2["brand"] = "Adidas";
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Running Shoes";
+    doc3["category"] = "sports";
+    doc3["brand"] = "Nike";
+    doc3["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC"), sort_by("points", "DESC")};
+
+    auto results = coll1->search("all", {"name", "category", "brand"}, "",
+                                 {}, sort_fields, {0, 0, 0}, 10).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    // with override, we return all records
+
+    nlohmann::json override_json = {
+        {"id",                    "match-all"},
+        {
+         "rule",                  {
+                                          {"query", "all"},
+                                          {"match", override_t::MATCH_EXACT}
+                                  }
+        },
+        {"remove_matched_tokens", true}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "match-all", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    results = coll1->search("all", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {0, 0, 0}, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+
+    results = coll1->search("really amazing shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {0, 0, 0}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // with contains
+    override_json = {
+            {"id",                    "remove-some-tokens"},
+            {
+             "rule",                  {
+                                              {"query", "really"},
+                                              {"match", override_t::MATCH_CONTAINS}
+                                      }
+            },
+            {"remove_matched_tokens", true}
+    };
+
+    override_t override2;
+    op = override_t::parse(override_json, "remove-some-tokens", override2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override2);
+
+    results = coll1->search("really amazing shoes", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {0, 0, 0}, 1).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

@@ -451,6 +451,16 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                         include_ids[hit.position].push_back(seq_id);
                     }
                 }
+
+                if(override.remove_matched_tokens) {
+                    StringUtils::replace_all(query, override.rule.query, "");
+                    StringUtils::trim(query);
+                    if(query.empty()) {
+                        query = "*";
+                    }
+
+                    actual_query = query;
+                }
             }
         }
     }
