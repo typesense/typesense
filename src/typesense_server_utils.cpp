@@ -72,6 +72,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("peering-address", '\0', "Internal IP address to which Typesense peering service binds.", false, "");
     options.add<uint32_t>("peering-port", '\0', "Port on which Typesense peering service listens.", false, 8107);
+    options.add<std::string>("peering-subnet", '\0', "Internal subnet that Typesense should use for peering.", false, "");
     options.add<std::string>("nodes", '\0', "Path to file containing comma separated string of all nodes in the cluster.", false);
 
     options.add<std::string>("ssl-certificate", 'c', "Path to the SSL certificate file.", false, "");
@@ -185,14 +186,43 @@ bool is_private_ip(uint32_t ip) {
     return false;
 }
 
-const char* get_internal_ip() {
+const char* get_internal_ip(const std::string& subnet_cidr) {
     struct ifaddrs *ifap;
     getifaddrs(&ifap);
+
+    uint32_t netip = 0, netbits = 0;
+
+    if(!subnet_cidr.empty()) {
+        std::vector<std::string> subnet_parts;
+        StringUtils::split(subnet_cidr, subnet_parts, "/");
+        if(subnet_parts.size() == 2) {
+            butil::ip_t subnet_addr;
+            auto res = butil::str2ip(subnet_parts[0].c_str(), &subnet_addr);
+            if(res == 0) {
+                netip = subnet_addr.s_addr;
+                if(StringUtils::is_uint32_t(subnet_parts[1])) {
+                    netbits = std::stoll(subnet_parts[1]);
+                }
+            }
+        }
+    }
+
+    if(netip != 0 && netbits != 0) {
+        LOG(INFO) << "Using subnet ip: " << netip << ", bits: " << netbits;
+    }
 
     for(auto ifa = ifap; ifa; ifa = ifa->ifa_next) {
         if (ifa->ifa_addr && ifa->ifa_addr->sa_family==AF_INET) {
             auto sa = (struct sockaddr_in *) ifa->ifa_addr;
-            if(is_private_ip(ntohl(sa->sin_addr.s_addr))) {
+            auto ipaddr = sa->sin_addr.s_addr;
+            if(is_private_ip(ntohl(ipaddr))) {
+                if(netip != 0 && netbits != 0) {
+                    unsigned int mask = 0xFFFFFFFF << (32 - netbits);
+                    if((ntohl(netip) & mask) != (ntohl(ipaddr) & mask)) {
+                        LOG(INFO) << "Skipping interface " << ifa->ifa_name << " as it does not match peering subnet.";
+                        continue;
+                    }
+                }
                 char *ip = inet_ntoa(sa->sin_addr);
                 freeifaddrs(ifap);
                 return ip;
@@ -200,13 +230,15 @@ const char* get_internal_ip() {
         }
     }
 
+    LOG(WARNING) << "Found no matching interfaces, using loopback address as internal IP.";
+
     freeifaddrs(ifap);
     return "127.0.0.1";
 }
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
-                      const std::string& peering_address, uint32_t peering_port, uint32_t api_port,
-                      int snapshot_interval_seconds) {
+                      const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
+                      uint32_t api_port, int snapshot_interval_seconds) {
 
     if(path_to_nodes.empty()) {
         LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
@@ -225,7 +257,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     if(!peering_address.empty()) {
         ip_conv_status = butil::str2ip(peering_address.c_str(), &peering_ip);
     } else {
-        const char* internal_ip = get_internal_ip();
+        const char* internal_ip = get_internal_ip(peering_subnet);
         ip_conv_status = butil::str2ip(internal_ip, &peering_ip);
     }
 
@@ -417,6 +449,7 @@ int run_server(const Config & config, const std::string & version, void (*master
         start_raft_server(replication_state, state_dir, path_to_nodes,
                           config.get_peering_address(),
                           config.get_peering_port(),
+                          config.get_peering_subnet(),
                           config.get_api_port(),
                           config.get_snapshot_interval_seconds());
 
