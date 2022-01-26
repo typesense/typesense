@@ -21,6 +21,8 @@ private:
 
     std::string peering_address;
     uint32_t peering_port;
+    std::string peering_subnet;
+
     std::string nodes;
 
     std::string master;
@@ -184,6 +186,10 @@ public:
         return this->peering_address;
     }
 
+    std::string get_peering_subnet() const {
+        return this->peering_subnet;
+    }
+
     int get_peering_port() const {
         return this->peering_port;
     }
@@ -268,6 +274,10 @@ public:
 
         if(!get_env("TYPESENSE_PEERING_PORT").empty()) {
             this->peering_port = std::stoi(get_env("TYPESENSE_PEERING_PORT"));
+        }
+
+        if(!get_env("TYPESENSE_PEERING_SUBNET").empty()) {
+            this->peering_subnet = get_env("TYPESENSE_PEERING_SUBNET");
         }
 
         this->nodes = get_env("TYPESENSE_NODES");
@@ -394,6 +404,10 @@ public:
             this->peering_port = reader.GetInteger("server", "peering-port", 8107);
         }
 
+        if(reader.Exists("server", "peering-subnet")) {
+            this->peering_subnet = reader.Get("server", "peering-subnet", "");
+        }
+
         if(reader.Exists("server", "nodes")) {
             this->nodes = reader.Get("server", "nodes", "");
         }
@@ -491,6 +505,10 @@ public:
 
         if(options.exist("peering-port")) {
             this->peering_port = options.get<uint32_t>("peering-port");
+        }
+
+        if(options.exist("peering-subnet")) {
+            this->peering_subnet = options.get<std::string>("peering-subnet");
         }
 
         if(options.exist("nodes")) {
