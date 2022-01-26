@@ -360,4 +360,4 @@ Typesense requires the following dependencies:
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
 ---
-&copy; 2016-2021 Typesense Inc.
+&copy; 2016-present Typesense Inc.
