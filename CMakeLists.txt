@@ -89,6 +89,7 @@ FILE(GLOB SRC_FILES src/*.cpp ${DEP_ROOT_DIR}/${KAKASI_NAME}/data/*.cpp)
 FILE(GLOB TEST_FILES test/*.cpp)
 
 include_directories(include)
+include_directories(include/tsl)
 include_directories(/usr/local/include)
 include_directories(${OPENSSL_INCLUDE_DIR})
 include_directories(${CURL_INCLUDE_DIR})

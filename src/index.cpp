@@ -72,6 +72,16 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             art_tree_init(ft);
             search_index.emplace(fname_field.second.faceted_name(), ft);
         }
+
+        if(fname_field.second.infix) {
+            array_mapped_infix_t infix_sets(ARRAY_INFIX_DIM);
+
+            for(auto& infix_set: infix_sets) {
+                infix_set = new tsl::htrie_set<char>();
+            }
+
+            infix_index.emplace(fname_field.second.name, infix_sets);
+        }
     }
 
     for(const auto & pair: sort_schema) {
@@ -138,6 +148,15 @@ Index::~Index() {
     }
 
     sort_index.clear();
+
+    for(auto& kv: infix_index) {
+        for(auto& infix_set: kv.second) {
+            delete infix_set;
+            infix_set = nullptr;
+        }
+    }
+
+    infix_index.clear();
 
     for(auto& name_tree: str_sort_index) {
         delete name_tree.second;
@@ -660,6 +679,12 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
             for(auto &token_offsets: field_index_it->second.offsets) {
                 token_to_doc_offsets[token_offsets.first].emplace_back(seq_id, record.points, token_offsets.second);
+
+                if(afield.infix) {
+                    auto strhash = StringUtils::hash_wy(token_offsets.first.c_str(), token_offsets.first.size());
+                    const auto& infix_sets = infix_index.at(afield.name);
+                    infix_sets[strhash % 4]->insert(token_offsets.first);
+                }
             }
         }
 
@@ -1638,7 +1663,10 @@ void Index::run_search(search_args* search_params) {
            search_params->search_cutoff_ms,
            search_params->min_len_1typo,
            search_params->min_len_2typo,
-           search_params->max_candidates);
+           search_params->max_candidates,
+           search_params->infixes,
+           search_params->max_extra_prefix,
+           search_params->max_extra_suffix);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -2013,6 +2041,59 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
     return false;
 }
 
+void Index::search_infix(const std::string& query, const std::string& field_name,
+                         std::vector<uint32_t>& ids, const size_t max_extra_prefix, const size_t max_extra_suffix) const {
+
+    auto infix_maps_it = infix_index.find(field_name);
+
+    if(infix_maps_it == infix_index.end()) {
+        return ;
+    }
+
+    auto infix_sets = infix_maps_it->second;
+    std::vector<art_leaf*> leaves;
+
+    size_t num_processed = 0;
+    std::mutex m_process;
+    std::condition_variable cv_process;
+
+    auto search_tree = search_index.at(field_name);
+
+    for(auto infix_set: infix_sets) {
+        thread_pool->enqueue([infix_set, &leaves, search_tree, &query, max_extra_prefix, max_extra_suffix,
+                              &num_processed, &m_process, &cv_process]() {
+            std::vector<art_leaf*> this_leaves;
+            std::string key_buffer;
+
+            for(auto it = infix_set->begin(); it != infix_set->end(); it++) {
+                it.key(key_buffer);
+                auto start_index = key_buffer.find(query);
+                if(start_index != std::string::npos && start_index <= max_extra_prefix &&
+                   (key_buffer.size() - (start_index + query.size())) <= max_extra_suffix) {
+                    art_leaf* l = (art_leaf *) art_search(search_tree,
+                                                          (const unsigned char *) key_buffer.c_str(),
+                                                          key_buffer.size()+1);
+                    if(l != nullptr) {
+                        this_leaves.push_back(l);
+                    }
+                }
+            }
+
+            std::unique_lock<std::mutex> lock(m_process);
+            leaves.insert(leaves.end(), this_leaves.begin(), this_leaves.end());
+            num_processed++;
+            cv_process.notify_one();
+        });
+    }
+
+    std::unique_lock<std::mutex> lock_process(m_process);
+    cv_process.wait(lock_process, [&](){ return num_processed == infix_sets.size(); });
+
+    for(auto leaf: leaves) {
+        posting_t::merge({leaf->values}, ids);
+    }
+}
+
 void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const std::vector<search_field_t>& search_fields,
                    std::vector<filter>& filters,
@@ -2040,7 +2121,10 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                    const size_t search_cutoff_ms,
                    size_t min_len_1typo,
                    size_t min_len_2typo,
-                   const size_t max_candidates) const {
+                   const size_t max_candidates,
+                   const std::vector<infix_t>& infixes,
+                   const size_t max_extra_prefix,
+                   const size_t max_extra_suffix) const {
 
     search_begin = std::chrono::high_resolution_clock::now();
     search_stop_ms = search_cutoff_ms;
@@ -2247,6 +2331,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
             int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
 
             bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
+            infix_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
 
             // proceed to query search only when no filters are provided or when filtering produces results
             if(filters.empty() || actual_filter_ids_length > 0) {
@@ -2282,6 +2367,34 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                                  query_hashes, token_order, field_prefix,
                                  drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
                                  min_len_1typo, min_len_2typo, max_candidates);
+
+                    if(field_infix == always || (field_infix == fallback && field_num_results == 0)) {
+                        std::vector<uint32_t> infix_ids;
+                        search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
+                        if(!infix_ids.empty()) {
+                            int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
+                            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
+                            std::vector<size_t> geopoint_indices;
+                            populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+                            uint32_t token_bits = 255;
+
+                            for(auto seq_id: infix_ids) {
+                                score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 2,
+                                              actual_topster, {}, groups_processed, seq_id, sort_order, field_values,
+                                              geopoint_indices, group_limit, group_by_fields, token_bits,
+                                              false, false, {});
+                            }
+
+                            std::sort(infix_ids.begin(), infix_ids.end());
+                            infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
+
+                            uint32_t* new_all_result_ids = nullptr;
+                            all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &infix_ids[0],
+                                                                       infix_ids.size(), &new_all_result_ids);
+                            delete[] all_result_ids;
+                            all_result_ids = new_all_result_ids;
+                        }
+                    }
                 } else if(actual_filter_ids_length != 0) {
                     // indicates exact match query
                     curate_filtered_ids(filters, curated_ids, exclude_token_ids,
@@ -3707,6 +3820,15 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
                 art_tree_init(ft);
                 search_index.emplace(new_field.faceted_name(), ft);
             }
+        }
+
+        if(new_field.infix) {
+            array_mapped_infix_t infix_sets(ARRAY_INFIX_DIM);
+            for(auto& infix_set: infix_sets) {
+                infix_set = new tsl::htrie_set<char>();
+            }
+
+            infix_index.emplace(new_field.name, infix_sets);
         }
     }
 }

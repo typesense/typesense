@@ -5,6 +5,7 @@
 #include "collection_manager.h"
 #include "batched_indexer.h"
 #include "logger.h"
+#include "magic_enum.hpp"
 
 constexpr const size_t CollectionManager::DEFAULT_NUM_MEMORY_SHARDS;
 
@@ -567,6 +568,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *ENABLE_OVERRIDES = "enable_overrides";
     const char *MAX_CANDIDATES = "max_candidates";
 
+    const char *INFIX = "infix";
+    const char *MAX_EXTRA_PREFIX = "max_extra_prefix";
+    const char *MAX_EXTRA_SUFFIX = "max_extra_suffix";
+
     // strings under this length will be fully highlighted, instead of showing a snippet of relevant portion
     const char *SNIPPET_THRESHOLD = "snippet_threshold";
 
@@ -708,6 +713,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         req_params[SPLIT_JOIN_TOKENS] = "true";
     }
 
+    if(req_params.count(MAX_EXTRA_PREFIX) == 0) {
+        req_params[MAX_EXTRA_PREFIX] = std::to_string(INT16_MAX);
+    }
+
+    if(req_params.count(MAX_EXTRA_SUFFIX) == 0) {
+        req_params[MAX_EXTRA_SUFFIX] = std::to_string(INT16_MAX);
+    }
+
     std::vector<std::string> query_by_weights_str;
     std::vector<size_t> query_by_weights;
 
@@ -781,6 +794,14 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(400,"Parameter `" + std::string(SEARCH_CUTOFF_MS) + "` must be an unsigned integer.");
     }
 
+    if(!StringUtils::is_uint32_t(req_params[MAX_EXTRA_PREFIX])) {
+        return Option<bool>(400,"Parameter `" + std::string(MAX_EXTRA_PREFIX) + "` must be an unsigned integer.");
+    }
+
+    if(!StringUtils::is_uint32_t(req_params[MAX_EXTRA_SUFFIX])) {
+        return Option<bool>(400,"Parameter `" + std::string(MAX_EXTRA_SUFFIX) + "` must be an unsigned integer.");
+    }
+
     bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
     bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
     bool exhaustive_search = (req_params[EXHAUSTIVE_SEARCH] == "true");
@@ -831,6 +852,21 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     if(req_params.count(MAX_CANDIDATES) == 0) {
         req_params[MAX_CANDIDATES] = exhaustive_search ? "10000" : "4";
+    }
+
+    std::vector<infix_t> infixes;
+    if(req_params.count(INFIX) != 0) {
+        std::vector<std::string> infix_strs;
+        StringUtils::split(req_params[INFIX], infix_strs, ",");
+
+        for(auto& infix_str: infix_strs) {
+            auto infix_op = magic_enum::enum_cast<infix_t>(infix_str);
+            if(infix_op.has_value()) {
+                infixes.push_back(infix_op.value());
+            }
+        }
+    } else {
+        infixes.push_back(off);
     }
 
     bool enable_overrides = (req_params[ENABLE_OVERRIDES] == "true");
@@ -898,7 +934,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           static_cast<size_t>(std::stol(req_params[MIN_LEN_1TYPO])),
                                                           static_cast<size_t>(std::stol(req_params[MIN_LEN_2TYPO])),
                                                           split_join_tokens,
-                                                          static_cast<size_t>(std::stol(req_params[MAX_CANDIDATES]))
+                                                          static_cast<size_t>(std::stol(req_params[MAX_CANDIDATES])),
+                                                          infixes,
+                                                          static_cast<size_t>(std::stol(req_params[MAX_EXTRA_PREFIX])),
+                                                          static_cast<size_t>(std::stol(req_params[MAX_EXTRA_SUFFIX]))
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

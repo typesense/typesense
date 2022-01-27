@@ -22,10 +22,14 @@
 #include "posting_list.h"
 #include "threadpool.h"
 #include "adi_tree.h"
+#include "tsl/htrie_set.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
 using array_mapped_facet_t = std::array<facet_map_t*, ARRAY_FACET_DIM>;
+
+static constexpr size_t ARRAY_INFIX_DIM = 4;
+using array_mapped_infix_t = std::vector<tsl::htrie_set<char>*>;
 
 struct token_t {
     size_t position;
@@ -258,6 +262,12 @@ struct override_t {
     }
 };
 
+enum infix_t {
+    always,
+    fallback,
+    off
+};
+
 struct search_args {
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<search_field_t> search_fields;
@@ -287,6 +297,9 @@ struct search_args {
     size_t min_len_1typo;
     size_t min_len_2typo;
     size_t max_candidates;
+    std::vector<infix_t> infixes;
+    const size_t max_extra_prefix;
+    const size_t max_extra_suffix;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -312,7 +325,10 @@ struct search_args {
                 size_t search_cutoff_ms,
                 size_t min_len_1typo,
                 size_t min_len_2typo,
-                size_t max_candidates):
+                size_t max_candidates,
+                const std::vector<infix_t>& infixes,
+                const size_t max_extra_prefix,
+                const size_t max_extra_suffix):
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -323,7 +339,8 @@ struct search_args {
             prioritize_exact_match(prioritize_exact_match), all_result_ids_len(0),
             exhaustive_search(exhaustive_search), concurrency(concurrency),
             filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms),
-            min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates) {
+            min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
+            infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -430,6 +447,9 @@ private:
 
     // str_sort_field => adi_tree_t
     spp::sparse_hash_map<std::string, adi_tree_t*> str_sort_index;
+
+    // infix field => value
+    spp::sparse_hash_map<std::string, array_mapped_infix_t> infix_index;
 
     // geo_array_field => (seq_id => values) used for exact filtering of geo array records
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
@@ -697,7 +717,10 @@ public:
                 size_t search_cutoff_ms,
                 size_t min_len_1typo,
                 size_t min_len_2typo,
-                size_t max_candidates) const;
+                size_t max_candidates,
+                const std::vector<infix_t>& infixes,
+                const size_t max_extra_prefix,
+                const size_t max_extra_suffix) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
@@ -757,6 +780,9 @@ public:
                          size_t exclude_token_ids_size, const uint8_t field_id, const string& field,
                          uint32_t*& all_result_ids, size_t& all_result_ids_len, const uint32_t* filter_ids,
                          uint32_t filter_ids_length, const size_t concurrency) const;
+
+    void search_infix(const std::string& query, const std::string& field_name, std::vector<uint32_t>& ids,
+                      size_t max_extra_prefix, size_t max_extra_suffix) const;
 
     void curate_filtered_ids(const std::vector<filter>& filters, const std::set<uint32_t>& curated_ids,
                              const uint32_t* exclude_token_ids, size_t exclude_token_ids_size, uint32_t*& filter_ids,
