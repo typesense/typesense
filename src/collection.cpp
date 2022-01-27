@@ -689,7 +689,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t min_len_1typo,
                                   const size_t min_len_2typo,
                                   bool split_join_tokens,
-                                  const size_t max_candidates) const {
+                                  const size_t max_candidates,
+                                  const std::vector<infix_t>& infixes,
+                                  const size_t max_extra_prefix,
+                                  const size_t max_extra_suffix) const {
 
     std::shared_lock lock(mutex);
 
@@ -717,6 +720,13 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     if(!search_fields.empty() && search_fields.size() != prefixes.size()) {
         if(prefixes.size() != 1) {
             return Option<nlohmann::json>(400, "Number of prefix values in `prefix` does not match "
+                                               "number of `query_by` fields.");
+        }
+    }
+
+    if(!search_fields.empty() && search_fields.size() != infixes.size()) {
+        if(infixes.size() != 1) {
+            return Option<nlohmann::json>(400, "Number of infix values in `infix` does not match "
                                                "number of `query_by` fields.");
         }
     }
@@ -1005,7 +1015,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
                                                  exhaustive_search, 4, filter_overrides,
                                                  search_stop_millis,
-                                                 min_len_1typo, min_len_2typo, max_candidates);
+                                                 min_len_1typo, min_len_2typo, max_candidates, infixes,
+                                                 max_extra_prefix, max_extra_suffix);
 
     index->run_search(search_params);
 

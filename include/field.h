@@ -38,6 +38,7 @@ namespace fields {
     static const std::string optional = "optional";
     static const std::string index = "index";
     static const std::string sort = "sort";
+    static const std::string infix = "infix";
     static const std::string locale = "locale";
 }
 
@@ -49,9 +50,10 @@ struct field {
     bool index;
     std::string locale;
     bool sort;
+    bool infix;
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, std::string locale = "", int sort = -1) :
+          bool index = true, std::string locale = "", int sort = -1, int infix = -1) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
 
         if(sort != -1) {
@@ -59,6 +61,8 @@ struct field {
         } else {
             this->sort = is_num_sort_field();
         }
+
+        this->infix = (infix != -1) ? bool(infix) : false;
     }
 
     bool is_auto() const {
@@ -361,6 +365,11 @@ struct field {
                                          field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
             }
 
+            if(field_json.count(fields::infix) != 0 && !field_json.at(fields::infix).is_boolean()) {
+                return Option<bool>(400, std::string("The `infix` property of the field `") +
+                                         field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+            }
+
             if(field_json.count(fields::locale) != 0){
                 if(!field_json.at(fields::locale).is_string()) {
                     return Option<bool>(400, std::string("The `locale` property of the field `") +
@@ -395,6 +404,10 @@ struct field {
                     field_json[fields::sort] = false;
                 }
 
+                if(field_json.count(fields::infix) == 0) {
+                    field_json[fields::infix] = false;
+                }
+
                 if(field_json[fields::optional] == false) {
                     return Option<bool>(400, "Field `.*` must be an optional field.");
                 }
@@ -409,7 +422,7 @@ struct field {
 
                 field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
                                      field_json["optional"], field_json[fields::index], field_json[fields::locale],
-                                     field_json[fields::sort]);
+                                     field_json[fields::sort], field_json[fields::infix]);
 
                 if(fallback_field.has_valid_type()) {
                     fallback_field_type = fallback_field.type;
@@ -444,6 +457,10 @@ struct field {
                 }
             }
 
+            if(field_json.count(fields::infix) == 0) {
+                field_json[fields::infix] = false;
+            }
+
             if(field_json.count(fields::optional) == 0) {
                 // dynamic fields are always optional
                 bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
@@ -453,7 +470,7 @@ struct field {
             fields.emplace_back(
                 field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                       field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
-                      field_json[fields::sort])
+                      field_json[fields::sort], field_json[fields::infix])
             );
         }
 
