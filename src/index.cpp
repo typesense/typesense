@@ -1379,19 +1379,9 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                         vertices.emplace_back(vertex);
                     }
 
-                    for(size_t vi = 0; vi < vertices.size(); vi++) {
-                        auto& v1 = vertices[vi];
-                        auto& v2 = vertices[(vi + 1) % vertices.size()];
-                        sum += (v2.x() - v1.x()) * (v2.y() + v1.y());
-                    }
-
-                    bool is_clockwise = (sum > 0.0);
-
-                    if(is_clockwise) {
-                        std::reverse(vertices.begin(), vertices.end());
-                    }
-
                     auto loop = new S2Loop(vertices, S2Debug::DISABLE);
+                    loop->Normalize(); // if loop is not CCW but CW, change to CCW.
+
                     S2Error error;
                     if (loop->FindValidationError(&error)) {
                         LOG(ERROR) << "Query vertex is bad, skipping. Error: " << error;
