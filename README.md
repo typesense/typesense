@@ -37,7 +37,10 @@
 - GeoSearch / Browsing experience: [airbnb-geosearch.typesense.org](https://airbnb-geosearch.typesense.org/)
 - Search / Browse xkcd comics by topic: [xkcd-search.typesense.org](https://xkcd-search.typesense.org/)
 
-🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
+🗣️ 🎥 If you prefer watching videos:
+
+- Here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
+- Here's our [roadmap](https://github.com/typesense/typesense/projects/2) call from Q4 2021: https://aviyel.com/events/146/typesense-community-call-with-maintainers-jason-bosco-kishore-nallan
 
 ## Quick Links
 
