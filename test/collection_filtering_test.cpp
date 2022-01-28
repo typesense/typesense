@@ -1350,6 +1350,55 @@ TEST_F(CollectionFilteringTest, GeoPolygonFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFilteringTest, GeoPolygonFilteringSouthAmerica) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("loc", field_types::GEOPOINT, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"North of Equator", "4.48615, -71.38049"},
+        {"South of Equator", "-8.48587, -71.02892"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        std::vector<std::string> lat_lng;
+        StringUtils::split(records[i][1], lat_lng, ", ");
+
+        double lat = std::stod(lat_lng[0]);
+        double lng = std::stod(lat_lng[1]);
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["loc"] = {lat, lng};
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    // pick a polygon that covers both points
+
+    auto results = coll1->search("*",
+                                 {}, "loc: (13.3163, -82.3585, "
+                                     "-29.134, -82.3585, "
+                                     "-29.134, -59.8528, "
+                                     "13.3163, -59.8528)",
+                                 {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFilteringTest, FilteringWithPrefixSearch) {
     Collection *coll1;
 
