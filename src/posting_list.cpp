@@ -6,11 +6,29 @@
 /* block_t operations */
 
 uint32_t posting_list_t::block_t::upsert(const uint32_t id, const std::vector<uint32_t>& positions) {
-    if(id <= ids.last() && ids.getLength() != 0) {
-        // we have to check if `id` already exists, for an opportunity to do in-place updates
+    if(id > ids.last() || ids.getLength() == 0) {
+        // append to the end
+        ids.append(id);
+        uint32_t curr_index = offsets.getLength();
+        offset_index.append(curr_index);
+        for(uint32_t position : positions) {
+            offsets.append(position);
+        }
+    }
+
+    else {
+        // we have to check if `id` already exists, and do in-place update/insert
         uint32_t id_index = ids.indexOf(id);
 
-        if(id_index != ids.getLength()) {
+        if(id_index == ids.getLength()) {
+            // id not found, we have to insert it
+            size_t inserted_index = ids.append(id);
+            uint32_t existing_offset_index = offset_index.at(inserted_index);
+            insert_and_shift_offset_index(inserted_index, positions.size());
+            offsets.insert(existing_offset_index, &positions[0], positions.size());
+        }
+
+        else {
             // id is already present, so we will only update offset index and offsets
             uint32_t start_offset_index = offset_index.at(id_index);
             uint32_t end_offset_index = (id == ids.last()) ? offsets.getLength()-1 : offset_index.at(id_index + 1)-1;
@@ -113,15 +131,6 @@ uint32_t posting_list_t::block_t::upsert(const uint32_t id, const std::vector<ui
         }
     }
 
-    // treat as regular append (either id not found or exceeds max id)
-
-    ids.append(id);
-    uint32_t curr_index = offsets.getLength();
-    offset_index.append(curr_index);
-    for(uint32_t position : positions) {
-        offsets.append(position);
-    }
-
     return 1;
 }
 
@@ -177,6 +186,26 @@ void posting_list_t::block_t::remove_and_shift_offset_index(const uint32_t* indi
 
     delete[] curr_array;
     delete[] new_array;
+}
+
+void posting_list_t::block_t::insert_and_shift_offset_index(const uint32_t index, const uint32_t num_offsets) {
+    uint32_t existing_offset_index = offset_index.at(index);
+    uint32_t length = offset_index.getLength();
+    uint32_t new_length = length + 1;
+    uint32_t *curr_array = offset_index.uncompress(new_length);
+
+    memmove(&curr_array[index+1], &curr_array[index], sizeof(uint32_t)*(length - index));
+    curr_array[index] = existing_offset_index;
+
+    uint32_t curr_index = index + 1;
+    while(curr_index < new_length) {
+        curr_array[curr_index] += num_offsets;
+        curr_index++;
+    }
+
+    offset_index.load(curr_array, new_length);
+
+    delete [] curr_array;
 }
 
 bool posting_list_t::block_t::contains(uint32_t id) {
@@ -465,6 +494,41 @@ void posting_list_t::upsert(const uint32_t id, const std::vector<uint32_t>& offs
         new_block->next = upsert_block->next;
         upsert_block->next = new_block;
     }
+}
+
+void posting_list_t::dump() {
+    auto it = new_iterator();
+
+    std::string ids_str;
+    std::string offset_index_str;
+    std::string offsets_str;
+
+    while(it.valid()) {
+        auto index = it.index();
+        while(index < it.block()->size()) {
+            ids_str += std::to_string(it.ids[index]) + ", ";
+            offset_index_str += std::to_string(it.offset_index[index]) + ", ";
+            index++;
+        }
+
+        auto last_offset_index = it.offset_index[it.block()->size()-1];
+
+        for(size_t j = 0; j <= last_offset_index; j++) {
+            offsets_str += std::to_string(it.offsets[j]) + ", ";
+        }
+
+        it.set_index(it.block()->size()-1);
+        it.next();
+    }
+
+    LOG(INFO) << "ids_str:";
+    LOG(INFO) << ids_str;
+
+    LOG(INFO) << "offset_index_str:";
+    LOG(INFO) << offset_index_str;
+
+    LOG(INFO) << "offsets_str:";
+    LOG(INFO) << offsets_str;
 }
 
 void posting_list_t::erase(const uint32_t id) {
@@ -1306,4 +1370,8 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     rhs.ids = nullptr;
     rhs.offset_index = nullptr;
     rhs.offsets = nullptr;
+}
+
+void posting_list_t::iterator_t::set_index(uint32_t index) {
+    curr_index = index;
 }
