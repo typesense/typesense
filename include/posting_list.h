@@ -33,6 +33,8 @@ public:
 
         void remove_and_shift_offset_index(const uint32_t* indices_sorted, uint32_t num_indices);
 
+        void insert_and_shift_offset_index(const uint32_t index, const uint32_t num_offsets);
+
         uint32_t upsert(uint32_t id, const std::vector<uint32_t>& offsets);
 
         uint32_t erase(uint32_t id);
@@ -61,6 +63,7 @@ public:
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
+        void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
@@ -128,6 +131,8 @@ public:
     void upsert(uint32_t id, const std::vector<uint32_t>& offsets);
 
     void erase(uint32_t id);
+
+    void dump();
 
     block_t* get_root();
 
