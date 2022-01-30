@@ -1421,6 +1421,11 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
+    if(!syn_json.is_object()) {
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
     syn_json["id"] = synonym_id;
 
     synonym_t synonym;

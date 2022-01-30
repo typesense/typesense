@@ -190,14 +190,22 @@ void BatchedIndexer::run() {
 
                         if(route_found) {
                             async_res = found_rpath->async_res;
-                            found_rpath->handler(orig_req, orig_res);
+                            try {
+                                found_rpath->handler(orig_req, orig_res);
+                            } catch(const std::exception& e) {
+                                LOG(ERROR) << "Exception while calling handler " << found_rpath->_get_action();
+                                LOG(ERROR) << "Raw error: " << e.what();
+                                // bad request gets a response immediately
+                                orig_res->set_400("Bad request.");
+                                async_res = false;
+                            }
                             prev_body = orig_req->body;
                         } else {
                             orig_res->set_404();
                         }
 
                         if(is_live_req && (!route_found ||!async_res)) {
-                            // sync request get a response immediately
+                            // sync request gets a response immediately
                             async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
                             server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
                         }
