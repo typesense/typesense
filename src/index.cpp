@@ -2085,7 +2085,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 }
 
 void Index::search(std::vector<query_tokens_t>& field_query_tokens,
-                   const std::vector<search_field_t>& search_fields,
+                   const std::vector<search_field_t>& the_fields,
                    std::vector<filter>& filters,
                    std::vector<facet>& facets, facet_query_t& facet_query,
                    const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
@@ -2151,58 +2151,12 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     //auto begin = std::chrono::high_resolution_clock::now();
     uint32_t* all_result_ids = nullptr;
 
-    const size_t num_search_fields = std::min(search_fields.size(), (size_t) FIELD_LIMIT_NUM);
+    const size_t num_search_fields = std::min(the_fields.size(), (size_t) FIELD_LIMIT_NUM);
     uint32_t* exclude_token_ids = nullptr;
     size_t exclude_token_ids_size = 0;
 
-    // handle exclude tokens and phrase search if needed
-    for(size_t i = 0; i < num_search_fields; i++) {
-        const std::string & field_name = search_fields[i].name;
-        bool is_array = search_schema.at(field_name).is_array();
-
-        for(const auto& q_exclude_phrase: field_query_tokens[i].q_exclude_tokens) {
-            // if phrase has multiple words, then we have to do exclusion of phrase match results
-            std::vector<void*> posting_lists;
-            for(const std::string& exclude_token: q_exclude_phrase) {
-                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
-                                                         (const unsigned char *) exclude_token.c_str(),
-                                                         exclude_token.size() + 1);
-                if(leaf) {
-                    posting_lists.push_back(leaf->values);
-                }
-            }
-
-            if(posting_lists.size() != q_exclude_phrase.size()) {
-                continue;
-            }
-
-            std::vector<uint32_t> contains_ids;
-            posting_t::intersect(posting_lists, contains_ids);
-
-            if(posting_lists.size() == 1) {
-                uint32_t *exclude_token_ids_merged = nullptr;
-                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
-                                                               &contains_ids[0], contains_ids.size(),
-                                                               &exclude_token_ids_merged);
-                delete [] exclude_token_ids;
-                exclude_token_ids = exclude_token_ids_merged;
-            } else {
-                uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
-                size_t phrase_ids_size = 0;
-
-                posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
-                                              phrase_ids, phrase_ids_size);
-
-                uint32_t *exclude_token_ids_merged = nullptr;
-                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
-                                                               phrase_ids, phrase_ids_size,
-                                                               &exclude_token_ids_merged);
-                delete [] phrase_ids;
-                delete [] exclude_token_ids;
-                exclude_token_ids = exclude_token_ids_merged;
-            }
-        }
-    }
+    // handle exclusion of tokens/phrases
+    handle_exclusion(num_search_fields, field_query_tokens, the_fields, exclude_token_ids, exclude_token_ids_size);
 
     std::vector<Topster*> ftopsters;
 
@@ -2212,7 +2166,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     // for phrase query, parser will set field_query_tokens to "*", need to handle that
     if (is_wildcard_query && field_query_tokens[0].q_phrases.empty()) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
-        const std::string& field = search_fields[0].name;
+        const std::string& field = the_fields[0].name;
 
         curate_filtered_ids(filters, curated_ids, exclude_token_ids,
                             exclude_token_ids_size, filter_ids, filter_ids_length, curated_ids_sorted);
@@ -2223,228 +2177,34 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                         exclude_token_ids, exclude_token_ids_size, field_id, field,
                         all_result_ids, all_result_ids_len, filter_ids, filter_ids_length, concurrency);
     } else {
+        // Non-wildcard
         // In multi-field searches, a record can be matched across different fields, so we use this for aggregation
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
-
         //begin = std::chrono::high_resolution_clock::now();
 
-        // non-wildcard
-        for(size_t i = 0; i < num_search_fields; i++) {
-            std::vector<token_t> q_include_pos_tokens;
-            for(size_t j=0; j < field_query_tokens[i].q_include_tokens.size(); j++) {
-                bool is_prefix = (j == field_query_tokens[i].q_include_tokens.size()-1);
-                q_include_pos_tokens.emplace_back(j, field_query_tokens[i].q_include_tokens[j], is_prefix);
-            }
+        // we will first try to run with `num_typos=0` and only if no results are found, attempt to run typo based search
 
-            std::vector<std::vector<token_t>> q_pos_synonyms;
-            for(const auto& q_syn_vec: field_query_tokens[i].q_synonyms) {
-                std::vector<token_t> q_pos_syn;
-                for(size_t j=0; j < q_syn_vec.size(); j++) {
-                    bool is_prefix = (j == q_syn_vec.size()-1);
-                    q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix);
-                }
-                q_pos_synonyms.emplace_back(q_pos_syn);
-            }
+        const std::vector<uint32_t> zero_typos = {0};
+        search_fields(filters, included_ids_map, sort_fields_std, zero_typos, topster,
+                      curated_topster, token_order, prefixes, drop_tokens_threshold, groups_processed,
+                      searched_queries, typo_tokens_threshold, group_limit, group_by_fields, prioritize_exact_match,
+                      exhaustive_search,
+                      concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
+                      max_extra_suffix,
+                      filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
+                      exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, field_query_tokens,
+                      the_fields, all_result_ids_len, all_result_ids, topster_ids);
 
-            // handle phrase search by ANDing `q_phrases` to add to filters
-            const std::string & field_name = search_fields[i].name;
-            bool is_array = search_schema.at(field_name).is_array();
-
-            uint32_t* phrase_match_ids = nullptr;
-            size_t phrase_match_ids_size = 0;
-
-            for(const auto& phrase: field_query_tokens[i].q_phrases) {
-                std::vector<void*> posting_lists;
-
-                for(const std::string& token: phrase) {
-                    art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
-                                                             (const unsigned char *) token.c_str(),
-                                                             token.size() + 1);
-
-                    if(leaf) {
-                        posting_lists.push_back(leaf->values);
-                    }
-                }
-
-                if(posting_lists.size() != phrase.size()) {
-                    // unmatched length means no matches will be found
-                    continue;
-                }
-
-                std::vector<uint32_t> contains_ids;
-                posting_t::intersect(posting_lists, contains_ids);
-
-                uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
-                size_t phrase_ids_size = 0;
-                posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
-                                              phrase_ids, phrase_ids_size);
-
-                if(phrase_ids_size != 0) {
-                    if(phrase_match_ids_size == 0) {
-                        phrase_match_ids_size = phrase_ids_size;
-                        phrase_match_ids = phrase_ids;
-                    } else {
-                        uint32_t *phrase_ids_merged = nullptr;
-                        phrase_match_ids_size = ArrayUtils::and_scalar(phrase_ids, phrase_ids_size, phrase_match_ids,
-                                                                       phrase_match_ids_size, &phrase_ids_merged);
-                        delete [] phrase_match_ids;
-                        delete [] phrase_ids;
-                        phrase_match_ids = phrase_ids_merged;
-                    }
-                } else {
-                    delete [] phrase_ids;
-                    continue;
-                }
-            }
-
-            if(!field_query_tokens[i].q_phrases.empty() && phrase_match_ids_size == 0) {
-                continue;
-            }
-
-            auto actual_filter_ids = filter_ids;
-            auto actual_filter_ids_length = filter_ids_length;
-
-            if(phrase_match_ids_size != 0) {
-                if(filter_ids_length == 0) {
-                    actual_filter_ids_length = phrase_match_ids_size;
-                    actual_filter_ids = phrase_match_ids;
-                } else {
-                    actual_filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, phrase_match_ids,
-                                                                      phrase_match_ids_size, &actual_filter_ids);
-
-                    delete [] phrase_match_ids;
-                    phrase_match_ids = nullptr;
-                }
-            }
-
-            // num_typos is already validated upstream, but still playing safe
-            int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
-
-            bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
-            infix_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
-
-            // proceed to query search only when no filters are provided or when filtering produces results
-            if(filters.empty() || actual_filter_ids_length > 0) {
-                const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-                const std::string& field_name = search_fields[i].name;
-
-                auto field_it = search_schema.find(field_name);
-                if(field_it == search_schema.end()) {
-                    continue;
-                }
-
-                std::vector<token_t> query_tokens = q_include_pos_tokens;
-                std::vector<token_t> search_tokens = q_include_pos_tokens;
-                size_t num_tokens_dropped = 0;
-
-                //LOG(INFO) << "searching field_name! " << field_name;
-                Topster* ftopster = new Topster(topster->MAX_SIZE, topster->distinct);
-                ftopsters.push_back(ftopster);
-
-                // Don't waste additional cycles for single field_name searches
-                Topster* actual_topster = (num_search_fields == 1) ? topster : ftopster;
-
-                // tracks the number of results found for the current field_name
-                size_t field_num_results = 0;
-                std::set<uint64> query_hashes;
-
-                if(!is_wildcard_query) {
-                    search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size,
-                                 num_tokens_dropped, field_it->second, field_name,
-                                 actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
-                                 field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                 field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
-                                 query_hashes, token_order, field_prefix,
-                                 drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
-                                 min_len_1typo, min_len_2typo, max_candidates);
-
-                    if(field_infix == always || (field_infix == fallback && field_num_results == 0)) {
-                        std::vector<uint32_t> infix_ids;
-                        search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
-                        if(!infix_ids.empty()) {
-                            int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
-                            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
-                            std::vector<size_t> geopoint_indices;
-                            populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
-                            uint32_t token_bits = 255;
-
-                            for(auto seq_id: infix_ids) {
-                                score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 2,
-                                              actual_topster, {}, groups_processed, seq_id, sort_order, field_values,
-                                              geopoint_indices, group_limit, group_by_fields, token_bits,
-                                              false, false, {});
-                            }
-
-                            std::sort(infix_ids.begin(), infix_ids.end());
-                            infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
-
-                            uint32_t* new_all_result_ids = nullptr;
-                            all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &infix_ids[0],
-                                                                       infix_ids.size(), &new_all_result_ids);
-                            delete[] all_result_ids;
-                            all_result_ids = new_all_result_ids;
-                        }
-                    }
-                } else if(actual_filter_ids_length != 0) {
-                    // indicates exact match query
-                    curate_filtered_ids(filters, curated_ids, exclude_token_ids,
-                                        exclude_token_ids_size, actual_filter_ids, actual_filter_ids_length, curated_ids_sorted);
-
-                    search_wildcard(filters, included_ids_map, sort_fields_std, actual_topster,
-                                    curated_topster,
-                                    groups_processed, searched_queries, group_limit, group_by_fields,
-                                    curated_ids, curated_ids_sorted,
-                                    exclude_token_ids, exclude_token_ids_size, field_id, field_name,
-                                    all_result_ids, all_result_ids_len,
-                                    actual_filter_ids, actual_filter_ids_length, concurrency);
-                }
-
-                bool syn_wildcard_filter_init_done = false;
-
-                // do synonym based searches
-                for(const auto& syn_tokens: q_pos_synonyms) {
-                    num_tokens_dropped = 0;
-                    field_num_results = 0;
-                    query_tokens = search_tokens = syn_tokens;
-                    query_hashes.clear();
-
-                    if(query_tokens.size() == 1 && query_tokens[0].value == "*") {
-                        // synonym can be a wildcard if there was an override filter used
-                        // we will only do filtering in that case
-
-                        if(!syn_wildcard_filter_init_done) {
-                            curate_filtered_ids(filters, curated_ids, exclude_token_ids, exclude_token_ids_size,
-                                                actual_filter_ids, actual_filter_ids_length, curated_ids_sorted);
-                            syn_wildcard_filter_init_done = true;
-                        }
-
-                        search_wildcard(filters, included_ids_map, sort_fields_std, actual_topster,
-                                        curated_topster,
-                                        groups_processed, searched_queries, group_limit, group_by_fields,
-                                        curated_ids, curated_ids_sorted,
-                                        exclude_token_ids, exclude_token_ids_size, field_id, field_name,
-                                        all_result_ids, all_result_ids_len,
-                                        actual_filter_ids, actual_filter_ids_length, concurrency);
-                    } else {
-                        search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
-                                     field_it->second, field_name, actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
-                                     field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
-                                     field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
-                                     query_hashes, token_order, field_prefix,
-                                     drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
-                                     min_len_1typo, min_len_2typo, max_candidates);
-                    }
-                }
-
-                // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
-                concat_topster_ids(ftopster, topster_ids);
-                collate_included_ids(field_query_tokens[i].q_include_tokens, field_name, field_id, included_ids_map, curated_topster, searched_queries);
-                //LOG(INFO) << "topster_ids.size: " << topster_ids.size();
-            }
-
-            if(phrase_match_ids_size != 0) {
-                delete [] actual_filter_ids;
-            }
+        if(exhaustive_search || all_result_ids_len < typo_tokens_threshold || all_result_ids_len < drop_tokens_threshold) {
+            search_fields(filters, included_ids_map, sort_fields_std, num_typos, topster,
+                          curated_topster, token_order, prefixes, drop_tokens_threshold, groups_processed,
+                          searched_queries, typo_tokens_threshold, group_limit, group_by_fields, prioritize_exact_match,
+                          exhaustive_search,
+                          concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
+                          max_extra_suffix,
+                          filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
+                          exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, field_query_tokens,
+                          the_fields, all_result_ids_len, all_result_ids, topster_ids);
         }
 
         //auto begin0 = std::chrono::high_resolution_clock::now();
@@ -2486,8 +2246,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
 
             for(size_t i = 0; i < num_search_fields; i++) {
                 const auto field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-                const size_t priority = search_fields[i].priority;
-                const size_t weight = search_fields[i].weight;
+                const size_t priority = the_fields[i].priority;
+                const size_t weight = the_fields[i].weight;
 
                 //LOG(INFO) << "--- field index: " << i << ", priority: " << priority;
 
@@ -2532,7 +2292,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
                 }
 
                 // compute approximate match score for this field from actual query
-                const std::string& field = search_fields[i].name;
+                const std::string& field = the_fields[i].name;
                 size_t words_present = 0;
 
                 // FIXME: must consider phrase tokens also
@@ -2761,6 +2521,351 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     //LOG(INFO) << "all_result_ids_len " << all_result_ids_len << " for index " << name;
     //long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - begin).count();
     //LOG(INFO) << "Time taken for result calc: " << timeMillis << "ms";
+}
+
+void Index::search_fields(const std::vector<filter>& filters,
+                          const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                          const std::vector<sort_by>& sort_fields_std, const std::vector<uint32_t>& num_typos,
+                          Topster* topster, Topster* curated_topster, const token_ordering& token_order,
+                          const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
+                          spp::sparse_hash_set<uint64_t>& groups_processed,
+                          std::vector<std::vector<art_leaf*>>& searched_queries, const size_t typo_tokens_threshold,
+                          const size_t group_limit, const std::vector<std::string>& group_by_fields,
+                          bool prioritize_exact_match, const bool exhaustive_search, const size_t concurrency,
+                          size_t min_len_1typo, size_t min_len_2typo, const size_t max_candidates,
+                          const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                          const size_t max_extra_suffix, uint32_t* filter_ids, uint32_t filter_ids_length,
+                          const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
+                          const size_t num_search_fields, const uint32_t* exclude_token_ids,
+                          size_t exclude_token_ids_size, std::vector<Topster*>& ftopsters, bool is_wildcard_query,
+                          std::vector<query_tokens_t>& field_query_tokens,
+                          const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
+                          uint32_t*& all_result_ids,
+                          spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const {
+
+    for(size_t i = 0; i < num_search_fields; i++) {
+        const std::string & field_name = the_fields[i].name;
+        bool is_array = search_schema.at(field_name).is_array();
+
+        auto actual_filter_ids = filter_ids;
+        auto actual_filter_ids_length = filter_ids_length;
+
+        // handle phrase search by ANDing `q_phrases` to add to filters
+        uint32_t* phrase_match_ids = nullptr;
+        size_t phrase_match_ids_size = 0;
+        do_phrase_search(filter_ids, filter_ids_length, field_name, is_array, phrase_match_ids,
+                         field_query_tokens[i].q_phrases, actual_filter_ids, actual_filter_ids_length,
+                         phrase_match_ids_size);
+
+        if(!field_query_tokens[i].q_phrases.empty() && phrase_match_ids_size == 0) {
+            // phrase query does not produce results, so no need to do other types of searches
+            continue;
+        }
+
+        std::vector<token_t> q_include_pos_tokens;
+        for(size_t j=0; j < field_query_tokens[i].q_include_tokens.size(); j++) {
+            bool is_prefix = (j == field_query_tokens[i].q_include_tokens.size()-1);
+            q_include_pos_tokens.emplace_back(j, field_query_tokens[i].q_include_tokens[j], is_prefix);
+        }
+
+        // these are already validated upstream, but still playing safe
+        int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
+        bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
+        infix_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
+
+        // proceed to query search only when no filters are provided or when filtering produces results
+        if(filters.empty() || actual_filter_ids_length > 0) {
+            const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
+            const std::string& field_name = the_fields[i].name;
+
+            auto field_it = search_schema.find(field_name);
+            if(field_it == search_schema.end()) {
+                continue;
+            }
+
+            std::vector<token_t> query_tokens = q_include_pos_tokens;
+            std::vector<token_t> search_tokens = q_include_pos_tokens;
+            size_t num_tokens_dropped = 0;
+
+            //LOG(INFO) << "searching field_name! " << field_name;
+            Topster* ftopster = new Topster(topster->MAX_SIZE, topster->distinct);
+            ftopsters.push_back(ftopster);
+
+            // Don't waste additional cycles for single field_name searches
+            Topster* actual_topster = (num_search_fields == 1) ? topster : ftopster;
+
+            // tracks the number of results found for the current field_name
+            size_t field_num_results = 0;
+            std::set<uint64> query_hashes;
+
+            if(!is_wildcard_query) {
+                search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size,
+                             num_tokens_dropped, field_it->second, field_name,
+                             actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
+                             field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                             field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
+                             query_hashes, token_order, field_prefix,
+                             drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
+                             min_len_1typo, min_len_2typo, max_candidates);
+
+                do_infix_search(sort_fields_std, searched_queries, group_limit, group_by_fields,
+                                max_extra_prefix, max_extra_suffix, field_infix, field_id, field_name, query_tokens,
+                                actual_topster, field_num_results, all_result_ids_len, groups_processed,
+                                all_result_ids);
+            } else if(actual_filter_ids_length != 0) {
+                // indicates phrase match query
+                curate_filtered_ids(filters, curated_ids, exclude_token_ids,
+                                    exclude_token_ids_size, actual_filter_ids, actual_filter_ids_length, curated_ids_sorted);
+
+                search_wildcard(filters, included_ids_map, sort_fields_std, actual_topster,
+                                curated_topster,
+                                groups_processed, searched_queries, group_limit, group_by_fields,
+                                curated_ids, curated_ids_sorted,
+                                exclude_token_ids, exclude_token_ids_size, field_id, field_name,
+                                all_result_ids, all_result_ids_len,
+                                actual_filter_ids, actual_filter_ids_length, concurrency);
+            }
+
+            // do synonym based searches
+            do_synonym_search(filters, included_ids_map, sort_fields_std, curated_topster, token_order,
+                              drop_tokens_threshold, typo_tokens_threshold, group_limit,
+                              group_by_fields, prioritize_exact_match, exhaustive_search, concurrency,
+                              min_len_1typo, min_len_2typo,
+                              max_candidates, curated_ids, curated_ids_sorted, exclude_token_ids,
+                              exclude_token_ids_size, i, actual_filter_ids_length, field_num_typos, field_prefix,
+                              field_id, field_name, field_it,
+                              query_tokens, search_tokens, num_tokens_dropped, actual_topster, field_num_results,
+                              field_query_tokens, all_result_ids_len, groups_processed, searched_queries,
+                              all_result_ids,
+                              actual_filter_ids, query_hashes);
+
+            // concat is done only for multi-field searches as `ftopster` will be empty for single-field search
+            concat_topster_ids(ftopster, topster_ids);
+            collate_included_ids(field_query_tokens[i].q_include_tokens, field_name, field_id, included_ids_map, curated_topster, searched_queries);
+            //LOG(INFO) << "topster_ids.size: " << topster_ids.size();
+        }
+
+        if(phrase_match_ids_size != 0) {
+            delete [] actual_filter_ids;
+        }
+    }
+}
+
+void
+Index::do_phrase_search(const uint32_t* filter_ids, uint32_t filter_ids_length, const string& field_name, bool is_array,
+                        uint32_t* phrase_match_ids, const std::vector<std::vector<std::string>>& field_phrases,
+                        uint32_t*& actual_filter_ids, uint32_t& actual_filter_ids_length,
+                        size_t& phrase_match_ids_size) const {
+    for(const auto& phrase: field_phrases) {
+        std::vector<void*> posting_lists;
+
+        for(const std::string& token: phrase) {
+            art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
+                                                     (const unsigned char *) token.c_str(),
+                                                     token.size() + 1);
+
+            if(leaf) {
+                posting_lists.push_back(leaf->values);
+            }
+        }
+
+        if(posting_lists.size() != phrase.size()) {
+            // unmatched length means no matches will be found
+            continue;
+        }
+
+        std::vector<uint32_t> contains_ids;
+        posting_t::intersect(posting_lists, contains_ids);
+
+        uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
+        size_t phrase_ids_size = 0;
+        posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
+                                      phrase_ids, phrase_ids_size);
+
+        if(phrase_ids_size != 0) {
+            if(phrase_match_ids_size == 0) {
+                phrase_match_ids_size = phrase_ids_size;
+                phrase_match_ids = phrase_ids;
+            } else {
+                uint32_t *phrase_ids_merged = nullptr;
+                phrase_match_ids_size = ArrayUtils::and_scalar(phrase_ids, phrase_ids_size, phrase_match_ids,
+                                                               phrase_match_ids_size, &phrase_ids_merged);
+                delete [] phrase_match_ids;
+                delete [] phrase_ids;
+                phrase_match_ids = phrase_ids_merged;
+            }
+        } else {
+            delete [] phrase_ids;
+            continue;
+        }
+    }
+
+    if(phrase_match_ids_size != 0) {
+        if(filter_ids_length == 0) {
+            actual_filter_ids_length = phrase_match_ids_size;
+            actual_filter_ids = phrase_match_ids;
+        } else {
+            actual_filter_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, phrase_match_ids,
+                                                              phrase_match_ids_size, &actual_filter_ids);
+
+            delete [] phrase_match_ids;
+            phrase_match_ids = nullptr;
+        }
+    }
+}
+
+void Index::do_synonym_search(const std::vector<filter>& filters,
+                              const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                              const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
+                              const token_ordering& token_order, const size_t drop_tokens_threshold,
+                              const size_t typo_tokens_threshold, const size_t group_limit,
+                              const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
+                              const bool exhaustive_search, const size_t concurrency, size_t min_len_1typo,
+                              size_t min_len_2typo, const size_t max_candidates, const std::set<uint32_t>& curated_ids,
+                              const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
+                              size_t exclude_token_ids_size, size_t i, uint32_t actual_filter_ids_length,
+                              int field_num_typos, bool field_prefix, const uint8_t field_id, const string& field_name,
+                              const std::unordered_map<string, field>::const_iterator& field_it,
+                              std::vector<token_t>& query_tokens, std::vector<token_t>& search_tokens,
+                              size_t num_tokens_dropped, Topster* actual_topster, size_t field_num_results,
+                              std::vector<query_tokens_t>& field_query_tokens, size_t& all_result_ids_len,
+                              spp::sparse_hash_set<uint64_t>& groups_processed,
+                              std::vector<std::vector<art_leaf*>>& searched_queries, uint32_t*& all_result_ids,
+                              uint32_t*& actual_filter_ids, std::set<uint64>& query_hashes) const {
+    std::vector<std::vector<token_t>> q_pos_synonyms;
+    for(const auto& q_syn_vec: field_query_tokens[i].q_synonyms) {
+        std::vector<token_t> q_pos_syn;
+        for(size_t j=0; j < q_syn_vec.size(); j++) {
+            bool is_prefix = (j == q_syn_vec.size()-1);
+            q_pos_syn.emplace_back(j, q_syn_vec[j], is_prefix);
+        }
+        q_pos_synonyms.emplace_back(q_pos_syn);
+    }
+
+    bool syn_wildcard_filter_init_done = false;
+
+    for(const auto& syn_tokens: q_pos_synonyms) {
+        num_tokens_dropped = 0;
+        field_num_results = 0;
+        query_tokens = search_tokens = syn_tokens;
+        query_hashes.clear();
+
+        if(query_tokens.size() == 1 && query_tokens[0].value == "*") {
+            // synonym can be a wildcard if there was an override filter used
+            // we will only do filtering in that case
+
+            if(!syn_wildcard_filter_init_done) {
+                curate_filtered_ids(filters, curated_ids, exclude_token_ids, exclude_token_ids_size,
+                                    actual_filter_ids, actual_filter_ids_length, curated_ids_sorted);
+                syn_wildcard_filter_init_done = true;
+            }
+
+            search_wildcard(filters, included_ids_map, sort_fields_std, actual_topster,
+                            curated_topster,
+                            groups_processed, searched_queries, group_limit, group_by_fields,
+                            curated_ids, curated_ids_sorted,
+                            exclude_token_ids, exclude_token_ids_size, field_id, field_name,
+                            all_result_ids, all_result_ids_len,
+                            actual_filter_ids, actual_filter_ids_length, concurrency);
+        } else {
+            search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
+                         field_it->second, field_name, actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
+                         field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                         field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
+                         query_hashes, token_order, field_prefix,
+                         drop_tokens_threshold, typo_tokens_threshold, exhaustive_search,
+                         min_len_1typo, min_len_2typo, max_candidates);
+        }
+    }
+}
+
+void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
+                            const std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                            const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
+                            const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
+                            const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,
+                            size_t field_num_results, size_t& all_result_ids_len,
+                            spp::sparse_hash_set<uint64_t>& groups_processed, uint32_t*& all_result_ids) const {
+    if(field_infix == always || (field_infix == fallback && field_num_results == 0)) {
+        std::vector<uint32_t> infix_ids;
+        search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
+
+        if(!infix_ids.empty()) {
+            int sort_order[3]; // 1 or -1 based on DESC or ASC respectively
+            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
+            std::vector<size_t> geopoint_indices;
+            populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
+            uint32_t token_bits = 255;
+
+            for(auto seq_id: infix_ids) {
+                score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 2,
+                              actual_topster, {}, groups_processed, seq_id, sort_order, field_values,
+                              geopoint_indices, group_limit, group_by_fields, token_bits,
+                              false, false, {});
+            }
+
+            std::sort(infix_ids.begin(), infix_ids.end());
+            infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
+
+            uint32_t* new_all_result_ids = nullptr;
+            all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &infix_ids[0],
+                                                       infix_ids.size(), &new_all_result_ids);
+            delete[] all_result_ids;
+            all_result_ids = new_all_result_ids;
+        }
+    }
+}
+
+void Index::handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
+                             const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
+                             size_t& exclude_token_ids_size) const {
+    for(size_t i = 0; i < num_search_fields; i++) {
+        const std::string & field_name = search_fields[i].name;
+        bool is_array = search_schema.at(field_name).is_array();
+
+        for(const auto& q_exclude_phrase: field_query_tokens[i].q_exclude_tokens) {
+            // if phrase has multiple words, then we have to do exclusion of phrase match results
+            std::vector<void*> posting_lists;
+            for(const std::string& exclude_token: q_exclude_phrase) {
+                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name),
+                                                         (const unsigned char *) exclude_token.c_str(),
+                                                         exclude_token.size() + 1);
+                if(leaf) {
+                    posting_lists.push_back(leaf->values);
+                }
+            }
+
+            if(posting_lists.size() != q_exclude_phrase.size()) {
+                continue;
+            }
+
+            std::vector<uint32_t> contains_ids;
+            posting_t::intersect(posting_lists, contains_ids);
+
+            if(posting_lists.size() == 1) {
+                uint32_t *exclude_token_ids_merged = nullptr;
+                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                               &contains_ids[0], contains_ids.size(),
+                                                               &exclude_token_ids_merged);
+                delete [] exclude_token_ids;
+                exclude_token_ids = exclude_token_ids_merged;
+            } else {
+                uint32_t* phrase_ids = new uint32_t[contains_ids.size()];
+                size_t phrase_ids_size = 0;
+
+                posting_t::get_phrase_matches(posting_lists, is_array, &contains_ids[0], contains_ids.size(),
+                                              phrase_ids, phrase_ids_size);
+
+                uint32_t *exclude_token_ids_merged = nullptr;
+                exclude_token_ids_size = ArrayUtils::or_scalar(exclude_token_ids, exclude_token_ids_size,
+                                                               phrase_ids, phrase_ids_size,
+                                                               &exclude_token_ids_merged);
+                delete [] phrase_ids;
+                delete [] exclude_token_ids;
+                exclude_token_ids = exclude_token_ids_merged;
+            }
+        }
+    }
 }
 
 void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,

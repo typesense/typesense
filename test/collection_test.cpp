@@ -465,8 +465,8 @@ TEST_F(CollectionTest, TextContainingAnActualTypo) {
     // A line contains "ISSX" but not "what" - need to ensure that correction to "ISSS what" happens
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("ISSX what", query_fields, "", facets, sort_fields, {1}, 4, 1, FREQUENCY, {false},
-                                               10, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
-                                               10, "", 30, 5, "", 10).get();
+                                               20, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                                               10, "", 30, 5, "", 20).get();
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ(11, results["found"].get<uint32_t>());
 

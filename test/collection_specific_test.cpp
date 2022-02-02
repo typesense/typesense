@@ -179,7 +179,7 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
     auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
-                                 1, FREQUENCY, {true, true}).get();
+                                 1, FREQUENCY, {true, true}, 10).get();
 
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
@@ -1269,8 +1269,8 @@ TEST_F(CollectionSpecificTest, TypoCorrectionWithFaceting) {
     auto results = coll1->search("salt", {"name", "brand"},
                                  "", {"brand"}, {}, {2}, 10,
                                  1, FREQUENCY, {true},
-                                 1, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000,
                                  true, false, true, "", true).get();
 

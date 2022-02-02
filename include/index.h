@@ -803,6 +803,65 @@ public:
                                 std::vector<std::vector<std::string>>& resolved_queries);
 
     size_t num_seq_ids() const;
+
+    void handle_exclusion(const size_t num_search_fields, std::vector<query_tokens_t>& field_query_tokens,
+                          const std::vector<search_field_t>& search_fields, uint32_t*& exclude_token_ids,
+                          size_t& exclude_token_ids_size) const;
+
+    void do_infix_search(const std::vector<sort_by>& sort_fields_std,
+                         const std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                         const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
+                         const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
+                         const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,
+                         size_t field_num_results, size_t& all_result_ids_len,
+                         spp::sparse_hash_set<uint64_t>& groups_processed, uint32_t*& all_result_ids) const;
+
+    void do_synonym_search(const std::vector<filter>& filters,
+                           const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                           const std::vector<sort_by>& sort_fields_std, Topster* curated_topster,
+                           const token_ordering& token_order, const size_t drop_tokens_threshold,
+                           const size_t typo_tokens_threshold, const size_t group_limit,
+                           const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
+                           const bool exhaustive_search, const size_t concurrency, size_t min_len_1typo,
+                           size_t min_len_2typo, const size_t max_candidates, const std::set<uint32_t>& curated_ids,
+                           const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
+                           size_t exclude_token_ids_size, size_t i, uint32_t actual_filter_ids_length,
+                           int field_num_typos,
+                           bool field_prefix, const uint8_t field_id, const string& field_name,
+                           const std::unordered_map<string, field>::const_iterator& field_it,
+                           std::vector<token_t>& query_tokens, std::vector<token_t>& search_tokens,
+                           size_t num_tokens_dropped, Topster* actual_topster, size_t field_num_results,
+                           std::vector<query_tokens_t>& field_query_tokens, size_t& all_result_ids_len,
+                           spp::sparse_hash_set<uint64_t>& groups_processed,
+                           std::vector<std::vector<art_leaf*>>& searched_queries, uint32_t*& all_result_ids,
+                           uint32_t*& actual_filter_ids, std::set<uint64>& query_hashes) const;
+
+    void
+    do_phrase_search(const uint32_t* filter_ids, uint32_t filter_ids_length, const string& field_name, bool is_array,
+                     uint32_t* phrase_match_ids, const std::vector<std::vector<std::string>>& field_phrases,
+                     uint32_t*& actual_filter_ids, uint32_t& actual_filter_ids_length,
+                     size_t& phrase_match_ids_size) const;
+
+    void
+    search_fields(const std::vector<filter>& filters,
+                  const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                  const std::vector<sort_by>& sort_fields_std, const std::vector<uint32_t>& num_typos,
+                  Topster* topster, Topster* curated_topster, const token_ordering& token_order,
+                  const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
+                  spp::sparse_hash_set<uint64_t>& groups_processed,
+                  std::vector<std::vector<art_leaf*>>& searched_queries,
+                  const size_t typo_tokens_threshold, const size_t group_limit,
+                  const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
+                  const bool exhaustive_search, const size_t concurrency, size_t min_len_1typo, size_t min_len_2typo,
+                  const size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                  const size_t max_extra_suffix, uint32_t* filter_ids, uint32_t filter_ids_length,
+                  const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
+                  const size_t num_search_fields, const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
+                  std::vector<Topster*>& ftopsters, bool is_wildcard_query,
+                  std::vector<query_tokens_t>& field_query_tokens,
+                  const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
+                  uint32_t*& all_result_ids,
+                  spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const;
 };
 
 template<class T>
