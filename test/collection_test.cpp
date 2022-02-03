@@ -1250,7 +1250,7 @@ TEST_F(CollectionTest, ImportDocumentsEmplace) {
     Collection* coll1;
     std::vector<field> fields = {
             field("title", field_types::STRING, false, false),
-            field("points", field_types::INT32, false, true)
+            field("points", field_types::INT32, false, false)
     };
 
     coll1 = collectionManager.get_collection("coll1").get();
@@ -1328,7 +1328,7 @@ TEST_F(CollectionTest, ImportDocumentsEmplace) {
     ASSERT_EQ(1, import_results[1].size());
     ASSERT_EQ(1, import_results[1].size());
 
-    // can update individual document via "emplace"
+    // can update individual document via "emplace" with only partial field (missing points)
     std::string doc_3_update = R"({"id": "3", "title": "The Superman"})";
     auto add_op = coll1->add(doc_3_update, EMPLACE);
     ASSERT_TRUE(add_op.ok());
