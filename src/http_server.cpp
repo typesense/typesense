@@ -341,7 +341,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
                         h2o_iovec_init(req->path.base + req->query_at, req->path.len - req->query_at) :
                         h2o_iovec_init(H2O_STRLIT(""));
 
-    if(query.len > 4000) {
+    if(query.len > 4000 && http_method == "GET" && !path_parts.empty() && path_parts.back() == "search") {
         nlohmann::json resp;
         resp["message"] = "Query string exceeds max allowed length of 4000. Use the /multi_search end-point for larger payloads.";
         return send_response(req, 400, resp.dump());
