@@ -296,7 +296,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
     bool missing_default_sort_field = (!default_sorting_field.empty() && document.count(default_sorting_field) == 0);
 
-    if(op != UPDATE && missing_default_sort_field) {
+    if((op != UPDATE && op != EMPLACE) && missing_default_sort_field) {
         return Option<>(400, "Field `" + default_sorting_field  + "` has been declared as a default sorting field, "
                 "but is not found in the document.");
     }
@@ -309,7 +309,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
             continue;
         }
 
-        if((a_field.optional || op == UPDATE) && document.count(field_name) == 0) {
+        if((a_field.optional || op == UPDATE || op == EMPLACE) && document.count(field_name) == 0) {
             continue;
         }
 
@@ -320,7 +320,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 
         if(a_field.optional && document[field_name].is_null()) {
             // we will ignore `null` on an option field
-            if(op != UPDATE) {
+            if(op != UPDATE && op != EMPLACE) {
                 // for updates, the erasure is done later since we need to keep the key for overwrite
                 document.erase(field_name);
             }
