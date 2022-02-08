@@ -23,6 +23,7 @@
 #include "threadpool.h"
 #include "adi_tree.h"
 #include "tsl/htrie_set.h"
+#include "id_list.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -455,7 +456,7 @@ private:
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
     // this is used for wildcard queries
-    sorted_array seq_ids;
+    id_list_t* seq_ids;
 
     std::vector<char> symbols_to_index;
 

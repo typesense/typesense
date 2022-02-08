@@ -44,7 +44,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
         name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
         search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema),
-        symbols_to_index(symbols_to_index), token_separators(token_separators) {
+        seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
     for(const auto & fname_field: search_schema) {
         if(fname_field.second.is_string()) {
@@ -173,6 +173,8 @@ Index::~Index() {
     }
 
     facet_index_v3.clear();
+
+    delete seq_ids;
 }
 
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
@@ -625,7 +627,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             }
             if(!record.is_update && record.indexed.ok()) {
                 // for updates, the seq_id will already exist
-                seq_ids.append(record.seq_id);
+                seq_ids->upsert(record.seq_id);
             }
         }
 
@@ -1362,8 +1364,8 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     size_t to_exclude_ids_len = 0;
                     num_tree->search(EQUALS, bool_int64, &to_exclude_ids, to_exclude_ids_len);
 
-                    auto all_ids = seq_ids.uncompress();
-                    auto all_ids_size = seq_ids.getLength();
+                    auto all_ids = seq_ids->uncompress();
+                    auto all_ids_size = seq_ids->num_ids();
 
                     uint32_t* excluded_ids = nullptr;
                     size_t excluded_ids_len = 0;
@@ -1568,18 +1570,19 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                 if(a_filter.comparators[0] == NOT_EQUALS) {
                     // exclude records from existing IDs (from previous filters or ALL records)
                     // upstream will guarantee that NOT_EQUALS is placed right at the end of filters list
+                    uint32_t* excluded_strt_ids = nullptr;
+                    size_t excluded_strt_size = 0;
+
                     if(ids == nullptr) {
                         if(filter_ids == nullptr) {
-                            ids = seq_ids.uncompress();
-                            ids_size = seq_ids.getLength();
+                            ids = seq_ids->uncompress();
+                            ids_size = seq_ids->num_ids();
                         } else {
                             ids = filter_ids;
                             ids_size = filter_ids_length;
                         }
                     }
 
-                    uint32_t* excluded_strt_ids = nullptr;
-                    size_t excluded_strt_size = 0;
                     excluded_strt_size = ArrayUtils::exclude_scalar(ids, ids_size, strt_ids,
                                                                     strt_ids_size, &excluded_strt_ids);
 
@@ -3012,8 +3015,8 @@ void Index::curate_filtered_ids(const std::vector<filter>& filters, const std::s
     // if filtered results are not available, use the seq_ids index to generate the list of all document ids
 
     if(filters.empty() && filter_ids_length == 0) {
-        filter_ids_length = seq_ids.getLength();
-        filter_ids = seq_ids.uncompress();
+        filter_ids_length = seq_ids->num_ids();
+        filter_ids = seq_ids->uncompress();
     }
 
     if(!curated_ids.empty()) {
@@ -3829,7 +3832,7 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
     }
 
     if(!is_update) {
-        seq_ids.remove_value(seq_id);
+        seq_ids->erase(seq_id);
     }
 
     return Option<uint32_t>(seq_id);
@@ -4370,7 +4373,7 @@ void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& sear
 
 size_t Index::num_seq_ids() const {
     std::shared_lock lock(mutex);
-    return seq_ids.getLength();
+    return seq_ids->num_ids();
 }
 
 void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const string& field_name,

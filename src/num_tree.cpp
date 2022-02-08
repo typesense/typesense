@@ -3,11 +3,13 @@
 
 void num_tree_t::insert(int64_t value, uint32_t id) {
     if (int64map.count(value) == 0) {
-        int64map.emplace(value, new sorted_array);
-    }
-
-    if (!int64map[value]->contains(id)) {
-        int64map[value]->append(id);
+        int64map.emplace(value, SET_COMPACT_IDS(compact_id_list_t::create(1, {id})));
+    } else {
+        auto ids = int64map[value];
+        if (!ids_t::contains(ids, id)) {
+            ids_t::upsert(ids, id);
+            int64map[value] = ids;
+        }
     }
 }
 
@@ -20,9 +22,9 @@ void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** i
 
     std::vector<uint32_t> consolidated_ids;
     while(it_start != int64map.end() && it_start->first <= end) {
-        uint32_t* values = it_start->second->uncompress();
+        uint32_t* values = ids_t::uncompress(it_start->second);
 
-        for(size_t i = 0; i < it_start->second->getLength(); i++) {
+        for(size_t i = 0; i < ids_t::num_ids(it_start->second); i++) {
             consolidated_ids.push_back(values[i]);
         }
 
@@ -50,14 +52,14 @@ size_t num_tree_t::get(int64_t value, std::vector<uint32_t>& geo_result_ids) {
         return 0;
     }
 
-    uint32_t* ids = it->second->uncompress();
-    for(size_t i = 0; i < it->second->getLength(); i++) {
+    uint32_t* ids = ids_t::uncompress(it->second);
+    for(size_t i = 0; i < ids_t::num_ids(it->second); i++) {
         geo_result_ids.push_back(ids[i]);
     }
 
     delete [] ids;
 
-    return it->second->getLength();
+    return ids_t::num_ids(it->second);
 }
 
 void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids, size_t& ids_len) {
@@ -69,8 +71,8 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
         const auto& it = int64map.find(value);
         if(it != int64map.end()) {
             uint32_t *out = nullptr;
-            uint32_t* val_ids = it->second->uncompress();
-            ids_len = ArrayUtils::or_scalar(val_ids, it->second->getLength(),
+            uint32_t* val_ids = ids_t::uncompress(it->second);
+            ids_len = ArrayUtils::or_scalar(val_ids, ids_t::num_ids(it->second),
                                             *ids, ids_len, &out);
             delete[] *ids;
             *ids = out;
@@ -90,9 +92,9 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
 
         std::vector<uint32_t> consolidated_ids;
         while(iter_ge_value != int64map.end()) {
-            uint32_t* values = iter_ge_value->second->uncompress();
+            uint32_t* values = ids_t::uncompress(iter_ge_value->second);
 
-            for(size_t i = 0; i < iter_ge_value->second->getLength(); i++) {
+            for(size_t i = 0; i < ids_t::num_ids(iter_ge_value->second); i++) {
                 consolidated_ids.push_back(values[i]);
             }
 
@@ -123,9 +125,9 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
         auto it = int64map.begin();
 
         while(it != iter_ge_value) {
-            uint32_t* values = it->second->uncompress();
+            uint32_t* values = ids_t::uncompress(it->second);
 
-            for(size_t i = 0; i < it->second->getLength(); i++) {
+            for(size_t i = 0; i < ids_t::num_ids(it->second); i++) {
                 consolidated_ids.push_back(values[i]);
             }
 
@@ -135,8 +137,8 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
 
         // for LESS_THAN_EQUALS, check if last iter entry is equal to value
         if(it != int64map.end() && comparator == LESS_THAN_EQUALS && it->first == value) {
-            uint32_t* values = it->second->uncompress();
-            for(size_t i = 0; i < it->second->getLength(); i++) {
+            uint32_t* values = ids_t::uncompress(it->second);
+            for(size_t i = 0; i < ids_t::num_ids(it->second); i++) {
                 consolidated_ids.push_back(values[i]);
             }
             delete [] values;
@@ -161,15 +163,24 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
 
 void num_tree_t::remove(uint64_t value, uint32_t id) {
     if(int64map.count(value) != 0) {
-        sorted_array* arr = int64map[value];
-        arr->remove_value(id);
-        if(arr->getLength() == 0) {
-            delete arr;
+        void* arr = int64map[value];
+        ids_t::erase(arr, id);
+
+        if(ids_t::num_ids(arr) == 0) {
+            ids_t::destroy_list(arr);
             int64map.erase(value);
+        } else {
+            int64map[value] = arr;
         }
     }
 }
 
 size_t num_tree_t::size() {
     return int64map.size();
+}
+
+num_tree_t::~num_tree_t() {
+    for(auto& kv: int64map) {
+        ids_t::destroy_list(kv.second);
+    }
 }
