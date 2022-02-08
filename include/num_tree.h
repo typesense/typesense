@@ -5,18 +5,15 @@
 #include "sorted_array.h"
 #include "array_utils.h"
 #include "art.h"
+#include "ids_t.h"
 
 class num_tree_t {
 private:
-    std::map<int64_t, sorted_array*> int64map;
+    std::map<int64_t, void*> int64map;
 
 public:
 
-    ~num_tree_t() {
-        for(auto& kv: int64map) {
-            delete kv.second;
-        }
-    }
+    ~num_tree_t();
 
     void insert(int64_t value, uint32_t id);
 
