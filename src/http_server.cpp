@@ -261,11 +261,15 @@ void HttpServer::on_res_generator_dispose(void *self) {
     //LOG(INFO) << "on_res_generator_dispose fires";
     h2o_custom_generator_t* custom_generator = *static_cast<h2o_custom_generator_t**>(self);
 
-    custom_generator->res()->final = true;
-    custom_generator->res()->generator = nullptr;
-    custom_generator->res()->is_alive = false;
-    custom_generator->req()->notify();
-    custom_generator->res()->notify();
+    // locking to ensure dispose does not happen while the h2o req object is being written to
+    {
+        std::unique_lock lk(custom_generator->res()->mres);
+        custom_generator->res()->final = true;
+        custom_generator->res()->generator = nullptr;
+        custom_generator->res()->is_alive = false;
+        custom_generator->req()->notify();
+        custom_generator->res()->notify();
+    }
 
     delete custom_generator;
 }

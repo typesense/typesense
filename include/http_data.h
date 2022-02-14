@@ -41,6 +41,8 @@ struct http_res {
     std::string body;
     std::atomic<bool> final;
 
+    std::shared_mutex mres;
+
     std::atomic<bool> is_alive;
     std::atomic<void*> generator = nullptr;
 
