@@ -109,6 +109,8 @@ public:
                     const bool destroy_after_use) :
             req(h_req), res(h_res), destroy_after_use(destroy_after_use), res_state(h_req->_req) {
 
+        std::shared_lock lk(res->mres);
+
         if(!res->is_alive || req->_req == nullptr || res->generator == nullptr) {
             return;
         }
