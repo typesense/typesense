@@ -1299,3 +1299,60 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Mong Mong";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Mong Spencer";
+    doc2["points"] = 200;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Mong Mong Spencer";
+    doc3["points"] = 300;
+
+    nlohmann::json doc4;
+    doc4["id"] = "3";
+    doc4["title"] = "Spencer Mong Mong";
+    doc4["points"] = 400;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc4.dump()).ok());
+
+    sort_fields = {
+        sort_by("_text_match", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("mong mong", {"title"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {3}, 1000, true).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(50291713, results["hits"][0]["text_match"].get<uint32_t>());
+    ASSERT_EQ(50291712, results["hits"][1]["text_match"].get<uint32_t>());
+    ASSERT_EQ(50291712, results["hits"][2]["text_match"].get<uint32_t>());
+    ASSERT_EQ(50291712, results["hits"][3]["text_match"].get<uint32_t>());
+
+    collectionManager.drop_collection("coll1");
+}
