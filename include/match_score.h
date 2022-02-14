@@ -219,10 +219,13 @@ struct Match {
 
         if(check_exact_match) {
 
-            if(distance != token_offsets.size()-1) {
+            if(distance > token_offsets.size()-1) {
                 // we can exit early and don't have to care about other requirements
                 return;
             }
+
+            // 1) distance < num tokens when there are repeating query tokens
+            // 2) distance can be same as num tokens and still not be an exact match
 
             int last_token_index = -1;
             size_t total_offsets = 0;
@@ -231,15 +234,21 @@ struct Match {
                 if(token_positions.last_token && !token_positions.positions.empty()) {
                     last_token_index = token_positions.positions.back();
                 }
+
                 total_offsets += token_positions.positions.size();
-                if(total_offsets > token_offsets.size()) {
+
+                if(total_offsets > token_offsets.size() && distance == token_offsets.size()-1) {
                     // if total offsets exceed query length, there cannot possibly be an exact match
                     return;
                 }
             }
 
-            if(last_token_index == int(token_offsets.size())-1 && total_offsets == token_offsets.size()) {
-                exact_match = 1;
+            if(last_token_index == int(token_offsets.size())-1) {
+                if(total_offsets == token_offsets.size() && distance == token_offsets.size()-1) {
+                    exact_match = 1;
+                } else if(distance < token_offsets.size()-1) {
+                    exact_match = 1;
+                }
             }
         }
     }
