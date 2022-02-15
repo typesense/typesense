@@ -168,6 +168,9 @@ nlohmann::json Collection::get_summary_json() const {
         field_json[fields::facet] = coll_field.facet;
         field_json[fields::optional] = coll_field.optional;
         field_json[fields::index] = coll_field.index;
+        field_json[fields::sort] = coll_field.sort;
+        field_json[fields::infix] = coll_field.infix;
+        field_json[fields::locale] = coll_field.locale;
 
         fields_arr.push_back(field_json);
     }
