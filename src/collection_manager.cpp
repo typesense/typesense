@@ -38,9 +38,13 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
             field_obj[fields::locale] = "";
         }
 
+        if(field_obj.count(fields::infix) == 0) {
+            field_obj[fields::infix] = -1;
+        }
+
         field f(field_obj[fields::name], field_obj[fields::type], field_obj[fields::facet],
                 field_obj[fields::optional], field_obj[fields::index], field_obj[fields::locale],
-                true);
+                -1, field_obj[fields::infix]);
 
         // value of `sort` depends on field type
         if(field_obj.count(fields::sort) == 0) {
