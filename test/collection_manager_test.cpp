@@ -26,7 +26,7 @@ protected:
 
         search_fields = {
             field("title", field_types::STRING, false, false, true, "en", false),
-            field("starring", field_types::STRING, false, false, true, "", false),
+            field("starring", field_types::STRING, false, false, true, "", false, true),
             field("cast", field_types::STRING_ARRAY, true, true, true, "", false),
             field(".*_year", field_types::INT32, true, true),
             field("location", field_types::GEOPOINT, false, true, true),
@@ -90,12 +90,12 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
+              "\"fields\":[{\"facet\":false,\"infix\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"infix\":true,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"infix\":false,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"infix\":false,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
+              "{\"facet\":false,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
@@ -113,13 +113,17 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
     ASSERT_EQ("foo", collection->get_default_sorting_field());
     ASSERT_EQ(0, collection->get_created_at());
 
+    ASSERT_FALSE(collection->get_fields().at(0).infix);
+    ASSERT_FALSE(collection->get_fields().at(0).sort);
+    ASSERT_EQ("", collection->get_fields().at(0).locale);
+
     delete collection;
 
     // with non-default values
 
     nlohmann::json collection_meta2 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
-                                  "\"string\", \"facet\": false}], \"created_at\": 12345,"
+                                  "\"string\", \"facet\": false, \"infix\": true, \"sort\": true, \"locale\": \"en\"}], \"created_at\": 12345,"
                                   "\"default_sorting_field\": \"foo\","
                                   "\"symbols_to_index\": [\"+\"], \"token_separators\": [\"-\"]}");
 
@@ -135,6 +139,10 @@ TEST_F(CollectionManagerTest, ShouldInitCollection) {
 
     ASSERT_EQ(1, collection->get_symbols_to_index().size());
     ASSERT_EQ('+', collection->get_symbols_to_index()[0]);
+
+    ASSERT_TRUE(collection->get_fields().at(0).infix);
+    ASSERT_TRUE(collection->get_fields().at(0).sort);
+    ASSERT_EQ("en", collection->get_fields().at(0).locale);
 
     delete collection;
 }

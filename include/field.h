@@ -241,6 +241,7 @@ struct field {
             field_val[fields::facet] = field.facet;
             field_val[fields::optional] = field.optional;
             field_val[fields::sort] = field.sort;
+            field_val[fields::infix] = field.infix;
 
             field_val[fields::locale] = field.locale;
 
