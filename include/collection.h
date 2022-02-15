@@ -120,6 +120,17 @@ struct synonym_t {
     }
 };
 
+struct highlight_field_t {
+    std::string name;
+    bool fully_highlighted;
+    bool infix;
+
+    highlight_field_t(const std::string& name, bool fully_highlighted, bool infix):
+            name(name), fully_highlighted(fully_highlighted), infix(infix) {
+
+    }
+};
+
 class Collection {
 private:
 
@@ -449,5 +460,12 @@ public:
                    const std::map<size_t, std::string>& prefix_start_offsets, size_t snippet_end_offset,
                    std::vector<std::string>& matched_tokens, std::map<size_t, size_t>::iterator& offset_it,
                    std::stringstream& highlighted_text, size_t snippet_start_offset) ;
+
+    void process_highlight_fields(const std::vector<std::string>& search_fields,
+                                  const spp::sparse_hash_set<std::string>& exclude_fields,
+                                  const string& highlight_fields,
+                                  const std::string& highlight_full_fields,
+                                  const std::vector<infix_t>& infixes,
+                                  std::vector<highlight_field_t>& highlight_items) const;
 };
 

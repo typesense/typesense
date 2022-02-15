@@ -59,6 +59,7 @@ TEST_F(CollectionSpecificTest, SearchTextWithHyphen) {
 }
 
 TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
+    // Allow highlighting independent of query_by fields
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),
                                  field("author", field_types::STRING, false),
@@ -109,16 +110,35 @@ TEST_F(CollectionSpecificTest, ExplicitHighlightFieldsConfig) {
     ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("author", results["hits"][0]["highlights"][1]["field"].get<std::string>());
 
-    // query not matching field selected for highlighting
+    // query_by not matching field selected for highlighting
 
-    results = coll1->search("pernell", {"title", "author"}, "", {}, {}, {2}, 10,
+    results = coll1->search("fox", {"title", "author"}, "", {}, {}, {2}, 10,
                             1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
                             {"description"}, 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                             "<mark>", "</mark>", {1,1}, 10000, true, false, true, "description").get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("A story about a brown <mark>fox</mark> who was fast.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_FALSE(results["hits"][0]["highlights"][0].contains("value"));
+
+    // query_by not matching field selected for full highlighting
+
+    results = coll1->search("fox", {"title", "author"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {false}, 1, spp::sparse_hash_set<std::string>(),
+                            {"description"}, 10, "", 30, 4, "description", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1,1}, 10000, true, false, true, "description").get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("A story about a brown <mark>fox</mark> who was fast.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_TRUE(results["hits"][0]["highlights"][0].contains("value"));
+    ASSERT_EQ("A story about a brown <mark>fox</mark> who was fast.", results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     // wildcard query with search field names
 
