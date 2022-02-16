@@ -2386,3 +2386,33 @@ TEST_F(CollectionSpecificTest, DropTokensTillOneToken) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, NegationOfTokens) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"Samsung Galaxy Buds 2 White"},
+            {"Samsung Galaxy Note20 Ultra Cover EF-ZN985CAEGEE, Bronze"},
+            {"Samsung Galaxy S21+ cover EF-NG996PJEGEE, bijeli"},
+            {"Samsung Galaxy S21+ Kožna maska EF-VG996LBEGWW, crna"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("galaxy -buds -maska -cover", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
