@@ -1204,7 +1204,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                     highlight_t highlight;
                     highlight_result(raw_query, search_field, searched_queries, q_tokens, field_order_kv, document,
                                      string_utils, snippet_threshold, highlight_affix_num_tokens,
-                                     highlight_item.fully_highlighted, highlight_start_tag, highlight_end_tag, highlight);
+                                     highlight_item.fully_highlighted, highlight_item.infix,
+                                     highlight_start_tag, highlight_end_tag, highlight);
                     if(!highlight.snippets.empty()) {
                         highlights.push_back(highlight);
                     }
@@ -1721,6 +1722,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                                   const size_t snippet_threshold,
                                   const size_t highlight_affix_num_tokens,
                                   bool highlighted_fully,
+                                  bool is_infix_search,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
                                   highlight_t & highlight) const {
@@ -1953,6 +1955,10 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
             } else if(query_suggestion_tokens.find(raw_token) != query_suggestion_tokens.end() ||
                       raw_token.rfind(last_raw_q_token, 0) == 0) {
+                token_offsets.emplace(tok_start, tok_end);
+                token_hits.insert(raw_token);
+            } else if(is_infix_search && text.size() < 100 &&
+                raw_token.find(raw_query_tokens.front()) != std::string::npos) {
                 token_offsets.emplace(tok_start, tok_end);
                 token_hits.insert(raw_token);
             }

@@ -211,6 +211,7 @@ private:
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
                           bool highlighted_fully,
+                          bool is_infix_search,
                           const std::string& highlight_start_tag,
                           const std::string& highlight_end_tag,
                           highlight_t &highlight) const;
