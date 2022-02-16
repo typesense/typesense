@@ -58,6 +58,11 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("title", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>GH100037IN8900X</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>GH100037IN8900X</mark>", results["hits"][0]["highlights"][0]["value"].get<std::string>());
+
     // verify off behavior
 
     results = coll1->search("100037",
@@ -217,6 +222,29 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // highlight infix match only on infix-searched field
+    doc["id"] = "2";
+    doc["title"] = "fuzzbuzz HYU16736GY6372";
+    doc["description"] = "HYU16736GY6372";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    results = coll1->search("16736",
+                            {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {off, always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("2", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("description", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>HYU16736GY6372</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_FALSE(results["hits"][0]["highlights"][0].contains("value"));
 
     collectionManager.drop_collection("coll1");
 }
