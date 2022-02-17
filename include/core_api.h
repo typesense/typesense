@@ -45,6 +45,16 @@ bool put_upsert_alias(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 bool del_alias(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+// Presets
+
+bool get_presets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool get_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool put_upsert_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
+bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 // Overrides
 
 bool get_overrides(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);

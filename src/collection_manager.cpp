@@ -207,12 +207,27 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         return num_processed == num_collections;
     });
 
+    // load aliases
+
     std::string symlink_prefix_key = std::string(SYMLINK_PREFIX) + "_";
     rocksdb::Iterator* iter = store->scan(symlink_prefix_key);
     while(iter->Valid() && iter->key().starts_with(symlink_prefix_key)) {
         std::vector<std::string> parts;
         StringUtils::split(iter->key().ToString(), parts, symlink_prefix_key);
         collection_symlinks[parts[0]] = iter->value().ToString();
+        iter->Next();
+    }
+
+    delete iter;
+
+    // load presets
+
+    std::string preset_prefix_key = std::string(PRESET_PREFIX) + "_";
+    iter = store->scan(preset_prefix_key);
+    while(iter->Valid() && iter->key().starts_with(preset_prefix_key)) {
+        std::vector<std::string> parts;
+        StringUtils::split(iter->key().ToString(), parts, preset_prefix_key);
+        preset_configs[parts[0]] = iter->value().ToString();
         iter->Next();
     }
 
@@ -245,6 +260,8 @@ void CollectionManager::dispose() {
     }
 
     collections.clear();
+    collection_symlinks.clear();
+    preset_configs.clear();
     store->close();
 }
 
@@ -595,6 +612,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SEARCH_CUTOFF_MS = "search_cutoff_ms";
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
+
+    const char *PRESET = "preset";
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";
@@ -1232,5 +1251,49 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
     LOG(INFO) << "Indexed " << num_indexed_docs << "/" << num_found_docs
               << " documents into collection " << collection->get_name();
 
+    return Option<bool>(true);
+}
+
+spp::sparse_hash_map<std::string, nlohmann::json> CollectionManager::get_presets() const {
+    std::shared_lock lock(mutex);
+    return preset_configs;
+}
+
+Option<nlohmann::json> CollectionManager::get_preset(const string& preset_name) const {
+    std::shared_lock lock(mutex);
+
+    const auto& it = preset_configs.find(preset_name);
+    if(it != preset_configs.end()) {
+        return Option<nlohmann::json>(it->second);
+    }
+
+    return Option<nlohmann::json>(404, "Not found.");
+}
+
+Option<bool> CollectionManager::upsert_preset(const string& preset_name, const nlohmann::json& preset_config) {
+    std::unique_lock lock(mutex);
+
+    bool inserted = store->insert(get_preset_key(preset_name), preset_config.dump());
+    if(!inserted) {
+        return Option<bool>(500, "Unable to insert into store.");
+    }
+
+    preset_configs[preset_name] = preset_config;
+    return Option<bool>(true);
+}
+
+std::string CollectionManager::get_preset_key(const string& preset_name) {
+    return std::string(PRESET_PREFIX) + "_" + preset_name;
+}
+
+Option<bool> CollectionManager::delete_preset(const string& preset_name) {
+    std::unique_lock lock(mutex);
+
+    bool removed = store->remove(get_preset_key(preset_name));
+    if(!removed) {
+        return Option<bool>(500, "Unable to delete from store.");
+    }
+
+    preset_configs.erase(preset_name);
     return Option<bool>(true);
 }

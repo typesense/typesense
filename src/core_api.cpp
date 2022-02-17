@@ -323,13 +323,23 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json req_json;
+    const auto preset_it = req->params.find("preset");
 
-    try {
-        req_json = nlohmann::json::parse(req->body);
-    } catch(const std::exception& e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res->set_400("Bad JSON.");
-        return false;
+    if(preset_it != req->params.end()) {
+        const auto preset_op = CollectionManager::get_instance().get_preset(preset_it->second);
+        if(preset_op.ok()) {
+            req_json = preset_op.get();
+        }
+    }
+
+    if(req_json.empty()) {
+        try {
+            req_json = nlohmann::json::parse(req->body);
+        } catch(const std::exception& e) {
+            LOG(ERROR) << "JSON error: " << e.what();
+            res->set_400("Bad JSON.");
+            return false;
+        }
     }
 
     if(req_json.count("searches") == 0) {
@@ -1485,4 +1495,96 @@ bool is_doc_del_route(uint64_t route_hash) {
     route_path* rpath;
     bool found = server->get_route(route_hash, &rpath);
     return found && (rpath->handler == del_remove_document || rpath->handler == del_remove_documents);
+}
+
+bool get_presets(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const spp::sparse_hash_map<std::string, nlohmann::json> & presets = collectionManager.get_presets();
+    nlohmann::json res_json = nlohmann::json::object();
+    res_json["presets"] = nlohmann::json::array();
+
+    for(const auto& preset_kv: presets) {
+        nlohmann::json preset;
+        preset["name"] = preset_kv.first;
+        preset["value"] = preset_kv.second;
+        res_json["presets"].push_back(preset);
+    }
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool get_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & preset_name = req->params["preset_name"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    Option<nlohmann::json> preset_op = collectionManager.get_preset(preset_name);
+
+    if(!preset_op.ok()) {
+        res->set_404();
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = preset_name;
+    res_json["value"] = preset_op.get();
+
+    res->set_200(res_json.dump());
+    return true;
+}
+
+bool put_upsert_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    const std::string & preset_name = req->params["name"];
+
+    const char* PRESET_VALUE = "value";
+
+    if(req_json.count(PRESET_VALUE) == 0) {
+        res->set_400(std::string("Parameter `") + PRESET_VALUE + "` is required.");
+        return false;
+    }
+
+    Option<bool> success_op = collectionManager.upsert_preset(preset_name, req_json[PRESET_VALUE]);
+    if(!success_op.ok()) {
+        res->set_500(success_op.error());
+        return false;
+    }
+
+    req_json["name"] = preset_name;
+
+    res->set_200(req_json.dump());
+    return true;
+}
+
+bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    const std::string & preset_name = req->params["name"];
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+
+    Option<nlohmann::json> preset_op = collectionManager.get_preset(preset_name);
+    if(!preset_op.ok()) {
+        res->set_404();
+        return false;
+    }
+
+    Option<bool> delete_op = collectionManager.delete_preset(preset_name);
+
+    if(!delete_op.ok()) {
+        res->set_500(delete_op.error());
+        return false;
+    }
+
+    nlohmann::json res_json;
+    res_json["name"] = preset_name;
+    res_json["value"] = preset_op.get();
+    res->set_200(res_json.dump());
+    return true;
 }

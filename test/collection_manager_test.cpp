@@ -673,3 +673,56 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     sort_by_parsed = CollectionManager::parse_sort_by_str(",,", sort_fields);
     ASSERT_FALSE(sort_by_parsed);
 }
+
+TEST_F(CollectionManagerTest, Presets) {
+    // try getting on a blank slate
+    auto presets = collectionManager.get_presets();
+    ASSERT_TRUE(presets.empty());
+
+    // insert some presets
+    nlohmann::json preset_obj;
+
+    preset_obj["query_by"] = "foo";
+    collectionManager.upsert_preset("preset1", preset_obj);
+
+    preset_obj["query_by"] = "bar";
+    collectionManager.upsert_preset("preset2", preset_obj);
+
+    ASSERT_EQ(2, collectionManager.get_presets().size());
+
+    // try fetching individual presets
+    auto preset_op = collectionManager.get_preset("preset1");
+    ASSERT_TRUE(preset_op.ok());
+    ASSERT_EQ(1, preset_op.get().size());
+    ASSERT_EQ("foo", preset_op.get()["query_by"]);
+
+    preset_op = collectionManager.get_preset("preset2");
+    ASSERT_TRUE(preset_op.ok());
+    ASSERT_EQ(1, preset_op.get().size());
+    ASSERT_EQ("bar", preset_op.get()["query_by"]);
+
+    // delete a preset
+    auto del_op = collectionManager.delete_preset("preset2");
+    ASSERT_TRUE(del_op.ok());
+
+    std::string val;
+    auto status = store->get(CollectionManager::get_preset_key("preset2"), val);
+    ASSERT_EQ(StoreStatus::NOT_FOUND, status);
+
+    ASSERT_EQ(1, collectionManager.get_presets().size());
+    preset_op = collectionManager.get_preset("preset2");
+    ASSERT_FALSE(preset_op.ok());
+    ASSERT_EQ(404, preset_op.code());
+
+    // should be able to restore state on init
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    collectionManager.load(8, 1000);
+
+    ASSERT_EQ(1, collectionManager.get_presets().size());
+    preset_op = collectionManager.get_preset("preset1");
+    ASSERT_TRUE(preset_op.ok());
+}

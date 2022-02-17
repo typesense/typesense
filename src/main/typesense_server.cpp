@@ -58,6 +58,11 @@ void master_server_routes() {
     server->post("/keys", post_create_key);
     server->del("/keys/:id", del_key);
 
+    server->get("/presets", get_presets);
+    server->get("/presets/:name", get_preset);
+    server->put("/presets/:name", put_upsert_preset);
+    server->del("/presets/:name", del_preset);
+
     // meta
     server->get("/metrics.json", get_metrics_json);
     server->get("/stats.json", get_stats_json);
