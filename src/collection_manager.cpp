@@ -1259,15 +1259,16 @@ spp::sparse_hash_map<std::string, nlohmann::json> CollectionManager::get_presets
     return preset_configs;
 }
 
-Option<nlohmann::json> CollectionManager::get_preset(const string& preset_name) const {
+Option<bool> CollectionManager::get_preset(const string& preset_name, nlohmann::json& preset) const {
     std::shared_lock lock(mutex);
 
     const auto& it = preset_configs.find(preset_name);
     if(it != preset_configs.end()) {
-        return Option<nlohmann::json>(it->second);
+        preset = it->second;
+        return Option<bool>(true);
     }
 
-    return Option<nlohmann::json>(404, "Not found.");
+    return Option<bool>(404, "Not found.");
 }
 
 Option<bool> CollectionManager::upsert_preset(const string& preset_name, const nlohmann::json& preset_config) {

@@ -366,7 +366,7 @@ Option<uint32_t> api_key_t::validate(const nlohmann::json &key_obj) {
 
 
 bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_params,
-                                     nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
+                                     const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
                                      bool overwrite) {
 
     std::string str_value;

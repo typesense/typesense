@@ -263,6 +263,29 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
     }
 
+    const auto preset_it = req->params.find("preset");
+
+    if(preset_it != req->params.end()) {
+        nlohmann::json preset;
+        const auto& preset_op = CollectionManager::get_instance().get_preset(preset_it->second, preset);
+
+        if(preset_op.ok()) {
+            if(!preset.is_object()) {
+                res->set_400("Search preset is not an object.");
+                return false;
+            }
+
+            for(const auto& search_item: preset.items()) {
+                // overwrite = false since req params will contain embedded params and so has higher priority
+                bool populated = AuthManager::add_item_to_params(req->params, search_item, false);
+                if(!populated) {
+                    res->set_400("One or more search parameters are malformed.");
+                    return false;
+                }
+            }
+        }
+    }
+
     std::string results_json_str;
     Option<bool> search_op = CollectionManager::do_search(req->params, results_json_str);
 
@@ -326,10 +349,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     const auto preset_it = req->params.find("preset");
 
     if(preset_it != req->params.end()) {
-        const auto preset_op = CollectionManager::get_instance().get_preset(preset_it->second);
-        if(preset_op.ok()) {
-            req_json = preset_op.get();
-        }
+        CollectionManager::get_instance().get_preset(preset_it->second, req_json);
     }
 
     if(req_json.empty()) {
@@ -1517,16 +1537,18 @@ bool get_presets(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
 bool get_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     const std::string & preset_name = req->params["preset_name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    Option<nlohmann::json> preset_op = collectionManager.get_preset(preset_name);
+
+    nlohmann::json preset;
+    Option<bool> preset_op = collectionManager.get_preset(preset_name, preset);
 
     if(!preset_op.ok()) {
-        res->set_404();
+        res->set(preset_op.code(), preset_op.error());
         return false;
     }
 
     nlohmann::json res_json;
     res_json["name"] = preset_name;
-    res_json["value"] = preset_op.get();
+    res_json["value"] = preset;
 
     res->set_200(res_json.dump());
     return true;
@@ -1569,9 +1591,10 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     const std::string & preset_name = req->params["name"];
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    Option<nlohmann::json> preset_op = collectionManager.get_preset(preset_name);
+    nlohmann::json preset;
+    Option<bool> preset_op = collectionManager.get_preset(preset_name, preset);
     if(!preset_op.ok()) {
-        res->set_404();
+        res->set(preset_op.code(), preset_op.error());
         return false;
     }
 
@@ -1584,7 +1607,7 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
 
     nlohmann::json res_json;
     res_json["name"] = preset_name;
-    res_json["value"] = preset_op.get();
+    res_json["value"] = preset;
     res->set_200(res_json.dump());
     return true;
 }

@@ -691,15 +691,17 @@ TEST_F(CollectionManagerTest, Presets) {
     ASSERT_EQ(2, collectionManager.get_presets().size());
 
     // try fetching individual presets
-    auto preset_op = collectionManager.get_preset("preset1");
+    nlohmann::json preset;
+    auto preset_op = collectionManager.get_preset("preset1", preset);
     ASSERT_TRUE(preset_op.ok());
-    ASSERT_EQ(1, preset_op.get().size());
-    ASSERT_EQ("foo", preset_op.get()["query_by"]);
+    ASSERT_EQ(1, preset.size());
+    ASSERT_EQ("foo", preset["query_by"]);
 
-    preset_op = collectionManager.get_preset("preset2");
+    preset.clear();
+    preset_op = collectionManager.get_preset("preset2", preset);
     ASSERT_TRUE(preset_op.ok());
-    ASSERT_EQ(1, preset_op.get().size());
-    ASSERT_EQ("bar", preset_op.get()["query_by"]);
+    ASSERT_EQ(1, preset.size());
+    ASSERT_EQ("bar", preset["query_by"]);
 
     // delete a preset
     auto del_op = collectionManager.delete_preset("preset2");
@@ -710,7 +712,8 @@ TEST_F(CollectionManagerTest, Presets) {
     ASSERT_EQ(StoreStatus::NOT_FOUND, status);
 
     ASSERT_EQ(1, collectionManager.get_presets().size());
-    preset_op = collectionManager.get_preset("preset2");
+    preset.clear();
+    preset_op = collectionManager.get_preset("preset2", preset);
     ASSERT_FALSE(preset_op.ok());
     ASSERT_EQ(404, preset_op.code());
 
@@ -723,6 +726,7 @@ TEST_F(CollectionManagerTest, Presets) {
     collectionManager.load(8, 1000);
 
     ASSERT_EQ(1, collectionManager.get_presets().size());
-    preset_op = collectionManager.get_preset("preset1");
+    preset.clear();
+    preset_op = collectionManager.get_preset("preset1", preset);
     ASSERT_TRUE(preset_op.ok());
 }

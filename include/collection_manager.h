@@ -186,7 +186,7 @@ public:
     // presets
     spp::sparse_hash_map<std::string, nlohmann::json> get_presets() const;
 
-    Option<nlohmann::json> get_preset(const std::string & preset_name) const;
+    Option<bool> get_preset(const std::string & preset_name, nlohmann::json& preset) const;
 
     Option<bool> upsert_preset(const std::string & preset_name, const nlohmann::json& preset_config);
 
