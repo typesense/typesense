@@ -128,6 +128,6 @@ public:
                       const std::vector<std::string>& collections, std::map<std::string, std::string>& params) const;
 
     static bool add_item_to_params(std::map<std::string, std::string> &req_params,
-                                   nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
+                                   const nlohmann::detail::iteration_proxy_value<nlohmann::json::iterator>& item,
                                    bool overwrite);
 };
