@@ -974,7 +974,11 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     }
 
     nlohmann::json result = result_op.get();
-    result["search_time_ms"] = timeMillis;
+
+    if(exclude_fields.count("search_time_ms") == 0) {
+        result["search_time_ms"] = timeMillis;
+    }
+
     result["page"] = std::stoi(req_params[PAGE]);
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
