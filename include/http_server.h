@@ -194,6 +194,8 @@ private:
 
     bool cors_enabled;
 
+    std::set<std::string> cors_domains;
+
     ThreadPool* thread_pool;
 
     bool (*auth_handler)(std::map<std::string, std::string>& params, const std::string& body, const route_path& rpath,
@@ -236,7 +238,8 @@ public:
                const std::string & ssl_cert_path,
                const std::string & ssl_cert_key_path,
                const uint64_t ssl_refresh_interval_ms,
-               bool cors_enabled, ThreadPool* thread_pool);
+               bool cors_enabled, const std::set<std::string>& cors_domains,
+               ThreadPool* thread_pool);
 
     ~HttpServer();
 
