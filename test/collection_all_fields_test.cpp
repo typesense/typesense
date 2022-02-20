@@ -46,7 +46,7 @@ TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     // try to create collection with random fallback field type
     auto bad_coll_op = collectionManager.create_collection("coll_bad", 1, fields, "", 0, "blah");
     ASSERT_FALSE(bad_coll_op.ok());
-    ASSERT_EQ("Field `*` has an invalid type.", bad_coll_op.error());
+    ASSERT_EQ("Field `.*` has an invalid type.", bad_coll_op.error());
 
     coll1 = collectionManager.get_collection("coll1").get();
     if(coll1 == nullptr) {

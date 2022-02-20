@@ -301,7 +301,7 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     if(!fallback_field_type.empty()) {
         field fallback_field_type_def("temp", fallback_field_type, false);
         if(!fallback_field_type_def.has_valid_type()) {
-            return Option<Collection*>(400, std::string("Field `*` has an invalid type."));
+            return Option<Collection*>(400, std::string("Field `.*` has an invalid type."));
         }
     }
 
