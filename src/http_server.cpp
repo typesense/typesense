@@ -13,11 +13,12 @@
 
 HttpServer::HttpServer(const std::string & version, const std::string & listen_address,
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
-                       const uint64_t ssl_refresh_interval_ms, bool cors_enabled, ThreadPool* thread_pool):
+                       const uint64_t ssl_refresh_interval_ms, bool cors_enabled,
+                       const std::set<std::string>& cors_domains, ThreadPool* thread_pool):
                        SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
                        exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
                        ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
-                       cors_enabled(cors_enabled), thread_pool(thread_pool) {
+                       cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -304,8 +305,33 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // Handle CORS
     if(h2o_handler->http_server->cors_enabled) {
+        std::string origin_sent = "*";
+
+        if(!h2o_handler->http_server->cors_domains.empty()) {
+            const char* ACL_ORIGIN_HEADER = "origin";
+            ssize_t acl_origin_cursor = h2o_find_header_by_str(&req->headers, ACL_ORIGIN_HEADER,
+                                                               strlen(ACL_ORIGIN_HEADER), -1);
+
+            // CORS is rejected if cors domains were specified but origin does not match
+            bool reject_cors_req = true;
+
+            if(acl_origin_cursor != -1) {
+                h2o_iovec_t& acl_origin_header = req->headers.entries[acl_origin_cursor].value;
+                origin_sent = std::string(acl_origin_header.base, acl_origin_header.len);
+                if(h2o_handler->http_server->cors_domains.count(origin_sent) != 0) {
+                    reject_cors_req = false;
+                }
+            }
+
+            if(reject_cors_req) {
+                nlohmann::json resp;
+                resp["message"] = "Forbidden.";
+                return send_response(req, 403, resp.dump());
+            }
+        }
+
         h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
-                              0, NULL, H2O_STRLIT("*"));
+                              0, NULL, origin_sent.c_str(), origin_sent.size());
 
         if(http_method == "OPTIONS") {
             // locate request access control headers
