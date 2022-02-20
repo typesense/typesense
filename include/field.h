@@ -429,7 +429,7 @@ struct field {
                     fallback_field_type = fallback_field.type;
                     num_auto_detect_fields++;
                 } else {
-                    return Option<bool>(400, "The `type` of field `*` is invalid.");
+                    return Option<bool>(400, "The `type` of field `.*` is invalid.");
                 }
 
                 fields.emplace_back(fallback_field);
