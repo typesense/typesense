@@ -668,6 +668,8 @@ public:
 
     const spp::sparse_hash_map<std::string, num_tree_t*>& _get_numerical_index() const;
 
+    const spp::sparse_hash_map<std::string, array_mapped_infix_t>& _get_infix_index() const;
+
     static int get_bounded_typo_cost(const size_t max_cost, const size_t token_len,
                                      size_t min_len_1typo, size_t min_len_2typo);
 
