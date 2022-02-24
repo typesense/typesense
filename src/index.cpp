@@ -3740,6 +3740,12 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                         posting_t::destroy_list(values);
                     }
                 }
+
+                if(search_field.infix) {
+                    auto strhash = StringUtils::hash_wy(key, token.size());
+                    const auto& infix_sets = infix_index.at(search_field.name);
+                    infix_sets[strhash % 4]->erase(token);
+                }
             }
         } else if(search_field.is_int32()) {
             const std::vector<int32_t>& values = search_field.is_single_integer() ?
@@ -3866,6 +3872,10 @@ const spp::sparse_hash_map<std::string, art_tree *> &Index::_get_search_index() 
 const spp::sparse_hash_map<std::string, num_tree_t*>& Index::_get_numerical_index() const {
     return numerical_index;
 }
+
+const spp::sparse_hash_map<std::string, array_mapped_infix_t>& Index::_get_infix_index() const {
+    return infix_index;
+};
 
 void Index::refresh_schemas(const std::vector<field>& new_fields) {
     std::unique_lock lock(mutex);

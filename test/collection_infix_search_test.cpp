@@ -248,3 +248,93 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "GH100037IN8900X";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("100037",
+                                 {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    coll1->remove("0");
+
+    for(size_t i = 0; i < coll1->_get_index()->_get_infix_index().at("title").size(); i++) {
+        ASSERT_EQ(0, coll1->_get_index()->_get_infix_index().at("title").at(i)->size());
+    }
+
+    results = coll1->search("100037",
+                        {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                        spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                        4, {always}).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"].size());
+
+    // add the document again and then update it
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    results = coll1->search("100037",
+                            {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    doc["title"] = "YHD3342D78912";
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    results = coll1->search("342D78",
+                            {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("100037",
+                            {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {always}).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+    ASSERT_EQ(0, results["hits"].size());
+
+    std::string key = "yhd3342d78912";
+    auto strhash = StringUtils::hash_wy(key.c_str(), key.size());
+    const auto& infix_sets = coll1->_get_index()->_get_infix_index().at("title");
+    ASSERT_EQ(1, infix_sets[strhash % 4]->size());
+
+    for(size_t i = 0; i < infix_sets.size(); i++) {
+        if(i != strhash % 4) {
+            ASSERT_EQ(0, infix_sets[i]->size());
+        }
+    }
+
+    collectionManager.drop_collection("coll1");
+}
