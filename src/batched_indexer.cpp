@@ -106,7 +106,7 @@ std::string BatchedIndexer::get_collection_name(const std::shared_ptr<http_req>&
         if(rpath->handler == post_create_collection) {
             nlohmann::json obj = nlohmann::json::parse(req->body, nullptr, false);
 
-            if(obj != nlohmann::json::value_t::discarded && obj.is_object() &&
+            if(!obj.is_discarded() && obj.is_object() &&
                obj.count("name") != 0 && obj["name"].is_string()) {
                 coll_name = obj["name"];
             }

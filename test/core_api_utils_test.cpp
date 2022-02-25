@@ -191,11 +191,14 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
     body["searches"].push_back(search);
 
     req->body = body.dump();
+    nlohmann::json embedded_params;
+    embedded_params["filter_by"] = "foo: bar";
+    req->embedded_params_vec.push_back(embedded_params);
 
     post_multi_search(req, res);
 
     // ensure that req params are appended to (embedded params are also rolled into req params)
-    ASSERT_EQ("user_id: 100&&age: > 100", req->params["filter_by"]);
+    ASSERT_EQ("user_id: 100&&age: > 100&&foo: bar", req->params["filter_by"]);
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
@@ -212,11 +215,12 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
     )";
 
     route_path rpath("POST", {"collections"}, post_create_collection, false, false);
-    std::vector<std::string> collections;
+    std::vector<collection_key_t> collections;
 
-    get_collections_for_auth(req_params, body, rpath, collections);
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
     ASSERT_EQ(1, collections.size());
-    ASSERT_STREQ("coll1", collections[0].c_str());
+    ASSERT_EQ("coll1", collections[0].collection);
+    ASSERT_EQ("foo", collections[0].api_key);
 
     // badly constructed collection schema body
     collections.clear();
@@ -231,10 +235,13 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
       }
     )";
 
-    get_collections_for_auth(req_params, body, rpath, collections);
-    ASSERT_EQ(0, collections.size());
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
+    ASSERT_EQ("foo", collections[0].api_key);
 
     collections.clear();
+    // missing collection name
     body = R"(
       {
         "fields": [
@@ -245,8 +252,10 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
       }
     )";
 
-    get_collections_for_auth(req_params, body, rpath, collections);
-    ASSERT_EQ(0, collections.size());
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
+    ASSERT_EQ("foo", collections[0].api_key);
 
     // check for multi_search
     collections.clear();
@@ -256,15 +265,17 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
               {
                 "query_by": "concat",
                 "collection": "products",
-                "q": "battery"
+                "q": "battery",
+                "x-typesense-api-key": "bar"
               }
           ]
         }
     )";
 
-    get_collections_for_auth(req_params, body, rpath, collections);
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
     ASSERT_EQ(1, collections.size());
-    ASSERT_STREQ("products", collections[0].c_str());
+    ASSERT_EQ("products", collections[0].collection);
+    ASSERT_EQ("bar", collections[0].api_key);
 
     // get collection for multi-search
     collections.clear();
@@ -279,32 +290,38 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
         }
     )";
 
-    get_collections_for_auth(req_params, body, rpath, collections);
-    ASSERT_EQ(0, collections.size());
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
+    ASSERT_EQ("foo", collections[0].api_key);
 
     collections.clear();
     body = R"(
         {"searches":[
               {
                 "query_by": "concat",
-                "q": "battery"
+                "q": "battery",
+                "x-typesense-api-key": "bar"
               }
           ]
         }
     )";
 
-    get_collections_for_auth(req_params, body, rpath, collections);
-    ASSERT_EQ(0, collections.size());
+    get_collections_for_auth(req_params, body, rpath, "foo", collections);
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
+    ASSERT_EQ("bar", collections[0].api_key);
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
     route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
     std::map<std::string, std::string> req_params;
 
-    std::vector<std::string> collections;
-    get_collections_for_auth(req_params, "{]", rpath_multi_search, collections);
+    std::vector<collection_key_t> collections;
+    get_collections_for_auth(req_params, "{]", rpath_multi_search, "", collections);
 
-    ASSERT_EQ(0, collections.size());
+    ASSERT_EQ(1, collections.size());
+    ASSERT_EQ("", collections[0].collection);
 
     nlohmann::json sample_search_body;
     sample_search_body["searches"] = nlohmann::json::array();
@@ -318,28 +335,38 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
     sample_search_body["searches"].push_back(search_query);
 
     collections.clear();
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, collections);
+    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, "", collections);
 
     ASSERT_EQ(2, collections.size());
-    ASSERT_STREQ("company1", collections[0].c_str());
-    ASSERT_STREQ("company2", collections[1].c_str());
+    ASSERT_EQ("company1", collections[0].collection);
+    ASSERT_EQ("company2", collections[1].collection);
 
     collections.clear();
     req_params["collection"] = "foo";
 
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, collections);
+    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, "", collections);
 
-    ASSERT_EQ(3, collections.size());
-    ASSERT_STREQ("foo", collections[0].c_str());
-    ASSERT_STREQ("company1", collections[1].c_str());
-    ASSERT_STREQ("company2", collections[2].c_str());
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("company1", collections[0].collection);
+    ASSERT_EQ("company2", collections[1].collection);
+
+    collections.clear();
+
+    // when one of the search arrays don't have an explicit collection, use the collection name from req param
+    sample_search_body["searches"][1].erase("collection");
+
+    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_multi_search, "", collections);
+
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("company1", collections[0].collection);
+    ASSERT_EQ("foo", collections[1].collection);
 
     collections.clear();
     req_params.clear();
 
     route_path rpath_search = route_path("GET", {"collections", ":collection", "documents", "search"}, get_search, false, false);
-    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_search, collections);
+    get_collections_for_auth(req_params, sample_search_body.dump(), rpath_search, "", collections);
 
     ASSERT_EQ(1, collections.size());
-    ASSERT_STREQ("", collections[0].c_str());
+    ASSERT_EQ("", collections[0].collection);
 }

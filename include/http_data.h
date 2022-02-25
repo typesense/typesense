@@ -203,6 +203,7 @@ struct http_req {
     std::string path_without_query;
     uint64_t route_hash;
     std::map<std::string, std::string> params;
+    std::vector<nlohmann::json> embedded_params_vec;
 
     bool first_chunk_aggregate;
     std::atomic<bool> last_chunk_aggregate;
@@ -237,9 +238,11 @@ struct http_req {
     }
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
-            const std::map<std::string, std::string> & params, const std::string& body):
+            const std::map<std::string, std::string>& params,
+            std::vector<nlohmann::json>& embedded_params_vec, const std::string& body):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
-            params(params), first_chunk_aggregate(true), last_chunk_aggregate(false),
+            params(params), embedded_params_vec(embedded_params_vec),
+            first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
             log_index(0) {
 

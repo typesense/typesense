@@ -139,41 +139,41 @@ uint32_t AuthManager::get_next_api_key_id() {
     return next_api_key_id++;
 }
 
-bool AuthManager::authenticate(const std::string& req_api_key, const std::string& action,
-                               const std::vector<std::string>& collections,
-                               std::map<std::string, std::string>& params) const {
+bool AuthManager::authenticate(const std::string& action,
+                               const std::vector<collection_key_t>& collection_keys,
+                               std::map<std::string, std::string>& params,
+                               std::vector<nlohmann::json>& embedded_params_vec) const {
 
     std::shared_lock lock(mutex);
     //LOG(INFO) << "AuthManager::authenticate()";
 
-    const auto& key_it = api_keys.find(req_api_key);
-    if(key_it != api_keys.end()) {
-        const api_key_t& api_key = key_it->second;
-        return auth_against_key(collections, action, api_key, false);
-    }
+    size_t num_keys_matched = 0;
+    for(const auto& coll_key: collection_keys) {
+        const auto& key_it = api_keys.find(coll_key.api_key);
+        nlohmann::json embedded_params;
 
-    // could be a scoped API key
-    nlohmann::json embedded_params;
-    Option<bool> auth_op = authenticate_parse_params(req_api_key, action, collections, embedded_params);
-    if(!auth_op.ok()) {
-        return false;
-    }
-
-    // enrich params with values from embedded_params
-    for(auto& item: embedded_params.items()) {
-        if(item.key() == "expires_at") {
-            continue;
+        if(key_it != api_keys.end()) {
+            const api_key_t& api_key = key_it.value();
+            if(!auth_against_key(coll_key.collection, action, api_key, false)) {
+                return false;
+            }
+        } else {
+            // could be a scoped API key
+            Option<bool> auth_op = authenticate_parse_params(coll_key, action, embedded_params);
+            if(!auth_op.ok()) {
+                return false;
+            }
         }
 
-        // overwrite = true as embedded params have higher priority
-        AuthManager::add_item_to_params(params, item, true);
+        num_keys_matched++;
+        embedded_params_vec.push_back(embedded_params);
     }
 
     //LOG(INFO) << "api_keys.size() = " << api_keys.size();
-    return true;
+    return (num_keys_matched == collection_keys.size());
 }
 
-bool AuthManager::auth_against_key(const std::vector<std::string>& collections, const std::string& action,
+bool AuthManager::auth_against_key(const std::string& req_collection, const std::string& action,
                                    const api_key_t& api_key, const bool search_only) const {
 
     if(uint64_t(std::time(0)) > api_key.expires_at) {
@@ -214,28 +214,25 @@ bool AuthManager::auth_against_key(const std::vector<std::string>& collections, 
         }
     }
 
-    for(const std::string& req_collection: collections) {
-        bool coll_allowed = false;
+    bool coll_allowed = false;
 
-        for(const std::string& allowed_collection: api_key.collections) {
-            if(allowed_collection == "*" || (allowed_collection == req_collection) || req_collection.empty() ||
-               std::regex_match (req_collection, std::regex(allowed_collection))) {
-                coll_allowed = true;
-                break;
-            }
+    for(const std::string& allowed_collection: api_key.collections) {
+        if(allowed_collection == "*" || (allowed_collection == req_collection) || req_collection.empty() ||
+           std::regex_match (req_collection, std::regex(allowed_collection))) {
+            coll_allowed = true;
+            break;
         }
+    }
 
-        if(!coll_allowed) {
-            // even if one collection is not allowed, we reject the entire request
-            return false;
-        }
+    if(!coll_allowed) {
+        // even if one collection is not allowed, we reject the entire request
+        return false;
     }
 
     return true;
 }
 
-Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_api_key, const std::string& action,
-                                                    const std::vector<std::string>& collections,
+Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scoped_api_key, const std::string& action,
                                                     nlohmann::json& embedded_params) const {
 
     // allow only searches from scoped keys
@@ -244,7 +241,7 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
         return Option<bool>(403, "Forbidden.");
     }
 
-    const std::string& key_payload = StringUtils::base64_decode(scoped_api_key);
+    const std::string& key_payload = StringUtils::base64_decode(scoped_api_key.api_key);
 
     if(key_payload.size() < HMAC_BASE64_LEN + api_key_t::PREFIX_LEN) {
         LOG(ERROR) << "Malformed scoped API key.";
@@ -258,51 +255,51 @@ Option<bool> AuthManager::authenticate_parse_params(const std::string& scoped_ap
     const std::string& custom_params = key_payload.substr(HMAC_BASE64_LEN + api_key_t::PREFIX_LEN);
 
     // calculate and verify hmac against matching api key
-    for (const auto &kv : api_keys) {
-        if(kv.first.substr(0, api_key_t::PREFIX_LEN) == key_prefix) {
-            const api_key_t& api_key = kv.second;
+    auto prefix_range = api_keys.equal_prefix_range(key_prefix);
 
-            // ensure that parent key collection filter matches queried collection
-            bool auth_success = auth_against_key(collections, action, api_key, true);
+    for(auto it = prefix_range.first; it != prefix_range.second; ++it) {
+        const api_key_t& root_api_key = it.value();
 
-            if(!auth_success) {
-                LOG(ERROR) << fmt_error("Parent key does not allow queries against queried collection.", api_key.value);
+        // ensure that parent key collection filter matches queried collection
+        bool auth_success = auth_against_key(scoped_api_key.collection, action, root_api_key, true);
+
+        if(!auth_success) {
+            LOG(ERROR) << fmt_error("Parent key does not allow queries against queried collection.", root_api_key.value);
+            return Option<bool>(403, "Forbidden.");
+        }
+
+        // finally verify hmac
+        std::string digest = StringUtils::hmac(root_api_key.value, custom_params);
+
+        if(digest == hmacSHA256) {
+            try {
+                embedded_params = nlohmann::json::parse(custom_params);
+            } catch(const std::exception& e) {
+                LOG(ERROR) << "JSON error: " << e.what();
                 return Option<bool>(403, "Forbidden.");
             }
 
-            // finally verify hmac
-            std::string digest = StringUtils::hmac(kv.first, custom_params);
-
-            if(digest == hmacSHA256) {
-                try {
-                    embedded_params = nlohmann::json::parse(custom_params);
-                } catch(const std::exception& e) {
-                    LOG(ERROR) << "JSON error: " << e.what();
-                    return Option<bool>(403, "Forbidden.");
-                }
-
-                if(!embedded_params.is_object()) {
-                    LOG(ERROR) << fmt_error("Scoped API key contains invalid search parameters.", api_key.value);
-                    return Option<bool>(403, "Forbidden.");
-                }
-
-                if(embedded_params.count("expires_at") != 0) {
-                    if(!embedded_params["expires_at"].is_number_integer() || embedded_params["expires_at"].get<int64_t>() < 0) {
-                        LOG(ERROR) << fmt_error("Wrong format for `expires_at`. It should be an unsigned integer.", api_key.value);
-                        return Option<bool>(403, "Forbidden.");
-                    }
-
-                    // if parent key's expiry timestamp is smaller, it takes precedence
-                    uint64_t expiry_ts = std::min(api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
-
-                    if(uint64_t(std::time(0)) > expiry_ts) {
-                        LOG(ERROR) << fmt_error("Scoped API key has expired. ", api_key.value);
-                        return Option<bool>(403, "Forbidden.");
-                    }
-                }
-
-                return Option<bool>(true);
+            if(!embedded_params.is_object()) {
+                LOG(ERROR) << fmt_error("Scoped API key contains invalid search parameters.", root_api_key.value);
+                return Option<bool>(403, "Forbidden.");
             }
+
+            if(embedded_params.count("expires_at") != 0) {
+                if(!embedded_params["expires_at"].is_number_integer() || embedded_params["expires_at"].get<int64_t>() < 0) {
+                    LOG(ERROR) << fmt_error("Wrong format for `expires_at`. It should be an unsigned integer.", root_api_key.value);
+                    return Option<bool>(403, "Forbidden.");
+                }
+
+                // if parent key's expiry timestamp is smaller, it takes precedence
+                uint64_t expiry_ts = std::min(root_api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
+
+                if(uint64_t(std::time(0)) > expiry_ts) {
+                    LOG(ERROR) << fmt_error("Scoped API key has expired. ", root_api_key.value);
+                    return Option<bool>(403, "Forbidden.");
+                }
+            }
+
+            return Option<bool>(true);
         }
     }
 

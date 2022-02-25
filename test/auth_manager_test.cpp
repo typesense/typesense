@@ -138,98 +138,119 @@ TEST_F(AuthManagerTest, CheckRestoreOfAPIKeys) {
 
 TEST_F(AuthManagerTest, VerifyAuthentication) {
     std::map<std::string, std::string> sparams;
+    std::vector<nlohmann::json> embedded_params;
     // when no keys are present at all
-    ASSERT_FALSE(auth_manager.authenticate("jdlaslasdasd", "", {}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate("", {collection_key_t("", "jdlaslasdasd")}, sparams, embedded_params));
 
     // wildcard permission
     api_key_t wildcard_all_key = api_key_t("abcd1", "wildcard all key", {"*"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(wildcard_all_key);
 
-    ASSERT_FALSE(auth_manager.authenticate("jdlaslasdasd", "documents:create", {"collection1"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_all_key.value, "metrics:get", {""}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate("documents:create", {collection_key_t("collection1", "jdlaslasdasd")}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("metrics:get", {collection_key_t("", wildcard_all_key.value)}, sparams, embedded_params));
 
     // long API key
     std::string long_api_key_str = StringUtils::randstring(50);
     api_key_t long_api_key = api_key_t(long_api_key_str, "long api key", {"*"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(long_api_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(long_api_key_str, "metrics:get", {""}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("metrics:get", {collection_key_t(long_api_key_str, wildcard_all_key.value)}, sparams, embedded_params));
 
     // wildcard on a collection
     api_key_t wildcard_coll_key = api_key_t("abcd2", "wildcard coll key", {"*"}, {"collection1"}, FUTURE_TS);
     auth_manager.create_key(wildcard_coll_key);
 
-    ASSERT_FALSE(auth_manager.authenticate("adasda", "documents:create", {"collection1"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_coll_key.value, "documents:get", {"collection1"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(wildcard_coll_key.value, "documents:get", {"collection2"}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate("documents:create", {collection_key_t("collection1", "adasda")}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("documents:get", {collection_key_t("collection1", wildcard_coll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:get", {collection_key_t("collection2", wildcard_coll_key.value)}, sparams, embedded_params));
 
     // wildcard on multiple collections
     api_key_t wildcard_colls_key = api_key_t("abcd3", "wildcard coll key", {"*"}, {"collection1", "collection2", "collection3"}, FUTURE_TS);
     auth_manager.create_key(wildcard_colls_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_colls_key.value, "documents:get", {"collection1"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_colls_key.value, "documents:search", {"collection2"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_colls_key.value, "documents:create", {"collection3"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(wildcard_colls_key.value, "documents:get", {"collection4"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(wildcard_colls_key.value, "documents:get", {"*"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("documents:get", {collection_key_t("collection1", wildcard_colls_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("collection2", wildcard_colls_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("documents:create", {collection_key_t("collection3", wildcard_colls_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:get", {collection_key_t("collection4", wildcard_colls_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:get", {collection_key_t("*", wildcard_colls_key.value)}, sparams, embedded_params));
 
     // only 1 action on multiple collections
     api_key_t one_action_key = api_key_t("abcd4", "one action key", {"documents:search"}, {"collection1", "collection2"}, FUTURE_TS);
     auth_manager.create_key(one_action_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(one_action_key.value, "documents:search", {"collection1"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(one_action_key.value, "documents:get", {"collection2"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(one_action_key.value, "documents:search", {{"collection5"}}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(one_action_key.value, "*", {"collection2"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("collection1", one_action_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:get", {collection_key_t("collection2", one_action_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("collection5", one_action_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("*", {collection_key_t("collection2", one_action_key.value)}, sparams, embedded_params));
 
     // multiple actions on multiple collections
     api_key_t mul_acoll_key = api_key_t("abcd5", "multiple action/collection key",
                                         {"documents:get", "collections:list"}, {"metacollection", "collection2"}, FUTURE_TS);
     auth_manager.create_key(mul_acoll_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(mul_acoll_key.value, "documents:get", {"metacollection"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(mul_acoll_key.value, "collections:list", {"collection2"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(mul_acoll_key.value, "collections:list", {"metacollection"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "documents:search", {"collection2"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "documents:get", {"collection5"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(mul_acoll_key.value, "*", {"*"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("documents:get", {collection_key_t("metacollection", mul_acoll_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("collection2", mul_acoll_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("metacollection", mul_acoll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("collection2", mul_acoll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:get", {collection_key_t("collection5", mul_acoll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("*", {collection_key_t("*", mul_acoll_key.value)}, sparams, embedded_params));
 
     // regexp match
 
     api_key_t regexp_colls_key1 = api_key_t("abcd6", "regexp coll key", {"*"}, {"coll.*"}, FUTURE_TS);
     auth_manager.create_key(regexp_colls_key1);
-    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key1.value, "collections:list", {{"collection2"}}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key1.value, "documents:get", {"collection5"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("collection2", regexp_colls_key1.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("documents:get", {collection_key_t("collection5", regexp_colls_key1.value)}, sparams, embedded_params));
 
     api_key_t regexp_colls_key2 = api_key_t("abcd7", "regexp coll key", {"*"}, {".*meta.*"}, FUTURE_TS);
     auth_manager.create_key(regexp_colls_key2);
-    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key2.value, "collections:list", {"metacollection"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(regexp_colls_key2.value, "collections:list", {"ametacollection"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("metacollection", regexp_colls_key2.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("ametacollection", regexp_colls_key2.value)}, sparams, embedded_params));
 
     // check for expiry
 
     api_key_t expired_key1 = api_key_t("abcd8", "expiry key", {"*"}, {"*"}, 1606542716);
     auth_manager.create_key(expired_key1);
-    ASSERT_FALSE(auth_manager.authenticate(expired_key1.value, "collections:list", {"collection"}, sparams));
+    ASSERT_FALSE(auth_manager.authenticate("collections:list", {collection_key_t("collection", expired_key1.value)}, sparams, embedded_params));
 
     api_key_t unexpired_key1 = api_key_t("abcd9", "expiry key", {"*"}, {"*"}, 2237712220);
     auth_manager.create_key(unexpired_key1);
-    ASSERT_TRUE(auth_manager.authenticate(unexpired_key1.value, "collections:list", {"collection"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("collections:list", {collection_key_t("collection", unexpired_key1.value)}, sparams, embedded_params));
 
     // wildcard action on any collection
     api_key_t wildcard_action_coll_key = api_key_t("abcd10", "wildcard coll action key", {"collections:*"}, {"*"}, FUTURE_TS);
     auth_manager.create_key(wildcard_action_coll_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:create", {"collection1"}, sparams));
-    ASSERT_TRUE(auth_manager.authenticate(wildcard_action_coll_key.value, "collections:delete", {"collection1", "collection2"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(wildcard_action_coll_key.value, "documents:create", {"collection1"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("collections:create", {collection_key_t("collection1", wildcard_action_coll_key.value)}, sparams, embedded_params));
+    ASSERT_TRUE(auth_manager.authenticate("collections:delete", {collection_key_t("collection1", wildcard_action_coll_key.value), collection_key_t("collection2", wildcard_action_coll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:create", {collection_key_t("collection1", wildcard_action_coll_key.value)}, sparams, embedded_params));
 
     // create action on a specific collection
     api_key_t create_action_coll_key = api_key_t("abcd11", "create action+coll key", {"collections:create"}, {"collection1"}, FUTURE_TS);
     auth_manager.create_key(create_action_coll_key);
 
-    ASSERT_TRUE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection1"}, sparams));
-    ASSERT_FALSE(auth_manager.authenticate(create_action_coll_key.value, "collections:create", {"collection2"}, sparams));
+    ASSERT_TRUE(auth_manager.authenticate("collections:create", {collection_key_t("collection1", create_action_coll_key.value)}, sparams, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("collections:create", {collection_key_t("collection2", create_action_coll_key.value)}, sparams, embedded_params));
+
+    // two keys against 2 different collections: both should be valid
+    api_key_t coll_a_key = api_key_t("coll_a", "one action key", {"documents:search"}, {"collectionA"}, FUTURE_TS);
+    api_key_t coll_b_key = api_key_t("coll_b", "one action key", {"documents:search"}, {"collectionB"}, FUTURE_TS);
+    auth_manager.create_key(coll_a_key);
+    auth_manager.create_key(coll_b_key);
+    ASSERT_TRUE(auth_manager.authenticate("documents:search",
+                                          {collection_key_t("collectionA", coll_a_key.value),
+                                           collection_key_t("collectionB", coll_b_key.value)},
+                                          sparams, embedded_params));
+
+    ASSERT_FALSE(auth_manager.authenticate("documents:search",
+                                          {collection_key_t("collectionA", coll_a_key.value),
+                                           collection_key_t("collection1", coll_b_key.value)},
+                                          sparams, embedded_params));
+
+    ASSERT_FALSE(auth_manager.authenticate("documents:search",
+                                           {collection_key_t("collection1", coll_a_key.value),
+                                            collection_key_t("collectionB", coll_b_key.value)},
+                                           sparams, embedded_params));
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {
@@ -257,36 +278,50 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
 TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::map<std::string, std::string> params;
     params["filter_by"] = "country:USA";
+    std::vector<nlohmann::json> embedded_params;
 
     // create a API key bound to search scope and a given collection
     api_key_t key_search_coll1("KeyVal", "test key", {"documents:search"}, {"coll1"}, FUTURE_TS);
     auth_manager.create_key(key_search_coll1);
 
     std::string scoped_key = StringUtils::base64_encode(
-      "IvjqWNZ5M5ElcvbMoXj45BxkQrZG4ZKEaNQoRioCx2s=KeyV{\"filter_by\": \"user_id:1080\"}"
+      R"(IvjqWNZ5M5ElcvbMoXj45BxkQrZG4ZKEaNQoRioCx2s=KeyV{"filter_by": "user_id:1080"})"
     );
 
-    ASSERT_TRUE(auth_manager.authenticate(scoped_key, "documents:search", {"coll1"}, params));
-    ASSERT_STREQ("country:USA&&user_id:1080", params["filter_by"].c_str());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key)}, params, embedded_params));
+    ASSERT_EQ("user_id:1080", embedded_params[0]["filter_by"].get<std::string>());
 
     // should scope to collection bound by the parent key
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key, "documents:search", {"coll2"}, params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key)}, params, embedded_params));
 
     // should scope to search action only
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key, "documents:create", {"coll1"}, params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:create", {collection_key_t("coll1", scoped_key)}, params, embedded_params));
 
     // check with corrupted key
-    ASSERT_FALSE(auth_manager.authenticate("asdasasd", "documents:search", {"coll1"}, params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "asdasasd")}, params, embedded_params));
+
+    // with multiple collections, all should be authenticated
+    ASSERT_FALSE(auth_manager.authenticate("documents:search",
+                                          {collection_key_t("coll1", scoped_key),
+                                           collection_key_t("coll2", scoped_key)},
+                                          params, embedded_params));
+
+    // send both regular key and scoped key
+    ASSERT_TRUE(auth_manager.authenticate("documents:search",
+                                           {collection_key_t("coll1", key_search_coll1.value),
+                                            collection_key_t("coll1", scoped_key)},
+                                           params, embedded_params));
 
     // when params is empty, embedded param should be set
     std::map<std::string, std::string> empty_params;
-    ASSERT_TRUE(auth_manager.authenticate(scoped_key, "documents:search", {"coll1"}, empty_params));
-    ASSERT_STREQ("user_id:1080", empty_params["filter_by"].c_str());
+    embedded_params.clear();
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key)}, empty_params, embedded_params));
+    ASSERT_EQ("user_id:1080", embedded_params[0]["filter_by"].get<std::string>());
 
     // when more than a single key prefix matches, must pick the correct underlying key
     api_key_t key_search_coll2("KeyVal2", "test key", {"documents:search"}, {"coll2"}, FUTURE_TS);
     auth_manager.create_key(key_search_coll2);
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key, "documents:search", {"coll2"}, empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key)}, empty_params, embedded_params));
 
     // should only allow scoped API keys derived from parent key with documents:search action
     api_key_t key_search_admin("AdminKey", "admin key", {"*"}, {"*"}, FUTURE_TS);
@@ -294,7 +329,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::string scoped_key2 = StringUtils::base64_encode(
       "BXbsk+xLT1gxOjDyip6+PE4MtOzOm/H7kbkN1d/j/s4=Admi{\"filter_by\": \"user_id:1080\"}"
     );
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key2, "documents:search", {"coll2"}, empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key2)}, empty_params, embedded_params));
 
     // expiration of scoped api key
 
@@ -303,13 +338,14 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     auth_manager.create_key(key_expiry);
 
     empty_params.clear();
+    embedded_params.clear();
 
     std::string scoped_key3 = "K1M2STRDelZYNHpxNGVWUTlBTGpOWUl4dk8wNU8xdnVEZi9aSUcvZE5tcz1FeHBpeyJmaWx0ZXJfYnkiOi"
                               "AidXNlcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiAyMjM3NzEyMjIwfQ==";
 
-    ASSERT_TRUE(auth_manager.authenticate(scoped_key3, "documents:search", {"coll1"}, empty_params));
-    ASSERT_STREQ("user_id:1080", empty_params["filter_by"].c_str());
-    ASSERT_EQ(1, empty_params.size());
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key3)}, empty_params, embedded_params));
+    ASSERT_EQ("user_id:1080", embedded_params[0]["filter_by"].get<std::string>());
+    ASSERT_EQ(1, embedded_params.size());
 
     // {"filter_by": "user_id:1080", "expires_at": 1606563316} (expired)
 
@@ -321,7 +357,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::string scoped_key4 = "SXFKNldZZWRiWkVKVmI2RCt3OTlKNHpBZ24yWlRUbEdJdERtTy9IZ2REZz1FeHBpeyJmaWx0ZXJfYnkiOiAidXN"
                               "lcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiAxNjA2NTYzMzE2fQ==";
 
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key4, "documents:search", {"coll1"}, empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key4)}, empty_params, embedded_params));
 
     // {"filter_by": "user_id:1080", "expires_at": 64723363200} (greater than parent key expiry)
     // embedded key's param cannot exceed parent's expiry
@@ -334,12 +370,12 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::string scoped_key5 = "V3JMNFJlZHRMVStrZHphNFVGZDh4MWltSmx6Yzk2R3QvS2ZwSE8weGRWQT1FeHBpeyJmaWx0ZXJfYnkiOiAidX"
                               "Nlcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiA2NDcyMzM2MzIwMH0=";
 
-    ASSERT_FALSE(auth_manager.authenticate(scoped_key5, "documents:search", {"coll1"}, empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key5)}, empty_params, embedded_params));
 
     // bad scoped API key
-    ASSERT_FALSE(auth_manager.authenticate(" XhsdBdhehdDheruyhvbdhwjhHdhgyeHbfheR", "documents:search", {"coll1"}, empty_params));
-    ASSERT_FALSE(auth_manager.authenticate("cXYPvkNKRlQrBzVTEgY4a3FrZfZ2MEs4kFJ6all3eldwM GhKZnRId3Y3TT1RZmxZeYJmaWx0ZXJfYnkiOkJ1aWQ6OElVm1lUVm15SG9ZOHM4NUx2VFk4S2drNHJIMiJ9", "documents:search", {"coll1"}, empty_params));
-    ASSERT_FALSE(auth_manager.authenticate("SXZqcVdOWjVNNUVsY3ZiTW9YajQ1QnhrUXJaRzRaS0VhTlFvUmlvQ3gycz1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgw In0=", "documents:search", {"coll1"}, empty_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", " XhsdBdhehdDheruyhvbdhwjhHdhgyeHbfheR")}, empty_params, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "cXYPvkNKRlQrBzVTEgY4a3FrZfZ2MEs4kFJ6all3eldwM GhKZnRId3Y3TT1RZmxZeYJmaWx0ZXJfYnkiOkJ1aWQ6OElVm1lUVm15SG9ZOHM4NUx2VFk4S2drNHJIMiJ9")}, empty_params, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", "SXZqcVdOWjVNNUVsY3ZiTW9YajQ1QnhrUXJaRzRaS0VhTlFvUmlvQ3gycz1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgw In0=")}, empty_params, embedded_params));
 }
 
 TEST_F(AuthManagerTest, ValidateBadKeyProperties) {

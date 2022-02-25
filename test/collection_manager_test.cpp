@@ -316,6 +316,66 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(4, results["hits"].size());
 }
 
+TEST_F(CollectionManagerTest, VerifyEmbeddedParametersOfScopedAPIKey) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("year", field_types::INT32, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Tom Sawyer";
+    doc1["year"] = 1876;
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Tom Sawyer";
+    doc2["year"] = 1922;
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("*", {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    std::map<std::string, std::string> req_params;
+    req_params["collection"] = "coll1";
+    req_params["q"] = "*";
+
+    nlohmann::json embedded_params;
+    embedded_params["filter_by"] = "points: 200";
+
+    std::string json_res;
+    auto search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    ASSERT_TRUE(search_op.ok());
+
+    nlohmann::json res_obj = nlohmann::json::parse(json_res);
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // existing filter should be augmented
+    req_params.clear();
+    req_params["collection"] = "coll1";
+    req_params["filter_by"] = "year: 1922";
+    req_params["q"] = "*";
+
+    search_op = collectionManager.do_search(req_params, embedded_params, json_res);
+    ASSERT_TRUE(search_op.ok());
+    res_obj = nlohmann::json::parse(json_res);
+
+    ASSERT_EQ(1, res_obj["found"].get<size_t>());
+    ASSERT_EQ(1, res_obj["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ("year: 1922&&points: 200", req_params["filter_by"]);
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     Collection *coll1;
 

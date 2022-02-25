@@ -168,7 +168,7 @@ Option<bool> CollectionManager::load(const size_t collection_batch_size, const s
         const auto& collection_meta_json = collection_meta_jsons[coll_index];
         nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json, nullptr, false);
 
-        if(collection_meta == nlohmann::json::value_t::discarded) {
+        if(collection_meta.is_discarded()) {
             LOG(ERROR) << "Error while parsing collection meta, json: " << collection_meta_json;
             return Option<bool>(500, "Error while parsing collection meta.");
         }
@@ -265,23 +265,23 @@ void CollectionManager::dispose() {
     store->close();
 }
 
-bool CollectionManager::auth_key_matches(const std::string& auth_key_sent,
-                                         const std::string& action,
-                                         const std::vector<std::string>& collections,
-                                         std::map<std::string, std::string>& params) const {
+bool CollectionManager::auth_key_matches(const string& req_auth_key, const string& action,
+                                         const std::vector<collection_key_t>& collection_keys,
+                                         std::map<std::string, std::string>& params,
+                                         std::vector<nlohmann::json>& embedded_params_vec) const {
     std::shared_lock lock(mutex);
 
-    if(auth_key_sent.empty()) {
+    if(req_auth_key.empty()) {
         return false;
     }
 
     // check with bootstrap auth key
-    if(bootstrap_auth_key == auth_key_sent) {
+    if(bootstrap_auth_key == req_auth_key) {
         return true;
     }
 
     // finally, check managed auth keys
-    return auth_manager.authenticate(auth_key_sent, action, collections, params);
+    return auth_manager.authenticate(action, collection_keys, params, embedded_params_vec);
 }
 
 Option<Collection*> CollectionManager::create_collection(const std::string& name,
@@ -554,7 +554,9 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
 }
 
 
-Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params, std::string& results_json_str) {
+Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
+                                          nlohmann::json& embedded_params,
+                                          std::string& results_json_str) {
     auto begin = std::chrono::high_resolution_clock::now();
 
     const char *NUM_TYPOS = "num_typos";
@@ -614,6 +616,16 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
     const char *PRESET = "preset";
+
+    // enrich params with values from embedded params
+    for(auto& item: embedded_params.items()) {
+        if(item.key() == "expires_at") {
+            continue;
+        }
+
+        // overwrite = true as embedded params have higher priority
+        AuthManager::add_item_to_params(req_params, item, true);
+    }
 
     if(req_params.count(NUM_TYPOS) == 0) {
         req_params[NUM_TYPOS] = "2";

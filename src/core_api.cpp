@@ -16,20 +16,23 @@ using namespace std::chrono_literals;
 std::shared_mutex mutex;
 LRU::Cache<uint64_t, cached_res_t> res_cache;
 
-bool handle_authentication(std::map<std::string, std::string>& req_params, const std::string& body,
-                           const route_path& rpath, const std::string& auth_key) {
+bool handle_authentication(std::map<std::string, std::string>& req_params,
+                           std::vector<nlohmann::json>& embedded_params_vec,
+                           const std::string& body,
+                           const route_path& rpath,
+                           const std::string& req_auth_key) {
     CollectionManager & collectionManager = CollectionManager::get_instance();
 
-    std::vector<std::string> collections;
+    std::vector<collection_key_t> collections;
 
-    get_collections_for_auth(req_params, body, rpath, collections);
+    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections);
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
         return true;
     }
 
-    return collectionManager.auth_key_matches(auth_key, rpath.action, collections, req_params);
+    return collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params, embedded_params_vec);
 }
 
 void stream_response(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
@@ -53,40 +56,53 @@ void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_pt
     server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
 }
 
-void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
-                              const route_path &rpath, std::vector<std::string> &collections) {
-    if(req_params.count("collection") != 0) {
-        collections.emplace_back(req_params.at("collection"));
-    }
+void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
+                              const route_path& rpath, const std::string& req_auth_key,
+                              std::vector<collection_key_t>& collections) {
 
     if(rpath.handler == post_multi_search) {
         nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
 
-        if(obj == nlohmann::json::value_t::discarded) {
+        if(obj.is_discarded()) {
             LOG(ERROR) << "Multi search request body is malformed.";
+            collections.emplace_back("", req_auth_key);
         }
 
-        if(obj != nlohmann::json::value_t::discarded && obj.count("searches") != 0 && obj["searches"].is_array()) {
+        else if(obj.count("searches") != 0 && obj["searches"].is_array()) {
             for(auto& el : obj["searches"]) {
-                if(el.is_object() && el.count("collection") != 0) {
-                    collections.emplace_back(el["collection"].get<std::string>());
+                if(el.is_object()) {
+                    std::string coll_name;
+                    if(el.count("collection") != 0) {
+                        coll_name = el["collection"].get<std::string>();
+                    } else if(req_params.count("collection") != 0) {
+                        coll_name = req_params["collection"];
+                    }
+
+                    const std::string& access_key = (el.count("x-typesense-api-key") != 0) ?
+                                                    el["x-typesense-api-key"].get<std::string>() :
+                                                    req_auth_key;
+
+                    collections.emplace_back(coll_name, access_key);
                 }
             }
         }
-    } else if(rpath.handler == post_create_collection) {
-        nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+    } else {
+        if(rpath.handler == post_create_collection) {
+            nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
 
-        if(obj == nlohmann::json::value_t::discarded) {
-            LOG(ERROR) << "Create collection request body is malformed.";
-        }
-
-        if(obj != nlohmann::json::value_t::discarded && obj.count("name") != 0 && obj["name"].is_string()) {
-            collections.emplace_back(obj["name"].get<std::string>());
+            if(obj.is_discarded()) {
+                LOG(ERROR) << "Create collection request body is malformed.";
+                collections.emplace_back("", req_auth_key);
+            } else if(obj.count("name") != 0 && obj["name"].is_string()) {
+                collections.emplace_back(obj["name"].get<std::string>(), req_auth_key);
+            }
+        } else if(req_params.count("collection") != 0) {
+            collections.emplace_back(req_params.at("collection"), req_auth_key);
         }
     }
 
-    else if(collections.empty()) {
-        collections.emplace_back("");
+    if(collections.empty()) {
+        collections.emplace_back("", req_auth_key);
     }
 }
 
@@ -286,8 +302,13 @@ bool get_search(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
         }
     }
 
+    if(req->embedded_params_vec.empty()) {
+        res->set_500("Embedded params is empty.");
+        return false;
+    }
+
     std::string results_json_str;
-    Option<bool> search_op = CollectionManager::do_search(req->params, results_json_str);
+    Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[0], results_json_str);
 
     if(!search_op.ok()) {
         res->set(search_op.code(), search_op.error());
@@ -391,7 +412,9 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
 
     nlohmann::json& searches = req_json["searches"];
 
-    for(auto& search_params: searches) {
+    for(size_t i = 0; i < searches.size(); i++) {
+        auto& search_params = searches[i];
+
         if(!search_params.is_object()) {
             res->set_400("The value of `searches` must be an array of objects.");
             return false;
@@ -414,7 +437,7 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         }
 
         std::string results_json_str;
-        Option<bool> search_op = CollectionManager::do_search(req->params, results_json_str);
+        Option<bool> search_op = CollectionManager::do_search(req->params, req->embedded_params_vec[i], results_json_str);
 
         if(search_op.ok()) {
             response["results"].push_back(nlohmann::json::parse(results_json_str));
