@@ -441,8 +441,10 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     const std::string & body = std::string(req->entity.base, req->entity.len);
+    std::vector<nlohmann::json> embedded_params_vec;
 
-    bool authenticated = h2o_handler->http_server->auth_handler(query_map, body, *rpath, api_auth_key_sent);
+    bool authenticated = h2o_handler->http_server->auth_handler(query_map, embedded_params_vec, body, *rpath,
+                                                                api_auth_key_sent);
     if(!authenticated) {
         std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                "` header must be sent.\"}";
@@ -450,7 +452,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
-                                                                   route_hash, query_map, body);
+                                                                   route_hash, query_map, embedded_params_vec, body);
 
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
@@ -806,7 +808,9 @@ void HttpServer::stream_response(stream_response_state_t& state) {
     //LOG(INFO) << "stream_response after send";
 }
 
-void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params, const std::string& body,
+void HttpServer::set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params,
+                                                  std::vector<nlohmann::json>& embedded_params_vec,
+                                                  const std::string& body,
                                                   const route_path& rpath, const std::string& auth_key)) {
     auth_handler = handler;
 }

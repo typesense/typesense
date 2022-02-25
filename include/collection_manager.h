@@ -137,8 +137,10 @@ public:
     // frees in-memory data structures when server is shutdown - helps us run a memory leak detector properly
     void dispose();
 
-    bool auth_key_matches(const std::string& auth_key_sent, const std::string& action,
-                          const std::vector<std::string>& collections, std::map<std::string, std::string>& params) const;
+    bool auth_key_matches(const string& req_auth_key, const string& action,
+                          const std::vector<collection_key_t>& collection_keys,
+                          std::map<std::string, std::string>& params,
+                          std::vector<nlohmann::json>& embedded_params_vec) const;
 
     static Option<Collection*> create_collection(nlohmann::json& req_json);
 
@@ -170,7 +172,9 @@ public:
 
     AuthManager& getAuthManager();
 
-    static Option<bool> do_search(std::map<std::string, std::string>& req_params, std::string& results_json_str);
+    static Option<bool> do_search(std::map<std::string, std::string>& req_params,
+                                  nlohmann::json& embedded_params,
+                                  std::string& results_json_str);
 
     static bool parse_sort_by_str(std::string sort_by_str, std::vector<sort_by>& sort_fields);
 
