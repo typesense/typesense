@@ -2613,8 +2613,8 @@ void Index::search_fields(const std::vector<filter>& filters,
 
                 do_infix_search(sort_fields_std, searched_queries, group_limit, group_by_fields,
                                 max_extra_prefix, max_extra_suffix, field_infix, field_id, field_name, query_tokens,
-                                actual_topster, field_num_results, all_result_ids_len, groups_processed,
-                                all_result_ids);
+                                actual_topster, filter_ids, filter_ids_length,
+                                curated_ids_sorted, field_num_results, all_result_ids, all_result_ids_len, groups_processed);
             } else if(actual_filter_ids_length != 0) {
                 // indicates phrase match query
                 curate_filtered_ids(filters, curated_ids, exclude_token_ids,
@@ -2787,8 +2787,11 @@ void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
                             const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
                             const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
                             const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,
-                            size_t field_num_results, size_t& all_result_ids_len,
-                            spp::sparse_hash_set<uint64_t>& groups_processed, uint32_t*& all_result_ids) const {
+                            const uint32_t *filter_ids, size_t filter_ids_length,
+                            const std::vector<uint32_t>& curated_ids_sorted,
+                            size_t field_num_results, uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                            spp::sparse_hash_set<uint64_t>& groups_processed) const {
+
     if(field_infix == always || (field_infix == fallback && field_num_results == 0)) {
         std::vector<uint32_t> infix_ids;
         search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
@@ -2800,21 +2803,49 @@ void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
             populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
             uint32_t token_bits = 255;
 
-            for(auto seq_id: infix_ids) {
+            std::sort(infix_ids.begin(), infix_ids.end());
+            infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
+
+            uint32_t *raw_infix_ids = nullptr;
+            size_t raw_infix_ids_length = 0;
+
+            if(curated_ids_sorted.size() != 0) {
+                raw_infix_ids_length = ArrayUtils::exclude_scalar(&infix_ids[0], infix_ids.size(), &curated_ids_sorted[0],
+                                                                  curated_ids_sorted.size(), &raw_infix_ids);
+                infix_ids.clear();
+            } else {
+                raw_infix_ids = &infix_ids[0];
+                raw_infix_ids_length = infix_ids.size();
+            }
+
+            if(filter_ids_length != 0) {
+                uint32_t *filtered_raw_infix_ids = nullptr;
+                raw_infix_ids_length = ArrayUtils::and_scalar(filter_ids, filter_ids_length, raw_infix_ids,
+                                                              raw_infix_ids_length, &filtered_raw_infix_ids);
+                if(raw_infix_ids != &infix_ids[0]) {
+                    delete [] raw_infix_ids;
+                }
+
+                raw_infix_ids = filtered_raw_infix_ids;
+            }
+
+            for(size_t i = 0; i < raw_infix_ids_length; i++) {
+                auto seq_id = raw_infix_ids[i];
                 score_results(sort_fields_std, (uint16_t) searched_queries.size(), field_id, false, 2,
                               actual_topster, {}, groups_processed, seq_id, sort_order, field_values,
                               geopoint_indices, group_limit, group_by_fields, token_bits,
                               false, false, {});
             }
 
-            std::sort(infix_ids.begin(), infix_ids.end());
-            infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
-
             uint32_t* new_all_result_ids = nullptr;
-            all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &infix_ids[0],
-                                                       infix_ids.size(), &new_all_result_ids);
+            all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, raw_infix_ids,
+                                                       raw_infix_ids_length, &new_all_result_ids);
             delete[] all_result_ids;
             all_result_ids = new_all_result_ids;
+
+            if(raw_infix_ids != &infix_ids[0]) {
+                delete [] raw_infix_ids;
+            }
         }
     }
 }
