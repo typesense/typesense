@@ -816,8 +816,10 @@ public:
                          const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
                          const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
                          const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,
-                         size_t field_num_results, size_t& all_result_ids_len,
-                         spp::sparse_hash_set<uint64_t>& groups_processed, uint32_t*& all_result_ids) const;
+                         const uint32_t *filter_ids, size_t filter_ids_length,
+                         const std::vector<uint32_t>& curated_ids_sorted,
+                         size_t field_num_results, uint32_t*& all_result_ids, size_t& all_result_ids_len,
+                         spp::sparse_hash_set<uint64_t>& groups_processed) const;
 
     void do_synonym_search(const std::vector<filter>& filters,
                            const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,

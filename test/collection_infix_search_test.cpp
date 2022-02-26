@@ -112,6 +112,56 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "GH100037IN8900X";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "XH100037IN8900X";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("37IN8",
+                                 {"title"}, "points: 200", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, "", "", {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // filtering + exclusion via curation
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "RH100037IN8900X";
+    doc3["points"] = 300;
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    results = coll1->search("37IN8", {"title"}, "points:>= 200", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                             spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, "", "2", {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                             4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionInfixSearchTest, RespectPrefixAndSuffixLimits) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("points", field_types::INT32, false),};
