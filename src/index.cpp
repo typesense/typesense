@@ -40,10 +40,10 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store, ThreadPool* thread_pool,
              const std::unordered_map<std::string, field> & search_schema,
-             const std::map<std::string, field>& facet_schema, const std::unordered_map<std::string, field>& sort_schema,
+             const std::unordered_map<std::string, field>& sort_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
         name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
-        search_schema(search_schema), facet_schema(facet_schema), sort_schema(sort_schema),
+        search_schema(search_schema), sort_schema(sort_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
     for(const auto & fname_field: search_schema) {
@@ -64,6 +64,15 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
+        }
+
+        if(fname_field.second.facet) {
+            array_mapped_facet_t facet_array;
+            for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+                facet_array[i] = new facet_map_t();
+            }
+
+            facet_index_v3.emplace(fname_field.first, facet_array);
         }
 
         // initialize for non-string facet fields
@@ -92,15 +101,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
             sort_index.emplace(pair.first, doc_to_score);
         }
-    }
-
-    for(const auto& pair: facet_schema) {
-        array_mapped_facet_t facet_array;
-        for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
-            facet_array[i] = new facet_map_t();
-        }
-
-        facet_index_v3.emplace(pair.first, facet_array);
     }
 
     num_documents = 0;
@@ -208,7 +208,6 @@ int64_t Index::float_to_in64_t(float f) {
 
 void Index::compute_token_offsets_facets(index_record& record,
                                           const std::unordered_map<std::string, field>& search_schema,
-                                          const std::map<std::string, field>& facet_schema,
                                           const std::vector<char>& local_token_separators,
                                           const std::vector<char>& local_symbols_to_index) {
 
@@ -222,7 +221,7 @@ void Index::compute_token_offsets_facets(index_record& record,
 
         offsets_facet_hashes_t offset_facet_hashes;
 
-        bool is_facet = (facet_schema.count(field_name) != 0);
+        bool is_facet = search_schema.at(field_name).facet;
 
         // non-string, non-geo faceted field should be indexed as faceted string field as well
         if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
@@ -291,7 +290,6 @@ void Index::compute_token_offsets_facets(index_record& record,
 Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const std::unordered_map<std::string, field> & search_schema,
-                                                 const std::map<std::string, field> & facet_schema,
                                                  const index_operation_t op,
                                                  const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
@@ -443,7 +441,6 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                       const size_t batch_start_index, const size_t batch_size,
                                       const std::string& default_sorting_field,
                                       const std::unordered_map<std::string, field>& search_schema,
-                                      const std::map<std::string, field>& facet_schema,
                                       const std::string& fallback_field_type,
                                       const std::vector<char>& token_separators,
                                       const std::vector<char>& symbols_to_index) {
@@ -465,7 +462,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 
             Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
                                                                       default_sorting_field,
-                                                                      search_schema, facet_schema,
+                                                                      search_schema,
                                                                       index_rec.operation,
                                                                       fallback_field_type,
                                                                       index_rec.dirty_values);
@@ -482,7 +479,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 scrub_reindex_doc(search_schema, index_rec.doc, index_rec.del_doc, index_rec.old_doc);
             }
 
-            compute_token_offsets_facets(index_rec, search_schema, facet_schema, token_separators, symbols_to_index);
+            compute_token_offsets_facets(index_rec, search_schema, token_separators, symbols_to_index);
 
             int64_t points = 0;
 
@@ -514,7 +511,6 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_batch,
                                  const std::string & default_sorting_field,
                                  const std::unordered_map<std::string, field> & search_schema,
-                                 const std::map<std::string, field> & facet_schema,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index) {
@@ -543,8 +539,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
-                                    facet_schema, fallback_field_type,
-                                    token_separators, symbols_to_index);
+                                    fallback_field_type, token_separators, symbols_to_index);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -2921,7 +2916,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
         facet_infos[findex].use_facet_query = false;
 
-        const field &facet_field = facet_schema.at(a_facet.field_name);
+        const field &facet_field = search_schema.at(a_facet.field_name);
         facet_infos[findex].facet_field = facet_field;
 
         facet_infos[findex].should_compute_stats = (facet_field.type != field_types::STRING &&
@@ -3944,8 +3939,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
         }
 
         if(new_field.is_facet()) {
-            facet_schema.emplace(new_field.name, new_field);
-
             array_mapped_facet_t facet_array;
             for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
                 facet_array[i] = new facet_map_t();

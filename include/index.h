@@ -430,8 +430,6 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::map<std::string, field> facet_schema;  // std::map guarantees order of fields
-
     std::unordered_map<std::string, field> sort_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
@@ -635,7 +633,6 @@ public:
           const Store* store,
           ThreadPool* thread_pool,
           const std::unordered_map<std::string, field>& search_schema,
-          const std::map<std::string, field>& facet_schema,
           const std::unordered_map<std::string, field>& sort_schema,
           const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators);
 
@@ -679,7 +676,6 @@ public:
 
     static void compute_token_offsets_facets(index_record& record,
                                              const std::unordered_map<std::string, field>& search_schema,
-                                             const std::map<std::string, field>& facet_schema,
                                              const std::vector<char>& local_token_separators,
                                              const std::vector<char>& local_symbols_to_index);
 
@@ -731,7 +727,6 @@ public:
                                           const size_t batch_start_index, const size_t batch_size,
                                           const std::string & default_sorting_field,
                                           const std::unordered_map<std::string, field> & search_schema,
-                                          const std::map<std::string, field> & facet_schema,
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index);
@@ -740,7 +735,6 @@ public:
                                      std::vector<index_record> & iter_batch,
                                      const std::string & default_sorting_field,
                                      const std::unordered_map<std::string, field> & search_schema,
-                                     const std::map<std::string, field> & facet_schema,
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index);
@@ -768,7 +762,6 @@ public:
     static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
                                                      const std::unordered_map<std::string, field> & search_schema,
-                                                     const std::map<std::string, field> & facet_schema,
                                                      const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);
