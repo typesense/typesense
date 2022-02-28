@@ -275,7 +275,7 @@ public:
         db = nullptr;
 
         if(clear_state_dir) {
-            if (!butil::DeleteFile(butil::FilePath(state_dir_path), true)) {
+            if (!delete_path(state_dir_path, true)) {
                 LOG(WARNING) << "rm " << state_dir_path << " failed";
                 return -1;
             }
@@ -293,7 +293,7 @@ public:
             LOG(INFO) << "copy snapshot " << snapshot_path << " to " << state_dir_path << " success";
         }
 
-        if (!butil::CreateDirectory(butil::FilePath(state_dir_path))) {
+        if (!create_directory(state_dir_path)) {
             LOG(WARNING) << "CreateDirectory " << state_dir_path << " failed";
             return -1;
         }

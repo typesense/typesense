@@ -4,10 +4,13 @@
 #include <butil/string_printf.h>
 #include <file_utils.h>
 
-
-bool directory_exists(const std::string & dir_path) {
+bool directory_exists(const std::string& dir_path) {
     struct stat info;
     return stat(dir_path.c_str(), &info) == 0 && (info.st_mode & S_IFDIR);
+}
+
+bool create_directory(const std::string& dir_path) {
+    return butil::CreateDirectory(butil::FilePath(dir_path));
 }
 
 bool file_exists(const std::string & file_path) {

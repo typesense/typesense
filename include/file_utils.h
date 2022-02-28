@@ -2,6 +2,8 @@
 
 bool directory_exists(const std::string & dir_path);
 
+bool create_directory(const std::string& dir_path);
+
 bool file_exists(const std::string & file_path);
 
 // tries to hard link first
