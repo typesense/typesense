@@ -430,8 +430,6 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> sort_schema;
-
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
     spp::sparse_hash_map<std::string, num_tree_t*> numerical_index;
@@ -633,7 +631,6 @@ public:
           const Store* store,
           ThreadPool* thread_pool,
           const std::unordered_map<std::string, field>& search_schema,
-          const std::unordered_map<std::string, field>& sort_schema,
           const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators);
 
     ~Index();

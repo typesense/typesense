@@ -40,10 +40,9 @@ spp::sparse_hash_map<uint32_t, int64_t> Index::str_sentinel_value;
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store, ThreadPool* thread_pool,
              const std::unordered_map<std::string, field> & search_schema,
-             const std::unordered_map<std::string, field>& sort_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
         name(name), collection_id(collection_id), store(store), thread_pool(thread_pool),
-        search_schema(search_schema), sort_schema(sort_schema),
+        search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
     for(const auto & fname_field: search_schema) {
@@ -64,6 +63,16 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         } else {
             num_tree_t* num_tree = new num_tree_t;
             numerical_index.emplace(fname_field.first, num_tree);
+        }
+
+        if(fname_field.second.sort) {
+            if(fname_field.second.type == field_types::STRING) {
+                adi_tree_t* tree = new adi_tree_t();
+                str_sort_index.emplace(fname_field.first, tree);
+            } else if(fname_field.second.type != field_types::GEOPOINT_ARRAY) {
+                spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
+                sort_index.emplace(fname_field.first, doc_to_score);
+            }
         }
 
         if(fname_field.second.facet) {
@@ -90,16 +99,6 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
             }
 
             infix_index.emplace(fname_field.second.name, infix_sets);
-        }
-    }
-
-    for(const auto & pair: sort_schema) {
-        if(pair.second.type == field_types::STRING) {
-            adi_tree_t* tree = new adi_tree_t();
-            str_sort_index.emplace(pair.first, tree);
-        } else if(pair.second.type != field_types::GEOPOINT_ARRAY) {
-            spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
-            sort_index.emplace(pair.first, doc_to_score);
         }
     }
 
@@ -3186,16 +3185,16 @@ void Index::populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint
             field_values[i] = &text_match_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::seq_id) {
             field_values[i] = &seq_id_sentinel_value;
-        } else if (sort_schema.count(sort_fields_std[i].name) != 0) {
-            if (sort_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
+        } else if (search_schema.count(sort_fields_std[i].name) != 0 && search_schema.at(sort_fields_std[i].name).sort) {
+            if (search_schema.at(sort_fields_std[i].name).type == field_types::GEOPOINT_ARRAY) {
                 geopoint_indices.push_back(i);
                 field_values[i] = nullptr; // GEOPOINT_ARRAY uses a multi-valued index
-            } else if(sort_schema.at(sort_fields_std[i].name).type == field_types::STRING) {
+            } else if(search_schema.at(sort_fields_std[i].name).type == field_types::STRING) {
                 field_values[i] = &str_sentinel_value;
             } else {
                 field_values[i] = sort_index.at(sort_fields_std[i].name);
 
-                if (sort_schema.at(sort_fields_std[i].name).is_geopoint()) {
+                if (search_schema.at(sort_fields_std[i].name).is_geopoint()) {
                     geopoint_indices.push_back(i);
                 }
             }
@@ -3910,8 +3909,6 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
         search_schema.emplace(new_field.name, new_field);
 
         if(new_field.is_sortable()) {
-            sort_schema.emplace(new_field.name, new_field);
-
             if(new_field.is_num_sortable()) {
                 spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
                 sort_index.emplace(new_field.name, doc_to_score);
