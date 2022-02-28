@@ -4,10 +4,6 @@
 #include <vector>
 #include <numeric>
 #include <chrono>
-#include <art.h>
-#include <unordered_map>
-#include <queue>
-#include "string_utils.h"
 #include <sys/resource.h>
 #include "collection.h"
 #include "collection_manager.h"
@@ -21,8 +17,9 @@ int main(int argc, char* argv[]) {
     Store *store = new Store(state_dir_path);
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
-    collectionManager.init(store, 4, "abcd");
-    collectionManager.load();
+    std::atomic<bool> exit;
+    collectionManager.init(store, 4, "abcd", exit);
+    collectionManager.load(100, 10000);
 
     std::vector<field> fields_to_index = {
             field("lang", field_types::STRING, true),
