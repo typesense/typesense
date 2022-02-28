@@ -354,7 +354,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     std::unique_lock lock(mutex);
 
     Option<uint32_t> validation_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
-                                                                     search_schema, facet_schema, op,
+                                                                     search_schema, op,
                                                                      fallback_field_type, dirty_values);
 
     if(!validation_op.ok()) {
@@ -362,11 +362,11 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     index_record rec(0, seq_id, document, op, dirty_values);
-    Index::compute_token_offsets_facets(rec, search_schema, facet_schema, token_separators, symbols_to_index);
+    Index::compute_token_offsets_facets(rec, search_schema, token_separators, symbols_to_index);
 
     std::vector<index_record> index_batch;
     index_batch.emplace_back(std::move(rec));
-    Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema, facet_schema,
+    Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema,
                               fallback_field_type, token_separators, symbols_to_index);
 
     num_documents += 1;
@@ -376,7 +376,7 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
 size_t Collection::batch_index_in_memory(std::vector<index_record>& index_records) {
     std::unique_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
-                                                   search_schema, facet_schema, fallback_field_type,
+                                                   search_schema, fallback_field_type,
                                                    token_separators, symbols_to_index);
     num_documents += num_indexed;
     return num_indexed;
@@ -804,7 +804,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
     // validate facet fields
     for(const std::string & field_name: facet_fields) {
-        if(facet_schema.count(field_name) == 0) {
+        if(search_schema.count(field_name) == 0 || !search_schema.at(field_name).facet) {
             std::string error = "Could not find a facet field named `" + field_name + "` in the schema.";
             return Option<nlohmann::json>(404, error);
         }
@@ -845,7 +845,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                 return Option<nlohmann::json>(400, error);
             }
 
-            if(facet_schema.count(facet_query.field_name) == 0) {
+            if(search_schema.count(facet_query.field_name) == 0 || !search_schema.at(facet_query.field_name).facet) {
                 std::string error = "Could not find a facet field named `" + facet_query.field_name + "` in the schema.";
                 return Option<nlohmann::json>(404, error);
             }
@@ -1664,52 +1664,52 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
         }
 
         LOG(ERROR) << "Could not find field " << a_facet.field_name << " in document during faceting.";
-        LOG(ERROR) << "Facet field type: " << facet_schema.at(a_facet.field_name).type;
+        LOG(ERROR) << "Facet field type: " << search_schema.at(a_facet.field_name).type;
         LOG(ERROR) << "Actual document: " << document;
         return false;
     }
 
-    if(facet_schema.at(a_facet.field_name).is_array()) {
+    if(search_schema.at(a_facet.field_name).is_array()) {
         size_t array_sz = document[a_facet.field_name].size();
         if(facet_count.array_pos >= array_sz) {
             LOG(ERROR) << "Facet field array size " << array_sz << " lesser than array pos " <<  facet_count.array_pos
                        << " for facet field " << a_facet.field_name;
-            LOG(ERROR) << "Facet field type: " << facet_schema.at(a_facet.field_name).type;
+            LOG(ERROR) << "Facet field type: " << search_schema.at(a_facet.field_name).type;
             LOG(ERROR) << "Actual document: " << document;
             return false;
         }
     }
 
-    if(facet_schema.at(a_facet.field_name).type == field_types::STRING) {
+    if(search_schema.at(a_facet.field_name).type == field_types::STRING) {
         value =  document[a_facet.field_name];
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::STRING_ARRAY) {
         value = document[a_facet.field_name][facet_count.array_pos];
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::INT32) {
         int32_t raw_val = document[a_facet.field_name].get<int32_t>();
         value = std::to_string(raw_val);
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::INT32_ARRAY) {
         int32_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int32_t>();
         value = std::to_string(raw_val);
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::INT64) {
         int64_t raw_val = document[a_facet.field_name].get<int64_t>();
         value = std::to_string(raw_val);
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::INT64_ARRAY) {
         int64_t raw_val = document[a_facet.field_name][facet_count.array_pos].get<int64_t>();
         value = std::to_string(raw_val);
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::FLOAT) {
         float raw_val = document[a_facet.field_name].get<float>();
         value = StringUtils::float_to_str(raw_val);
         if(value != "0") {
             value.erase ( value.find_last_not_of('0') + 1, std::string::npos ); // remove trailing zeros
         }
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::FLOAT_ARRAY) {
         float raw_val = document[a_facet.field_name][facet_count.array_pos].get<float>();
         value = StringUtils::float_to_str(raw_val);
         value.erase ( value.find_last_not_of('0') + 1, std::string::npos );  // remove trailing zeros
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::BOOL) {
         value = std::to_string(document[a_facet.field_name].get<bool>());
         value = (value == "1") ? "true" : "false";
-    } else if(facet_schema.at(a_facet.field_name).type == field_types::BOOL_ARRAY) {
+    } else if(search_schema.at(a_facet.field_name).type == field_types::BOOL_ARRAY) {
         value = std::to_string(document[a_facet.field_name][facet_count.array_pos].get<bool>());
         value = (value == "1") ? "true" : "false";
     }
@@ -2282,8 +2282,10 @@ std::vector<std::string> Collection::get_facet_fields() {
     std::shared_lock lock(mutex);
 
     std::vector<std::string> facet_fields_copy;
-    for(auto it = facet_schema.begin(); it != facet_schema.end(); ++it) {
-        facet_fields_copy.push_back(it->first);
+    for(auto it = search_schema.begin(); it != search_schema.end(); ++it) {
+        if(it->second.facet) {
+            facet_fields_copy.push_back(it->first);
+        }
     }
 
     return facet_fields_copy;
@@ -2701,10 +2703,6 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
         }
 
         search_schema.emplace(new_field.name, new_field);
-        if(new_field.is_facet()) {
-            facet_schema.emplace(new_field.name, new_field);
-        }
-
         fields.emplace_back(new_field);
     }
 
@@ -2760,10 +2758,6 @@ Index* Collection::init_index() {
 
         search_schema.emplace(field.name, field);
 
-        if(field.is_facet()) {
-            facet_schema.emplace(field.name, field);
-        }
-
         if(field.is_sortable()) {
             sort_schema.emplace(field.name, field);
         }
@@ -2773,7 +2767,7 @@ Index* Collection::init_index() {
                      collection_id,
                      store,
                      CollectionManager::get_instance().get_thread_pool(),
-                     search_schema, facet_schema, sort_schema,
+                     search_schema, sort_schema,
                      symbols_to_index, token_separators);
 }
 

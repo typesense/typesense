@@ -174,8 +174,6 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::map<std::string, field> facet_schema;   // std::map guarantees order of fields
-
     std::unordered_map<std::string, field> sort_schema;
 
     std::map<std::string, override_t> overrides;
