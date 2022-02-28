@@ -12,7 +12,7 @@ TEST(IndexTest, ScrubReindexDoc) {
 
     ThreadPool pool(4);
 
-    Index index("index", 1, nullptr, &pool, search_schema, {}, {}, {});
+    Index index("index", 1, nullptr, &pool, search_schema, {}, {});
     nlohmann::json old_doc;
     old_doc["id"] = "1";
     old_doc["title"] = "One more thing.";

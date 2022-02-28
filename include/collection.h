@@ -174,8 +174,6 @@ private:
 
     std::unordered_map<std::string, field> search_schema;
 
-    std::unordered_map<std::string, field> sort_schema;
-
     std::map<std::string, override_t> overrides;
 
     spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;

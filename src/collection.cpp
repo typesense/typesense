@@ -517,7 +517,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
 
             } else {
-                if(sort_schema.count(actual_field_name) == 0) {
+                if(search_schema.count(actual_field_name) == 0 || !search_schema.at(actual_field_name).sort) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
                     return Option<bool>(404, error);
                 }
@@ -611,7 +611,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
-        if(sort_field_std.name != sort_field_const::text_match && sort_schema.count(sort_field_std.name) == 0) {
+        if(sort_field_std.name != sort_field_const::text_match && (search_schema.count(sort_field_std.name) == 0 ||
+            !search_schema.at(sort_field_std.name).sort)) {
             std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
             return Option<bool>(404, error);
         }
@@ -2295,8 +2296,10 @@ std::vector<field> Collection::get_sort_fields() {
     std::shared_lock lock(mutex);
 
     std::vector<field> sort_fields_copy;
-    for(auto it = sort_schema.begin(); it != sort_schema.end(); ++it) {
-        sort_fields_copy.push_back(it->second);
+    for(auto it = search_schema.begin(); it != search_schema.end(); ++it) {
+        if(it->second.sort) {
+            sort_fields_copy.push_back(it->second);
+        }
     }
 
     return sort_fields_copy;
@@ -2697,11 +2700,6 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
     }
 
     for(auto& new_field: new_fields) {
-        if (new_field.is_num_sort_field()) {
-            // only numerical fields are added to sort index in dynamic type detection
-            sort_schema.emplace(new_field.name, new_field);
-        }
-
         search_schema.emplace(new_field.name, new_field);
         fields.emplace_back(new_field);
     }
@@ -2757,17 +2755,13 @@ Index* Collection::init_index() {
         }
 
         search_schema.emplace(field.name, field);
-
-        if(field.is_sortable()) {
-            sort_schema.emplace(field.name, field);
-        }
     }
 
     return new Index(name+std::to_string(0),
                      collection_id,
                      store,
                      CollectionManager::get_instance().get_thread_pool(),
-                     search_schema, sort_schema,
+                     search_schema,
                      symbols_to_index, token_separators);
 }
 
