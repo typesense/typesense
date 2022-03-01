@@ -857,6 +857,11 @@ public:
                   const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
                   uint32_t*& all_result_ids,
                   spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const;
+
+    void aggregate_and_score_fields(const std::vector<query_tokens_t>& field_query_tokens,
+                                    const std::vector<search_field_t>& the_fields, Topster* topster,
+                                    const size_t num_search_fields,
+                                    spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const;
 };
 
 template<class T>
