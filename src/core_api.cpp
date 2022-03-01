@@ -25,7 +25,7 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
 
     std::vector<collection_key_t> collections;
 
-    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections);
+    get_collections_for_auth(req_params, body, rpath, req_auth_key, collections, embedded_params_vec);
 
     if(rpath.handler == get_health) {
         // health endpoint requires no authentication
@@ -56,9 +56,10 @@ void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_pt
     server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
 }
 
-void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
-                              const route_path& rpath, const std::string& req_auth_key,
-                              std::vector<collection_key_t>& collections) {
+void get_collections_for_auth(std::map<std::string, std::string>& req_params, const string& body,
+                              const route_path& rpath, const string& req_auth_key,
+                              std::vector<collection_key_t>& collections,
+                              std::vector<nlohmann::json>& embedded_params_vec) {
 
     if(rpath.handler == post_multi_search) {
         nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
@@ -66,6 +67,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
         if(obj.is_discarded()) {
             LOG(ERROR) << "Multi search request body is malformed.";
             collections.emplace_back("", req_auth_key);
+            embedded_params_vec.emplace_back(nlohmann::json::object());
         }
 
         else if(obj.count("searches") != 0 && obj["searches"].is_array()) {
@@ -83,6 +85,7 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
                                                     req_auth_key;
 
                     collections.emplace_back(coll_name, access_key);
+                    embedded_params_vec.emplace_back(nlohmann::json::object());
                 }
             }
         }
@@ -96,13 +99,18 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
             } else if(obj.count("name") != 0 && obj["name"].is_string()) {
                 collections.emplace_back(obj["name"].get<std::string>(), req_auth_key);
             }
+
+            embedded_params_vec.emplace_back(nlohmann::json::object());
+
         } else if(req_params.count("collection") != 0) {
             collections.emplace_back(req_params.at("collection"), req_auth_key);
+            embedded_params_vec.emplace_back(nlohmann::json::object());
         }
     }
 
     if(collections.empty()) {
         collections.emplace_back("", req_auth_key);
+        embedded_params_vec.emplace_back(nlohmann::json::object());
     }
 }
 

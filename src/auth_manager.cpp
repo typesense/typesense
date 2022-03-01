@@ -148,7 +148,8 @@ bool AuthManager::authenticate(const std::string& action,
     //LOG(INFO) << "AuthManager::authenticate()";
 
     size_t num_keys_matched = 0;
-    for(const auto& coll_key: collection_keys) {
+    for(size_t i = 0; i < collection_keys.size(); i++) {
+        const auto& coll_key = collection_keys[i];
         const auto& key_it = api_keys.find(coll_key.api_key);
         nlohmann::json embedded_params;
 
@@ -166,7 +167,7 @@ bool AuthManager::authenticate(const std::string& action,
         }
 
         num_keys_matched++;
-        embedded_params_vec.push_back(embedded_params);
+        embedded_params_vec[i] = embedded_params;
     }
 
     //LOG(INFO) << "api_keys.size() = " << api_keys.size();
