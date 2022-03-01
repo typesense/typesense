@@ -319,4 +319,6 @@ struct StringUtils {
     static std::string trim_curly_spaces(const std::string& str);
 
     static bool ends_with(std::string const &str, std::string const &ending);
+
+    static bool contains_word(const std::string& haystack, const std::string& needle);
 };

@@ -171,6 +171,14 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeExactQueryMatch) {
     ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][3]["document"]["id"].get<std::string>().c_str());
 
+    // partial word should not match
+    res_op = coll_mul_fields->search("dowillow", {"title"}, "", {}, {}, {0}, 10);
+    ASSERT_TRUE(res_op.ok());
+    results = res_op.get();
+
+    ASSERT_EQ(0, results["hits"].size());
+    ASSERT_EQ(0, results["found"].get<uint32_t>());
+
     // ability to disable overrides
     bool enable_overrides = false;
     res_op = coll_mul_fields->search("will", {"title"}, "", {}, {}, {0}, 10,
@@ -1530,6 +1538,13 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // partial word should not match
+    results = coll1->search("inexpensive shoes", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(2, results["found"].get<uint32_t>());
+    ASSERT_EQ(2, results["hits"].size());
 
     // with synonum for expensive
     synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };

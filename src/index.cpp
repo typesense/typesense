@@ -1153,12 +1153,12 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
         //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
         //LOG(INFO) << "n: " << n;
 
-        /*std::stringstream fullq;
+        std::stringstream fullq;
         for(const auto& qleaf : actual_query_suggestion) {
             std::string qtok(reinterpret_cast<char*>(qleaf->key),qleaf->key_len - 1);
             fullq << qtok << " ";
         }
-        LOG(INFO) << "field: " << size_t(field_id) << ", query: " << fullq.str() << ", total_cost: " << total_cost;*/
+        LOG(INFO) << "field: " << size_t(field_id) << ", query: " << fullq.str() << ", total_cost: " << total_cost;
 
         // Prepare excluded document IDs that we can later remove from the result set
         uint32_t* excluded_result_ids = nullptr;
@@ -1735,8 +1735,9 @@ bool Index::static_filter_query_eval(const override_t* override,
 
     std::string query = StringUtils::join(tokens, " ");
 
-    if( (override->rule.match == override_t::MATCH_EXACT && override->rule.query == query) ||
-        (override->rule.match == override_t::MATCH_CONTAINS && query.find(override->rule.query) != std::string::npos) )  {
+    if ((override->rule.match == override_t::MATCH_EXACT && override->rule.query == query) ||
+        (override->rule.match == override_t::MATCH_CONTAINS &&
+         StringUtils::contains_word(query, override->rule.query))) {
 
         Option<bool> filter_op = filter::parse_filter_query(override->filter_by, search_schema,
                                                             store, "", filters);

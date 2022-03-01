@@ -291,6 +291,28 @@ bool StringUtils::ends_with(const std::string& str, const std::string& ending) {
     }
 }
 
+bool StringUtils::contains_word(const std::string& haystack, const std::string& needle) {
+    size_t pos = haystack.find(needle);
+    if(pos == std::string::npos) {
+        return false;
+    }
+
+    if(pos == 0 && haystack.size() == needle.size()) {
+        return true;
+    }
+
+    if(pos != 0 && haystack[pos - 1] != ' ') {
+        return false;
+    }
+
+    size_t end_pos = pos + needle.size();
+    if(end_pos < haystack.size() and haystack[end_pos] != ' ') {
+        return false;
+    }
+
+    return true;
+}
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();
