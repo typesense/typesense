@@ -431,8 +431,9 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                 continue;
             }
 
-            if( (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
-                (override.rule.match == override_t::MATCH_CONTAINS && query.find(override.rule.query) != std::string::npos) )  {
+            if ((override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
+                (override.rule.match == override_t::MATCH_CONTAINS &&
+                 StringUtils::contains_word(query, override.rule.query))) {
 
                 // have to ensure that dropped hits take precedence over added hits
                 for(const auto & hit: override.drop_hits) {

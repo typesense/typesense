@@ -282,3 +282,17 @@ TEST(StringUtilsTest, ShouldTrimCurlySpaces) {
     ASSERT_EQ("{}", StringUtils::trim_curly_spaces("{ }"));
     ASSERT_EQ("foo {bar} {baz}", StringUtils::trim_curly_spaces("foo { bar } {  baz}"));
 }
+
+TEST(StringUtilsTest, ContainsWord) {
+    ASSERT_TRUE(StringUtils::contains_word("foo bar", "foo"));
+    ASSERT_TRUE(StringUtils::contains_word("foo bar", "bar"));
+    ASSERT_TRUE(StringUtils::contains_word("foo bar baz", "bar"));
+    ASSERT_TRUE(StringUtils::contains_word("foo bar baz", "foo bar"));
+    ASSERT_TRUE(StringUtils::contains_word("foo bar baz", "bar baz"));
+
+    ASSERT_FALSE(StringUtils::contains_word("foobar", "bar"));
+    ASSERT_FALSE(StringUtils::contains_word("foobar", "foo"));
+    ASSERT_FALSE(StringUtils::contains_word("foobar baz", "bar"));
+    ASSERT_FALSE(StringUtils::contains_word("foobar baz", "bar baz"));
+    ASSERT_FALSE(StringUtils::contains_word("baz foobar", "foo"));
+}
