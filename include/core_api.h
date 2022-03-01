@@ -114,9 +114,10 @@ bool post_clear_cache(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 // Misc helpers
 
-void get_collections_for_auth(std::map<std::string, std::string> &req_params, const std::string &body,
-                              const route_path &rpath, const std::string& req_auth_key,
-                              std::vector<collection_key_t> &collections);
+void get_collections_for_auth(std::map<std::string, std::string>& req_params, const std::string& body,
+                              const route_path& rpath, const std::string& req_auth_key,
+                              std::vector<collection_key_t>& collections,
+                              std::vector<nlohmann::json>& embedded_params_vec);
 
 bool is_doc_import_route(uint64_t route_hash);
 

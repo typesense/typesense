@@ -138,7 +138,7 @@ TEST_F(AuthManagerTest, CheckRestoreOfAPIKeys) {
 
 TEST_F(AuthManagerTest, VerifyAuthentication) {
     std::map<std::string, std::string> sparams;
-    std::vector<nlohmann::json> embedded_params;
+    std::vector<nlohmann::json> embedded_params(2);
     // when no keys are present at all
     ASSERT_FALSE(auth_manager.authenticate("", {collection_key_t("", "jdlaslasdasd")}, sparams, embedded_params));
 
@@ -278,7 +278,7 @@ TEST_F(AuthManagerTest, GenerationOfAPIAction) {
 TEST_F(AuthManagerTest, ScopedAPIKeys) {
     std::map<std::string, std::string> params;
     params["filter_by"] = "country:USA";
-    std::vector<nlohmann::json> embedded_params;
+    std::vector<nlohmann::json> embedded_params(2);
 
     // create a API key bound to search scope and a given collection
     api_key_t key_search_coll1("KeyVal", "test key", {"documents:search"}, {"coll1"}, FUTURE_TS);
@@ -338,7 +338,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     auth_manager.create_key(key_expiry);
 
     empty_params.clear();
-    embedded_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key3 = "K1M2STRDelZYNHpxNGVWUTlBTGpOWUl4dk8wNU8xdnVEZi9aSUcvZE5tcz1FeHBpeyJmaWx0ZXJfYnkiOi"
                               "AidXNlcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiAyMjM3NzEyMjIwfQ==";
@@ -353,6 +353,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     auth_manager.create_key(key_expiry2);
 
     empty_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key4 = "SXFKNldZZWRiWkVKVmI2RCt3OTlKNHpBZ24yWlRUbEdJdERtTy9IZ2REZz1FeHBpeyJmaWx0ZXJfYnkiOiAidXN"
                               "lcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiAxNjA2NTYzMzE2fQ==";
@@ -366,6 +367,7 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     auth_manager.create_key(key_expiry3);
 
     empty_params.clear();
+    embedded_params.push_back(nlohmann::json::object());
 
     std::string scoped_key5 = "V3JMNFJlZHRMVStrZHphNFVGZDh4MWltSmx6Yzk2R3QvS2ZwSE8weGRWQT1FeHBpeyJmaWx0ZXJfYnkiOiAidX"
                               "Nlcl9pZDoxMDgwIiwgImV4cGlyZXNfYXQiOiA2NDcyMzM2MzIwMH0=";
