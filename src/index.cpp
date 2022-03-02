@@ -3620,7 +3620,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             scores[1] = seq_id;
         } else if(field_values[1] == &geo_sentinel_value) {
             scores[1] = geopoint_distances[1];
-        } else if(field_values[0] == &str_sentinel_value) {
+        } else if(field_values[1] == &str_sentinel_value) {
             scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
         } else {
             auto it = field_values[1]->find(seq_id);
@@ -3640,7 +3640,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             scores[2] = seq_id;
         } else if(field_values[2] == &geo_sentinel_value) {
             scores[2] = geopoint_distances[2];
-        } else if(field_values[0] == &str_sentinel_value) {
+        } else if(field_values[2] == &str_sentinel_value) {
             scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
         } else {
             auto it = field_values[2]->find(seq_id);
