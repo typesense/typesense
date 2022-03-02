@@ -305,20 +305,18 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // Handle CORS
     if(h2o_handler->http_server->cors_enabled) {
-        std::string origin_sent = "*";
+        h2o_iovec_t origin_sent = {(char*)"*", 1};
 
         if(!h2o_handler->http_server->cors_domains.empty()) {
-            const char* ACL_ORIGIN_HEADER = "origin";
-            ssize_t acl_origin_cursor = h2o_find_header_by_str(&req->headers, ACL_ORIGIN_HEADER,
-                                                               strlen(ACL_ORIGIN_HEADER), -1);
+            ssize_t acl_origin_cursor = h2o_find_header(&req->headers, H2O_TOKEN_ORIGIN, -1);
 
             // CORS is rejected if cors domains were specified but origin does not match
             bool reject_cors_req = true;
 
             if(acl_origin_cursor != -1) {
-                h2o_iovec_t& acl_origin_header = req->headers.entries[acl_origin_cursor].value;
-                origin_sent = std::string(acl_origin_header.base, acl_origin_header.len);
-                if(h2o_handler->http_server->cors_domains.count(origin_sent) != 0) {
+                origin_sent = req->headers.entries[acl_origin_cursor].value;
+                std::string origin_str = std::string(origin_sent.base, origin_sent.len);
+                if(h2o_handler->http_server->cors_domains.count(origin_str) != 0) {
                     reject_cors_req = false;
                 }
             }
@@ -331,7 +329,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         }
 
         h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
-                              0, NULL, origin_sent.c_str(), origin_sent.size());
+                              0, NULL, origin_sent.base, origin_sent.len);
 
         if(http_method == "OPTIONS") {
             // locate request access control headers
