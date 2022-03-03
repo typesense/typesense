@@ -1425,3 +1425,45 @@ TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSortingTest, IntegerFloatAndBoolShouldDefaultSortTrue) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string", "infix": true },
+              {"name": "points", "type": "int32" },
+              {"name": "timestamp", "type": "int64" },
+              {"name": "max", "type": "float" },
+              {"name": "is_valid", "type": "bool" }
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Right on";
+    doc1["points"] = 100;
+    doc1["timestamp"] = 7273272372732;
+    doc1["max"] = 97.6;
+    doc1["is_valid"] = true;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto res_op = coll1->search("*", {"title"}, "", {}, {sort_by("points", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_TRUE(res_op.ok());
+
+    res_op = coll1->search("*", {"title"}, "", {}, {sort_by("timestamp", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_TRUE(res_op.ok());
+
+    res_op = coll1->search("*", {"title"}, "", {}, {sort_by("max", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_TRUE(res_op.ok());
+
+    res_op = coll1->search("*", {"title"}, "", {}, {sort_by("is_valid", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_TRUE(res_op.ok());
+
+    collectionManager.drop_collection("coll1");
+}
