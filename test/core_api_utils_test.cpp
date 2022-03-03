@@ -199,6 +199,14 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
 
     // ensure that req params are appended to (embedded params are also rolled into req params)
     ASSERT_EQ("user_id: 100&&age: > 100&&foo: bar", req->params["filter_by"]);
+
+    // try setting max search limit
+    req->embedded_params_vec[0]["limit_multi_searches"] = 0;
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+
+    req->embedded_params_vec[0]["limit_multi_searches"] = 1;
+    ASSERT_TRUE(post_multi_search(req, res));
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {

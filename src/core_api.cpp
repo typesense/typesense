@@ -402,11 +402,17 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
+    if(req->embedded_params_vec.empty()) {
+        res->set_400("Missing embedded params array.");
+        return false;
+    }
+
     const char* LIMIT_MULTI_SEARCHES = "limit_multi_searches";
     size_t limit_multi_searches = 50;
 
-    if(req->params.count(LIMIT_MULTI_SEARCHES) != 0 && StringUtils::is_uint32_t(req->params[LIMIT_MULTI_SEARCHES])) {
-        limit_multi_searches = std::stoi(req->params[LIMIT_MULTI_SEARCHES]);
+    const auto& first_embedded_param = req->embedded_params_vec[0];
+    if(first_embedded_param.count(LIMIT_MULTI_SEARCHES) != 0 && first_embedded_param[LIMIT_MULTI_SEARCHES].is_number_integer()) {
+        limit_multi_searches = first_embedded_param[LIMIT_MULTI_SEARCHES].get<size_t>();
     }
 
     if(req_json["searches"].size() > limit_multi_searches) {
