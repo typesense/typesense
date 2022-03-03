@@ -283,6 +283,43 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
     ASSERT_EQ("products", collections[0].collection);
     ASSERT_EQ("bar", collections[0].api_key);
 
+    // when api key type is bad
+    collections.clear();
+    embedded_params_vec.clear();
+    rpath = route_path("POST", {"collections"}, post_multi_search, false, false);
+    body = R"(
+        {"searches":[
+              {
+                "query_by": "concat",
+                "collection": "products",
+                "q": "battery",
+                "x-typesense-api-key": 123
+              }
+          ]
+        }
+    )";
+
+    get_collections_for_auth(req_params, body, rpath, "foo", collections, embedded_params_vec);
+    ASSERT_EQ("foo", collections[0].api_key);
+
+    // when collection name is bad
+    collections.clear();
+    embedded_params_vec.clear();
+    rpath = route_path("POST", {"collections"}, post_multi_search, false, false);
+    body = R"(
+            {"searches":[
+                  {
+                    "query_by": "concat",
+                    "collection": 123,
+                    "q": "battery"
+                  }
+              ]
+            }
+        )";
+
+    get_collections_for_auth(req_params, body, rpath, "foo", collections, embedded_params_vec);
+    ASSERT_EQ("", collections[0].collection);
+
     // get collection for multi-search
     collections.clear();
     embedded_params_vec.clear();

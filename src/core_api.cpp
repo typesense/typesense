@@ -74,13 +74,14 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
             for(auto& el : obj["searches"]) {
                 if(el.is_object()) {
                     std::string coll_name;
-                    if(el.count("collection") != 0) {
+                    if(el.count("collection") != 0 && el["collection"].is_string()) {
                         coll_name = el["collection"].get<std::string>();
                     } else if(req_params.count("collection") != 0) {
                         coll_name = req_params["collection"];
                     }
 
-                    const std::string& access_key = (el.count("x-typesense-api-key") != 0) ?
+                    const std::string& access_key = (el.count("x-typesense-api-key") != 0 &&
+                                                     el["x-typesense-api-key"].is_string()) ?
                                                     el["x-typesense-api-key"].get<std::string>() :
                                                     req_auth_key;
 
