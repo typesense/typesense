@@ -292,7 +292,6 @@ public:
         this->ssl_certificate_key = get_env("TYPESENSE_SSL_CERTIFICATE_KEY");
 
         std::string cors_value = get_env("TYPESENSE_ENABLE_CORS");
-        StringUtils::tolowercase(cors_value);
         set_cors_parameters(cors_value);
 
         if(!get_env("TYPESENSE_MAX_MEMORY_RATIO").empty()) {
@@ -559,7 +558,8 @@ public:
         }
     }
 
-    void set_cors_parameters(const std::string& cors_value) {
+    void set_cors_parameters(std::string& cors_value) {
+        StringUtils::tolowercase(cors_value);
         this->enable_cors = !(cors_value == "false");
 
         if(cors_value != "true" && cors_value != "false") {
