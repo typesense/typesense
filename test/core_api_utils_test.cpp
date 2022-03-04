@@ -207,6 +207,17 @@ TEST_F(CoreAPIUtilsTest, MultiSearchEmbeddedKeys) {
 
     req->embedded_params_vec[0]["limit_multi_searches"] = 1;
     ASSERT_TRUE(post_multi_search(req, res));
+
+    // req params must be overridden by embedded param
+    req->embedded_params_vec[0]["limit_multi_searches"] = 0;
+    req->params["limit_multi_searches"] = "100";
+    ASSERT_FALSE(post_multi_search(req, res));
+    ASSERT_EQ("{\"message\": \"Number of multi searches exceeds `limit_multi_searches` parameter.\"}", res->body);
+
+    // use req params if embedded param not present
+    req->embedded_params_vec[0].erase("limit_multi_searches");
+    ASSERT_TRUE(post_multi_search(req, res));
+
 }
 
 TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBody) {
