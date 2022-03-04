@@ -407,8 +407,14 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         return false;
     }
 
+    auto orig_req_params = req->params;
     const char* LIMIT_MULTI_SEARCHES = "limit_multi_searches";
     size_t limit_multi_searches = 50;
+
+    if(orig_req_params.count(LIMIT_MULTI_SEARCHES) != 0 &&
+        StringUtils::is_uint32_t(orig_req_params[LIMIT_MULTI_SEARCHES])) {
+        limit_multi_searches = std::stoi(orig_req_params[LIMIT_MULTI_SEARCHES]);
+    }
 
     const auto& first_embedded_param = req->embedded_params_vec[0];
     if(first_embedded_param.count(LIMIT_MULTI_SEARCHES) != 0 && first_embedded_param[LIMIT_MULTI_SEARCHES].is_number_integer()) {
@@ -419,8 +425,6 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
         res->set_400(std::string("Number of multi searches exceeds `") + LIMIT_MULTI_SEARCHES + "` parameter.");
         return false;
     }
-
-    auto orig_req_params = req->params;
 
     nlohmann::json response;
     response["results"] = nlohmann::json::array();
