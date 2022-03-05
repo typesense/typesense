@@ -319,9 +319,16 @@ TEST_F(AuthManagerTest, ScopedAPIKeys) {
     ASSERT_EQ("user_id:1080", embedded_params[0]["filter_by"].get<std::string>());
 
     // when more than a single key prefix matches, must pick the correct underlying key
+
     api_key_t key_search_coll2("KeyVal2", "test key", {"documents:search"}, {"coll2"}, FUTURE_TS);
     auth_manager.create_key(key_search_coll2);
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key)}, empty_params, embedded_params));
     ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key)}, empty_params, embedded_params));
+
+    // scoped key generated from key_search_coll2
+    std::string scoped_key_prefix2 = "QmNlNXdkUThaeDJFZXNiOXB4VUFCT1BmN01GSEJnRUdiMng2aTJESjJqND1LZXlWeyJmaWx0ZXJfYnkiOiAidXNlcl9pZDoxMDgwIn0=";
+    ASSERT_TRUE(auth_manager.authenticate("documents:search", {collection_key_t("coll2", scoped_key_prefix2)}, empty_params, embedded_params));
+    ASSERT_FALSE(auth_manager.authenticate("documents:search", {collection_key_t("coll1", scoped_key_prefix2)}, empty_params, embedded_params));
 
     // should only allow scoped API keys derived from parent key with documents:search action
     api_key_t key_search_admin("AdminKey", "admin key", {"*"}, {"*"}, FUTURE_TS);

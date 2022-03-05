@@ -255,7 +255,8 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
     const std::string& key_prefix = key_payload.substr(HMAC_BASE64_LEN, api_key_t::PREFIX_LEN);
     const std::string& custom_params = key_payload.substr(HMAC_BASE64_LEN + api_key_t::PREFIX_LEN);
 
-    // calculate and verify hmac against matching api key
+    // Calculate and verify hmac against matching api key.
+    // There could be several matching keys since we look up only on a 4-char prefix.
     auto prefix_range = api_keys.equal_prefix_range(key_prefix);
 
     for(auto it = prefix_range.first; it != prefix_range.second; ++it) {
@@ -265,8 +266,7 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
         bool auth_success = auth_against_key(scoped_api_key.collection, action, root_api_key, true);
 
         if(!auth_success) {
-            LOG(ERROR) << fmt_error("Parent key does not allow queries against queried collection.", root_api_key.value);
-            return Option<bool>(403, "Forbidden.");
+            continue;
         }
 
         // finally verify hmac
@@ -276,27 +276,23 @@ Option<bool> AuthManager::authenticate_parse_params(const collection_key_t& scop
             try {
                 embedded_params = nlohmann::json::parse(custom_params);
             } catch(const std::exception& e) {
-                LOG(ERROR) << "JSON error: " << e.what();
-                return Option<bool>(403, "Forbidden.");
+                continue;
             }
 
             if(!embedded_params.is_object()) {
-                LOG(ERROR) << fmt_error("Scoped API key contains invalid search parameters.", root_api_key.value);
-                return Option<bool>(403, "Forbidden.");
+                continue;
             }
 
             if(embedded_params.count("expires_at") != 0) {
                 if(!embedded_params["expires_at"].is_number_integer() || embedded_params["expires_at"].get<int64_t>() < 0) {
-                    LOG(ERROR) << fmt_error("Wrong format for `expires_at`. It should be an unsigned integer.", root_api_key.value);
-                    return Option<bool>(403, "Forbidden.");
+                    continue;
                 }
 
                 // if parent key's expiry timestamp is smaller, it takes precedence
                 uint64_t expiry_ts = std::min(root_api_key.expires_at, embedded_params["expires_at"].get<uint64_t>());
 
                 if(uint64_t(std::time(0)) > expiry_ts) {
-                    LOG(ERROR) << fmt_error("Scoped API key has expired. ", root_api_key.value);
-                    return Option<bool>(403, "Forbidden.");
+                    continue;
                 }
             }
 
