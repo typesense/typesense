@@ -1025,7 +1025,7 @@ void Index::do_facets(std::vector<facet> & facets, facet_query_t & facet_query,
                       const std::vector<facet_info_t>& facet_infos,
                       const size_t group_limit, const std::vector<std::string>& group_by_fields,
                       const uint32_t* result_ids, size_t results_size) const {
-    
+
     // assumed that facet fields have already been validated upstream
     for(size_t findex=0; findex < facets.size(); findex++) {
         auto& a_facet = facets[findex];
@@ -1139,7 +1139,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
         std::vector<art_leaf*> actual_query_suggestion(token_candidates_vec.size());
         uint64 qhash;
 
-        uint32_t token_bits = (uint32_t(1) << 31);  // top most bit set to guarantee atleast 1 bit set
+        uint32_t token_bits = 0;
         uint32_t total_cost = next_suggestion(token_candidates_vec, n, actual_query_suggestion,
                                               query_suggestion, token_bits, qhash);
 
@@ -1456,7 +1456,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
 
                 if(f.is_single_geopoint()) {
                     spp::sparse_hash_map<uint32_t, int64_t>* sort_field_index = sort_index.at(f.name);
-                    
+
                     for(auto result_id: geo_result_ids) {
                         // no need to check for existence of `result_id` because of indexer based pre-filtering above
                         int64_t lat_lng = sort_field_index->at(result_id);
@@ -1703,7 +1703,7 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
             scores[1] = int64_t(1);
             scores[2] = int64_t(1);
 
-            uint32_t token_bits = (uint32_t(1) << 31);
+            uint32_t token_bits = 0;
             KV kv(field_id, searched_queries.size(), token_bits, seq_id, distinct_id, 0, scores);
             curated_topster->add(&kv);
         }
@@ -2359,60 +2359,51 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
                       << "searched_query: " << searched_queries[kvs[kv_i]->query_index][0];*/
         }
 
-        uint32_t token_bits = (uint32_t(1) << 31);      // top most bit set to guarantee atleast 1 bit set
-        uint64_t total_typos = 0, total_distances = 0, min_typos = 1000;
-
-        uint64_t verbatim_match_fields = 0;        // field value *exactly* same as query tokens
-        uint64_t exact_match_fields = 0;           // number of fields that contains all of query tokens
-        uint64_t max_weighted_tokens_match = 0;    // weighted max number of tokens matched in a field
-        uint64_t total_token_matches = 0;          // total matches across fields (including fuzzy ones)
+        uint32_t token_bits = 0;
+        int64_t max_field_match_score = 0;
+        size_t max_field_match_index = 0;
 
         //LOG(INFO) << "Init pop count: " << __builtin_popcount(token_bits);
 
         for(size_t i = 0; i < num_search_fields; i++) {
             const auto field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-            const size_t priority = the_fields[i].priority;
-            const size_t weight = the_fields[i].weight;
-
             //LOG(INFO) << "--- field index: " << i << ", priority: " << priority;
 
             if(existing_field_kvs.count(field_id) != 0) {
                 // for existing field, we will simply sum field-wise weighted scores
-                token_bits |= existing_field_kvs[field_id]->token_bits;
-                //LOG(INFO) << "existing_field_kvs.count pop count: " << __builtin_popcount(token_bits);
-
                 int64_t match_score = existing_field_kvs[field_id]->scores[existing_field_kvs[field_id]->match_score_index];
+                token_bits |= existing_field_kvs[field_id]->token_bits;
+
+                // we will reassemble match score to use unique tokens for cross-field matches
 
                 uint64_t tokens_found = ((match_score >> 24) & 0xFF);
-                uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
-                total_typos += (field_typos + 1) * priority;
-                total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * priority;
-
+                uint64_t typo_score = ((match_score >> 16) & 0xFF);
+                uint64_t proximity_score = ((match_score >> 8) & 0xFF);
                 int64_t exact_match_score = match_score & 0xFF;
-                verbatim_match_fields += (weight * exact_match_score);
+                uint32_t unique_tokens_found = __builtin_popcount(existing_field_kvs[field_id]->token_bits);
 
-                uint64_t unique_tokens_found =
-                        int64_t(__builtin_popcount(existing_field_kvs[field_id]->token_bits)) - 1;
-
-                if(field_typos == 0 && unique_tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                    exact_match_fields += weight;
+                // exclude dropped-token cases
+                if(unique_tokens_found != field_query_tokens[0].q_include_tokens.size()) {
+                    exact_match_score = 0;
                 }
 
-                auto weighted_tokens_match = (tokens_found * weight);
-                if(weighted_tokens_match > max_weighted_tokens_match) {
-                    max_weighted_tokens_match = weighted_tokens_match;
+                int64_t multi_field_match_score = (int64_t(unique_tokens_found) << 32) |
+                                                  (int64_t(typo_score) << 24) |
+                                                  (int64_t(proximity_score) << 16) |
+                                                  (int64_t(exact_match_score) << 8) |
+                                                  (int64_t(0) << 0);
+
+                if(multi_field_match_score > max_field_match_score) {
+                    max_field_match_score = multi_field_match_score;
+                    max_field_match_index = i;
                 }
 
-                if(field_typos < min_typos) {
-                    min_typos = field_typos;
-                }
-
-                total_token_matches += (weight * tokens_found);
-
-                /*LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << (255 - ((match_score >> 8) & 0xFF))
-                              << ", weighted typos: " << std::max<uint64_t>((255 - ((match_score >> 8) & 0xFF)), 1) * priority
-                              << ", total dist: " << (((match_score & 0xFF)))
-                              << ", weighted dist: " << std::max<uint64_t>((100 - (match_score & 0xFF)), 1) * priority;*/
+                /*LOG(INFO) << "seq_id: " << seq_id << ", tokens_found: " << tokens_found
+                              << ", typo_score: " << typo_score
+                              << ", proximity_score: " << proximity_score
+                              << ", exact_match_score: " << exact_match_score
+                              << ", unique_tokens_found: " << unique_tokens_found
+                              << ", multi_field_match_score: " << multi_field_match_score;*/
                 continue;
             }
 
@@ -2445,83 +2436,31 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
             }
 
             if(words_present != 0) {
-                uint64_t match_score = Match::get_match_score(words_present, 0, 0);
+                int64_t multi_field_match_score = (int64_t(words_present) << 32) |
+                                                  (int64_t(0) << 24) |
+                                                  (int64_t(0) << 16) |
+                                                  (int64_t(0) << 8) |
+                                                  (int64_t(0) << 0);
 
-                uint64_t tokens_found = ((match_score >> 24) & 0xFF);
-                uint64_t field_typos = 255 - ((match_score >> 16) & 0xFF);
-                total_distances += ((100 - ((match_score >> 8) & 0xFF)) + 1) * priority;
-                total_typos += (field_typos + 1) * priority;
-
-                if(field_typos == 0 && tokens_found == field_query_tokens[i].q_include_tokens.size()) {
-                    exact_match_fields += weight;
-                    // not possible to calculate verbatim_match_fields accurately here, so we won't
+                if(multi_field_match_score > max_field_match_score) {
+                    max_field_match_score = multi_field_match_score;
+                    max_field_match_index = i;
                 }
-
-                auto weighted_tokens_match = (tokens_found * weight);
-
-                if(weighted_tokens_match > max_weighted_tokens_match) {
-                    max_weighted_tokens_match = weighted_tokens_match;
-                }
-
-                if(field_typos < min_typos) {
-                    min_typos = field_typos;
-                }
-
-                total_token_matches += (weight * tokens_found);
-                //LOG(INFO) << "seq_id: " << seq_id << ", total_typos: " << ((match_score >> 8) & 0xFF);
             }
         }
 
-        // num tokens present across fields including those containing typos
-        int64_t uniq_tokens_found = int64_t(__builtin_popcount(token_bits)) - 1;
-
-        // verbtaim match should not consider dropped-token cases
-        if(uniq_tokens_found != field_query_tokens[0].q_include_tokens.size()) {
-            // also check for synonyms
-            bool found_verbatim_syn = false;
-            for(const auto& synonym: field_query_tokens[0].q_synonyms) {
-                if(uniq_tokens_found == synonym.size()) {
-                    found_verbatim_syn = true;
-                    break;
-                }
-            }
-
-            if(!found_verbatim_syn) {
-                verbatim_match_fields = 0;
-            }
-        }
-
-        // protect most significant byte from overflow, since topster uses int64_t
-        verbatim_match_fields = std::min<uint64_t>(INT8_MAX, verbatim_match_fields);
-
-        exact_match_fields += verbatim_match_fields;
-        exact_match_fields = std::min<uint64_t>(255, exact_match_fields);
-        max_weighted_tokens_match = std::min<uint64_t>(255, max_weighted_tokens_match);
-        total_typos = std::min<uint64_t>(255, total_typos);
-        total_distances = std::min<uint64_t>(100, total_distances);
-
-        uint64_t aggregated_score = (
-            (exact_match_fields << 48)  |         // number of fields that contain *all tokens* in the query
-            (max_weighted_tokens_match << 40) |   // weighted max number of tokens matched in a field
-            (uniq_tokens_found << 32)   |         // number of unique tokens found across fields including typos
-            ((255 - min_typos) << 24)   |         // minimum typo cost across all fields
-            (total_token_matches << 16) |         // total matches across fields including typos
-            ((255 - total_typos) << 8) |          // total typos across fields (weighted)
-            ((100 - total_distances) << 0)        // total distances across fields (weighted)
-        );
+        uint32_t num_tokens_found = __builtin_popcount(token_bits);
+        uint64_t aggregated_score = (int64_t(max_field_match_score) << 16) |
+                                    (int64_t(num_tokens_found) << 8) |
+                                    (int64_t(the_fields[max_field_match_index].weight) << 0);
 
         //LOG(INFO) << "seq id: " << seq_id << ", aggregated_score: " << aggregated_score;
 
-        /*LOG(INFO) << "seq id: " << seq_id
-                  << ", verbatim_match_fields: " << verbatim_match_fields
-                  << ", exact_match_fields: " << exact_match_fields
-                  << ", max_weighted_tokens_match: " << max_weighted_tokens_match
-                  << ", uniq_tokens_found: " << uniq_tokens_found
-                  << ", min typo score: " << (255 - min_typos)
-                  << ", total_token_matches: " << total_token_matches
-                  << ", typo score: " << (255 - total_typos)
-                  << ", distance score: " << (100 - total_distances)
-                  << ", aggregated_score: " << aggregated_score << ", token_bits: " << token_bits;*/
+        LOG(INFO) << "seq id: " << seq_id
+                  << ", num_tokens_found: " << num_tokens_found
+                  << ", max_field_match_score: " << max_field_match_score
+                  << ", matched field weight: " << the_fields[max_field_match_index].weight
+                  << ", aggregated_score: " << aggregated_score;
 
         kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
         topster->add(kvs[0]);
@@ -2803,7 +2742,7 @@ void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
             std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values;
             std::vector<size_t> geopoint_indices;
             populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
-            uint32_t token_bits = 255;
+            uint32_t token_bits = 0;
 
             std::sort(infix_ids.begin(), infix_ids.end());
             infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
@@ -2912,7 +2851,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
     if(all_result_ids_len == 0) {
         return;
     }
-    
+
     for(size_t findex=0; findex < facets.size(); findex++) {
         const auto& a_facet = facets[findex];
 
@@ -3086,7 +3025,7 @@ void Index::search_wildcard(const std::vector<filter>& filters,
     std::vector<size_t> geopoint_indices;
     populate_sort_mapping(sort_order, geopoint_indices, sort_fields_std, field_values);
 
-    uint32_t token_bits = 255;
+    uint32_t token_bits = 0;
     const bool check_for_circuit_break = (filter_ids_length > 1000000);
 
     //auto beginF = std::chrono::high_resolution_clock::now();

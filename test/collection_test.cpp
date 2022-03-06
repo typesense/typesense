@@ -3264,8 +3264,8 @@ TEST_F(CollectionTest, MultiFieldRelevance3) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }
@@ -3354,8 +3354,8 @@ TEST_F(CollectionTest, MultiFieldRelevance5) {
     ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("Canada",
                              {"company_name","field_a","country"}, "", {}, {}, {2}, 10, 1, FREQUENCY,
@@ -3367,8 +3367,8 @@ TEST_F(CollectionTest, MultiFieldRelevance5) {
     ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("2", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_EQ(2, results["hits"][0]["highlights"].size());
     ASSERT_EQ("field_a", results["hits"][0]["highlights"][0]["field"].get<std::string>());
@@ -3376,21 +3376,21 @@ TEST_F(CollectionTest, MultiFieldRelevance5) {
     ASSERT_EQ("country", results["hits"][0]["highlights"][1]["field"].get<std::string>());
     ASSERT_EQ("<mark>Canada</mark>", results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
-    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+    ASSERT_EQ(1, results["hits"][1]["highlights"].size());
     ASSERT_EQ("field_a", results["hits"][1]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("<mark>Canadoo</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
-    ASSERT_EQ("company_name", results["hits"][1]["highlights"][1]["field"].get<std::string>());
-    ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
 
-    ASSERT_EQ(1, results["hits"][2]["highlights"].size());
+    ASSERT_EQ(2, results["hits"][2]["highlights"].size());
     ASSERT_EQ("field_a", results["hits"][2]["highlights"][0]["field"].get<std::string>());
     ASSERT_EQ("<mark>Canadoo</mark>", results["hits"][2]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("company_name", results["hits"][2]["highlights"][1]["field"].get<std::string>());
+    ASSERT_EQ("<mark>Canaida</mark> Corp", results["hits"][2]["highlights"][1]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionTest, MultiFieldRelevance6) {
-    // with exact match preference
+    // with exact match, the number of fields with exact match will not be considered as a ranking signal
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
@@ -3427,8 +3427,8 @@ TEST_F(CollectionTest, MultiFieldRelevance6) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     // when exact matches are disabled
     results = coll1->search("taylor swift",
@@ -3943,9 +3943,8 @@ TEST_F(CollectionTest, FieldSpecificNumTypos) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
-
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("tayylor",
                             {"title", "artist"}, "", {}, {}, {0, 1}, 10, 1, FREQUENCY,
@@ -4082,8 +4081,8 @@ TEST_F(CollectionTest, FieldLevelPrefixConfiguration) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

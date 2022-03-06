@@ -216,15 +216,15 @@ TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
 
     nlohmann::json doc1;
     doc1["id"] = "0";
-    doc1["title"] = "Moto Insta Share";
+    doc1["title"] = "Moto Insta Charge";
     doc1["description"] = "Share information with this device.";
-    doc1["points"] = 100;
+    doc1["points"] = 50;
 
     nlohmann::json doc2;
     doc2["id"] = "1";
     doc2["title"] = "Portable USB Store";
     doc2["description"] = "Use it to charge your phone.";
-    doc2["points"] = 50;
+    doc2["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
@@ -313,6 +313,8 @@ TEST_F(CollectionSpecificTest, MultiFieldArrayRepeatingTokens) {
 
     auto results = coll1->search("rv345 cisco 18", {"title", "description", "attrs"}, "", {}, {}, {1}, 10,
                                  1, FREQUENCY, {true, true, true}).get();
+
+    LOG(INFO) << results;
 
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
@@ -703,15 +705,18 @@ TEST_F(CollectionSpecificTest, HighlightSecondaryFieldWithPrefixMatch) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {1, 1}).get();
 
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
 
     ASSERT_EQ("<mark>Function</mark>s and Equations",
-              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+              results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
     ASSERT_EQ("Use a <mark>function</mark> to solve an equation.",
-              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+              results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -931,8 +936,8 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
                                  "<mark>", "</mark>").get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     results = coll1->search("john vegatable farmer", {"name", "description"},
                             "", {}, {}, {1, 1}, 10,
@@ -942,8 +947,8 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
                             "<mark>", "</mark>").get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1390,43 +1395,6 @@ TEST_F(CollectionSpecificTest, ZeroWeightedField) {
                                  2, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {0, 1}).get();
-
-    ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-
-    collectionManager.drop_collection("coll1");
-}
-
-TEST_F(CollectionSpecificTest, ZeroWeightedFieldCannotPrioritizeExactMatch) {
-    std::vector<field> fields = {field("name", field_types::STRING, false),
-                                 field("category", field_types::STRING, false),
-                                 field("points", field_types::INT32, false),};
-
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
-
-    nlohmann::json doc1;
-    doc1["id"] = "0";
-    doc1["name"] = "Levis";
-    doc1["category"] = "mens";
-    doc1["points"] = 3;
-
-    nlohmann::json doc2;
-    doc2["id"] = "1";
-    doc2["name"] = "Amazing from Levis";
-    doc2["category"] = "mens";
-    doc2["points"] = 5;
-
-    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
-    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
-
-    auto results = coll1->search("levis", {"name", "category"},
-                                 "", {}, {}, {0, 0}, 10,
-                                 1, FREQUENCY, {false, false},
-                                 2, spp::sparse_hash_set<std::string>(),
-                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {0, 1},
-                                 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
@@ -2316,7 +2284,7 @@ TEST_F(CollectionSpecificTest, HandleLargeWeights) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, VerbatimMatchShouldNotOverpowerHigherWeightedField) {
+TEST_F(CollectionSpecificTest, VerbatimMatchShouldOverpowerHigherWeightedField) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
@@ -2346,8 +2314,8 @@ TEST_F(CollectionSpecificTest, VerbatimMatchShouldNotOverpowerHigherWeightedFiel
                                  "<mark>", "</mark>", {4, 1}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
