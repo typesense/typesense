@@ -1263,7 +1263,7 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
 
     nlohmann::json doc2;
     doc2["id"] = "1";
-    doc2["title"] = "Mark Spencer";
+    doc2["title"] = "Marks Spencer";
     doc2["description"] = "Sales Expert";
     doc2["points"] = 200;
 
