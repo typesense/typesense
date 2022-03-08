@@ -2456,11 +2456,11 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
 
         //LOG(INFO) << "seq id: " << seq_id << ", aggregated_score: " << aggregated_score;
 
-        LOG(INFO) << "seq id: " << seq_id
+        /*LOG(INFO) << "seq id: " << seq_id
                   << ", num_tokens_found: " << num_tokens_found
                   << ", max_field_match_score: " << max_field_match_score
                   << ", matched field weight: " << the_fields[max_field_match_index].weight
-                  << ", aggregated_score: " << aggregated_score;
+                  << ", aggregated_score: " << aggregated_score;*/
 
         kvs[0]->scores[kvs[0]->match_score_index] = aggregated_score;
         topster->add(kvs[0]);
