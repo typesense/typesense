@@ -1369,6 +1369,48 @@ TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, TextMatchMoreDocsThanBuckets) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Mark Antony"},
+        {"Marks Spencer"},
+        {"Marking Rhine"},
+        {"Markolm Spane"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    sort_fields = {
+        sort_by("_text_match(buckets: 2)", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("mark", {"title"},
+                                 "", {}, sort_fields, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {1}, 1000, true).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
