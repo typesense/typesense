@@ -1255,7 +1255,6 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
                                                        id_buff.size(), &new_all_result_ids);
             delete[] *all_result_ids;
             *all_result_ids = new_all_result_ids;
-            num_result_ids += id_buff.size();
             id_buff.clear();
         }
 
@@ -2724,7 +2723,7 @@ void Index::do_synonym_search(const std::vector<filter>& filters,
 }
 
 void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
-                            const std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                            std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                             const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
                             const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
                             const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,
@@ -2787,6 +2786,8 @@ void Index::do_infix_search(const std::vector<sort_by>& sort_fields_std,
             if(raw_infix_ids != &infix_ids[0]) {
                 delete [] raw_infix_ids;
             }
+
+            searched_queries.push_back({});
         }
     }
 }
@@ -3058,6 +3059,8 @@ void Index::search_wildcard(const std::vector<filter>& filters,
 
         const uint32_t* batch_result_ids = filter_ids + filter_index;
         num_queued++;
+
+        searched_queries.push_back({});
 
         topsters[thread_id] = new Topster(topster->MAX_SIZE, topster->distinct);
 
@@ -3341,8 +3344,8 @@ void Index::search_field(const uint8_t & field_id,
         n++;
     }
 
-    // When atleast one token from the query is available
-    if(!query_tokens.empty() && num_tokens_dropped < query_tokens.size()) {
+    // When atleast two tokens from the query are available so we can drop one
+    if(query_tokens.size() > 1 && num_tokens_dropped < query_tokens.size()) {
         // Drop tokens from right until (len/2 + 1), and then from left until (len/2 + 1)
 
         if(!exhaustive_search && field_num_results >= drop_tokens_threshold) {
