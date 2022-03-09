@@ -1758,6 +1758,15 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             break;
         }
 
+        if(field_order_kv->query_indices != nullptr &&
+            searched_queries.size() <= field_order_kv->query_indices[qindex + 1]) {
+            LOG(ERROR) << "Query indices exceed searched queries length, searched_queries.size(): "
+                       << searched_queries.size() << ", field_order_kv->query_indices[qindex + 1]: "
+                       << field_order_kv->query_indices[qindex + 1] << ", qindex: " << qindex
+                       << "field_order_kv->query_indices[0]: " << field_order_kv->query_indices[0];
+            break;
+        }
+
         auto searched_query =
                 (field_order_kv->query_indices == nullptr) ? searched_queries[field_order_kv->query_index] :
                 searched_queries[field_order_kv->query_indices[qindex + 1]];

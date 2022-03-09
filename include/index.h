@@ -802,7 +802,7 @@ public:
                           size_t& exclude_token_ids_size) const;
 
     void do_infix_search(const std::vector<sort_by>& sort_fields_std,
-                         const std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
+                         std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                          const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
                          const size_t max_extra_suffix, const infix_t& field_infix, const uint8_t field_id,
                          const string& field_name, const std::vector<token_t>& query_tokens, Topster* actual_topster,

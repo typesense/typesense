@@ -388,3 +388,36 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionInfixSearchTest, MultiFielInfixSearch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("mpn", field_types::STRING, false, false, true, "", -1, 1),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "100037 Shoe";
+    doc["mpn"] = "HYDGHSGAH";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Running Shoe";
+    doc["mpn"] = "GHX100037IN";
+    doc["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("100037",
+                                 {"title", "mpn"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {always}).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
