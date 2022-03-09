@@ -1067,11 +1067,18 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         std::vector<int64_t> result_scores(max_kvs_bucketed);
 
         // only first `max_kvs_bucketed` elements are bucketed to prevent pagination issues past 250 records
-        for(size_t i = 0; i < max_kvs_bucketed; i++) {
-            result_scores[i] = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
-            size_t block_index = (i / num_buckets) * num_buckets;
-            int64_t text_match = raw_result_kvs[block_index][0]->scores[raw_result_kvs[block_index][0]->match_score_index];
-            raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index] = text_match;
+        size_t block_len = (max_kvs_bucketed < num_buckets) ? max_kvs_bucketed : (max_kvs_bucketed / num_buckets) + 1;
+        size_t i = 0;
+        while(i < max_kvs_bucketed) {
+            int64_t anchor_score = raw_result_kvs[i][0]->scores[raw_result_kvs[i][0]->match_score_index];
+            size_t j = 0;
+            while(j < block_len && i+j < max_kvs_bucketed) {
+                result_scores[i+j] = raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index];
+                raw_result_kvs[i+j][0]->scores[raw_result_kvs[i+j][0]->match_score_index] = anchor_score;
+                j++;
+            }
+
+            i += j;
         }
 
         // sort again based on bucketed match score
