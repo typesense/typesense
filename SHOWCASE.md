@@ -39,6 +39,8 @@ This is a selection of sites and apps using Typesense.
 | [Puey Ungphakorn Institute for Economic Research](https://www.pier.or.th) | A research institute in Thailand |
 | [Lawyaw](https://lawyaw.com) | Lawyaw provides easy to use document automation software that helps legal practices save time and avoid mistakes without sacrificing quality. *"Typesense is used as our search index and works great to search, sort and facet thousands of our Court forms each day. We look forward to working with Typesense for years to come as it continues to mature!" - @tpayne84* | 
 | [Job Ads Now](https://www.jobadsnow.com) | Job Ads Now is a jobs search engine focusing on the best candidate experience. Blazing fast search and filters by salary, location, bonus and more. You can also read the job highlights (TL;DR) for each job identified from the origina job post using AI | 
+| [OpenTacos](https://tacos.openbeta.io) | Free and open source rock climbing route wiki |
+
 
 ### Typesense Demos
 
