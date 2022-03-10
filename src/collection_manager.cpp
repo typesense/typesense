@@ -553,6 +553,29 @@ bool CollectionManager::parse_sort_by_str(std::string sort_by_str, std::vector<s
     return true;
 }
 
+Option<bool> add_unsigned_int_param(const std::string& param_name, const std::string& str_val, size_t* int_val) {
+    if(!StringUtils::is_uint32_t(str_val)) {
+        return Option<bool>(400, "Parameter `" + std::string(param_name) + "` must be an unsigned integer.");
+    }
+
+    *int_val = std::stoi(str_val);
+    return Option<bool>(true);
+}
+
+Option<bool> add_unsigned_int_list_param(const std::string& param_name, const std::string& str_val,
+                                         std::vector<uint32_t>* int_vals) {
+    std::vector<std::string> str_vals;
+    StringUtils::split(str_val, str_vals, ",");
+    for(auto& str : str_vals) {
+        if(StringUtils::is_uint32_t(str)) {
+            int_vals->push_back((uint32_t)std::stoi(str));
+        } else {
+            return Option<bool>(400, "Parameter `" + param_name + "` is malformed.");
+        }
+    }
+
+    return Option<bool>(true);
+}
 
 Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& req_params,
                                           nlohmann::json& embedded_params,
@@ -615,8 +638,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *EXHAUSTIVE_SEARCH = "exhaustive_search";
     const char *SPLIT_JOIN_TOKENS = "split_join_tokens";
 
-    const char *PRESET = "preset";
-
     // enrich params with values from embedded params
     for(auto& item: embedded_params.items()) {
         if(item.key() == "expires_at") {
@@ -627,242 +648,182 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         AuthManager::add_item_to_params(req_params, item, true);
     }
 
-    if(req_params.count(NUM_TYPOS) == 0) {
-        req_params[NUM_TYPOS] = "2";
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req_params["collection"]);
+
+    if(collection == nullptr) {
+        return Option<bool>(404, "Not found.");
     }
 
-    if(req_params.count(MIN_LEN_1TYPO) == 0) {
-        req_params[MIN_LEN_1TYPO] = "4";
-    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_1TYPO])) {
-        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_1TYPO) + "` must be an unsigned integer.");
-    }
-
-    if(req_params.count(MIN_LEN_2TYPO) == 0) {
-        req_params[MIN_LEN_2TYPO] = "7";
-    } else if(!StringUtils::is_uint32_t(req_params[MIN_LEN_2TYPO])) {
-        return Option<bool>(400, "Parameter `" + std::string(MIN_LEN_2TYPO) + "` must be an unsigned integer.");
-    }
-
-    if(req_params.count(PREFIX) == 0) {
-        req_params[PREFIX] = "true";
-    }
-
-    if(req_params.count(DROP_TOKENS_THRESHOLD) == 0) {
-        req_params[DROP_TOKENS_THRESHOLD] = std::to_string(Index::DROP_TOKENS_THRESHOLD);
-    }
-
-    if(req_params.count(TYPO_TOKENS_THRESHOLD) == 0) {
-        req_params[TYPO_TOKENS_THRESHOLD] = std::to_string(Index::TYPO_TOKENS_THRESHOLD);
-    }
+    // check presence of mandatory params here
 
     if(req_params.count(QUERY) == 0) {
         return Option<bool>(400, std::string("Parameter `") + QUERY + "` is required.");
     }
 
-    if(req_params.count(MAX_FACET_VALUES) == 0) {
-        req_params[MAX_FACET_VALUES] = "10";
-    }
+    // end check for mandatory params
 
-    if(req_params.count(FACET_QUERY) == 0) {
-        req_params[FACET_QUERY] = "";
-    }
 
-    if(req_params.count(LIMIT_HITS) == 0) {
-        req_params[LIMIT_HITS] = std::to_string(UINT32_MAX);
-    }
-
-    if(req_params.count(SNIPPET_THRESHOLD) == 0) {
-        req_params[SNIPPET_THRESHOLD] = "30";
-    }
-
-    if(req_params.count(HIGHLIGHT_AFFIX_NUM_TOKENS) == 0) {
-        req_params[HIGHLIGHT_AFFIX_NUM_TOKENS] = "4";
-    }
-
-    if(req_params.count(HIGHLIGHT_FULL_FIELDS) == 0) {
-        req_params[HIGHLIGHT_FULL_FIELDS] = "";
-    }
-
-    if(req_params.count(HIGHLIGHT_FIELDS) == 0) {
-        req_params[HIGHLIGHT_FIELDS] = "";
-    }
-
-    if(req_params.count(HIGHLIGHT_START_TAG) == 0) {
-        req_params[HIGHLIGHT_START_TAG] = "<mark>";
-    }
-
-    if(req_params.count(HIGHLIGHT_END_TAG) == 0) {
-        req_params[HIGHLIGHT_END_TAG] = "</mark>";
-    }
-
-    if(req_params.count(PER_PAGE) == 0) {
-        if(req_params[FACET_QUERY].empty()) {
-            req_params[PER_PAGE] = "10";
-        } else {
-            // for facet query we will set per_page to zero if it is not explicitly overridden
-            req_params[PER_PAGE] = "0";
-        }
-    }
-
-    if(req_params.count(PAGE) == 0) {
-        req_params[PAGE] = "1";
-    }
-
-    if(req_params.count(INCLUDE_FIELDS) == 0) {
-        req_params[INCLUDE_FIELDS] = "";
-    }
-
-    if(req_params.count(EXCLUDE_FIELDS) == 0) {
-        req_params[EXCLUDE_FIELDS] = "";
-    }
-
-    if(req_params.count(GROUP_BY) == 0) {
-        req_params[GROUP_BY] = "";
-    }
-
-    if(req_params.count(GROUP_LIMIT) == 0) {
-        if(req_params[GROUP_BY] != "") {
-            req_params[GROUP_LIMIT] = "3";
-        } else {
-            req_params[GROUP_LIMIT] = "0";
-        }
-    }
-
-    if(req_params.count(PRIORITIZE_EXACT_MATCH) == 0) {
-        req_params[PRIORITIZE_EXACT_MATCH] = "true";
-    }
-
-    if(req_params.count(PRE_SEGMENTED_QUERY) == 0) {
-        req_params[PRE_SEGMENTED_QUERY] = "false";
-    }
-
-    if(req_params.count(SEARCH_CUTOFF_MS) == 0) {
-        req_params[SEARCH_CUTOFF_MS] = "3600000";
-    }
-
-    if(req_params.count(EXHAUSTIVE_SEARCH) == 0) {
-        req_params[EXHAUSTIVE_SEARCH] = "false";
-    }
-
-    if(req_params.count(SPLIT_JOIN_TOKENS) == 0) {
-        req_params[SPLIT_JOIN_TOKENS] = "true";
-    }
-
-    if(req_params.count(MAX_EXTRA_PREFIX) == 0) {
-        req_params[MAX_EXTRA_PREFIX] = std::to_string(INT16_MAX);
-    }
-
-    if(req_params.count(MAX_EXTRA_SUFFIX) == 0) {
-        req_params[MAX_EXTRA_SUFFIX] = std::to_string(INT16_MAX);
-    }
-
-    std::vector<std::string> query_by_weights_str;
-    std::vector<size_t> query_by_weights;
-
-    if(req_params.count(QUERY_BY_WEIGHTS) != 0) {
-        StringUtils::split(req_params[QUERY_BY_WEIGHTS], query_by_weights_str, ",");
-        for(const auto& weight_str: query_by_weights_str) {
-            if(!StringUtils::is_uint32_t(weight_str)) {
-                return Option<bool>(400, "Parameter `" + std::string(QUERY_BY_WEIGHTS) +
-                                         "` must be a comma separated string of unsigned integers.");
-            }
-
-            query_by_weights.push_back(std::stoi(weight_str));
-        }
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[DROP_TOKENS_THRESHOLD])) {
-        return Option<bool>(400, "Parameter `" + std::string(DROP_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[TYPO_TOKENS_THRESHOLD])) {
-        return Option<bool>(400, "Parameter `" + std::string(TYPO_TOKENS_THRESHOLD) + "` must be an unsigned integer.");
-    }
-
-    std::vector<uint32_t> num_typos;
-
-    if(req_params[NUM_TYPOS].size() == 1 && StringUtils::is_uint32_t(req_params[NUM_TYPOS])) {
-        num_typos = {(uint32_t)std::stoi(req_params[NUM_TYPOS])};
-    } else {
-        std::vector<std::string> num_typos_str;
-        StringUtils::split(req_params[NUM_TYPOS], num_typos_str, ",");
-        for(auto& typo_s : num_typos_str) {
-            if(StringUtils::is_uint32_t(typo_s)) {
-                num_typos.push_back((uint32_t)std::stoi(typo_s));
-            }
-        }
-
-        if(num_typos.size() == 0) {
-            return Option<bool>(400, "Parameter `" + std::string(NUM_TYPOS) + "` is malformed.");
-        }
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[PER_PAGE])) {
-        return Option<bool>(400,"Parameter `" + std::string(PER_PAGE) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[PAGE])) {
-        return Option<bool>(400,"Parameter `" + std::string(PAGE) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[MAX_FACET_VALUES])) {
-        return Option<bool>(400,"Parameter `" + std::string(MAX_FACET_VALUES) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[LIMIT_HITS])) {
-        return Option<bool>(400,"Parameter `" + std::string(LIMIT_HITS) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[SNIPPET_THRESHOLD])) {
-        return Option<bool>(400,"Parameter `" + std::string(SNIPPET_THRESHOLD) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[HIGHLIGHT_AFFIX_NUM_TOKENS])) {
-        return Option<bool>(400,"Parameter `" + std::string(HIGHLIGHT_AFFIX_NUM_TOKENS) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[GROUP_LIMIT])) {
-        return Option<bool>(400,"Parameter `" + std::string(GROUP_LIMIT) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[SEARCH_CUTOFF_MS])) {
-        return Option<bool>(400,"Parameter `" + std::string(SEARCH_CUTOFF_MS) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[MAX_EXTRA_PREFIX])) {
-        return Option<bool>(400,"Parameter `" + std::string(MAX_EXTRA_PREFIX) + "` must be an unsigned integer.");
-    }
-
-    if(!StringUtils::is_uint32_t(req_params[MAX_EXTRA_SUFFIX])) {
-        return Option<bool>(400,"Parameter `" + std::string(MAX_EXTRA_SUFFIX) + "` must be an unsigned integer.");
-    }
-
-    bool prioritize_exact_match = (req_params[PRIORITIZE_EXACT_MATCH] == "true");
-    bool pre_segmented_query = (req_params[PRE_SEGMENTED_QUERY] == "true");
-    bool exhaustive_search = (req_params[EXHAUSTIVE_SEARCH] == "true");
-    bool split_join_tokens = (req_params[SPLIT_JOIN_TOKENS] == "true");
-
-    std::string filter_str = req_params.count(FILTER) != 0 ? req_params[FILTER] : "";
+    const std::string& raw_query = req_params[QUERY];
+    std::vector<uint32_t> num_typos = {2};
+    size_t min_len_1typo = 4;
+    size_t min_len_2typo = 7;
+    std::vector<bool> prefixes = {true};
+    size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD;
+    size_t typo_tokens_threshold = Index::TYPO_TOKENS_THRESHOLD;
 
     std::vector<std::string> search_fields;
-    StringUtils::split(req_params[QUERY_BY], search_fields, ",");
-
+    std::string simple_filter_query;
     std::vector<std::string> facet_fields;
-    StringUtils::split(req_params[FACET_BY], facet_fields, ",");
+    std::vector<sort_by> sort_fields;
+    size_t per_page = 10;
+    size_t page = 1;
+    token_ordering token_order = NOT_SET;
 
     std::vector<std::string> include_fields_vec;
-    StringUtils::split(req_params[INCLUDE_FIELDS], include_fields_vec, ",");
-
     std::vector<std::string> exclude_fields_vec;
-    StringUtils::split(req_params[EXCLUDE_FIELDS], exclude_fields_vec, ",");
+    spp::sparse_hash_set<std::string> include_fields;
+    spp::sparse_hash_set<std::string> exclude_fields;
 
-    spp::sparse_hash_set<std::string> include_fields(include_fields_vec.begin(), include_fields_vec.end());
-    spp::sparse_hash_set<std::string> exclude_fields(exclude_fields_vec.begin(), exclude_fields_vec.end());
-
+    size_t max_facet_values = 10;
+    std::string simple_facet_query;
+    size_t snippet_threshold = 30;
+    size_t highlight_affix_num_tokens = 4;
+    std::string highlight_full_fields;
+    std::string pinned_hits_str;
+    std::string hidden_hits_str;
     std::vector<std::string> group_by_fields;
-    StringUtils::split(req_params[GROUP_BY], group_by_fields, ",");
+    size_t group_limit = 3;
+    std::string highlight_start_tag;
+    std::string highlight_end_tag;
+    std::vector<uint32_t> query_by_weights;
+    size_t limit_hits = UINT32_MAX;
+    bool prioritize_exact_match = true;
+    bool pre_segmented_query = false;
+    bool enable_overrides = true;
+    std::string highlight_fields;
+    bool exhaustive_search = false;
+    size_t search_stop_millis;
+    bool split_join_tokens = true;
+    size_t max_candidates = exhaustive_search ? 10000 : 4;
+    std::vector<infix_t> infixes;
+    size_t max_extra_prefix = INT16_MAX;
+    size_t max_extra_suffix = INT16_MAX;
+    size_t search_cutoff_ms = 3600000;
 
-    std::vector<sort_by> sort_fields;
+    std::unordered_map<std::string, size_t*> unsigned_int_values = {
+        {MIN_LEN_1TYPO, &min_len_1typo},
+        {MIN_LEN_2TYPO, &min_len_2typo},
+        {DROP_TOKENS_THRESHOLD, &drop_tokens_threshold},
+        {TYPO_TOKENS_THRESHOLD, &typo_tokens_threshold},
+        {MAX_FACET_VALUES, &max_facet_values},
+        {LIMIT_HITS, &limit_hits},
+        {SNIPPET_THRESHOLD, &snippet_threshold},
+        {HIGHLIGHT_AFFIX_NUM_TOKENS, &highlight_affix_num_tokens},
+        {PAGE, &page},
+        {PER_PAGE, &per_page},
+        {GROUP_LIMIT, &group_limit},
+        {SEARCH_CUTOFF_MS, &search_cutoff_ms},
+        {MAX_EXTRA_PREFIX, &max_extra_prefix},
+        {MAX_EXTRA_SUFFIX, &max_extra_suffix},
+        {MAX_CANDIDATES, &max_candidates},
+    };
+
+    std::unordered_map<std::string, std::string*> str_values = {
+        {FILTER, &simple_filter_query},
+        {FACET_QUERY, &simple_facet_query},
+        {HIGHLIGHT_FIELDS, &highlight_fields},
+        {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
+        {HIGHLIGHT_START_TAG, &highlight_start_tag},
+        {HIGHLIGHT_END_TAG, &highlight_end_tag},
+        {PINNED_HITS, &pinned_hits_str},
+        {HIDDEN_HITS, &hidden_hits_str},
+    };
+
+    std::unordered_map<std::string, bool*> bool_values = {
+        {PRIORITIZE_EXACT_MATCH, &prioritize_exact_match},
+        {PRE_SEGMENTED_QUERY, &pre_segmented_query},
+        {EXHAUSTIVE_SEARCH, &exhaustive_search},
+        {SPLIT_JOIN_TOKENS, &split_join_tokens},
+        {ENABLE_OVERRIDES, &enable_overrides},
+    };
+
+    std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
+        {QUERY_BY, &search_fields},
+        {FACET_BY, &facet_fields},
+        {GROUP_BY, &group_by_fields},
+        {INCLUDE_FIELDS, &include_fields_vec},
+        {EXCLUDE_FIELDS, &exclude_fields_vec},
+    };
+
+    std::unordered_map<std::string, std::vector<uint32_t>*> int_list_values = {
+        {QUERY_BY_WEIGHTS, &query_by_weights},
+        {NUM_TYPOS, &num_typos},
+    };
+
+    for(const auto& kv: req_params) {
+        const std::string& key = kv.first;
+        const std::string& val = kv.second;
+
+        if(key == PREFIX) {
+            if(val == "true" || val == "false") {
+                prefixes = {(val == "true")};
+            } else {
+                prefixes.clear();
+                std::vector<std::string> prefix_str;
+                StringUtils::split(val, prefix_str, ",");
+                for(auto& prefix_s : prefix_str) {
+                    prefixes.push_back(prefix_s == "true");
+                }
+            }
+        }
+
+        else {
+            auto find_int_it = unsigned_int_values.find(key);
+            if(find_int_it != unsigned_int_values.end()) {
+                const auto& op = add_unsigned_int_param(key, val, find_int_it->second);
+                if(!op.ok()) {
+                    return op;
+                }
+
+                continue;
+            }
+
+            auto find_str_it = str_values.find(key);
+            if(find_str_it != str_values.end()) {
+                *find_str_it->second = val;
+                continue;
+            }
+
+            auto find_bool_it = bool_values.find(key);
+            if(find_bool_it != bool_values.end()) {
+                *find_bool_it->second = (val == "true");
+                continue;
+            }
+
+            auto find_str_list_it = str_list_values.find(key);
+            if(find_str_list_it != str_list_values.end()) {
+                StringUtils::split(val, *find_str_list_it->second, ",");
+                continue;
+            }
+
+            auto find_int_list_it = int_list_values.find(key);
+            if(find_int_list_it != int_list_values.end()) {
+                add_unsigned_int_list_param(key, val, find_int_list_it->second);
+                continue;
+            }
+        }
+    }
+
+    // special defaults
+    if(!req_params[FACET_QUERY].empty() && req_params.count(PER_PAGE) == 0) {
+        // for facet query we will set per_page to zero if it is not explicitly overridden
+        per_page = 0;
+    }
+
+    include_fields.insert(include_fields_vec.begin(), include_fields_vec.end());
+    exclude_fields.insert(exclude_fields_vec.begin(), exclude_fields_vec.end());
+
     bool parsed_sort_by = parse_sort_by_str(req_params[SORT_BY], sort_fields);
 
     if(!parsed_sort_by) {
@@ -873,23 +834,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         return Option<bool>(400, "Only upto 3 sort fields are allowed.");
     }
 
-    if(req_params.count(PINNED_HITS) == 0) {
-        req_params[PINNED_HITS] = "";
-    }
-
-    if(req_params.count(HIDDEN_HITS) == 0) {
-        req_params[HIDDEN_HITS] = "";
-    }
-
-    if(req_params.count(ENABLE_OVERRIDES) == 0) {
-        req_params[ENABLE_OVERRIDES] = "true";
-    }
-
-    if(req_params.count(MAX_CANDIDATES) == 0) {
-        req_params[MAX_CANDIDATES] = exhaustive_search ? "10000" : "4";
-    }
-
-    std::vector<infix_t> infixes;
     if(req_params.count(INFIX) != 0) {
         std::vector<std::string> infix_strs;
         StringUtils::split(req_params[INFIX], infix_strs, ",");
@@ -904,33 +848,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         infixes.push_back(off);
     }
 
-    bool enable_overrides = (req_params[ENABLE_OVERRIDES] == "true");
-
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    auto collection = collectionManager.get_collection(req_params["collection"]);
-
-    if(collection == nullptr) {
-        return Option<bool>(404, "Not found.");
-    }
-
-    std::vector<bool> prefixes;
-
-    if(req_params[PREFIX] == "true" || req_params[PREFIX] == "false") {
-        prefixes.push_back(req_params[PREFIX] == "true");
-    } else {
-        std::vector<std::string> prefix_str;
-        StringUtils::split(req_params[PREFIX], prefix_str, ",");
-        for(auto& prefix_s : prefix_str) {
-            prefixes.push_back(prefix_s == "true");
-        }
-    }
-
-
-    const size_t drop_tokens_threshold = (size_t) std::stoi(req_params[DROP_TOKENS_THRESHOLD]);
-    const size_t typo_tokens_threshold = (size_t) std::stoi(req_params[TYPO_TOKENS_THRESHOLD]);
-
-    token_ordering token_order = NOT_SET;
-
     if(req_params.count(RANK_TOKENS_BY) != 0) {
         StringUtils::toupper(req_params[RANK_TOKENS_BY]);
         if (req_params[RANK_TOKENS_BY] == "DEFAULT_SORTING_FIELD") {
@@ -940,39 +857,39 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         }
     }
 
-    Option<nlohmann::json> result_op = collection->search(req_params[QUERY], search_fields, filter_str, facet_fields,
+    Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
                                                           sort_fields, num_typos,
-                                                          static_cast<size_t>(std::stol(req_params[PER_PAGE])),
-                                                          static_cast<size_t>(std::stol(req_params[PAGE])),
+                                                          per_page,
+                                                          page,
                                                           token_order, prefixes, drop_tokens_threshold,
                                                           include_fields, exclude_fields,
-                                                          static_cast<size_t>(std::stol(req_params[MAX_FACET_VALUES])),
-                                                          req_params[FACET_QUERY],
-                                                          static_cast<size_t>(std::stol(req_params[SNIPPET_THRESHOLD])),
-                                                          static_cast<size_t>(std::stol(req_params[HIGHLIGHT_AFFIX_NUM_TOKENS])),
-                                                          req_params[HIGHLIGHT_FULL_FIELDS],
+                                                          max_facet_values,
+                                                          simple_facet_query,
+                                                          snippet_threshold,
+                                                          highlight_affix_num_tokens,
+                                                          highlight_full_fields,
                                                           typo_tokens_threshold,
-                                                          req_params[PINNED_HITS],
-                                                          req_params[HIDDEN_HITS],
+                                                          pinned_hits_str,
+                                                          hidden_hits_str,
                                                           group_by_fields,
-                                                          static_cast<size_t>(std::stol(req_params[GROUP_LIMIT])),
-                                                          req_params[HIGHLIGHT_START_TAG],
-                                                          req_params[HIGHLIGHT_END_TAG],
+                                                          group_limit,
+                                                          highlight_start_tag,
+                                                          highlight_end_tag,
                                                           query_by_weights,
-                                                          static_cast<size_t>(std::stol(req_params[LIMIT_HITS])),
+                                                          limit_hits,
                                                           prioritize_exact_match,
                                                           pre_segmented_query,
                                                           enable_overrides,
-                                                          req_params[HIGHLIGHT_FIELDS],
+                                                          highlight_fields,
                                                           exhaustive_search,
-                                                          static_cast<size_t>(std::stol(req_params[SEARCH_CUTOFF_MS])),
-                                                          static_cast<size_t>(std::stol(req_params[MIN_LEN_1TYPO])),
-                                                          static_cast<size_t>(std::stol(req_params[MIN_LEN_2TYPO])),
+                                                          search_cutoff_ms,
+                                                          min_len_1typo,
+                                                          min_len_2typo,
                                                           split_join_tokens,
-                                                          static_cast<size_t>(std::stol(req_params[MAX_CANDIDATES])),
+                                                          max_candidates,
                                                           infixes,
-                                                          static_cast<size_t>(std::stol(req_params[MAX_EXTRA_PREFIX])),
-                                                          static_cast<size_t>(std::stol(req_params[MAX_EXTRA_SUFFIX]))
+                                                          max_extra_prefix,
+                                                          max_extra_suffix
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -991,7 +908,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         result["search_time_ms"] = timeMillis;
     }
 
-    result["page"] = std::stoi(req_params[PAGE]);
+    result["page"] = page;
     results_json_str = result.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
 
     //LOG(INFO) << "Time taken: " << timeMillis << "ms";

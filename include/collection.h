@@ -392,7 +392,7 @@ public:
                                   const size_t group_limit = 0,
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
-                                  std::vector<size_t> query_by_weights={},
+                                  std::vector<uint32_t> query_by_weights={},
                                   size_t limit_hits=UINT32_MAX,
                                   bool prioritize_exact_match=true,
                                   bool pre_segmented_query=false,
