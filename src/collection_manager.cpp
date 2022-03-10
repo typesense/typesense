@@ -597,6 +597,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     const char *FACET_BY = "facet_by";
     const char *FACET_QUERY = "facet_query";
+    const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
     const char *GROUP_BY = "group_by";
@@ -687,6 +688,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     size_t max_facet_values = 10;
     std::string simple_facet_query;
+    size_t facet_query_num_typos = 2;
     size_t snippet_threshold = 30;
     size_t highlight_affix_num_tokens = 4;
     std::string highlight_full_fields;
@@ -727,6 +729,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_EXTRA_PREFIX, &max_extra_prefix},
         {MAX_EXTRA_SUFFIX, &max_extra_suffix},
         {MAX_CANDIDATES, &max_candidates},
+        {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {

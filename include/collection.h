@@ -406,7 +406,8 @@ public:
                                   size_t max_candidates = 4,
                                   const std::vector<infix_t>& infixes = {off},
                                   const size_t max_extra_prefix = INT16_MAX,
-                                  const size_t max_extra_suffix = INT16_MAX) const;
+                                  const size_t max_extra_suffix = INT16_MAX,
+                                  const size_t facet_query_num_typos = 2) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);
