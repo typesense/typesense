@@ -683,7 +683,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
-                                  std::vector<size_t> query_by_weights,
+                                  std::vector<uint32_t> query_by_weights,
                                   size_t limit_hits,
                                   bool prioritize_exact_match,
                                   bool pre_segmented_query,
@@ -1048,7 +1048,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     populate_result_kvs(&curated_topster, override_result_kvs);
 
     // for grouping we have to aggregate group set sizes to a count value
-    if(group_limit) {
+    if(!group_by_fields.empty()) {
         for(auto& acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
                 facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
@@ -1172,7 +1172,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         result["out_of"] = num_documents.load();
     }
 
-    std::string hits_key = group_limit ? "grouped_hits" : "hits";
+    std::string hits_key = !group_by_fields.empty() ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
     // construct results array
@@ -1180,11 +1180,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
 
         nlohmann::json group_hits;
-        if(group_limit) {
+        if(!group_by_fields.empty()) {
             group_hits["hits"] = nlohmann::json::array();
         }
 
-        nlohmann::json& hits_array = group_limit ? group_hits["hits"] : result["hits"];
+        nlohmann::json& hits_array = !group_by_fields.empty() ? group_hits["hits"] : result["hits"];
 
         for(const KV* field_order_kv: kv_group) {
             const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
@@ -1275,7 +1275,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             hits_array.push_back(wrapper_doc);
         }
 
-        if(group_limit) {
+        if(!group_by_fields.empty()) {
             const auto& document = group_hits["hits"][0]["document"];
 
             group_hits["group_key"] = nlohmann::json::array();
