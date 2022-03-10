@@ -1652,7 +1652,8 @@ void Index::run_search(search_args* search_params) {
            search_params->max_candidates,
            search_params->infixes,
            search_params->max_extra_prefix,
-           search_params->max_extra_suffix);
+           search_params->max_extra_suffix,
+           search_params->facet_query_num_typos);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -2081,37 +2082,24 @@ void Index::search_infix(const std::string& query, const std::string& field_name
     }
 }
 
-void Index::search(std::vector<query_tokens_t>& field_query_tokens,
-                   const std::vector<search_field_t>& the_fields,
-                   std::vector<filter>& filters,
-                   std::vector<facet>& facets, facet_query_t& facet_query,
-                   const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
-                   const std::vector<uint32_t> & excluded_ids,
-                   const std::vector<sort_by> & sort_fields_std, const std::vector<uint32_t>& num_typos,
-                   Topster* topster,
-                   Topster* curated_topster,
-                   const size_t per_page, const size_t page, const token_ordering token_order,
-                   const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
-                   size_t & all_result_ids_len,
+void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
+                   std::vector<filter>& filters, std::vector<facet>& facets, facet_query_t& facet_query,
+                   const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                   const std::vector<uint32_t>& excluded_ids, const std::vector<sort_by>& sort_fields_std,
+                   const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
+                   const size_t per_page,
+                   const size_t page, const token_ordering token_order, const std::vector<bool>& prefixes,
+                   const size_t drop_tokens_threshold, size_t& all_result_ids_len,
                    spp::sparse_hash_set<uint64_t>& groups_processed,
                    std::vector<std::vector<art_leaf*>>& searched_queries,
-                   std::vector<std::vector<KV*>> & raw_result_kvs,
-                   std::vector<std::vector<KV*>> & override_result_kvs,
-                   const size_t typo_tokens_threshold,
-                   const size_t group_limit,
+                   std::vector<std::vector<KV*>>& raw_result_kvs, std::vector<std::vector<KV*>>& override_result_kvs,
+                   const size_t typo_tokens_threshold, const size_t group_limit,
                    const std::vector<std::string>& group_by_fields,
                    const std::vector<const override_t*>& filter_overrides,
-                   const std::string& default_sorting_field,
-                   bool prioritize_exact_match,
-                   const bool exhaustive_search,
-                   const size_t concurrency,
-                   const size_t search_cutoff_ms,
-                   size_t min_len_1typo,
-                   size_t min_len_2typo,
-                   const size_t max_candidates,
-                   const std::vector<infix_t>& infixes,
-                   const size_t max_extra_prefix,
-                   const size_t max_extra_suffix) const {
+                   const string& default_sorting_field, bool prioritize_exact_match, bool exhaustive_search,
+                   size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
+                   size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                   const size_t max_extra_suffix, const size_t facet_query_num_typos) const {
 
     search_begin = std::chrono::high_resolution_clock::now();
     search_stop_ms = search_cutoff_ms;
@@ -2231,7 +2219,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
         std::condition_variable cv_process;
 
         std::vector<facet_info_t> facet_infos(facets.size());
-        compute_facet_infos(facets, facet_query, all_result_ids, all_result_ids_len,
+        compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
                                      group_by_fields, facet_infos);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
@@ -2316,7 +2304,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens,
     }
 
     std::vector<facet_info_t> facet_infos(facets.size());
-    compute_facet_infos(facets, facet_query, &included_ids[0], included_ids.size(), group_by_fields, facet_infos);
+    compute_facet_infos(facets, facet_query, facet_query_num_typos,
+                        &included_ids[0], included_ids.size(), group_by_fields, facet_infos);
     do_facets(facets, facet_query, facet_infos, group_limit, group_by_fields, &included_ids[0], included_ids.size());
 
     all_result_ids_len += curated_topster->size;
@@ -2845,6 +2834,7 @@ void Index::handle_exclusion(const size_t num_search_fields, std::vector<query_t
 }
 
 void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t& facet_query,
+                                const size_t facet_query_num_typos,
                                 const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                 const std::vector<std::string>& group_by_fields,
                                 std::vector<facet_info_t>& facet_infos) const {
@@ -2907,7 +2897,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
             search_field(0, qtokens, search_tokens, nullptr, 0, num_toks_dropped,
                          facet_field, facet_field.faceted_name(),
-                         all_result_ids, all_result_ids_len, {}, {}, 2, searched_queries, topster, groups_processed,
+                         all_result_ids, all_result_ids_len, {}, {}, facet_query_num_typos, searched_queries, topster, groups_processed,
                          &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, 3, 1000, 4);
 

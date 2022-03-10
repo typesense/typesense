@@ -697,7 +697,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t max_candidates,
                                   const std::vector<infix_t>& infixes,
                                   const size_t max_extra_prefix,
-                                  const size_t max_extra_suffix) const {
+                                  const size_t max_extra_suffix,
+                                  const size_t facet_query_num_typos) const {
 
     std::shared_lock lock(mutex);
 
@@ -1027,11 +1028,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
-                                                 group_by_fields, group_limit, default_sorting_field, prioritize_exact_match,
+                                                 group_by_fields, group_limit, default_sorting_field,
+                                                 prioritize_exact_match,
                                                  exhaustive_search, 4, filter_overrides,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
-                                                 max_extra_prefix, max_extra_suffix);
+                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos);
 
     index->run_search(search_params);
 
