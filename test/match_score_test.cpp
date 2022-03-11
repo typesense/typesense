@@ -33,6 +33,7 @@ TEST(MatchTest, MatchScoreV2) {
     auto match = Match(100, token_offsets, true);
     ASSERT_EQ(4, match.words_present);
     ASSERT_EQ(3, match.distance);
+    ASSERT_EQ(0, match.phrase_match);
 
     std::vector<uint16_t> expected_offsets = {25, 26, 24, 27};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -54,6 +55,7 @@ TEST(MatchTest, MatchScoreV2) {
     ASSERT_EQ(3, match.words_present);
     ASSERT_EQ(2, match.distance);
     ASSERT_EQ(0, match.exact_match);
+    ASSERT_EQ(0, match.phrase_match);
 
     expected_offsets = {170, 171, 169};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -69,6 +71,7 @@ TEST(MatchTest, MatchScoreV2) {
     ASSERT_EQ(1, match.words_present);
     ASSERT_EQ(0, match.distance);
     ASSERT_EQ(0, match.exact_match);
+    ASSERT_EQ(0, match.phrase_match);
 
     expected_offsets = {38, MAX_DISPLACEMENT, MAX_DISPLACEMENT};
     for(size_t i=0; i<token_offsets.size(); i++) {
@@ -92,11 +95,13 @@ TEST(MatchTest, MatchScoreV2) {
     ASSERT_EQ(3, match.words_present);
     ASSERT_EQ(2, match.distance);
     ASSERT_EQ(1, match.exact_match);
+    ASSERT_EQ(0, match.phrase_match);
 
     match = Match(100, token_offsets, true, false);
     ASSERT_EQ(3, match.words_present);
     ASSERT_EQ(2, match.distance);
     ASSERT_EQ(0, match.exact_match);
+    ASSERT_EQ(0, match.phrase_match);
 
     token_offsets.clear();
     token_offsets.push_back(token_positions_t{false, {1}});
@@ -105,6 +110,7 @@ TEST(MatchTest, MatchScoreV2) {
 
     match = Match(100, token_offsets, true, true);
     ASSERT_EQ(0, match.exact_match);
+    ASSERT_EQ(1, match.phrase_match);
 
     token_offsets.clear();
     token_offsets.push_back(token_positions_t{false, {0}});
@@ -113,6 +119,7 @@ TEST(MatchTest, MatchScoreV2) {
 
     match = Match(100, token_offsets, true, true);
     ASSERT_EQ(0, match.exact_match);
+    ASSERT_EQ(1, match.phrase_match);
 
     token_offsets.clear();
     token_offsets.push_back(token_positions_t{false, {74}});
@@ -125,6 +132,23 @@ TEST(MatchTest, MatchScoreV2) {
     for(size_t i = 0; i < match.offsets.size(); i++) {
         ASSERT_EQ(expected_offsets[i], match.offsets[i].offset);
     }
+
+    // check phrase match
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {38, 50, 187, 195, 201}});
+    token_offsets.push_back(token_positions_t{false, {120, 167, 171, 196}});
+    token_offsets.push_back(token_positions_t{true, {197, 250}});
+
+    match = Match(100, token_offsets);
+    ASSERT_EQ(1, match.phrase_match);
+
+    token_offsets.clear();
+    token_offsets.push_back(token_positions_t{false, {120, 167, 171, 196}});
+    token_offsets.push_back(token_positions_t{false, {38, 50, 187, 195, 201}});
+    token_offsets.push_back(token_positions_t{true, {197, 250}});
+
+    match = Match(100, token_offsets);
+    ASSERT_EQ(0, match.phrase_match);
 
     /*size_t total_distance = 0, words_present = 0, offset_sum = 0;
     auto begin = std::chrono::high_resolution_clock::now();

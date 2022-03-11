@@ -38,6 +38,7 @@ struct Match {
     uint8_t words_present;
     uint8_t distance;
     uint8_t exact_match;
+    uint8_t phrase_match;
     std::vector<TokenOffset> offsets;
 
     Match() : words_present(0), distance(0), exact_match(0) {
@@ -79,6 +80,13 @@ struct Match {
                 LOG(INFO) << offset << ", ";
             }
             LOG(INFO) << "";
+        }
+    }
+
+    template<typename T>
+    void sort2(std::vector<T>& a) {
+        if(a[0] < a[1]) {
+            std::swap(a[0], a[1]);
         }
     }
 
@@ -144,10 +152,16 @@ struct Match {
         size_t best_displacement = MAX_DISPLACEMENT;
 
         while (window.size() > 1) {
-            if(window.size() == 3) {
-                sort3<TokenOffset>(window);
-            } else {
-                std::sort(window.begin(), window.end(), std::greater<TokenOffset>());  // descending comparator
+            switch(window.size()) {
+                case 2:
+                    sort2<TokenOffset>(window);
+                    break;
+                case 3:
+                    sort3<TokenOffset>(window);
+                    break;
+                default:
+                    // descending comparator
+                    std::sort(window.begin(), window.end(), std::greater<TokenOffset>());
             }
 
             size_t min_offset = window.back().offset;
@@ -155,6 +169,9 @@ struct Match {
             size_t this_displacement = 0;
             size_t this_num_match = 0;
             std::vector<TokenOffset> this_window(tokens_size);
+
+            uint8_t prev_token_id = window[0].token_id;
+            phrase_match = 1;
 
             for (size_t i = 0; i < window.size(); i++) {
                 if(populate_window) {
@@ -171,6 +188,12 @@ struct Match {
                         this_window[window[i].token_id].offset = window[i].offset;
                     }
                 }
+
+                if(window[i].token_id > prev_token_id) {
+                    phrase_match = 0;
+                }
+
+                prev_token_id = window[i].token_id;
             }
 
             if ( (this_num_match > best_num_match) ||
@@ -215,10 +238,13 @@ struct Match {
             offsets = best_window;
         }
 
+        if(best_num_match != tokens_size || distance != tokens_size-1) {
+            phrase_match = 0;
+        }
+
         exact_match = 0;
 
         if(check_exact_match) {
-
             if(distance > token_offsets.size()-1) {
                 // we can exit early and don't have to care about other requirements
                 return;

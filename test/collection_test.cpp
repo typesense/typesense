@@ -150,7 +150,7 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     ASSERT_EQ(0, results["found"].get<int>());
 }
 
-TEST_F(CollectionTest, PhraseSearch) {
+TEST_F(CollectionTest, MultiTokenSearch) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("rocket launch", query_fields, "", facets, sort_fields, {0}, 10,
                                                 1, FREQUENCY,
@@ -257,7 +257,7 @@ TEST_F(CollectionTest, SearchWithExcludedTokens) {
     ASSERT_EQ(20, results["found"].get<uint32_t>());
 }
 
-TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
+TEST_F(CollectionTest, SkipUnindexedTokensDuringMultiTokenSearch) {
     // Tokens that are not found in the index should be skipped
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("DoesNotExist from", query_fields, "", facets, sort_fields, {0}, 10).get();
@@ -346,7 +346,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringPhraseSearch) {
     ASSERT_EQ(0, results["hits"].size());
 }
 
-TEST_F(CollectionTest, PartialPhraseSearch) {
+TEST_F(CollectionTest, PartialMultiTokenSearch) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("rocket research", query_fields, "", facets,
                                                 sort_fields, {0}, 10, 1, FREQUENCY, {false}, 10).get();
