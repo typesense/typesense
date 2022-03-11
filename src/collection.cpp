@@ -398,7 +398,7 @@ void Collection::prune_document(nlohmann::json &document, const spp::sparse_hash
 void Collection::curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
-                                std::map<size_t, std::vector<uint32_t>>& include_ids,
+                                std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const override_t*>& filter_overrides) const {
 
@@ -452,7 +452,7 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                     uint32_t seq_id = seq_id_op.get();
                     bool excluded = (excluded_set.count(seq_id) != 0);
                     if(!excluded) {
-                        include_ids[hit.position].push_back(seq_id);
+                        included_ids.emplace_back(seq_id, hit.position);
                     }
                 }
 
@@ -480,7 +480,7 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                 uint32_t seq_id = seq_id_op.get();
                 bool excluded = (excluded_set.count(seq_id) != 0);
                 if(!excluded) {
-                    include_ids[pos].push_back(seq_id);
+                    included_ids.emplace_back(seq_id, pos);
                 }
             }
         }
@@ -698,7 +698,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const std::vector<infix_t>& infixes,
                                   const size_t max_extra_prefix,
                                   const size_t max_extra_suffix,
-                                  const size_t facet_query_num_typos) const {
+                                  const size_t facet_query_num_typos,
+                                  const bool filter_curated_hits) const {
 
     std::shared_lock lock(mutex);
 
@@ -919,7 +920,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     spp::sparse_hash_set<uint64_t> groups_processed;  // used to calculate total_found for grouped query
 
     std::vector<uint32_t> excluded_ids;
-    std::map<size_t, std::vector<uint32_t>> include_ids; // position => list of IDs
+    std::vector<std::pair<uint32_t, uint32_t>> included_ids; // ID -> position
     std::map<size_t, std::vector<std::string>> pinned_hits;
 
     Option<bool> pinned_hits_op = parse_pinned_hits(pinned_hits_str, pinned_hits);
@@ -934,9 +935,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     std::vector<const override_t*> filter_overrides;
     std::string query = raw_query;
     curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   include_ids, excluded_ids, filter_overrides);
+                   included_ids, excluded_ids, filter_overrides);
 
-    /*for(auto& kv: include_ids) {
+    /*for(auto& kv: included_ids) {
         LOG(INFO) << "key: " << kv.first;
         for(auto val: kv.second) {
             LOG(INFO) << val;
@@ -949,8 +950,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         LOG(INFO) << id;
     }
 
-    LOG(INFO) << "include_ids size: " << include_ids.size();
-    for(auto& group: include_ids) {
+    LOG(INFO) << "included_ids size: " << included_ids.size();
+    for(auto& group: included_ids) {
         for(uint32_t& seq_id: group.second) {
             LOG(INFO) << "seq_id: " << seq_id;
         }
@@ -958,19 +959,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         LOG(INFO) << "----";
     }
     */
-
-    std::map<size_t, std::map<size_t, uint32_t>> included_ids;
-
-    for(const auto& pos_ids: include_ids) {
-        size_t outer_pos = pos_ids.first;
-        size_t ids_per_pos = std::max(size_t(1), group_limit);
-
-        for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
-            auto seq_id = pos_ids.second[inner_pos];
-            included_ids[outer_pos][inner_pos] = seq_id;
-            //LOG(INFO) << "Adding seq_id " << seq_id << " to index_id " << index_id;
-        }
-    }
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
@@ -1033,7 +1021,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  exhaustive_search, 4, filter_overrides,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
-                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos);
+                                                 max_extra_prefix, max_extra_suffix, facet_query_num_typos,
+                                                 filter_curated_hits);
 
     index->run_search(search_params);
 

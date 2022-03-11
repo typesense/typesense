@@ -274,7 +274,7 @@ struct search_args {
     std::vector<search_field_t> search_fields;
     std::vector<filter> filters;
     std::vector<facet>& facets;
-    std::map<size_t, std::map<size_t, uint32_t>> included_ids;
+    std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
     std::vector<uint32_t> excluded_ids;
     std::vector<sort_by> sort_fields_std;
     facet_query_t facet_query;
@@ -302,6 +302,7 @@ struct search_args {
     const size_t max_extra_prefix;
     const size_t max_extra_suffix;
     const size_t facet_query_num_typos;
+    const bool filter_curated_hits;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -312,7 +313,7 @@ struct search_args {
 
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 std::vector<filter> filters, std::vector<facet>& facets,
-                std::map<size_t, std::map<size_t, uint32_t>> included_ids, std::vector<uint32_t> excluded_ids,
+                std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
                 std::vector<sort_by> sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
@@ -320,7 +321,8 @@ struct search_args {
                 const string& default_sorting_field, bool prioritize_exact_match, bool exhaustive_search,
                 size_t concurrency, const std::vector<const override_t*>& dynamic_overrides, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<infix_t>& infixes,
-                const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos) :
+                const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
+                const bool filter_curated_hits) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -333,7 +335,7 @@ struct search_args {
             filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms),
             min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
-            facet_query_num_typos(facet_query_num_typos) {
+            facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -681,7 +683,7 @@ public:
 
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 std::vector<filter>& filters, std::vector<facet>& facets, facet_query_t& facet_query,
-                const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                 const std::vector<uint32_t>& excluded_ids, const std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                 const size_t per_page,
@@ -694,7 +696,8 @@ public:
                 const string& default_sorting_field, bool prioritize_exact_match, bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                 size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
-                const size_t max_extra_suffix, const size_t facet_query_num_typos) const;
+                const size_t max_extra_suffix, const size_t facet_query_num_typos,
+                const bool filter_curated_hits) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
