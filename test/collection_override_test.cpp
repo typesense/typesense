@@ -425,8 +425,45 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
     ASSERT_STREQ("16", results["hits"][3]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("6", results["hits"][4]["document"]["id"].get<std::string>().c_str());
 
+    // pinning + filtering
+    results = coll_mul_fields->search("of", {"title"}, "points:>58", {}, {}, {0}, 50, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                      "", 10,
+                                      pinned_hits, {}).get();
+
+    ASSERT_EQ(5, results["found"].get<size_t>());
+    ASSERT_STREQ("13", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("4", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("12", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("5", results["hits"][4]["document"]["id"].get<std::string>().c_str());
+
+    // pinning + filtering with filter_curated_hits: true
+    pinned_hits = "14:1,4:2";
+
+    results = coll_mul_fields->search("of", {"title"}, "points:>58", {}, {}, {0}, 50, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                      "", 10, pinned_hits, {}, {}, 0,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      4, {off}, 32767, 32767, 2, true).get();
+
+    ASSERT_EQ(4, results["found"].get<size_t>());
+    ASSERT_STREQ("14", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("11", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("12", results["hits"][2]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("5", results["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ("The Silence <mark>of</mark> the Lambs", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Confessions <mark>of</mark> a Shopaholic", results["hits"][2]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Percy Jackson: Sea <mark>of</mark> Monsters", results["hits"][3]["highlights"][0]["snippet"].get<std::string>());
+
     // both pinning and hiding
 
+    pinned_hits = "13:1,4:2";
     std::string hidden_hits="11,16";
     results = coll_mul_fields->search("the", {"title"}, "", {"starring"}, {}, {0}, 50, 1, FREQUENCY,
                                       {false}, Index::DROP_TOKENS_THRESHOLD,

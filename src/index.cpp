@@ -1653,7 +1653,8 @@ void Index::run_search(search_args* search_params) {
            search_params->infixes,
            search_params->max_extra_prefix,
            search_params->max_extra_suffix,
-           search_params->facet_query_num_typos);
+           search_params->facet_query_num_typos,
+           search_params->filter_curated_hits);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -1666,7 +1667,7 @@ void Index::collate_included_ids(const std::vector<std::string>& q_included_toke
         return;
     }
 
-    // calculate match_score and add to topster independently
+    // created searched queries so that curated results can be highlighted
 
     std::vector<art_leaf *> override_query;
 
@@ -2084,7 +2085,7 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 
 void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                    std::vector<filter>& filters, std::vector<facet>& facets, facet_query_t& facet_query,
-                   const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                   const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                    const std::vector<uint32_t>& excluded_ids, const std::vector<sort_by>& sort_fields_std,
                    const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                    const size_t per_page,
@@ -2099,7 +2100,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                    const string& default_sorting_field, bool prioritize_exact_match, bool exhaustive_search,
                    size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                    size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
-                   const size_t max_extra_suffix, const size_t facet_query_num_typos) const {
+                   const size_t max_extra_suffix, const size_t facet_query_num_typos,
+                   const bool filter_curated_hits) const {
 
     search_begin = std::chrono::high_resolution_clock::now();
     search_stop_ms = search_cutoff_ms;
@@ -2112,25 +2114,67 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
     std::shared_lock lock(mutex);
 
-    // we will be removing all curated IDs from organic result ids before running topster
-    std::set<uint32_t> curated_ids;
-    std::vector<uint32_t> included_ids;
+    process_filter_overrides(filter_overrides, field_query_tokens, token_order, filters);
+    do_filtering(filter_ids, filter_ids_length, filters, true);
 
-    for(const auto& outer_pos_ids: included_ids_map) {
-        for(const auto& inner_pos_seq_id: outer_pos_ids.second) {
-            curated_ids.insert(inner_pos_seq_id.second);
-            included_ids.push_back(inner_pos_seq_id.second);
+    std::vector<uint32_t> included_ids_vec;
+    for(const auto& seq_id_pos: included_ids) {
+        included_ids_vec.push_back(seq_id_pos.first);
+    }
+    std::sort(included_ids_vec.begin(), included_ids_vec.end());
+
+    std::map<size_t, std::map<size_t, uint32_t>> included_ids_map;  // outer pos => inner pos => list of IDs
+
+    // if `filter_curated_hits` is enabled, we will remove curated hits that don't match filter condition
+    std::set<uint32_t> included_ids_set;
+
+    if(filter_ids_length != 0 && filter_curated_hits) {
+        uint32_t* included_ids_arr = nullptr;
+        size_t included_ids_len = ArrayUtils::and_scalar(&included_ids_vec[0], included_ids_vec.size(), filter_ids,
+                                                        filter_ids_length, &included_ids_arr);
+
+        included_ids_vec.clear();
+
+        for(size_t i = 0; i < included_ids_len; i++) {
+            included_ids_set.insert(included_ids_arr[i]);
+            included_ids_vec.push_back(included_ids_arr[i]);
+        }
+
+        delete [] included_ids_arr;
+    } else {
+        included_ids_set.insert(included_ids_vec.begin(), included_ids_vec.end());
+    }
+
+    std::map<size_t, std::vector<uint32_t>> included_ids_grouped;
+
+    for(const auto& seq_id_pos: included_ids) {
+        if(included_ids_set.count(seq_id_pos.first) == 0) {
+            continue;
+        }
+        included_ids_grouped[seq_id_pos.second].push_back(seq_id_pos.first);
+    }
+
+    for(const auto& pos_ids: included_ids_grouped) {
+        size_t outer_pos = pos_ids.first;
+        size_t ids_per_pos = std::max(size_t(1), group_limit);
+
+        for(size_t inner_pos = 0; inner_pos < std::min(ids_per_pos, pos_ids.second.size()); inner_pos++) {
+            auto seq_id = pos_ids.second[inner_pos];
+            included_ids_map[outer_pos][inner_pos] = seq_id;
         }
     }
 
+    std::set<uint32_t> curated_ids;
     curated_ids.insert(excluded_ids.begin(), excluded_ids.end());
+
+    for(const auto& outer_pos_inner_pos_ids: included_ids_map) {
+        for(const auto& inner_pos_ids: outer_pos_inner_pos_ids.second) {
+            curated_ids.insert(inner_pos_ids.second);
+        }
+    }
 
     std::vector<uint32_t> curated_ids_sorted(curated_ids.begin(), curated_ids.end());
     std::sort(curated_ids_sorted.begin(), curated_ids_sorted.end());
-
-    process_filter_overrides(filter_overrides, field_query_tokens, token_order, filters);
-
-    do_filtering(filter_ids, filter_ids_length, filters, true);
 
     // Order of `fields` are used to sort results
     //auto begin = std::chrono::high_resolution_clock::now();
@@ -2305,8 +2349,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
     std::vector<facet_info_t> facet_infos(facets.size());
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
-                        &included_ids[0], included_ids.size(), group_by_fields, facet_infos);
-    do_facets(facets, facet_query, facet_infos, group_limit, group_by_fields, &included_ids[0], included_ids.size());
+                        &included_ids_vec[0], included_ids_vec.size(), group_by_fields, facet_infos);
+    do_facets(facets, facet_query, facet_infos, group_limit, group_by_fields, &included_ids_vec[0], included_ids_vec.size());
 
     all_result_ids_len += curated_topster->size;
 
