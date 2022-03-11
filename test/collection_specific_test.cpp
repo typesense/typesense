@@ -2395,5 +2395,12 @@ TEST_F(CollectionSpecificTest, NegationOfTokens) {
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<size_t>());
 
+    results = coll1->search("-white -bronze -bijeli", {"title"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
     collectionManager.drop_collection("coll1");
 }
