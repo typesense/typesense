@@ -3662,12 +3662,6 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
         LOG(INFO) << ".";*/
     }
 
-    // Sort ascending based on matched documents for each token for faster intersection.
-    // However, this causes the token order to deviate from original query's order.
-    sort(query_suggestion.begin(), query_suggestion.end(), [](const art_leaf* left, const art_leaf* right) {
-        return posting_t::num_ids(left->values) < posting_t::num_ids(right->values);
-    });
-
     return total_cost;
 }
 

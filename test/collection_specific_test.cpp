@@ -2178,6 +2178,19 @@ TEST_F(CollectionSpecificTest, PhraseSearch) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
+    // order of tokens in phrase must be respected
+    results = coll1->search(R"("train by the")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search(R"("train the by")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search(R"("train the")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search(R"("trooper state")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     // two phrases
     results = coll1->search(R"("by the" "then and")", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(1, results["hits"].size());
