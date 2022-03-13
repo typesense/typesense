@@ -218,7 +218,8 @@ private:
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides) const;
+                        std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
+                        bool& filter_curated_hits) const;
 
     Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
 
@@ -408,7 +409,7 @@ public:
                                   const size_t max_extra_prefix = INT16_MAX,
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
-                                  const bool filter_curated_hits = false) const;
+                                  const size_t filter_curated_hits_option = 2) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

@@ -89,6 +89,7 @@ struct override_t {
 
     std::string filter_by;
     bool remove_matched_tokens = false;
+    bool filter_curated_hits = false;
 
     override_t() = default;
 
@@ -172,6 +173,12 @@ struct override_t {
             }
         }
 
+        if(override_json.count("filter_curated_hits") != 0) {
+            if (!override_json["filter_curated_hits"].is_boolean()) {
+                return Option<bool>(400, "The `filter_curated_hits` must be a boolean.");
+            }
+        }
+
         if(!id.empty()) {
             override.id = id;
         } else if(override_json.count("id") != 0) {
@@ -208,6 +215,10 @@ struct override_t {
             override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
         } else {
             override.remove_matched_tokens = (override_json.count("filter_by") != 0);
+        }
+
+        if(override_json.count("filter_curated_hits") != 0) {
+            override.filter_curated_hits = override_json["filter_curated_hits"].get<bool>();
         }
 
         // we have to also detect if it is a dynamic query rule

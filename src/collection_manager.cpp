@@ -705,7 +705,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool prioritize_exact_match = true;
     bool pre_segmented_query = false;
     bool enable_overrides = true;
-    bool filter_curated_hits = false;
+    size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
     size_t search_stop_millis;
@@ -733,6 +733,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {MAX_EXTRA_SUFFIX, &max_extra_suffix},
         {MAX_CANDIDATES, &max_candidates},
         {FACET_QUERY_NUM_TYPOS, &facet_query_num_typos},
+        {FILTER_CURATED_HITS, &filter_curated_hits_option},
     };
 
     std::unordered_map<std::string, std::string*> str_values = {
@@ -752,7 +753,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
         {SPLIT_JOIN_TOKENS, &split_join_tokens},
         {ENABLE_OVERRIDES, &enable_overrides},
-        {FILTER_CURATED_HITS, &filter_curated_hits},
     };
 
     std::unordered_map<std::string, std::vector<std::string>*> str_list_values = {
@@ -898,7 +898,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           max_extra_prefix,
                                                           max_extra_suffix,
                                                           facet_query_num_typos,
-                                                          filter_curated_hits
+                                                          filter_curated_hits_option
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(

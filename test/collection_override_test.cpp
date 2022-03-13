@@ -298,6 +298,109 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
     ASSERT_STREQ("The `excludes` value must be an array of objects.", parse_op.error().c_str());
 }
 
+TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
+    // Check facet field highlight for overridden results
+    nlohmann::json override_json_include = {
+            {"id", "include-rule"},
+            {
+             "rule", {
+                           {"query", "not-found"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "0";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "2";
+    override_json_include["includes"][1]["position"] = 2;
+
+    override_json_include["filter_curated_hits"] = true;
+
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+
+    auto results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // disable filter curation option
+    override_json_include["filter_curated_hits"] = false;
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+    results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    // remove filter curation option: by default no filtering should be done
+    override_json_include.erase("filter_curated_hits");
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+    results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "starring: will").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+    // query param configuration should take precedence over override level config
+    results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "",
+                                      30, 5,
+                                      "", 10, {}, {}, {}, 0,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      4, {off}, 32767, 32767, 2, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // try disabling and overriding
+
+    override_json_include["filter_curated_hits"] = false;
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+
+    results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "",
+                                      30, 5,
+                                      "", 10, {}, {}, {}, 0,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      4, {off}, 32767, 32767, 2, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // try enabling and overriding
+    override_json_include["filter_curated_hits"] = true;
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+
+    results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
+                                      {false}, Index::DROP_TOKENS_THRESHOLD,
+                                      spp::sparse_hash_set<std::string>(),
+                                      spp::sparse_hash_set<std::string>(), 10, "",
+                                      30, 5,
+                                      "", 10, {}, {}, {}, 0,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      4, {off}, 32767, 32767, 2, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+
+}
+
 TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     // Check facet field highlight for overridden results
     nlohmann::json override_json_include = {
@@ -449,7 +552,7 @@ TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                       "", 10, pinned_hits, {}, {}, 0,
                                       "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
-                                      4, {off}, 32767, 32767, 2, true).get();
+                                      4, {off}, 32767, 32767, 2, 1).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());
     ASSERT_STREQ("14", results["hits"][0]["document"]["id"].get<std::string>().c_str());
