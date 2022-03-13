@@ -400,7 +400,8 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                                 const std::vector<std::string>& hidden_hits,
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
-                                std::vector<const override_t*>& filter_overrides) const {
+                                std::vector<const override_t*>& filter_overrides,
+                                bool& filter_curated_hits) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -465,6 +466,8 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
 
                     actual_query = query;
                 }
+
+                filter_curated_hits = override.filter_curated_hits;
             }
         }
     }
@@ -699,7 +702,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t max_extra_prefix,
                                   const size_t max_extra_suffix,
                                   const size_t facet_query_num_typos,
-                                  const bool filter_curated_hits) const {
+                                  const size_t filter_curated_hits_option) const {
 
     std::shared_lock lock(mutex);
 
@@ -934,8 +937,14 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
     std::vector<const override_t*> filter_overrides;
     std::string query = raw_query;
+    bool filter_curated_hits;
     curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   included_ids, excluded_ids, filter_overrides);
+                   included_ids, excluded_ids, filter_overrides, filter_curated_hits);
+
+    if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
+        // When query param has explicit value set, override level configuration takes lower precedence.
+        filter_curated_hits = bool(filter_curated_hits_option);
+    }
 
     /*for(auto& kv: included_ids) {
         LOG(INFO) << "key: " << kv.first;
