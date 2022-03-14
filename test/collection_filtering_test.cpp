@@ -2209,3 +2209,56 @@ TEST_F(CollectionFilteringTest, ExactFilteringRepeatingTokensArrayField) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, ExcludeMultipleTokens) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"alpha"},
+        {"TXBT0eiYnFhkJHqz02Wv0PWN5hp1"},
+        {"3u7RtEn5S9fcnizoUojWUwW23Yf2"},
+        {"HpPALvzDDVc3zMmlAAUySwp8Ir33"},
+        {"9oF2qhYI8sdBa2xJSerfmntpvBr2"},
+        {"5fAnLlld5obG4vhhNIbIeoHe1uB2"},
+        {"4OlIYKbzwIUoAOYy6dfDzCREezg1"},
+        {"4JK1BvoqCuTeMwEZorlKj8hnSl02"},
+        {"3tQBmRH0AQPEWyoKcDNYJyIxQQe2"},
+        {"3Mvl5HZgNwQkHykAqL77oMfo8DW2"},
+        {"3Ipnw5JATpYFyCcdUKTBhCicjoH3"},
+        {"2rizUF2ntNSUVpaXwPdHmSBB6C63"},
+        {"2kMHFOUQhAQK9cQbFNoXGpcAFVD2"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search(
+            "-TXBT0eiYnFhkJHqz02Wv0PWN5hp1 -3u7RtEn5S9fcnizoUojWUwW23Yf2 -HpPALvzDDVc3zMmlAAUySwp8Ir33 "
+            "-9oF2qhYI8sdBa2xJSerfmntpvBr2 -5fAnLlld5obG4vhhNIbIeoHe1uB2 -4OlIYKbzwIUoAOYy6dfDzCREezg1 "
+            "-4JK1BvoqCuTeMwEZorlKj8hnSl02 -3tQBmRH0AQPEWyoKcDNYJyIxQQe2 -3Mvl5HZgNwQkHykAqL77oMfo8DW2 "
+            "-3Ipnw5JATpYFyCcdUKTBhCicjoH3 -2rizUF2ntNSUVpaXwPdHmSBB6C63 -2kMHFOUQhAQK9cQbFNoXGpcAFVD2",
+            {"title"}, "",
+            {}, {}, {0}, 10, 1, FREQUENCY).get();
+
+    LOG(INFO) << results;
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
