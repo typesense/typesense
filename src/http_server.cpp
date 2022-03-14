@@ -305,31 +305,24 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // Handle CORS
     if(h2o_handler->http_server->cors_enabled) {
-        h2o_iovec_t origin_sent = {(char*)"*", 1};
+        h2o_iovec_t response_origin = {(char*)"*", 1};
 
         if(!h2o_handler->http_server->cors_domains.empty()) {
-            ssize_t acl_origin_cursor = h2o_find_header(&req->headers, H2O_TOKEN_ORIGIN, -1);
-
-            // CORS is rejected if cors domains were specified but origin does not match
-            bool reject_cors_req = true;
-
+            auto acl_origin_cursor = h2o_find_header(&req->headers, H2O_TOKEN_ORIGIN, -1);
             if(acl_origin_cursor != -1) {
-                origin_sent = req->headers.entries[acl_origin_cursor].value;
-                std::string origin_str = std::string(origin_sent.base, origin_sent.len);
-                if(h2o_handler->http_server->cors_domains.count(origin_str) != 0) {
-                    reject_cors_req = false;
+                response_origin = req->headers.entries[acl_origin_cursor].value;
+                std::string origin_str = std::string(response_origin.base, response_origin.len);
+                if(h2o_handler->http_server->cors_domains.count(origin_str) == 0) {
+                    response_origin = {(char*)"", 0};
                 }
-            }
-
-            if(reject_cors_req) {
-                nlohmann::json resp;
-                resp["message"] = "Forbidden.";
-                return send_response(req, 403, resp.dump());
             }
         }
 
-        h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
-                              0, NULL, origin_sent.base, origin_sent.len);
+        if(response_origin.len != 0) {
+            // only send header if origin matches or if wildcard allowed
+            h2o_add_header_by_str(&req->pool, &req->res.headers, H2O_STRLIT("access-control-allow-origin"),
+                                  0, NULL, response_origin.base, response_origin.len);
+        }
 
         if(http_method == "OPTIONS") {
             // locate request access control headers
