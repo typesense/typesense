@@ -683,7 +683,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const std::string& pinned_hits_str,
                                   const std::string& hidden_hits_str,
                                   const std::vector<std::string>& group_by_fields,
-                                  const size_t group_limit,
+                                  size_t group_limit,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
                                   std::vector<uint32_t> query_by_weights,
@@ -739,6 +739,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             return Option<nlohmann::json>(400, "Number of infix values in `infix` does not match "
                                                "number of `query_by` fields.");
         }
+    }
+
+    if(group_by_fields.empty()) {
+        group_limit = 0;
     }
 
     // process weights for search fields
@@ -1048,7 +1052,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     populate_result_kvs(&curated_topster, override_result_kvs);
 
     // for grouping we have to aggregate group set sizes to a count value
-    if(!group_by_fields.empty()) {
+    if(group_limit) {
         for(auto& acc_facet: facets) {
             for(auto& facet_kv: acc_facet.result_map) {
                 facet_kv.second.count = acc_facet.hash_groups[facet_kv.first].size();
@@ -1172,7 +1176,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         result["out_of"] = num_documents.load();
     }
 
-    std::string hits_key = !group_by_fields.empty() ? "grouped_hits" : "hits";
+    std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
     // construct results array
@@ -1180,11 +1184,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
 
         nlohmann::json group_hits;
-        if(!group_by_fields.empty()) {
+        if(group_limit) {
             group_hits["hits"] = nlohmann::json::array();
         }
 
-        nlohmann::json& hits_array = !group_by_fields.empty() ? group_hits["hits"] : result["hits"];
+        nlohmann::json& hits_array = group_limit ? group_hits["hits"] : result["hits"];
 
         for(const KV* field_order_kv: kv_group) {
             const std::string& seq_id_key = get_seq_id_key((uint32_t) field_order_kv->key);
@@ -1275,7 +1279,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             hits_array.push_back(wrapper_doc);
         }
 
-        if(!group_by_fields.empty()) {
+        if(group_limit) {
             const auto& document = group_hits["hits"][0]["document"];
 
             group_hits["group_key"] = nlohmann::json::array();
