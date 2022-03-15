@@ -698,8 +698,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string hidden_hits_str;
     std::vector<std::string> group_by_fields;
     size_t group_limit = 3;
-    std::string highlight_start_tag;
-    std::string highlight_end_tag;
+    std::string highlight_start_tag = "<mark>";
+    std::string highlight_end_tag = "</mark>";
     std::vector<uint32_t> query_by_weights;
     size_t limit_hits = UINT32_MAX;
     bool prioritize_exact_match = true;
@@ -708,13 +708,12 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t filter_curated_hits_option = 2;
     std::string highlight_fields;
     bool exhaustive_search = false;
-    size_t search_stop_millis;
+    size_t search_cutoff_ms = 3600000;
     bool split_join_tokens = true;
     size_t max_candidates = exhaustive_search ? 10000 : 4;
     std::vector<infix_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
-    size_t search_cutoff_ms = 3600000;
 
     std::unordered_map<std::string, size_t*> unsigned_int_values = {
         {MIN_LEN_1TYPO, &min_len_1typo},
