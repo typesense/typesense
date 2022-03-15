@@ -390,7 +390,7 @@ public:
                                   const std::string& pinned_hits_str="",
                                   const std::string& hidden_hits="",
                                   const std::vector<std::string>& group_by_fields={},
-                                  const size_t group_limit = 0,
+                                  size_t group_limit = 3,
                                   const std::string& highlight_start_tag="<mark>",
                                   const std::string& highlight_end_tag="</mark>",
                                   std::vector<uint32_t> query_by_weights={},
