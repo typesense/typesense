@@ -50,21 +50,10 @@ struct Match {
 
     }
 
-    // Explicit construction of match score
-    static inline uint64_t get_match_score(const uint32_t words_present, const uint32_t total_cost, const uint8_t distance) {
-        uint64_t match_score = (
-            (int64_t(words_present) << 24) |
-            (int64_t(255 - total_cost) << 16) |
-            (int64_t(100 - distance) << 8) |
-            (int64_t(0) << 0)
-        );
-
-        return match_score;
-    }
-
     // Construct a single match score from individual components (for multi-field sort)
-    inline uint64_t get_match_score(const uint32_t total_cost) const {
+    inline uint64_t get_match_score(const uint32_t total_cost, const uint32_t unique_words) const {
         uint64_t match_score = (
+            (int64_t(unique_words) << 32) |
             (int64_t(words_present) << 24) |
             (int64_t(255 - total_cost) << 16) |
             (int64_t(100 - distance) << 8) |

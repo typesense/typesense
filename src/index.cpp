@@ -2409,22 +2409,25 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
 
                 // we will reassemble match score to use unique tokens for cross-field matches
 
+                uint32_t unique_tokens_found = ((match_score >> 32) & 0xFF);
                 uint64_t tokens_found = ((match_score >> 24) & 0xFF);
                 uint64_t typo_score = ((match_score >> 16) & 0xFF);
                 uint64_t proximity_score = ((match_score >> 8) & 0xFF);
                 int64_t exact_match_score = match_score & 0xFF;
-                uint32_t unique_tokens_found = __builtin_popcount(existing_field_kvs[field_id]->token_bits);
 
                 // exclude dropped-token cases
                 if(unique_tokens_found != field_query_tokens[0].q_include_tokens.size()) {
                     exact_match_score = 0;
                 }
 
+                // NOTE: unique_tokens_found can be > than tokens_found as `tokens_found` is counted only within matching
+                // window of X tokens.
+
                 int64_t multi_field_match_score = (int64_t(unique_tokens_found) << 32) |
-                                                  (int64_t(typo_score) << 24) |
-                                                  (int64_t(proximity_score) << 16) |
-                                                  (int64_t(exact_match_score) << 8) |
-                                                  (int64_t(0) << 0);
+                                                  (int64_t(tokens_found) << 24) |
+                                                  (int64_t(typo_score) << 16) |
+                                                  (int64_t(proximity_score) << 8) |
+                                                  (int64_t(exact_match_score) << 0);
 
                 if(multi_field_match_score > max_field_match_score) {
                     max_field_match_score = multi_field_match_score;
@@ -2479,12 +2482,14 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
                     max_field_match_score = multi_field_match_score;
                     max_field_match_index = i;
                 }
+
+                //LOG(INFO) << "!seq_id: " << seq_id << ", words_present: " << words_present;
             }
         }
 
         uint32_t num_tokens_found = __builtin_popcount(token_bits);
-        uint64_t aggregated_score = (int64_t(max_field_match_score) << 16) |
-                                    (int64_t(num_tokens_found) << 8) |
+        uint64_t aggregated_score = (int64_t(num_tokens_found) << 48) |
+                                    (int64_t(max_field_match_score) << 8) |
                                     (int64_t(the_fields[max_field_match_index].weight) << 0);
 
         //LOG(INFO) << "seq id: " << seq_id << ", aggregated_score: " << aggregated_score;
@@ -3549,20 +3554,25 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
             posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
         );
         Match single_token_match = Match(1, 0, is_verbatim_match);
-        match_score = single_token_match.get_match_score(total_cost);
+        match_score = single_token_match.get_match_score(total_cost, 1);
     } else {
         uint64_t total_tokens_found = 0, total_num_typos = 0, total_distance = 0, total_verbatim = 0;
 
         std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
         posting_list_t::get_offsets(posting_lists, array_token_positions);
 
+        // NOTE: tokens found returned by matcher is only within the best matched window, so we have to still consider
+        // unique tokens found if they are spread across the text.
+        uint32_t unique_tokens_found = __builtin_popcount(token_bits);
+
         for (const auto& kv: array_token_positions) {
             const std::vector<token_positions_t>& token_positions = kv.second;
             if (token_positions.empty()) {
                 continue;
             }
+
             const Match &match = Match(seq_id, token_positions, false, prioritize_exact_match);
-            uint64_t this_match_score = match.get_match_score(total_cost);
+            uint64_t this_match_score = match.get_match_score(total_cost, unique_tokens_found);
 
             total_tokens_found += ((this_match_score >> 24) & 0xFF);
             total_num_typos += 255 - ((this_match_score >> 16) & 0xFF);
@@ -3579,6 +3589,7 @@ void Index::score_results(const std::vector<sort_by> & sort_fields, const uint16
         }
 
         match_score = (
+            (uint64_t(unique_tokens_found) << 32) |
             (uint64_t(total_tokens_found) << 24) |
             (uint64_t(255 - total_num_typos) << 16) |
             (uint64_t(100 - total_distance) << 8) |

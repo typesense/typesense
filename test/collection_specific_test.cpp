@@ -1980,6 +1980,98 @@ TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, TokenCountOfWordsFarApart) {
+    // word proximity is calculated using a moving window of X tokens. If only 1 token is present in the best matched
+    // window, proximity ends up being perfect. So we've to ensure that scoring uses total tokens found and not
+    // window tokens found for scoring.
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Central Arizona Project. - Hearing, Eighty-eighth Congress, Second Session, on H.R. 6796, H.R. 6797, "
+         "H.R. 6798. November 9, 1964, Phoenix, Ariz", "JK"},
+        {"Project Phoenix", "JK"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["author"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Phoenix project)", {"title", "author"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 1, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, SingleFieldTokenCountOfWordsFarApart) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Central Arizona Project. - Hearing, Eighty-eighth Congress, Second Session, on H.R. 6796, H.R. 6797, "
+         "H.R. 6798. November 9, 1964, Phoenix, Ariz", "JK"},
+        {"Project Aim Arizona", "JK"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["author"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("Phoenix project)", {"title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {false},
+                                 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+
+    // without drop tokens
+
+    results = coll1->search("Phoenix project)", {"title"},
+                             "", {}, {}, {2}, 10,
+                             1, FREQUENCY, {false},
+                             1, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 1, {}, {}, {}, 0,
+                             "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+
 TEST_F(CollectionSpecificTest, SingleHyphenInQueryNotToBeTreatedAsExclusion) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
