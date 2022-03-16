@@ -984,27 +984,30 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false);
     } else {
-        for(size_t i = 0; i < search_fields.size(); i++) {
-            const auto& search_field = search_fields[i];
-            field_query_tokens.emplace_back(query_tokens_t{});
+        field_query_tokens.emplace_back(query_tokens_t{});
+        const std::string & field_locale = search_schema.at(search_fields[0]).locale;
+        parse_search_query(query, field_query_tokens[0].q_include_tokens,
+                           field_query_tokens[0].q_exclude_tokens,
+                           field_query_tokens[0].q_phrases,
+                           field_locale, pre_segmented_query);
 
-            const std::string & field_locale = search_schema.at(search_field).locale;
-            parse_search_query(query, field_query_tokens[i].q_include_tokens,
-                               field_query_tokens[i].q_exclude_tokens,
-                               field_query_tokens[i].q_phrases,
-                               field_locale, pre_segmented_query);
+        // process filter overrides first, before synonyms (order is important)
+        index->process_filter_overrides(filter_overrides, field_query_tokens[0].q_include_tokens, token_order, filters);
 
-            if(i == 0) {
-                q_tokens = field_query_tokens[i].q_include_tokens;
-                for(auto& phrase: field_query_tokens[i].q_phrases) {
-                    for(auto& token: phrase) {
-                        q_tokens.push_back(token);
-                    }
-                }
+        // get synonyms
+        synonym_reduction(field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_synonyms);
+
+        q_tokens = field_query_tokens[0].q_include_tokens;
+
+        for(auto& phrase: field_query_tokens[0].q_phrases) {
+            for(auto& token: phrase) {
+                q_tokens.push_back(token);
             }
+        }
 
-            // get synonyms
-            synonym_reduction(field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_synonyms);
+        for(size_t i = 1; i < search_fields.size(); i++) {
+            field_query_tokens.emplace_back(query_tokens_t{});
+            field_query_tokens[i] = field_query_tokens[0];
         }
     }
 

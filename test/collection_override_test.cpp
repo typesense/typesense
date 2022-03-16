@@ -1035,8 +1035,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ("<mark>shoes</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
-    ASSERT_EQ("<mark>shoes</mark>", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+    ASSERT_EQ(0, results["hits"][1]["highlights"].size());
 
     // should not apply filter for non-exact case
     results = coll1->search("running shoes", {"name", "category", "brand"}, "",
@@ -1686,16 +1686,6 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     ASSERT_EQ(2, results["found"].get<uint32_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    // with synonum for expensive
-    synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };
-    coll1->add_synonym(synonym1);
-
-    results = coll1->search("costly", {"name"}, "",
-                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
-
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-
     // with exact match
 
     results = coll1->search("cheap", {"name"}, "",
@@ -1710,6 +1700,82 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
                             {}, sort_fields, {2}, 10).get();
 
     ASSERT_EQ(0, results["hits"].size());
+
+    // with synonym for expensive: should NOT match as synonyms are resolved after override substitution
+    synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };
+    coll1->add_synonym(synonym1);
+
+    results = coll1->search("costly", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["price"] = 399.99;
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "White Sneakers";
+    doc2["price"] = 149.99;
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Red Sneakers";
+    doc3["price"] = 49.99;
+    doc3["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json_contains = {
+            {"id",   "static-filters"},
+            {
+             "rule", {
+                             {"query", "expensive"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "price:> 100"}
+    };
+
+    override_t override_contains;
+    auto op = override_t::parse(override_json_contains, "static-filters", override_contains);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_contains);
+
+    synonym_t synonym1{"shoes-sneakers", {"shoes"}, {{"sneakers"}} };
+    coll1->add_synonym(synonym1);
+
+    auto results = coll1->search("expensive shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
