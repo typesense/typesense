@@ -1005,19 +1005,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
             // get synonyms
             synonym_reduction(field_query_tokens[i].q_include_tokens, field_query_tokens[i].q_synonyms);
-
-            std::vector<std::vector<std::string>> space_resolved_queries;
-
-            if(split_join_tokens) {
-                index->resolve_space_as_typos(field_query_tokens[i].q_include_tokens, search_field,
-                                              space_resolved_queries);
-            }
-
-            // only one query is resolved for now, so just use that
-            if(!space_resolved_queries.empty()) {
-                field_query_tokens[i].q_include_tokens = space_resolved_queries[0];
-                synonym_reduction(space_resolved_queries[0], field_query_tokens[i].q_synonyms);
-            }
         }
     }
 
@@ -1035,7 +1022,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                 filter_curated_hits);
+                                                 filter_curated_hits, split_join_tokens);
 
     index->run_search(search_params);
 

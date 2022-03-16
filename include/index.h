@@ -314,6 +314,7 @@ struct search_args {
     const size_t max_extra_suffix;
     const size_t facet_query_num_typos;
     const bool filter_curated_hits;
+    const bool split_join_tokens;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
     std::vector<std::vector<art_leaf*>> searched_queries;
@@ -333,7 +334,7 @@ struct search_args {
                 size_t concurrency, const std::vector<const override_t*>& dynamic_overrides, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<infix_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits) :
+                const bool filter_curated_hits, const bool split_join_tokens) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -346,7 +347,8 @@ struct search_args {
             filter_overrides(dynamic_overrides), search_cutoff_ms(search_cutoff_ms),
             min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
-            facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits) {
+            facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
+            split_join_tokens(split_join_tokens) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -613,7 +615,7 @@ private:
                                             const std::string &field_name,
                                             nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
-    bool common_results_exist(std::vector<art_leaf*>& leaves);
+    bool common_results_exist(std::vector<art_leaf*>& leaves) const;
 
 public:
     // for limiting number of results on multiple candidates / query rewrites
@@ -708,7 +710,7 @@ public:
                 size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                 size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits) const;
+                const bool filter_curated_hits, bool split_join_tokens) const;
 
     Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
 
@@ -786,7 +788,7 @@ public:
                              std::vector<facet_info_t>& facet_infos) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,
-                                std::vector<std::vector<std::string>>& resolved_queries);
+                                std::vector<std::vector<std::string>>& resolved_queries) const;
 
     size_t num_seq_ids() const;
 
@@ -845,7 +847,7 @@ public:
                   const size_t max_extra_suffix, uint32_t* filter_ids, uint32_t filter_ids_length,
                   const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
                   const size_t num_search_fields, const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
-                  std::vector<Topster*>& ftopsters, bool is_wildcard_query,
+                  std::vector<Topster*>& ftopsters, bool is_wildcard_query, bool split_join_tokens,
                   std::vector<query_tokens_t>& field_query_tokens,
                   const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
                   uint32_t*& all_result_ids,
