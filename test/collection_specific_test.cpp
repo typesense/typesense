@@ -1924,7 +1924,6 @@ TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
 
     nlohmann::json doc;
     doc["title"] = "The nonstick pressure cooker is a great invention.";
-
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     auto results = coll1->search("non stick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
@@ -1967,6 +1966,16 @@ TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, false).get();
     ASSERT_EQ(0, results["hits"].size());
+
+    // drop tokens should not happen on tokens split
+    doc["title"] = "Pressure Copper vessel";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    results = coll1->search("pressurecopper", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 10,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("Pressure Copper vessel", results["hits"][0]["document"]["title"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

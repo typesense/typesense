@@ -1654,7 +1654,8 @@ void Index::run_search(search_args* search_params) {
            search_params->max_extra_prefix,
            search_params->max_extra_suffix,
            search_params->facet_query_num_typos,
-           search_params->filter_curated_hits);
+           search_params->filter_curated_hits,
+           search_params->split_join_tokens);
 }
 
 void Index::collate_included_ids(const std::vector<std::string>& q_included_tokens,
@@ -2101,7 +2102,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                    size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                    size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
                    const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                   const bool filter_curated_hits) const {
+                   const bool filter_curated_hits, const bool split_join_tokens) const {
 
     search_begin = std::chrono::high_resolution_clock::now();
     search_stop_ms = search_cutoff_ms;
@@ -2221,7 +2222,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                       concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
                       max_extra_suffix,
                       filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
-                      exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, field_query_tokens,
+                      exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, false, field_query_tokens,
                       the_fields, all_result_ids_len, all_result_ids, topster_ids);
 
         if(exhaustive_search || all_result_ids_len < typo_tokens_threshold || all_result_ids_len < drop_tokens_threshold) {
@@ -2232,8 +2233,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                           concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
                           max_extra_suffix,
                           filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
-                          exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, field_query_tokens,
-                          the_fields, all_result_ids_len, all_result_ids, topster_ids);
+                          exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, split_join_tokens,
+                          field_query_tokens, the_fields, all_result_ids_len, all_result_ids, topster_ids);
         }
 
         //auto begin0 = std::chrono::high_resolution_clock::now();
@@ -2514,7 +2515,7 @@ void Index::search_fields(const std::vector<filter>& filters,
                           const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
                           const size_t num_search_fields, const uint32_t* exclude_token_ids,
                           size_t exclude_token_ids_size, std::vector<Topster*>& ftopsters, bool is_wildcard_query,
-                          std::vector<query_tokens_t>& field_query_tokens,
+                          const bool split_join_tokens, std::vector<query_tokens_t>& field_query_tokens,
                           const std::vector<search_field_t>& the_fields, size_t& all_result_ids_len,
                           uint32_t*& all_result_ids,
                           spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const {
@@ -2552,7 +2553,6 @@ void Index::search_fields(const std::vector<filter>& filters,
         // proceed to query search only when no filters are provided or when filtering produces results
         if(filters.empty() || actual_filter_ids_length > 0) {
             const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - i);
-            const std::string& field_name = the_fields[i].name;
 
             auto field_it = search_schema.find(field_name);
             if(field_it == search_schema.end()) {
@@ -2588,6 +2588,36 @@ void Index::search_fields(const std::vector<filter>& filters,
                                 max_extra_prefix, max_extra_suffix, field_infix, field_id, field_name, query_tokens,
                                 actual_topster, filter_ids, filter_ids_length,
                                 curated_ids_sorted, field_num_results, all_result_ids, all_result_ids_len, groups_processed);
+
+                if(field_num_results == 0 && split_join_tokens) {
+                    std::vector<std::vector<std::string>> space_resolved_queries;
+                    resolve_space_as_typos(field_query_tokens[i].q_include_tokens, field_name,
+                                           space_resolved_queries);
+
+                    // only one query is resolved for now, so just use that
+                    if(!space_resolved_queries.empty()) {
+                        q_include_pos_tokens.clear();
+                        const auto& resolved_query = space_resolved_queries[0];
+
+                        for(size_t j=0; j < resolved_query.size(); j++) {
+                            bool is_prefix = (j == resolved_query.size()-1);
+                            q_include_pos_tokens.emplace_back(j, space_resolved_queries[0][j], is_prefix);
+                        }
+
+                        query_tokens = q_include_pos_tokens;
+                        search_tokens = q_include_pos_tokens;
+
+                        search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size,
+                                     num_tokens_dropped, field_it->second, field_name,
+                                     actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
+                                     field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                                     field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
+                                     query_hashes, token_order, field_prefix,
+                                     0, 0, exhaustive_search,
+                                     min_len_1typo, min_len_2typo, max_candidates);
+                    }
+                }
+
             } else if(actual_filter_ids_length != 0) {
                 // indicates phrase match query
                 curate_filtered_ids(filters, curated_ids, exclude_token_ids,
@@ -4386,9 +4416,7 @@ size_t Index::num_seq_ids() const {
 }
 
 void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const string& field_name,
-                                   std::vector<std::vector<std::string>>& resolved_queries) {
-
-    std::shared_lock lock(mutex);
+                                   std::vector<std::vector<std::string>>& resolved_queries) const {
 
     auto tree_it = search_index.find(field_name);
 
@@ -4523,7 +4551,7 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
     }
 }
 
-bool Index::common_results_exist(std::vector<art_leaf*>& leaves) {
+bool Index::common_results_exist(std::vector<art_leaf*>& leaves) const {
     std::vector<uint32_t> result_ids;
     std::vector<void*> leaf_vals;
 
