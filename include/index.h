@@ -493,11 +493,6 @@ private:
     bool static_filter_query_eval(const override_t* override, std::vector<std::string>& tokens,
                                   std::vector<filter>& filters) const;
 
-    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
-                                   std::vector<query_tokens_t>& field_query_tokens,
-                                   token_ordering token_order,
-                                   std::vector<filter>& filters) const;
-
     bool resolve_override(const std::vector<std::string>& rule_tokens, bool exact_rule_match,
                           const std::vector<std::string>& query_tokens,
                           token_ordering token_order, std::set<std::string>& absorbed_tokens,
@@ -857,6 +852,11 @@ public:
                                     const std::vector<search_field_t>& the_fields, Topster* topster,
                                     const size_t num_search_fields,
                                     spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const;
+
+    void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
+                                  std::vector<std::string>& query_tokens,
+                                  token_ordering token_order,
+                                  std::vector<filter>& filters) const;
 };
 
 template<class T>
