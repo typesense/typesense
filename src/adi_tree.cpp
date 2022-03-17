@@ -7,8 +7,8 @@
 //std::set<adi_node_t*> nodes;
 
 struct adi_node_t {
-    uint16_t scions;
     uint16_t num_children;
+    uint32_t scions;
     char* chars;
     adi_node_t** children;
 
@@ -251,7 +251,8 @@ void adi_tree_t::remove(uint32_t id) {
     std::vector<adi_node_t*> path;
     auto leaf_node = get_node(root, key, 0, path);
 
-    //LOG(INFO) << "Removing key: " << key;
+    //LOG(INFO) << "Removing key: " << key << ", seq_id: " << id << ", id_keys.size: " << id_keys.size()
+    //          << ", root.num_children: " << root->num_children;
 
     if(leaf_node != nullptr) {
         remove_node(root, key, 0);
