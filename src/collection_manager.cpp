@@ -566,6 +566,8 @@ Option<bool> add_unsigned_int_list_param(const std::string& param_name, const st
                                          std::vector<uint32_t>* int_vals) {
     std::vector<std::string> str_vals;
     StringUtils::split(str_val, str_vals, ",");
+    int_vals->clear();
+
     for(auto& str : str_vals) {
         if(StringUtils::is_uint32_t(str)) {
             int_vals->push_back((uint32_t)std::stoi(str));
