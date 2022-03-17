@@ -105,3 +105,16 @@ TEST_F(ADITreeTest, InsertDuplicateAndDelete) {
 
     ASSERT_EQ(nullptr, tree.get_root());
 }
+
+TEST_F(ADITreeTest, InsertDeleteManyElements) {
+    adi_tree_t tree;
+    size_t num_elements = UINT16_MAX + 100;
+
+    for(size_t i = 0; i < num_elements; i++) {
+        tree.index(i, "key");
+    }
+
+    for(size_t i = 0; i < num_elements; i++) {
+        tree.remove(i);
+    }
+}
