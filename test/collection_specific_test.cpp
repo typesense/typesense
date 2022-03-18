@@ -2505,3 +2505,33 @@ TEST_F(CollectionSpecificTest, NegationOfTokens) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, PhraseSearchOnLongText) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+            {"He goes, Sir, why don't you drive? (Laughter) I don't know where we're going. Neither do I. It will be an adventure, sir. (Laughter) The Middle East has been an adventure the past couple of years. It is going crazy with the Arab Spring and revolution and all this. Are there any Lebanese here tonight, by applause? (Cheering) Lebanese, yeah. The Middle East is going crazy. You know the Middle East is going crazy when Lebanon is the most peaceful place in the region. (Laughter) (Applause) Who would have thought? (Laughter) Oh my gosh."},
+            {"Bear in mind this was an ultrasound, so it would have been moving images. It is a reflex of the autonomic nervous system. Now, this is the part of the nervous system that deals with the things that we don't consciously control."},
+            {"So there will be a shared autonomy fleet where you buy your car and you can choose to use that car exclusively, you could choose to have it be used only by friends and family."}
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("\"have it be\"", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
