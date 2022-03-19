@@ -426,8 +426,8 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
-    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     // for now we don't support synonyms on ANY prefix
 
@@ -622,6 +622,66 @@ TEST_F(CollectionSynonymsTest, SynonymSingleTokenExactMatch) {
     ASSERT_EQ(1, res["found"].get<uint32_t>());
 
     ASSERT_STREQ("2", res["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Smashed Lemon", "100"},
+        {"Lulu Lemon", "100"},
+        {"Lululemon", "200"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    synonym_t synonym1{"syn-1", {"lululemon"}, {{"lulu", "lemon"}}};
+    coll1->add_synonym(synonym1);
+
+    auto res = coll1->search("lululemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    // Even thought "lulu lemon" has two token synonym match, it should have same text match score as "lululemon"
+    // and hence must be tied and then ranked on "points"
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    // now with compression synonym
+    synonym1.root = {"lulu", "lemon"};
+    synonym1.synonyms = {{"lululemon"}};
+    coll1->add_synonym(synonym1);
+
+    res = coll1->search("lulu lemon", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    // Even thought "lululemon" has single token synonym match, it should have same text match score as "lulu lemon"
+    // and hence must be tied and then ranked on "points"
+    ASSERT_EQ("2", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }

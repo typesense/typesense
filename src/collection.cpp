@@ -6,8 +6,6 @@
 #include <match_score.h>
 #include <string_utils.h>
 #include <art.h>
-#include <thread>
-#include <future>
 #include <rocksdb/write_batch.h>
 #include <system_metrics.h>
 #include <tokenizer.h>

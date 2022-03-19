@@ -2535,3 +2535,36 @@ TEST_F(CollectionSpecificTest, PhraseSearchOnLongText) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificTest, RepeatedTokensInArray) {
+    // should have same text match score
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["tags"] = {"Harry Mark"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["tags"] = {"Harry is random", "Harry Simpson"};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["tags"] = {"Harry is Harry"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("harry", {"tags"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(results["hits"][0]["text_match"].get<size_t>(), results["hits"][1]["text_match"].get<size_t>());
+    ASSERT_EQ(results["hits"][1]["text_match"].get<size_t>(), results["hits"][2]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
