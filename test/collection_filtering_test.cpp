@@ -1735,7 +1735,7 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     Collection *coll1;
 
     std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("artist", field_types::STRING, true),
+                                 field("artist", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
 
     coll1 = collectionManager.get_collection("coll1").get();

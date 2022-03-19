@@ -328,12 +328,6 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                 str_comparator = EQUALS;
                 while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
             } else if(raw_value.size() >= 2 && raw_value[0] == '!' && raw_value[1] == '=') {
-                if(!_field.facet) {
-                    // EXCLUDE filtering on string is possible only on facet fields
-                    return Option<bool>(400, "To perform exclude filtering, filter field `" +
-                                             _field.name + "` must be a facet field.");
-                }
-
                 str_comparator = NOT_EQUALS;
                 filter_value_index++;
                 while(++filter_value_index < raw_value.size() && raw_value[filter_value_index] == ' ');
