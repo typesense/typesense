@@ -528,6 +528,7 @@ private:
                       size_t drop_tokens_threshold,
                       size_t typo_tokens_threshold,
                       bool exhaustive_search,
+                      int syn_orig_num_tokens,
                       size_t min_len_1typo,
                       size_t min_len_2typo,
                       size_t max_candidates) const;
@@ -548,6 +549,7 @@ private:
                            const std::vector<token_t>& query_tokens,
                            bool prioritize_exact_match,
                            bool exhaustive_search,
+                           int syn_orig_num_tokens,
                            size_t concurrency,
                            std::set<uint64>& query_hashes,
                            std::vector<uint32_t>& id_buff) const;
@@ -656,6 +658,7 @@ public:
                        const std::vector<std::string> &group_by_fields, uint32_t token_bits,
                        bool prioritize_exact_match,
                        bool single_exact_query_token,
+                       int syn_orig_num_tokens,
                        const std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
     static int64_t get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field);
