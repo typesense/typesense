@@ -1152,8 +1152,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     std::vector<highlight_field_t> highlight_items;
 
     if(query != "*") {
-        process_highlight_fields(search_fields, exclude_fields, highlight_fields, highlight_full_fields,
-                                 infixes, highlight_items);
+        process_highlight_fields(search_fields, include_fields, exclude_fields,
+                                 highlight_fields, highlight_full_fields, infixes, highlight_items);
     }
 
     nlohmann::json result = nlohmann::json::object();
@@ -1457,6 +1457,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 }
 
 void Collection::process_highlight_fields(const std::vector<std::string>& search_fields,
+                                          const spp::sparse_hash_set<std::string>& include_fields,
                                           const spp::sparse_hash_set<std::string>& exclude_fields,
                                           const string& highlight_fields,
                                           const std::string& highlight_full_fields,
@@ -1490,6 +1491,12 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
                 // should not pick excluded field for highlighting (only for implicit highlighting)
                 continue;
             }
+
+            if(!include_fields.empty() && include_fields.count(field_name) == 0) {
+                // if include fields have been specified, use that as allow list
+                continue;
+            }
+
             bool fully_highlighted = (fields_highlighted_fully_set.count(field_name) != 0);
             bool infixed = (fields_infixed_set.count(field_name) != 0);
             highlight_items.emplace_back(field_name, fully_highlighted, infixed);
