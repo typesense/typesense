@@ -463,6 +463,7 @@ public:
 
     void process_highlight_fields(const std::vector<std::string>& search_fields,
                                   const spp::sparse_hash_set<std::string>& exclude_fields,
+                                  const spp::sparse_hash_set<std::string>& include_fields,
                                   const string& highlight_fields,
                                   const std::string& highlight_full_fields,
                                   const std::vector<infix_t>& infixes,
