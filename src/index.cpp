@@ -4411,7 +4411,7 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
         leaves.push_back(leaf);
     }
 
-    if(leaves.size() == qtokens.size() && common_results_exist(leaves)) {
+    if(leaves.size() == qtokens.size() && common_results_exist(leaves, false)) {
         return ;
     }
 
@@ -4457,7 +4457,7 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
                 leaves.push_back(leaf);
             }
 
-            if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves)) {
+            if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves, false)) {
                 resolved_queries.push_back(candidate_tokens);
                 return;
             }
@@ -4487,7 +4487,7 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
                                                                           second_part.length() + 1));
 
                 std::vector<art_leaf*> part_leaves = {first_leaf, second_leaf};
-                if(second_leaf != nullptr && common_results_exist(part_leaves)) {
+                if(second_leaf != nullptr && common_results_exist(part_leaves, true)) {
                     candidate_tokens.push_back(first_part);
                     candidate_tokens.push_back(second_part);
                     found_split = true;
@@ -4506,9 +4506,9 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
 
         leaves.clear();
 
-        for(auto& token: candidate_tokens) {
-            art_leaf* leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) token.c_str(),
-                                                               token.length() + 1));
+        for(auto& candidate_token: candidate_tokens) {
+            art_leaf* leaf = static_cast<art_leaf*>(art_search(t, (const unsigned char*) candidate_token.c_str(),
+                                                               candidate_token.length() + 1));
             if(leaf == nullptr) {
                 break;
             }
@@ -4516,14 +4516,14 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
             leaves.push_back(leaf);
         }
 
-        if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves)) {
+        if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves, false)) {
             resolved_queries.push_back(candidate_tokens);
             return;
         }
     }
 }
 
-bool Index::common_results_exist(std::vector<art_leaf*>& leaves) const {
+bool Index::common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const {
     std::vector<uint32_t> result_ids;
     std::vector<void*> leaf_vals;
 
@@ -4532,7 +4532,23 @@ bool Index::common_results_exist(std::vector<art_leaf*>& leaves) const {
     }
 
     posting_t::intersect(leaf_vals, result_ids);
-    return !result_ids.empty();
+
+    if(result_ids.empty()) {
+        return false;
+    }
+
+    if(!must_match_phrase) {
+        return !result_ids.empty();
+    }
+
+    uint32_t* phrase_ids = new uint32_t[result_ids.size()];
+    size_t num_phrase_ids;
+
+    posting_t::get_phrase_matches(leaf_vals, false, &result_ids[0], result_ids.size(),
+                                  phrase_ids, num_phrase_ids);
+    bool phrase_exists = (num_phrase_ids != 0);
+    delete [] phrase_ids;
+    return phrase_exists;
 }
 
 /*

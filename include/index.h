@@ -612,7 +612,7 @@ private:
                                             const std::string &field_name,
                                             nlohmann::json::iterator& array_iter, bool is_array, bool& array_ele_erased);
 
-    bool common_results_exist(std::vector<art_leaf*>& leaves) const;
+    bool common_results_exist(std::vector<art_leaf*>& leaves, bool must_match_phrase) const;
 
 public:
     // for limiting number of results on multiple candidates / query rewrites

@@ -1916,7 +1916,7 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeUsedForPrefixSearch) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
+TEST_F(CollectionSpecificTest, SearchShouldSplitAndJoinTokens) {
     // when the first document containing a token already cannot fit compact posting list
     std::vector<field> fields = {field("title", field_types::STRING, false),};
 
@@ -1931,6 +1931,20 @@ TEST_F(CollectionSpecificTest, SearchShouldJoinToken) {
 
     results = coll1->search("pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("nonstick pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("the pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
+    // splitting requires tokens to co-occur as a phrase in the dataset
+
+    results = coll1->search("the pressureis", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    results = coll1->search("greatcooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
 
     results = coll1->search("t h e", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(1, results["hits"].size());
