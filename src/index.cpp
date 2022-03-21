@@ -1951,7 +1951,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             }
 
             search_field(0, window_tokens, search_tokens, nullptr, 0, num_toks_dropped, field_it->second, field_name,
-                         nullptr, 0, {}, {}, 2, searched_queries, topster, groups_processed,
+                         nullptr, 0, {}, {}, -1, 2, searched_queries, topster, groups_processed,
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, token_order, false, 0, 1, false, -1, 3, 7, 4);
 
@@ -2163,29 +2163,21 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
         spp::sparse_hash_map<uint64_t, std::vector<KV*>> topster_ids;
         //begin = std::chrono::high_resolution_clock::now();
 
-        // we will first try to run with `num_typos=0` and only if no results are found, attempt to run typo based search
-
-        const std::vector<uint32_t> zero_typos = {0};
-        search_fields(filters, included_ids_map, sort_fields_std, zero_typos, topster,
-                      curated_topster, token_order, prefixes, drop_tokens_threshold, groups_processed,
-                      searched_queries, typo_tokens_threshold, group_limit, group_by_fields, prioritize_exact_match,
-                      exhaustive_search,
-                      concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
-                      max_extra_suffix,
-                      filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
-                      exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, false, field_query_tokens,
-                      the_fields, all_result_ids_len, all_result_ids, topster_ids);
-
-        if(exhaustive_search || all_result_ids_len < typo_tokens_threshold || all_result_ids_len < drop_tokens_threshold) {
-            search_fields(filters, included_ids_map, sort_fields_std, num_typos, topster,
+        // We do progressive typo relaxation here so that results with minimal typos are fetched first,
+        // and further results are fetched only if `typo_tokens_threshold` is not satisfied.
+        for(int min_typo = 0; min_typo <= 2; min_typo++) {
+            search_fields(filters, included_ids_map, sort_fields_std, min_typo, num_typos, topster,
                           curated_topster, token_order, prefixes, drop_tokens_threshold, groups_processed,
-                          searched_queries, typo_tokens_threshold, group_limit, group_by_fields, prioritize_exact_match,
-                          exhaustive_search,
-                          concurrency, min_len_1typo, min_len_2typo, max_candidates, infixes, max_extra_prefix,
-                          max_extra_suffix,
+                          searched_queries, typo_tokens_threshold, group_limit, group_by_fields,
+                          prioritize_exact_match, exhaustive_search, concurrency, min_len_1typo, min_len_2typo,
+                          max_candidates, infixes, max_extra_prefix, max_extra_suffix,
                           filter_ids, filter_ids_length, curated_ids, curated_ids_sorted, num_search_fields,
                           exclude_token_ids, exclude_token_ids_size, ftopsters, is_wildcard_query, split_join_tokens,
                           field_query_tokens, the_fields, all_result_ids_len, all_result_ids, topster_ids);
+
+            if (!exhaustive_search && all_result_ids_len >= typo_tokens_threshold) {
+                break;
+            }
         }
 
         //auto begin0 = std::chrono::high_resolution_clock::now();
@@ -2458,7 +2450,9 @@ void Index::aggregate_and_score_fields(const std::vector<query_tokens_t>& field_
 
 void Index::search_fields(const std::vector<filter>& filters,
                           const std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
-                          const std::vector<sort_by>& sort_fields_std, const std::vector<uint32_t>& num_typos,
+                          const std::vector<sort_by>& sort_fields_std,
+                          const size_t min_typo,
+                          const std::vector<uint32_t>& num_typos,
                           Topster* topster, Topster* curated_topster, const token_ordering& token_order,
                           const std::vector<bool>& prefixes, const size_t drop_tokens_threshold,
                           spp::sparse_hash_set<uint64_t>& groups_processed,
@@ -2477,6 +2471,11 @@ void Index::search_fields(const std::vector<filter>& filters,
                           spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids) const {
 
     for(size_t i = 0; i < num_search_fields; i++) {
+        uint32_t field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
+        if(min_typo > field_num_typos) {
+            continue;
+        }
+
         const std::string & field_name = the_fields[i].name;
         bool is_array = search_schema.at(field_name).is_array();
 
@@ -2502,7 +2501,6 @@ void Index::search_fields(const std::vector<filter>& filters,
         }
 
         // these are already validated upstream, but still playing safe
-        int field_num_typos = (i < num_typos.size()) ? num_typos[i] : num_typos[0];
         bool field_prefix = (i < prefixes.size()) ? prefixes[i] : prefixes[0];
         infix_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
 
@@ -2530,11 +2528,14 @@ void Index::search_fields(const std::vector<filter>& filters,
             size_t field_num_results = 0;
             std::set<uint64> query_hashes;
 
+            int last_typo = int(min_typo) - 1;
+
             if(!is_wildcard_query) {
                 search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size,
                              num_tokens_dropped, field_it->second, field_name,
                              actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
-                             field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                             last_typo, min_typo, searched_queries, actual_topster, groups_processed,
+                             &all_result_ids, all_result_ids_len,
                              field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                              query_hashes, token_order, field_prefix,
                              drop_tokens_threshold, typo_tokens_threshold, exhaustive_search, -1,
@@ -2566,7 +2567,8 @@ void Index::search_fields(const std::vector<filter>& filters,
                         search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size,
                                      num_tokens_dropped, field_it->second, field_name,
                                      actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
-                                     field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                                     last_typo, min_typo, searched_queries, actual_topster, groups_processed,
+                                     &all_result_ids, all_result_ids_len,
                                      field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                                      query_hashes, token_order, field_prefix,
                                      0, 0, exhaustive_search, -1, min_len_1typo, min_len_2typo, max_candidates);
@@ -2734,7 +2736,8 @@ void Index::do_synonym_search(const std::vector<filter>& filters,
         } else {
             search_field(field_id, query_tokens, search_tokens, exclude_token_ids, exclude_token_ids_size, num_tokens_dropped,
                          field_it->second, field_name, actual_filter_ids, actual_filter_ids_length, curated_ids_sorted, sort_fields_std,
-                         field_num_typos, searched_queries, actual_topster, groups_processed, &all_result_ids, all_result_ids_len,
+                         -1, field_num_typos, searched_queries, actual_topster, groups_processed,
+                         &all_result_ids, all_result_ids_len,
                          field_num_results, group_limit, group_by_fields, prioritize_exact_match, concurrency,
                          query_hashes, token_order, field_prefix,
                          drop_tokens_threshold, typo_tokens_threshold, exhaustive_search, syn_orig_num_tokens,
@@ -2929,8 +2932,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
             search_field(0, qtokens, search_tokens, nullptr, 0, num_toks_dropped,
                          facet_field, facet_field.faceted_name(),
-                         all_result_ids, all_result_ids_len, {}, {}, facet_query_num_typos, searched_queries, topster, groups_processed,
-                         &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
+                         all_result_ids, all_result_ids_len, {}, {}, -1, facet_query_num_typos, searched_queries, topster,
+                         groups_processed, &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, -1, 3, 1000, 4);
 
             //LOG(INFO) << "searched_queries.size: " << searched_queries.size();
@@ -3192,7 +3195,9 @@ void Index::search_field(const uint8_t & field_id,
                          const field& the_field, const std::string& field_name, // to handle faceted index
                          const uint32_t *filter_ids, size_t filter_ids_length,
                          const std::vector<uint32_t>& curated_ids,
-                         const std::vector<sort_by> & sort_fields, const int num_typos,
+                         const std::vector<sort_by> & sort_fields,
+                         const int last_typo,
+                         const int max_typos,
                          std::vector<std::vector<art_leaf*>> & searched_queries,
                          Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                          uint32_t** all_result_ids, size_t & all_result_ids_len, size_t& field_num_results,
@@ -3211,7 +3216,7 @@ void Index::search_field(const uint8_t & field_id,
 
     // NOTE: `query_tokens` preserve original tokens, while `search_tokens` could be a result of dropped tokens
 
-    size_t max_cost = (num_typos < 0 || num_typos > 2) ? 2 : num_typos;
+    size_t max_cost = (max_typos < 0 || max_typos > 2) ? 2 : max_typos;
 
     if(the_field.locale != "" && the_field.locale != "en" && !Tokenizer::is_cyrillic(the_field.locale)) {
         // disable fuzzy trie traversal for certain non-english locales
@@ -3254,9 +3259,20 @@ void Index::search_field(const uint8_t & field_id,
         // For e.g. for a 3-token query: [0, 0, 0], [0, 0, 1], [0, 1, 1] etc.
         std::vector<uint32_t> costs(token_to_costs.size());
         ldiv_t q { n, 0 };
+        bool valid_combo = false;
+
         for(long long i = (token_to_costs.size() - 1); 0 <= i ; --i ) {
             q = ldiv(q.quot, token_to_costs[i].size());
             costs[i] = token_to_costs[i][q.rem];
+            if(costs[i] == uint32_t(last_typo+1)) {
+                // to support progressive typo searching, there must be atleast one typo that's greater than last_typo
+                valid_combo = true;
+            }
+        }
+
+        if(last_typo != -1 && !valid_combo) {
+            n++;
+            continue;
         }
 
         unique_tokens.clear();
@@ -3396,7 +3412,7 @@ void Index::search_field(const uint8_t & field_id,
 
         return search_field(field_id, query_tokens, truncated_tokens, exclude_token_ids, exclude_token_ids_size,
                             num_tokens_dropped, the_field, field_name, filter_ids, filter_ids_length, curated_ids,
-                            sort_fields, num_typos,searched_queries, topster, groups_processed, all_result_ids,
+                            sort_fields, last_typo, max_typos, searched_queries, topster, groups_processed, all_result_ids,
                             all_result_ids_len, field_num_results, group_limit, group_by_fields,
                             prioritize_exact_match, concurrency, query_hashes,
                             token_order, prefix, drop_tokens_threshold, typo_tokens_threshold,
