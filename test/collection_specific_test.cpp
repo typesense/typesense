@@ -199,8 +199,66 @@ TEST_F(CollectionSpecificTest, ExactSingleFieldMatch) {
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
     auto results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
-                                 1, FREQUENCY, {true, true}, 10).get();
+                                 1, FREQUENCY, {true, true}, 10,
+                                 spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
+                                 4, "title", 10).get();
 
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // with typo_tokens_threshold = 1, only exact token match is fetched
+    results = coll1->search("charger", {"title", "description"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true, true}, 10,
+                            spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
+                            4, "title", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, CheckProgressiveTypoSearching) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    // two records, one with single typo and the other with 2 typos
+    // only the single typo record is returned with typo_tokens_threshold of 1
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Fast Conveniant Charger";
+    doc1["description"] = "A product you should buy.";
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Omega";
+    doc2["description"] = "Conxeniant product.";
+    doc2["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+   auto results = coll1->search("convenient", {"title", "description"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true, true}, 10,
+                                 spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
+                                 4, "title", 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // with typo_tokens_threshold = 10, both matches are fetched
+    results = coll1->search("convenient", {"title", "description"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true, true}, 10,
+                            spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(), 10, "", 30,
+                            4, "title", 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
