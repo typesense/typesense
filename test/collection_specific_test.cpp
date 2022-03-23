@@ -293,6 +293,7 @@ TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {1, 1}).get();
 
+    ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
@@ -304,8 +305,46 @@ TEST_F(CollectionSpecificTest, OrderMultiFieldFuzzyMatch) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                             "<mark>", "</mark>", {2, 1}).get();
 
+    ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, TypoBeforeDropTokens) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Josh Wexler";
+    doc1["points"] = 500;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Josh Lipson";
+    doc2["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("Josh Lixson", {"title"}, "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("Josh Lixson", {"title"}, "", {}, {}, {2}, 10,
+                            1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -338,6 +377,7 @@ TEST_F(CollectionSpecificTest, FieldWeighting) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {1, 4}).get();
 
+    ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
@@ -372,10 +412,8 @@ TEST_F(CollectionSpecificTest, MultiFieldArrayRepeatingTokens) {
     auto results = coll1->search("rv345 cisco 18", {"title", "description", "attrs"}, "", {}, {}, {1}, 10,
                                  1, FREQUENCY, {true, true, true}).get();
 
-    LOG(INFO) << results;
-
+    ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -629,7 +667,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
     ASSERT_TRUE(stored_values.empty());
 
     // synonyms should also have been deleted from the store
-    store->scan_fill(Collection::COLLECTION_SYNONYM_PREFIX, stored_values);
+    store->scan_fill(SynonymIndex::COLLECTION_SYNONYM_PREFIX, stored_values);
     ASSERT_TRUE(stored_values.empty());
 }
 
@@ -877,16 +915,39 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                                  "<mark>", "</mark>").get();
 
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+
+    ASSERT_EQ("<mark>Pandaabear</mark> <mark>Bas</mark>ic",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    results = coll1->search("pandaabear bas", {"username", "name"},
+                            "", {}, {}, {2, 2}, 10,
+                            1, FREQUENCY, {true, true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
+                            "<mark>", "</mark>").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Pandaabear</mark> <mark>Bas</mark>ic",
+              results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
     ASSERT_EQ("<mark>Pandaabear</mark>",
               results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
-
-    ASSERT_EQ("Panda's <mark>Basement</mark>",
+    ASSERT_EQ("Panda's <mark>Bas</mark>ement",
               results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
 
     results = coll1->search("pandaabear bas", {"username", "tags"},
@@ -2533,6 +2594,15 @@ TEST_F(CollectionSpecificTest, DropTokensTillOneToken) {
 
     auto results = coll1->search("harry malcolm roscow", {"title"},
                                  "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // with drop tokens threshold of 1
+
+    results = coll1->search("harry malcolm roscow", {"title"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());

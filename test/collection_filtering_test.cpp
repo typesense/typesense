@@ -2254,7 +2254,6 @@ TEST_F(CollectionFilteringTest, ExcludeMultipleTokens) {
             {"title"}, "",
             {}, {}, {0}, 10, 1, FREQUENCY).get();
 
-    LOG(INFO) << results;
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 

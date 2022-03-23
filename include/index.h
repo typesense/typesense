@@ -24,6 +24,7 @@
 #include "adi_tree.h"
 #include "tsl/htrie_set.h"
 #include "id_list.h"
+#include "synonym_index.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -56,7 +57,7 @@ struct search_field_t {
 };
 
 struct query_tokens_t {
-    std::vector<std::string> q_include_tokens;
+    std::vector<token_t> q_include_tokens;
     std::vector<std::vector<std::string>> q_exclude_tokens;
     std::vector<std::vector<std::string>> q_phrases;
     std::vector<std::vector<std::string>> q_synonyms;
@@ -431,6 +432,8 @@ private:
 
     const Store* store;
 
+    const SynonymIndex* synonym_index;
+
     ThreadPool* thread_pool;
 
     size_t num_documents;
@@ -480,6 +483,7 @@ private:
                                        long long int n,
                                        std::vector<art_leaf *>& actual_query_suggestion,
                                        std::vector<art_leaf *>& query_suggestion,
+                                       int syn_orig_num_tokens,
                                        uint32_t& token_bits,
                                        uint64& qhash);
 
@@ -506,8 +510,7 @@ private:
     static void aggregate_topster(Topster* agg_topster, Topster* index_topster);
 
     void search_field(const uint8_t & field_id,
-                      std::vector<token_t>& query_tokens,
-                      std::vector<token_t>& search_tokens,
+                      const std::vector<token_t>& query_tokens,
                       const uint32_t* exclude_token_ids,
                       size_t exclude_token_ids_size,
                       size_t& num_tokens_dropped,
@@ -575,7 +578,7 @@ private:
                                            std::unordered_map<std::string, std::vector<uint32_t>>& token_to_offsets,
                                            std::vector<uint64_t>& facet_hashes);
 
-    void collate_included_ids(const std::vector<std::string>& q_included_tokens,
+    void collate_included_ids(const std::vector<token_t>& q_included_tokens,
                               const std::string & field, const uint8_t field_id,
                               const std::map<size_t, std::map<size_t, uint32_t>> & included_ids_map,
                               Topster* curated_topster, std::vector<std::vector<art_leaf*>> & searched_queries) const;
@@ -635,17 +638,13 @@ public:
     Index(const std::string& name,
           const uint32_t collection_id,
           const Store* store,
+          SynonymIndex* synonym_index,
           ThreadPool* thread_pool,
           const std::unordered_map<std::string, field>& search_schema,
-          const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators);
+          const std::vector<char>& symbols_to_index,
+          const std::vector<char>& token_separators);
 
     ~Index();
-
-    // reference: https://stackoverflow.com/a/27952689/131050
-    static uint64_t hash_combine(uint64_t combined, uint64_t hash) {
-        combined ^= hash + 0x517cc1b727220a95 + (combined << 6) + (combined >> 2);
-        return combined;
-    }
 
     static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
@@ -819,7 +818,7 @@ public:
                            int field_num_typos,
                            bool field_prefix, const uint8_t field_id, const string& field_name,
                            const std::unordered_map<string, field>::const_iterator& field_it,
-                           std::vector<token_t>& query_tokens, std::vector<token_t>& search_tokens,
+                           std::vector<token_t>& query_tokens,
                            size_t num_tokens_dropped, Topster* actual_topster, size_t field_num_results,
                            std::vector<query_tokens_t>& field_query_tokens, size_t& all_result_ids_len,
                            spp::sparse_hash_set<uint64_t>& groups_processed,

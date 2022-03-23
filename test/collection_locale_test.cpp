@@ -170,7 +170,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiText) {
     ASSERT_EQ("<mark>ลง</mark>ที่นั่นโดย<mark>รถไฟ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     results = coll1->search("ลงรถไฟ downie",
-                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
