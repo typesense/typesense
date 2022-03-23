@@ -300,17 +300,17 @@ TEST_F(CollectionGroupingTest, GroupingWithMultiFieldRelevance) {
     ASSERT_STREQ("pop", results["grouped_hits"][0]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][0]["hits"].size());
     ASSERT_STREQ("1", results["grouped_hits"][0]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("4", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("2", results["grouped_hits"][0]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_STREQ("rock", results["grouped_hits"][1]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][1]["hits"].size());
     ASSERT_STREQ("5", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("6", results["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["grouped_hits"][1]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     ASSERT_STREQ("country", results["grouped_hits"][2]["group_key"][0].get<std::string>().c_str());
     ASSERT_EQ(2, results["grouped_hits"][2]["hits"].size());
-    ASSERT_STREQ("8", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("3", results["grouped_hits"][2]["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("8", results["grouped_hits"][2]["hits"][1]["document"]["id"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

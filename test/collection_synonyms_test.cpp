@@ -329,8 +329,7 @@ TEST_F(CollectionSynonymsTest, OneWaySynonym) {
     ASSERT_EQ(1, res["found"].get<uint32_t>());
 }
 
-
-TEST_F(CollectionSynonymsTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAllFieldsWithSynonyms) {
+TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
     std::vector<field> fields = {field("category", field_types::STRING_ARRAY, false),
                                  field("location", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
@@ -377,9 +376,56 @@ TEST_F(CollectionSynonymsTest, VerbatimMatchShouldConsiderTokensMatchedAcrossAll
 
     ASSERT_EQ(3, res["hits"].size());
 
+    // NOTE: "2" is ranked above "1" because synonym matches uses the root query's number of tokens for counting
+    // This means that "united states" == "us" so a single token match, same as match on "sneakers" in record 2.
+
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", res["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json syn_json = {
+        {"id", "syn-1"},
+        {"root", "ceo"},
+        {"synonyms", {"chief executive officer"} }
+    };
+
+    synonym_t synonym;
+    auto syn_op = synonym_t::parse(syn_json, synonym);
+    ASSERT_TRUE(syn_op.ok());
+    coll1->add_synonym(synonym);
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Dan Fisher";
+    doc1["title"] = "Chief Executive Officer";
+    doc1["points"] = 10;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Jack Sparrow";
+    doc2["title"] = "CEO";
+    doc2["points"] = 20;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto res = coll1->search("ceo", {"name", "title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(2, res["hits"].size());
+
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ(res["hits"][1]["text_match"].get<size_t>(), res["hits"][0]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -426,8 +472,8 @@ TEST_F(CollectionSynonymsTest, MultiWaySynonym) {
 
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
-    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Samuel</mark> L. <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Samuel</mark> <mark>L.</mark> <mark>Jackson</mark>", res["hits"][1]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     // for now we don't support synonyms on ANY prefix
 

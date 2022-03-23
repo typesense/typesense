@@ -429,7 +429,7 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
         // delete synonyms
         const std::string& del_synonym_prefix =
-                std::string(Collection::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
+                std::string(SynonymIndex::COLLECTION_SYNONYM_PREFIX) + "_" + actual_coll_name + "_";
         iter = store->scan(del_synonym_prefix);
         while(iter->Valid() && iter->key().starts_with(del_synonym_prefix)) {
             store->remove(iter->key().ToString());
@@ -1110,7 +1110,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     // initialize synonyms
     std::vector<std::string> collection_synonym_jsons;
-    cm.store->scan_fill(Collection::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
+    cm.store->scan_fill(SynonymIndex::get_synonym_key(this_collection_name, ""), collection_synonym_jsons);
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);

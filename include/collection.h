@@ -18,106 +18,11 @@
 #include <field.h>
 #include <option.h>
 #include "tokenizer.h"
+#include "synonym_index.h"
 
 struct doc_seq_id_t {
     uint32_t seq_id;
     bool is_new;
-};
-
-struct synonym_t {
-    std::string id;
-    std::vector<std::string> root;
-    std::vector<std::vector<std::string>> synonyms;
-
-    synonym_t() = default;
-
-    synonym_t(const std::string& id, const std::vector<std::string>& root,
-              const std::vector<std::vector<std::string>>& synonyms):
-              id(id), root(root), synonyms(synonyms) {
-
-    }
-
-    explicit synonym_t(const nlohmann::json& synonym) {
-        id = synonym["id"].get<std::string>();
-        if(synonym.count("root") != 0) {
-            root = synonym["root"].get<std::vector<std::string>>();
-        }
-        synonyms = synonym["synonyms"].get<std::vector<std::vector<std::string>>>();
-    }
-
-    nlohmann::json to_json() const {
-        nlohmann::json obj;
-        obj["id"] = id;
-        obj["root"] = root;
-        obj["synonyms"] = synonyms;
-        return obj;
-    }
-
-    nlohmann::json to_view_json() const {
-        nlohmann::json obj;
-        obj["id"] = id;
-        obj["root"] = StringUtils::join(root, " ");
-
-        obj["synonyms"] = nlohmann::json::array();
-
-        for(const auto& synonym: synonyms) {
-            obj["synonyms"].push_back(StringUtils::join(synonym, " "));
-        }
-
-        return obj;
-    }
-
-    static Option<bool> parse(const nlohmann::json& synonym_json, synonym_t& syn) {
-        if(synonym_json.count("id") == 0) {
-            return Option<bool>(400, "Missing `id` field.");
-        }
-
-        if(synonym_json.count("synonyms") == 0) {
-            return Option<bool>(400, "Could not find an array of `synonyms`");
-        }
-
-        if(synonym_json.count("root") != 0 && !synonym_json["root"].is_string()) {
-            return Option<bool>(400, "Key `root` should be a string.");
-        }
-
-        if (!synonym_json["synonyms"].is_array() || synonym_json["synonyms"].empty()) {
-            return Option<bool>(400, "Could not find an array of `synonyms`");
-        }
-
-        for(const auto& synonym: synonym_json["synonyms"]) {
-            if(!synonym.is_string() || synonym == "") {
-                return Option<bool>(400, "Could not find a valid string array of `synonyms`");
-            }
-
-            std::vector<std::string> tokens;
-            Tokenizer(synonym, true).tokenize(tokens);
-            syn.synonyms.push_back(tokens);
-        }
-
-        if(synonym_json.count("root") != 0) {
-            std::vector<std::string> tokens;
-            Tokenizer(synonym_json["root"], true).tokenize(tokens);
-            syn.root = tokens;
-        }
-
-        syn.id = synonym_json["id"];
-        return Option<bool>(true);
-    }
-
-    static uint64_t get_hash(const std::vector<std::string>& tokens) {
-        uint64_t hash = 1;
-        for(size_t i=0; i < tokens.size(); i++) {
-            auto& token = tokens[i];
-            uint64_t token_hash = StringUtils::hash_wy(token.c_str(), token.size());
-            if(i == 0) {
-                hash = token_hash;
-            } else {
-                hash = Index::hash_combine(hash, token_hash);
-            }
-        }
-
-        return hash;
-    }
 };
 
 struct highlight_field_t {
@@ -176,9 +81,6 @@ private:
 
     std::map<std::string, override_t> overrides;
 
-    spp::sparse_hash_map<std::string, synonym_t> synonym_definitions;
-    spp::sparse_hash_map<uint64_t, std::vector<std::string>> synonym_index;
-
     const std::string default_sorting_field;
 
     const float max_memory_ratio;
@@ -192,6 +94,8 @@ private:
     std::vector<char> token_separators;
 
     Index* index;
+
+    SynonymIndex* synonym_index;
 
     // methods
 
@@ -242,12 +146,6 @@ private:
     static Option<bool> parse_pinned_hits(const std::string& pinned_hits_str,
                                    std::map<size_t, std::vector<std::string>>& pinned_hits);
 
-    void synonym_reduction_internal(const std::vector<std::string>& tokens,
-                                    size_t start_window_size,
-                                    size_t start_index_pos,
-                                    std::set<uint64_t>& processed_syn_hashes,
-                                    std::vector<std::vector<std::string>>& results) const;
-
     Index* init_index();
 
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
@@ -267,7 +165,6 @@ public:
     static constexpr const char* COLLECTION_META_PREFIX = "$CM";
     static constexpr const char* COLLECTION_NEXT_SEQ_PREFIX = "$CS";
     static constexpr const char* COLLECTION_OVERRIDE_PREFIX = "$CO";
-    static constexpr const char* COLLECTION_SYNONYM_PREFIX = "$CY";
     static constexpr const char* SEQ_ID_PREFIX = "$SI";
     static constexpr const char* DOC_ID_PREFIX = "$DI";
 
@@ -299,8 +196,6 @@ public:
     static std::string get_meta_key(const std::string & collection_name);
 
     static std::string get_override_key(const std::string & collection_name, const std::string & override_id);
-
-    static std::string get_synonym_key(const std::string & collection_name, const std::string & synonym_id);
 
     std::string get_seq_id_collection_prefix() const;
 
@@ -444,9 +339,6 @@ public:
 
     // synonym operations
 
-    void synonym_reduction(const std::vector<std::string>& tokens,
-                           std::vector<std::vector<std::string>>& results) const;
-
     spp::sparse_hash_map<std::string, synonym_t> get_synonyms();
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
@@ -454,6 +346,11 @@ public:
     Option<bool> add_synonym(const synonym_t& synonym);
 
     Option<bool> remove_synonym(const std::string & id);
+
+    void synonym_reduction(const std::vector<std::string>& tokens,
+                           std::vector<std::vector<std::string>>& results) const;
+
+    // highlight ops
 
     static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag, const string& last_raw_q_token,
                    const string& text, const std::map<size_t, size_t>& token_offsets,

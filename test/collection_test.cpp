@@ -285,8 +285,8 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringMultiTokenSearch) {
 
     // with 2 indexed words
     results = collection->search("from DoesNotExist insTruments", query_fields, "", facets, sort_fields, {1}, 10).get();
-    ASSERT_EQ(1, results["hits"].size());
-    ids = {"2"};
+    ASSERT_EQ(2, results["hits"].size());
+    ids = {"2", "17"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -295,7 +295,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringMultiTokenSearch) {
         ASSERT_STREQ(id.c_str(), result_id.c_str());
     }
 
-    // exhaustive search should throw more results
+    // exhaustive search should give same results
     results = collection->search("from DoesNotExist insTruments", query_fields, "", facets, sort_fields, {1}, 10,
                                  1, FREQUENCY, {true},
                                  1, spp::sparse_hash_set<std::string>(),
@@ -318,7 +318,7 @@ TEST_F(CollectionTest, SkipUnindexedTokensDuringMultiTokenSearch) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10).get();
-    ASSERT_EQ(7, results["hits"].size());
+    ASSERT_EQ(9, results["hits"].size());
 
     results.clear();
     results = collection->search("the a", query_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}, 0).get();
@@ -350,9 +350,9 @@ TEST_F(CollectionTest, PartialMultiTokenSearch) {
     std::vector<std::string> facets;
     nlohmann::json results = collection->search("rocket research", query_fields, "", facets,
                                                 sort_fields, {0}, 10, 1, FREQUENCY, {false}, 10).get();
-    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ(6, results["hits"].size());
 
-    std::vector<std::string> ids = {"1", "8", "16", "17"};
+    std::vector<std::string> ids = {"19", "1", "10", "8", "16", "17"};
 
     for(size_t i = 0; i < results["hits"].size(); i++) {
         nlohmann::json result = results["hits"].at(i);
@@ -3026,7 +3026,8 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
     }
 
     auto results = coll1->search("Dustin Kensrue Down There by the Train",
-                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                                 {true}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -3069,7 +3070,8 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
     }
 
     results = coll1->search("Dustin Kensrue Down There by the Train",
-                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 10).get();
 
     ASSERT_EQ(3, results["found"].get<size_t>());
     ASSERT_EQ(3, results["hits"].size());
@@ -3082,7 +3084,8 @@ TEST_F(CollectionTest, MultiFieldRelevance) {
 
     // with exclude token syntax
     results = coll1->search("-downie dustin kensrue down there by the train",
-                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                            {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY,
+                            {true}, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
@@ -3125,7 +3128,7 @@ TEST_F(CollectionTest, MultiFieldRelevance2) {
     }
 
     auto results = coll1->search("on a jetplane",
-                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                                 {"title", "artist"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
@@ -3479,11 +3482,12 @@ TEST_F(CollectionTest, ExactMatch) {
                                  {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY,
                                  {true}, 10).get();
 
-    ASSERT_EQ(2, results["found"].get<size_t>());
-    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(3, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("2", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("0", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
     results = coll1->search("alpha", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10).get();
 

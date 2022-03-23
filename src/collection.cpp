@@ -57,6 +57,7 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
 Collection::~Collection() {
     std::unique_lock lock(mutex);
     delete index;
+    delete synonym_index;
 }
 
 uint32_t Collection::get_next_seq_id() {
@@ -974,28 +975,34 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
     std::vector<std::string> q_tokens;  // used for auxillary highlighting
+    std::vector<std::string> q_include_tokens;
 
     if(search_fields.size() == 0) {
         // has to be a wildcard query
         field_query_tokens.emplace_back(query_tokens_t{});
-        parse_search_query(query, field_query_tokens[0].q_include_tokens,
+        parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens, field_query_tokens[0].q_phrases, "",
                            false);
+        for(size_t i = 0; i < q_include_tokens.size(); i++) {
+            auto& q_include_token = q_include_tokens[i];
+            field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size()-1));
+        }
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
         const std::string & field_locale = search_schema.at(search_fields[0]).locale;
-        parse_search_query(query, field_query_tokens[0].q_include_tokens,
+        parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
                            field_locale, pre_segmented_query);
 
         // process filter overrides first, before synonyms (order is important)
-        index->process_filter_overrides(filter_overrides, field_query_tokens[0].q_include_tokens, token_order, filters);
+        index->process_filter_overrides(filter_overrides, q_include_tokens, token_order, filters);
 
-        // get synonyms
-        synonym_reduction(field_query_tokens[0].q_include_tokens, field_query_tokens[0].q_synonyms);
-
-        q_tokens = field_query_tokens[0].q_include_tokens;
+        for(size_t i = 0; i < q_include_tokens.size(); i++) {
+            auto& q_include_token = q_include_tokens[i];
+            q_tokens.push_back(q_include_token);
+            field_query_tokens[0].q_include_tokens.emplace_back(i, q_include_token, (i == q_include_tokens.size()-1));
+        }
 
         for(auto& phrase: field_query_tokens[0].q_phrases) {
             for(auto& token: phrase) {
@@ -2344,10 +2351,6 @@ std::string Collection::get_override_key(const std::string & collection_name, co
     return std::string(COLLECTION_OVERRIDE_PREFIX) + "_" + collection_name + "_" + override_id;
 }
 
-std::string Collection::get_synonym_key(const std::string & collection_name, const std::string & synonym_id) {
-    return std::string(COLLECTION_SYNONYM_PREFIX) + "_" + collection_name + "_" + synonym_id;
-}
-
 std::string Collection::get_seq_id_collection_prefix() const {
     return std::to_string(collection_id) + "_" + std::string(SEQ_ID_PREFIX);
 }
@@ -2432,184 +2435,30 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
     return Option<bool>(true);
 }
 
-void Collection::synonym_reduction(const std::vector<std::string>& tokens,
-                                   std::vector<std::vector<std::string>>& results) const {
-    if(synonym_definitions.empty()) {
-        return;
-    }
-
-    std::set<uint64_t> processed_syn_hashes;
-    synonym_reduction_internal(tokens, tokens.size(), 0, processed_syn_hashes, results);
-}
-
 Option<bool> Collection::add_synonym(const synonym_t& synonym) {
-    if(synonym_definitions.count(synonym.id) != 0) {
-        // first we have to delete existing entries so we can upsert
-        Option<bool> rem_op = remove_synonym(synonym.id);
-        if(!rem_op.ok()) {
-            return rem_op;
-        }
-    }
-
-    std::unique_lock write_lock(mutex);
-    synonym_definitions[synonym.id] = synonym;
-
-    if(!synonym.root.empty()) {
-        uint64_t root_hash = synonym_t::get_hash(synonym.root);
-        synonym_index[root_hash].emplace_back(synonym.id);
-    } else {
-        for(const auto & syn_tokens : synonym.synonyms) {
-            uint64_t syn_hash = synonym_t::get_hash(syn_tokens);
-            synonym_index[syn_hash].emplace_back(synonym.id);
-        }
-    }
-
-    write_lock.unlock();
-
-    bool inserted = store->insert(Collection::get_synonym_key(name, synonym.id), synonym.to_json().dump());
-    if(!inserted) {
-        return Option<bool>(500, "Error while storing the synonym on disk.");
-    }
-
-    return Option<bool>(true);
+    std::shared_lock lock(mutex);
+    return synonym_index->add_synonym(name, synonym);
 }
 
 bool Collection::get_synonym(const std::string& id, synonym_t& synonym) {
     std::shared_lock lock(mutex);
-
-    if(synonym_definitions.count(id) != 0) {
-        synonym = synonym_definitions[id];
-        return true;
-    }
-
-    return false;
-}
-
-void Collection::synonym_reduction_internal(const std::vector<std::string>& tokens,
-                                            size_t start_window_size, size_t start_index_pos,
-                                            std::set<uint64_t>& processed_syn_hashes,
-                                            std::vector<std::vector<std::string>>& results) const {
-
-    bool recursed = false;
-
-    for(size_t window_len = start_window_size; window_len > 0; window_len--) {
-        for(size_t start_index = start_index_pos; start_index+window_len-1 < tokens.size(); start_index++) {
-            std::vector<uint64_t> syn_hashes;
-            uint64_t syn_hash = 1;
-
-            for(size_t i = start_index; i < start_index+window_len; i++) {
-                uint64_t token_hash = StringUtils::hash_wy(tokens[i].c_str(), tokens[i].size());
-
-                if(i == start_index) {
-                    syn_hash = token_hash;
-                } else {
-                    syn_hash = Index::hash_combine(syn_hash, token_hash);
-                }
-
-                syn_hashes.push_back(token_hash);
-            }
-
-            const auto& syn_itr = synonym_index.find(syn_hash);
-
-            if(syn_itr != synonym_index.end() && processed_syn_hashes.count(syn_hash) == 0) {
-                // tokens in this window match a synonym: reconstruct tokens and rerun synonym mapping against matches
-                const auto& syn_ids = syn_itr->second;
-
-                for(const auto& syn_id: syn_ids) {
-                    const auto &syn_def = synonym_definitions.at(syn_id);
-
-                    for (const auto &syn_def_tokens: syn_def.synonyms) {
-                        std::vector<std::string> new_tokens;
-
-                        for (size_t i = 0; i < start_index; i++) {
-                            new_tokens.push_back(tokens[i]);
-                        }
-
-                        std::vector<uint64_t> syn_def_hashes;
-                        uint64_t syn_def_hash = 1;
-
-                        for (size_t i = 0; i < syn_def_tokens.size(); i++) {
-                            const auto &syn_def_token = syn_def_tokens[i];
-                            new_tokens.push_back(syn_def_token);
-                            uint64_t token_hash = StringUtils::hash_wy(syn_def_token.c_str(),
-                                                                       syn_def_token.size());
-
-                            if (i == 0) {
-                                syn_def_hash = token_hash;
-                            } else {
-                                syn_def_hash = Index::hash_combine(syn_def_hash, token_hash);
-                            }
-
-                            syn_def_hashes.push_back(token_hash);
-                        }
-
-                        if (syn_def_hash == syn_hash) {
-                            // skip over token matching itself in the group
-                            continue;
-                        }
-
-                        for (size_t i = start_index + window_len; i < tokens.size(); i++) {
-                            new_tokens.push_back(tokens[i]);
-                        }
-
-                        processed_syn_hashes.emplace(syn_def_hash);
-                        processed_syn_hashes.emplace(syn_hash);
-
-                        for (uint64_t h: syn_def_hashes) {
-                            processed_syn_hashes.emplace(h);
-                        }
-
-                        for (uint64_t h: syn_hashes) {
-                            processed_syn_hashes.emplace(h);
-                        }
-
-                        recursed = true;
-                        synonym_reduction_internal(new_tokens, window_len, start_index, processed_syn_hashes, results);
-                    }
-                }
-            }
-        }
-
-        // reset it because for the next window we have to start from scratch
-        start_index_pos = 0;
-    }
-
-    if(!recursed && !processed_syn_hashes.empty()) {
-        results.emplace_back(tokens);
-    }
+    return synonym_index->get_synonym(id, synonym);
 }
 
 Option<bool> Collection::remove_synonym(const std::string &id) {
-    std::unique_lock lock(mutex);
-    const auto& syn_iter = synonym_definitions.find(id);
+    std::shared_lock lock(mutex);
+    return synonym_index->remove_synonym(name, id);
+}
 
-    if(syn_iter != synonym_definitions.end()) {
-        bool removed = store->remove(Collection::get_synonym_key(name, id));
-        if(!removed) {
-            return Option<bool>(500, "Error while deleting the synonym from disk.");
-        }
-
-        const auto& synonym = syn_iter->second;
-        if(!synonym.root.empty()) {
-            uint64_t root_hash = synonym_t::get_hash(synonym.root);
-            synonym_index.erase(root_hash);
-        } else {
-            for(const auto & syn_tokens : synonym.synonyms) {
-                uint64_t syn_hash = synonym_t::get_hash(syn_tokens);
-                synonym_index.erase(syn_hash);
-            }
-        }
-
-        synonym_definitions.erase(id);
-        return Option<bool>(true);
-    }
-
-    return Option<bool>(404, "Could not find that `id`.");
+void Collection::synonym_reduction(const std::vector<std::string>& tokens,
+                                     std::vector<std::vector<std::string>>& results) const {
+    std::shared_lock lock(mutex);
+    return synonym_index->synonym_reduction(tokens, results);
 }
 
 spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
-    return synonym_definitions;
+    return synonym_index->get_synonyms();
 }
 
 Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values) {
@@ -2773,9 +2622,12 @@ Index* Collection::init_index() {
         search_schema.emplace(field.name, field);
     }
 
+    synonym_index = new SynonymIndex(store);
+
     return new Index(name+std::to_string(0),
                      collection_id,
                      store,
+                     synonym_index,
                      CollectionManager::get_instance().get_thread_pool(),
                      search_schema,
                      symbols_to_index, token_separators);

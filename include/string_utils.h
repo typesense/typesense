@@ -295,6 +295,12 @@ struct StringUtils {
         return hash != std::numeric_limits<uint64_t>::max() ? hash : (std::numeric_limits<uint64_t>::max()-1);
     }
 
+    // reference: https://stackoverflow.com/a/27952689/131050
+    static uint64_t hash_combine(uint64_t combined, uint64_t hash) {
+        combined ^= hash + 0x517cc1b727220a95 + (combined << 6) + (combined >> 2);
+        return combined;
+    }
+
     std::string unicode_nfkd(const std::string& text);
 
     static std::string randstring(size_t length);
