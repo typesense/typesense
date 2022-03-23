@@ -30,6 +30,7 @@ protected:
             field("cast", field_types::STRING_ARRAY, true, true, true, "", false),
             field(".*_year", field_types::INT32, true, true),
             field("location", field_types::GEOPOINT, false, true, true),
+            field("not_stored", field_types::STRING, false, true, false),
             field("points", field_types::INT32, false)
         };
 
@@ -67,6 +68,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
+    ASSERT_EQ(false, schema.at("not_stored").index);
 
     // check storage as well
     rocksdb::Iterator* it = store->get_iterator();
@@ -90,12 +92,13 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     // we already call `collection1->get_next_seq_id` above, which is side-effecting
     ASSERT_EQ(1, StringUtils::deserialize_uint32_t(next_seq_id));
     ASSERT_EQ("{\"created_at\":12345,\"default_sorting_field\":\"points\",\"fallback_field_type\":\"\","
-              "\"fields\":[{\"facet\":false,\"infix\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":false,\"infix\":true,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
-              "{\"facet\":true,\"infix\":false,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
-              "{\"facet\":true,\"infix\":false,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
-              "{\"facet\":false,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
-              "{\"facet\":false,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
+              "\"fields\":[{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"en\",\"name\":\"title\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"index\":true,\"infix\":true,\"locale\":\"\",\"name\":\"starring\",\"optional\":false,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"cast\",\"optional\":true,\"sort\":false,\"type\":\"string[]\"},"
+              "{\"facet\":true,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\".*_year\",\"optional\":true,\"sort\":true,\"type\":\"int32\"},"
+              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
+              "{\"facet\":false,\"index\":false,\"infix\":false,\"locale\":\"\",\"name\":\"not_stored\",\"optional\":true,\"sort\":false,\"type\":\"string\"},"
+              "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
               "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
@@ -257,10 +260,13 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     std::unordered_map<std::string, field> schema = collection1->get_schema();
 
-    // create a new collection manager to ensure that it restores the records from the disk backed store
-    CollectionManager & collectionManager2 = CollectionManager::get_instance();
-    collectionManager2.init(store, 1.0, "auth_key", quit);
-    auto load_op = collectionManager2.load(8, 1000);
+    // recreate collection manager to ensure that it restores the records from the disk backed store
+    collectionManager.dispose();
+    delete store;
+
+    store = new Store("/tmp/typesense_test/coll_manager_test_db");
+    collectionManager.init(store, 1.0, "auth_key", quit);
+    auto load_op = collectionManager.load(8, 1000);
 
     if(!load_op.ok()) {
         LOG(ERROR) << load_op.error();
@@ -268,7 +274,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
 
     ASSERT_TRUE(load_op.ok());
 
-    collection1 = collectionManager2.get_collection("collection1").get();
+    collection1 = collectionManager.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
     std::vector<std::string> facet_fields_expected = {"cast"};
@@ -287,6 +293,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(true, restored_schema.at("cast").facet);
     ASSERT_EQ(false, restored_schema.at("title").facet);
     ASSERT_EQ(false, restored_schema.at("title").optional);
+    ASSERT_EQ(false, restored_schema.at("not_stored").index);
 
     ASSERT_EQ(2, collection1->get_overrides().size());
     ASSERT_STREQ("exclude-rule", collection1->get_overrides()["exclude-rule"].id.c_str());
