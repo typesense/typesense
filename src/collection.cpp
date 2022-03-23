@@ -940,7 +940,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
     std::vector<const override_t*> filter_overrides;
     std::string query = raw_query;
-    bool filter_curated_hits;
+    bool filter_curated_hits = false;
     curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
                    included_ids, excluded_ids, filter_overrides, filter_curated_hits);
 
