@@ -271,7 +271,7 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of:`includes`, `excludes`, `filter_by`, `remove_matched_tokens`.", parse_op.error().c_str());
+    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `remove_matched_tokens`.", parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
