@@ -443,7 +443,8 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                                       const std::unordered_map<std::string, field>& search_schema,
                                       const std::string& fallback_field_type,
                                       const std::vector<char>& token_separators,
-                                      const std::vector<char>& symbols_to_index) {
+                                      const std::vector<char>& symbols_to_index,
+                                      const bool do_validation) {
 
     // runs in a partitioned thread
 
@@ -460,16 +461,18 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
                 continue;
             }
 
-            Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
-                                                                      default_sorting_field,
-                                                                      search_schema,
-                                                                      index_rec.operation,
-                                                                      fallback_field_type,
-                                                                      index_rec.dirty_values);
+            if(do_validation) {
+                Option<uint32_t> validation_op = validate_index_in_memory(index_rec.doc, index_rec.seq_id,
+                                                                          default_sorting_field,
+                                                                          search_schema,
+                                                                          index_rec.operation,
+                                                                          fallback_field_type,
+                                                                          index_rec.dirty_values);
 
-            if(!validation_op.ok()) {
-                index_rec.index_failure(validation_op.code(), validation_op.error());
-                continue;
+                if(!validation_op.ok()) {
+                    index_rec.index_failure(validation_op.code(), validation_op.error());
+                    continue;
+                }
             }
 
             if(index_rec.is_update) {
@@ -513,7 +516,8 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
                                  const std::unordered_map<std::string, field> & search_schema,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
-                                 const std::vector<char>& symbols_to_index) {
+                                 const std::vector<char>& symbols_to_index,
+                                 const bool do_validation) {
 
     const size_t concurrency = 4;
     const size_t num_threads = std::min(concurrency, iter_batch.size());
@@ -539,7 +543,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
 
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
-                                    fallback_field_type, token_separators, symbols_to_index);
+                                    fallback_field_type, token_separators, symbols_to_index, do_validation);
 
             std::unique_lock<std::mutex> lock(m_process);
             num_processed++;
@@ -565,7 +569,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         }
 
         if(index_rec.is_update) {
-            index->remove(index_rec.seq_id, index_rec.del_doc, index_rec.is_update);
+            index->remove(index_rec.seq_id, index_rec.del_doc, {}, index_rec.is_update);
         } else if(index_rec.indexed.ok()) {
             num_indexed++;
         }
@@ -3738,134 +3742,145 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
     return total_cost;
 }
 
-Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update) {
+void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name) {
+    const auto& search_field_it = search_schema.find(field_name);
+    if(search_field_it == search_schema.end()) {
+        return;
+    }
+
+    const auto& search_field = search_field_it->second;
+
+    if(!search_field.index) {
+        return;
+    }
+
+    // Go through all the field names and find the keys+values so that they can be removed from in-memory index
+    if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
+        std::vector<std::string> tokens;
+        tokenize_string_field(document, search_field, tokens, search_field.locale);
+
+        for(size_t i = 0; i < tokens.size(); i++) {
+            const auto& token = tokens[i];
+            const unsigned char *key = (const unsigned char *) token.c_str();
+            int key_len = (int) (token.length() + 1);
+
+            art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
+            if(leaf != nullptr) {
+                posting_t::erase(leaf->values, seq_id);
+                if (posting_t::num_ids(leaf->values) == 0) {
+                    void* values = art_delete(search_index.at(field_name), key, key_len);
+                    posting_t::destroy_list(values);
+                }
+            }
+
+            if(search_field.infix) {
+                auto strhash = StringUtils::hash_wy(key, token.size());
+                const auto& infix_sets = infix_index.at(search_field.name);
+                infix_sets[strhash % 4]->erase(token);
+            }
+        }
+    } else if(search_field.is_int32()) {
+        const std::vector<int32_t>& values = search_field.is_single_integer() ?
+                                             std::vector<int32_t>{document[field_name].get<int32_t>()} :
+                                             document[field_name].get<std::vector<int32_t>>();
+        for(int32_t value: values) {
+            num_tree_t* num_tree = numerical_index.at(field_name);
+            num_tree->remove(value, seq_id);
+        }
+    } else if(search_field.is_int64()) {
+        const std::vector<int64_t>& values = search_field.is_single_integer() ?
+                                             std::vector<int64_t>{document[field_name].get<int64_t>()} :
+                                             document[field_name].get<std::vector<int64_t>>();
+        for(int64_t value: values) {
+            num_tree_t* num_tree = numerical_index.at(field_name);
+            num_tree->remove(value, seq_id);
+        }
+    } else if(search_field.is_float()) {
+        const std::vector<float>& values = search_field.is_single_float() ?
+                                           std::vector<float>{document[field_name].get<float>()} :
+                                           document[field_name].get<std::vector<float>>();
+        for(float value: values) {
+            num_tree_t* num_tree = numerical_index.at(field_name);
+            int64_t fintval = float_to_in64_t(value);
+            num_tree->remove(fintval, seq_id);
+        }
+    } else if(search_field.is_bool()) {
+
+        const std::vector<bool>& values = search_field.is_single_bool() ?
+                                          std::vector<bool>{document[field_name].get<bool>()} :
+                                          document[field_name].get<std::vector<bool>>();
+        for(bool value: values) {
+            num_tree_t* num_tree = numerical_index.at(field_name);
+            int64_t bool_int64 = value ? 1 : 0;
+            num_tree->remove(bool_int64, seq_id);
+        }
+    } else if(search_field.is_geopoint()) {
+        auto geo_index = geopoint_index[field_name];
+        S2RegionTermIndexer::Options options;
+        options.set_index_contains_points_only(true);
+        S2RegionTermIndexer indexer(options);
+
+        const std::vector<std::vector<double>>& latlongs = search_field.is_single_geopoint() ?
+                                                           std::vector<std::vector<double>>{document[field_name].get<std::vector<double>>()} :
+                                                           document[field_name].get<std::vector<std::vector<double>>>();
+
+        for(const std::vector<double>& latlong: latlongs) {
+            S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
+            for(const auto& term: indexer.GetIndexTerms(point, "")) {
+                auto term_it = geo_index->find(term);
+                if(term_it == geo_index->end()) {
+                    continue;
+                }
+                std::vector<uint32_t>& ids = term_it->second;
+                ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
+                if(ids.empty()) {
+                    geo_index->erase(term);
+                }
+            }
+        }
+
+        if(!search_field.is_single_geopoint()) {
+            spp::sparse_hash_map<uint32_t, int64_t*>*& field_geo_array_map = geo_array_index.at(field_name);
+            auto geo_array_it = field_geo_array_map->find(seq_id);
+            if(geo_array_it != field_geo_array_map->end()) {
+                delete [] geo_array_it->second;
+                field_geo_array_map->erase(seq_id);
+            }
+        }
+    }
+
+    // remove facets
+    const auto& field_facets_it = facet_index_v3.find(field_name);
+
+    if(field_facets_it != facet_index_v3.end()) {
+        const auto& fvalues_it = field_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
+        if(fvalues_it != field_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
+            field_facets_it->second[seq_id % ARRAY_FACET_DIM]->erase(fvalues_it);
+        }
+    }
+
+    // remove sort field
+    if(sort_index.count(field_name) != 0) {
+        sort_index[field_name]->erase(seq_id);
+    }
+
+    if(str_sort_index.count(field_name) != 0) {
+        str_sort_index[field_name]->remove(seq_id);
+    }
+}
+
+Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & document,
+                               const std::vector<field>& del_fields, const bool is_update) {
     std::unique_lock lock(mutex);
 
-    for(auto it = document.begin(); it != document.end(); ++it) {
-        const std::string& field_name = it.key();
-        const auto& search_field_it = search_schema.find(field_name);
-        if(search_field_it == search_schema.end()) {
-            continue;
+    if(!del_fields.empty()) {
+        for(auto& the_field: del_fields) {
+            remove_field(seq_id, document, the_field.name);
         }
-
-        const auto& search_field = search_field_it->second;
-
-        if(!search_field.index) {
-            continue;
-        }
-
-        // Go through all the field names and find the keys+values so that they can be removed from in-memory index
-        if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
-            std::vector<std::string> tokens;
-            tokenize_string_field(document, search_field, tokens, search_field.locale);
-
-            for(size_t i = 0; i < tokens.size(); i++) {
-                const auto& token = tokens[i];
-                const unsigned char *key = (const unsigned char *) token.c_str();
-                int key_len = (int) (token.length() + 1);
-
-                art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
-                if(leaf != nullptr) {
-                    posting_t::erase(leaf->values, seq_id);
-                    if (posting_t::num_ids(leaf->values) == 0) {
-                        void* values = art_delete(search_index.at(field_name), key, key_len);
-                        posting_t::destroy_list(values);
-                    }
-                }
-
-                if(search_field.infix) {
-                    auto strhash = StringUtils::hash_wy(key, token.size());
-                    const auto& infix_sets = infix_index.at(search_field.name);
-                    infix_sets[strhash % 4]->erase(token);
-                }
-            }
-        } else if(search_field.is_int32()) {
-            const std::vector<int32_t>& values = search_field.is_single_integer() ?
-                    std::vector<int32_t>{document[field_name].get<int32_t>()} :
-                    document[field_name].get<std::vector<int32_t>>();
-            for(int32_t value: values) {
-                num_tree_t* num_tree = numerical_index.at(field_name);
-                num_tree->remove(value, seq_id);
-            }
-        } else if(search_field.is_int64()) {
-            const std::vector<int64_t>& values = search_field.is_single_integer() ?
-                                                 std::vector<int64_t>{document[field_name].get<int64_t>()} :
-                                                 document[field_name].get<std::vector<int64_t>>();
-            for(int64_t value: values) {
-                num_tree_t* num_tree = numerical_index.at(field_name);
-                num_tree->remove(value, seq_id);
-            }
-        } else if(search_field.is_float()) {
-            const std::vector<float>& values = search_field.is_single_float() ?
-                                                 std::vector<float>{document[field_name].get<float>()} :
-                                                 document[field_name].get<std::vector<float>>();
-            for(float value: values) {
-                num_tree_t* num_tree = numerical_index.at(field_name);
-                int64_t fintval = float_to_in64_t(value);
-                num_tree->remove(fintval, seq_id);
-            }
-        } else if(search_field.is_bool()) {
-
-            const std::vector<bool>& values = search_field.is_single_bool() ?
-                                               std::vector<bool>{document[field_name].get<bool>()} :
-                                               document[field_name].get<std::vector<bool>>();
-            for(bool value: values) {
-                num_tree_t* num_tree = numerical_index.at(field_name);
-                int64_t bool_int64 = value ? 1 : 0;
-                num_tree->remove(bool_int64, seq_id);
-            }
-        } else if(search_field.is_geopoint()) {
-            auto geo_index = geopoint_index[field_name];
-            S2RegionTermIndexer::Options options;
-            options.set_index_contains_points_only(true);
-            S2RegionTermIndexer indexer(options);
-
-            const std::vector<std::vector<double>>& latlongs = search_field.is_single_geopoint() ?
-                                  std::vector<std::vector<double>>{document[field_name].get<std::vector<double>>()} :
-                                  document[field_name].get<std::vector<std::vector<double>>>();
-
-            for(const std::vector<double>& latlong: latlongs) {
-                S2Point point = S2LatLng::FromDegrees(latlong[0], latlong[1]).ToPoint();
-                for(const auto& term: indexer.GetIndexTerms(point, "")) {
-                    auto term_it = geo_index->find(term);
-                    if(term_it == geo_index->end()) {
-                        continue;
-                    }
-                    std::vector<uint32_t>& ids = term_it->second;
-                    ids.erase(std::remove(ids.begin(), ids.end(), seq_id), ids.end());
-                    if(ids.empty()) {
-                        geo_index->erase(term);
-                    }
-                }
-            }
-
-            if(!search_field.is_single_geopoint()) {
-                spp::sparse_hash_map<uint32_t, int64_t*>*& field_geo_array_map = geo_array_index.at(field_name);
-                auto geo_array_it = field_geo_array_map->find(seq_id);
-                if(geo_array_it != field_geo_array_map->end()) {
-                    delete [] geo_array_it->second;
-                    field_geo_array_map->erase(seq_id);
-                }
-            }
-        }
-
-        // remove facets
-        const auto& field_facets_it = facet_index_v3.find(field_name);
-
-        if(field_facets_it != facet_index_v3.end()) {
-            const auto& fvalues_it = field_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
-            if(fvalues_it != field_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {
-                field_facets_it->second[seq_id % ARRAY_FACET_DIM]->erase(fvalues_it);
-            }
-        }
-
-        // remove sort field
-        if(sort_index.count(field_name) != 0) {
-            sort_index[field_name]->erase(seq_id);
-        }
-
-        if(str_sort_index.count(field_name) != 0) {
-            str_sort_index[field_name]->remove(seq_id);
+    } else {
+        for(auto it = document.begin(); it != document.end(); ++it) {
+            const std::string& field_name = it.key();
+            remove_field(seq_id, document, field_name);
         }
     }
 
@@ -3909,7 +3924,7 @@ const spp::sparse_hash_map<std::string, array_mapped_infix_t>& Index::_get_infix
     return infix_index;
 };
 
-void Index::refresh_schemas(const std::vector<field>& new_fields) {
+void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields) {
     std::unique_lock lock(mutex);
 
     for(const auto & new_field: new_fields) {
@@ -3965,6 +3980,65 @@ void Index::refresh_schemas(const std::vector<field>& new_fields) {
             }
 
             infix_index.emplace(new_field.name, infix_sets);
+        }
+    }
+
+    for(const auto & del_field: del_fields) {
+        search_schema.erase(del_field.name);
+
+        if(del_field.is_string() || field_types::is_string_or_array(del_field.type)) {
+            art_tree_destroy(search_index[del_field.name]);
+            delete search_index[del_field.name];
+            search_index.erase(del_field.name);
+        } else if(del_field.is_geopoint()) {
+            delete geopoint_index[del_field.name];
+            geopoint_index.erase(del_field.name);
+
+            if(!del_field.is_single_geopoint()) {
+                spp::sparse_hash_map<uint32_t, int64_t*>* geo_array_map = geo_array_index[del_field.name];
+                for(auto& kv: *geo_array_map) {
+                    delete kv.second;
+                }
+                delete geo_array_map;
+                geo_array_index.erase(del_field.name);
+            }
+        } else {
+            delete numerical_index[del_field.name];
+            numerical_index.erase(del_field.name);
+        }
+
+        if(del_field.is_sortable()) {
+            if(del_field.is_num_sortable()) {
+                delete sort_index[del_field.name];
+                sort_index.erase(del_field.name);
+            } else if(del_field.is_str_sortable()) {
+                delete str_sort_index[del_field.name];
+                str_sort_index.erase(del_field.name);
+            }
+        }
+
+        if(del_field.is_facet()) {
+            auto& arr = facet_index_v3[del_field.name];
+            for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
+                delete arr[i];
+            }
+
+            facet_index_v3.erase(del_field.name);
+
+            if(!del_field.is_string()) {
+                art_tree_destroy(search_index[del_field.faceted_name()]);
+                delete search_index[del_field.faceted_name()];
+                search_index.erase(del_field.faceted_name());
+            }
+        }
+
+        if(del_field.infix) {
+            auto& infix_set = infix_index[del_field.name];
+            for(size_t i = 0; i < infix_set.size(); i++) {
+                delete infix_set[i];
+            }
+
+            infix_index.erase(del_field.name);
         }
     }
 }

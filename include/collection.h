@@ -81,11 +81,11 @@ private:
 
     std::map<std::string, override_t> overrides;
 
-    const std::string default_sorting_field;
+    std::string default_sorting_field;
 
     const float max_memory_ratio;
 
-    const std::string fallback_field_type;
+    std::string fallback_field_type;
 
     std::vector<field> dynamic_fields;
 
@@ -152,6 +152,13 @@ private:
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                       std::vector<sort_by>& sort_fields_std) const;
+
+    Option<bool> persist_collection_meta();
+
+    Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
+                                        std::unordered_map<std::string, field>& schema_additions,
+                                        std::vector<field>& del_fields,
+                                        std::string& fallback_field_type);
 
 public:
 
@@ -315,9 +322,6 @@ public:
 
     Option<bool> remove_if_found(uint32_t seq_id, bool remove_from_store = true);
 
-    bool facet_value_to_string(const facet &a_facet, const facet_count_t &facet_count, const nlohmann::json &document,
-                               std::string &value);
-
     size_t get_num_documents() const;
 
     DIRTY_VALUES parse_dirty_values_option(std::string& dirty_values) const;
@@ -325,6 +329,8 @@ public:
     std::vector<char> get_symbols_to_index();
 
     std::vector<char> get_token_separators();
+
+    std::string get_fallback_field_type();
 
     // Override operations
 
@@ -365,5 +371,7 @@ public:
                                   const std::string& highlight_full_fields,
                                   const std::vector<infix_t>& infixes,
                                   std::vector<highlight_field_t>& highlight_items) const;
+
+    Option<bool> alter(nlohmann::json& alter_payload);
 };
 

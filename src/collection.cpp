@@ -361,12 +361,11 @@ Option<uint32_t> Collection::index_in_memory(nlohmann::json &document, uint32_t 
     }
 
     index_record rec(0, seq_id, document, op, dirty_values);
-    Index::compute_token_offsets_facets(rec, search_schema, token_separators, symbols_to_index);
 
     std::vector<index_record> index_batch;
     index_batch.emplace_back(std::move(rec));
     Index::batch_memory_index(index, index_batch, default_sorting_field, search_schema,
-                              fallback_field_type, token_separators, symbols_to_index);
+                              fallback_field_type, token_separators, symbols_to_index, true);
 
     num_documents += 1;
     return Option<>(200);
@@ -376,7 +375,7 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     std::unique_lock lock(mutex);
     size_t num_indexed = Index::batch_memory_index(index, index_records, default_sorting_field,
                                                    search_schema, fallback_field_type,
-                                                   token_separators, symbols_to_index);
+                                                   token_separators, symbols_to_index, true);
     num_documents += num_indexed;
     return num_indexed;
 }
@@ -2152,7 +2151,7 @@ void Collection::remove_document(const nlohmann::json & document, const uint32_t
     {
         std::unique_lock lock(mutex);
 
-        index->remove(seq_id, document, false);
+        index->remove(seq_id, document, {}, false);
         num_documents -= 1;
     }
 
@@ -2461,6 +2460,300 @@ spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     return synonym_index->get_synonyms();
 }
 
+Option<bool> Collection::persist_collection_meta() {
+    std::string coll_meta_json;
+    StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
+
+    if(status != StoreStatus::FOUND) {
+        return Option<bool>(500, "Could not fetch collection meta from store.");
+    }
+
+    nlohmann::json collection_meta;
+
+    try {
+        collection_meta = nlohmann::json::parse(coll_meta_json);
+    } catch(...) {
+        return Option<bool>(500, "Unable to parse collection meta.");
+    }
+
+    nlohmann::json fields_json = nlohmann::json::array();
+    Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json);
+
+    if(!fields_json_op.ok()) {
+        return Option<bool>(fields_json_op.code(), fields_json_op.error());
+    }
+
+    collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
+    collection_meta[Collection::COLLECTION_DEFAULT_SORTING_FIELD_KEY] = default_sorting_field;
+    collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
+
+    bool persisted = store->insert(Collection::get_meta_key(name), collection_meta.dump());
+    if(!persisted) {
+        return Option<bool>(500, "Could not persist collection meta to store.");
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::alter(nlohmann::json& alter_payload) {
+    std::unique_lock lock(mutex);
+
+    // Validate that all stored documents are compatible with the proposed schema changes.
+    std::unordered_map<std::string, field> schema_additions;
+    std::vector<field> del_fields;
+    std::string this_fallback_field_type;
+
+    auto validate_op = validate_alter_payload(alter_payload, schema_additions, del_fields, this_fallback_field_type);
+    if(!validate_op.ok()) {
+        return validate_op;
+    }
+
+    if(!this_fallback_field_type.empty() && !fallback_field_type.empty()) {
+        return Option<bool>(400, "The schema already contains a `.*` field.");
+    }
+
+    if(!this_fallback_field_type.empty() && fallback_field_type.empty()) {
+        fallback_field_type = this_fallback_field_type;
+    }
+
+    // Update schema with additions (deletions can only be made later)
+    std::vector<field> new_fields;
+
+    for(auto& kv: schema_additions) {
+        const auto& f = kv.second;
+
+        if(f.is_dynamic()) {
+            // regexp fields and fields with auto type are treated as dynamic fields
+            dynamic_fields.push_back(f);
+            continue;
+        }
+
+        if(f.name == ".*") {
+            fields.push_back(f);
+            continue;
+        }
+
+        search_schema.emplace(kv.first, f);
+        fields.push_back(f);
+        new_fields.push_back(f);
+    }
+
+    index->refresh_schemas(new_fields, {});
+
+    // Now, we can index existing data onto the updated schema
+    const std::string seq_id_prefix = get_seq_id_collection_prefix();
+    rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+    std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+    size_t num_found_docs = 0;
+    std::vector<index_record> iter_batch;
+    const size_t index_batch_size = 1000;
+
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+        num_found_docs++;
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+
+        nlohmann::json document;
+
+        try {
+            document = nlohmann::json::parse(iter->value().ToString());
+        } catch(const std::exception& e) {
+            return Option<bool>(false, "Bad JSON in document: " + document.dump(-1, ' ', false,
+                                                                                nlohmann::detail::error_handler_t::ignore));
+        }
+
+        index_record record(num_found_docs, seq_id, document, index_operation_t::CREATE, DIRTY_VALUES::DROP);
+        iter_batch.emplace_back(std::move(record));
+
+        // Peek and check for last record right here so that we handle batched indexing correctly
+        // Without doing this, the "last batch" would have to be indexed outside the loop.
+        iter->Next();
+        bool last_record = !(iter->Valid() && iter->key().starts_with(seq_id_prefix));
+
+        if(num_found_docs % index_batch_size == 0 || last_record) {
+            Index::batch_memory_index(index, iter_batch, default_sorting_field, schema_additions, fallback_field_type,
+                                      token_separators, symbols_to_index, false);
+
+            if(!del_fields.empty()) {
+                for(auto& rec: iter_batch) {
+                    index->remove(seq_id, rec.doc, del_fields, true);
+                }
+            }
+
+            iter_batch.clear();
+        }
+
+        if(num_found_docs % ((1 << 14)) == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Altered " << num_found_docs << " so far.";
+            }
+        }
+    }
+
+    LOG(INFO) << "Finished altering " << num_found_docs << " document(s).";
+
+    for(auto& del_field: del_fields) {
+        search_schema.erase(del_field.name);
+        auto new_end = std::remove_if(fields.begin(), fields.end(), [&del_field](const field& f) {
+           return f.name == del_field.name;
+        });
+
+        fields.erase(new_end, fields.end());
+
+        if(del_field.name == ".*") {
+            fallback_field_type = "";
+        }
+
+        if(del_field.name == default_sorting_field) {
+            default_sorting_field = "";
+        }
+    }
+
+    index->refresh_schemas({}, del_fields);
+
+    auto persist_op = persist_collection_meta();
+    if(!persist_op.ok()) {
+        return persist_op;
+    }
+
+    return Option<bool>(true);
+}
+
+Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
+                                                std::unordered_map<std::string, field>& schema_additions,
+                                                std::vector<field>& del_fields,
+                                                std::string& fallback_field_type) {
+    if(!schema_changes.is_object()) {
+        return Option<bool>(400, "Bad JSON.");
+    }
+
+    if(schema_changes.size() != 1) {
+        return Option<bool>(400, "Only `fields` can be updated at the moment.");
+    }
+
+    const std::string err_msg = "The `fields` value should be an array of objects containing "
+                                "the field `name` and other properties.";
+
+    if(!schema_changes["fields"].is_array() || schema_changes["fields"].empty()) {
+        return Option<bool>(400, err_msg);
+    }
+
+    // basic validation of fields
+    std::vector<field> diff_fields;
+    std::unordered_map<std::string, field> updated_search_schema = search_schema;
+    size_t num_auto_detect_fields = 0;
+
+    for(const auto& kv: schema_changes["fields"].items()) {
+        if(!kv.value().is_object()) {
+            return Option<bool>(400, err_msg);
+        }
+
+        if(!kv.value().contains("name")) {
+            return Option<bool>(400, err_msg);
+        }
+
+        const std::string& field_name = kv.value()["name"].get<std::string>();
+        const auto& field_it = search_schema.find(field_name);
+        auto found_field = (field_it != search_schema.end());
+
+        if(kv.value().contains("drop")) {
+            if(field_name == ".*") {
+                del_fields.emplace_back(".*", field_types::AUTO, false);
+                continue;
+            }
+
+            if(!found_field) {
+                return Option<bool>(400, "Field `" + field_name + "` is not part of collection schema.");
+            }
+
+            if(!kv.value()["drop"].is_boolean() || !kv.value()["drop"].get<bool>()) {
+                return Option<bool>(400, "Field `" + field_name + "` must have a drop value of `true`.");
+            }
+
+            del_fields.push_back(field_it->second);
+
+        } else {
+            // add or update existing field
+            auto is_addition = (!found_field);
+            if(is_addition) {
+                // addition: must validate fields
+                auto parse_op = field::json_field_to_field(kv.value(), diff_fields, fallback_field_type,
+                                                           num_auto_detect_fields);
+                if (!parse_op.ok()) {
+                    return parse_op;
+                }
+
+                const auto& f = diff_fields.back();
+                updated_search_schema.emplace(f.name, f);
+                schema_additions.emplace(f.name, f);
+            } else {
+                // update, not supported for now
+                return Option<bool>(400, "Field `" + field_name + "` is already part of schema: only "
+                                                        "field additions and deletions are supported for now.");
+            }
+        }
+    }
+
+    if(num_auto_detect_fields > 1) {
+        return Option<bool>(400, "There can be only one field named `.*`.");
+    }
+
+    // data validations: here we ensure that already stored data is compatible with requested schema changes
+    const std::string seq_id_prefix = get_seq_id_collection_prefix();
+
+    rocksdb::Iterator* iter = store->scan(seq_id_prefix);
+    std::unique_ptr<rocksdb::Iterator> iter_guard(iter);
+
+    size_t num_found_docs = 0;
+    auto begin = std::chrono::high_resolution_clock::now();
+
+    while(iter->Valid() && iter->key().starts_with(seq_id_prefix)) {
+        num_found_docs++;
+        const uint32_t seq_id = Collection::get_seq_id_from_key(iter->key().ToString());
+        nlohmann::json document;
+
+        try {
+            document = nlohmann::json::parse(iter->value().ToString());
+        } catch(const std::exception& e) {
+            return Option<bool>(false, "Bad JSON in document: " + document.dump(-1, ' ', false,
+                                                                                nlohmann::detail::error_handler_t::ignore));
+        }
+
+        // validate existing data on disk for compatibility via updated_search_schema
+        auto validate_op = Index::validate_index_in_memory(document, seq_id, default_sorting_field,
+                                                           updated_search_schema,
+                                                           index_operation_t::CREATE,
+                                                           fallback_field_type,
+                                                           DIRTY_VALUES::COERCE_OR_REJECT);
+        if(!validate_op.ok()) {
+            std::string schema_err = "Schema change does not match on-disk data, error: " + validate_op.error();
+            return Option<bool>(validate_op.code(), schema_err);
+        }
+
+        if(num_found_docs % ((1 << 14)) == 0) {
+            // having a cheaper higher layer check to prevent checking clock too often
+            auto time_elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::high_resolution_clock::now() - begin).count();
+
+            if(time_elapsed > 30) {
+                begin = std::chrono::high_resolution_clock::now();
+                LOG(INFO) << "Verified " << num_found_docs << " so far.";
+            }
+        }
+
+        iter->Next();
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values) {
     std::unique_lock lock(mutex);
 
@@ -2570,38 +2863,12 @@ Option<bool> Collection::check_and_update_schema(nlohmann::json& document, const
     }
 
     if(!new_fields.empty()) {
-        // we should persist changes to fields in store
-        std::string coll_meta_json;
-        StoreStatus status = store->get(Collection::get_meta_key(name), coll_meta_json);
-
-        if(status != StoreStatus::FOUND) {
-            return Option<bool>(500, "Could not fetch collection meta from store.");
+        auto persist_op = persist_collection_meta();
+        if(!persist_op.ok()) {
+            return persist_op;
         }
 
-        nlohmann::json collection_meta;
-
-        try {
-            collection_meta = nlohmann::json::parse(coll_meta_json);
-            nlohmann::json fields_json = nlohmann::json::array();;
-
-            Option<bool> fields_json_op = field::fields_to_json_fields(fields, default_sorting_field, fields_json);
-
-            if(!fields_json_op.ok()) {
-                return Option<bool>(fields_json_op.code(), fields_json_op.error());
-            }
-
-            collection_meta[COLLECTION_SEARCH_FIELDS_KEY] = fields_json;
-            bool persisted = store->insert(Collection::get_meta_key(name), collection_meta.dump());
-
-            if(!persisted) {
-                return Option<bool>(500, "Could not persist collection meta to store.");
-            }
-
-            index->refresh_schemas(new_fields);
-
-        } catch(...) {
-            return Option<bool>(500, "Unable to parse collection meta.");
-        }
+        index->refresh_schemas(new_fields, {});
     }
 
     return Option<bool>(true);
@@ -2667,4 +2934,8 @@ std::vector<char> Collection::get_symbols_to_index() {
 
 std::vector<char> Collection::get_token_separators() {
     return token_separators;
+}
+
+std::string Collection::get_fallback_field_type() {
+    return fallback_field_type;
 }
