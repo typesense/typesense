@@ -325,6 +325,12 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
     override_t::parse(override_json_include, "", override_include);
     coll_mul_fields->add_override(override_include);
 
+    std::map<std::string, override_t> overrides = coll_mul_fields->get_overrides();
+    ASSERT_EQ(1, overrides.size());
+    auto override_json = overrides["include-rule"].to_json();
+    ASSERT_TRUE(override_json.contains("filter_curated_hits"));
+    ASSERT_TRUE(override_json["filter_curated_hits"].get<bool>());
+
     auto results = coll_mul_fields->search("not-found", {"title"}, "points:>70", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
                                            {false}, Index::DROP_TOKENS_THRESHOLD,
                                            spp::sparse_hash_set<std::string>(),
@@ -432,7 +438,9 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     auto override_json = overrides["include-rule"].to_json();
     ASSERT_FALSE(override_json.contains("filter_by"));
     ASSERT_TRUE(override_json.contains("remove_matched_tokens"));
+    ASSERT_TRUE(override_json.contains("filter_curated_hits"));
     ASSERT_FALSE(override_json["remove_matched_tokens"].get<bool>());
+    ASSERT_FALSE(override_json["filter_curated_hits"].get<bool>());
 
     auto results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
                                            {false}, Index::DROP_TOKENS_THRESHOLD,
