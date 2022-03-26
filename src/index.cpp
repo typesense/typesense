@@ -47,12 +47,14 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
     for(const auto & fname_field: search_schema) {
+        if(!fname_field.second.index) {
+            continue;
+        }
+
         if(fname_field.second.is_string()) {
-            if(fname_field.second.index) {
-                art_tree *t = new art_tree;
-                art_tree_init(t);
-                search_index.emplace(fname_field.first, t);
-            }
+            art_tree *t = new art_tree;
+            art_tree_init(t);
+            search_index.emplace(fname_field.first, t);
         } else if(fname_field.second.is_geopoint()) {
             auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
             geopoint_index.emplace(fname_field.first, field_geo_index);
@@ -633,6 +635,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
         return;
     }
 
+    if(!afield.index) {
+        return;
+    }
+
     // We have to handle both these edge cases:
     // a) `afield` might not exist in the document (optional field)
     // b) `afield` value could be empty
@@ -653,7 +659,7 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             const auto& document = record.doc;
             const auto seq_id = record.seq_id;
 
-            if(document.count(afield.name) == 0 || !afield.index || !record.indexed.ok()) {
+            if(document.count(afield.name) == 0 || !record.indexed.ok()) {
                 continue;
             }
 
@@ -3929,6 +3935,10 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
     for(const auto & new_field: new_fields) {
         search_schema.emplace(new_field.name, new_field);
+
+        if(!new_field.index) {
+            continue;
+        }
 
         if(new_field.is_sortable()) {
             if(new_field.is_num_sortable()) {

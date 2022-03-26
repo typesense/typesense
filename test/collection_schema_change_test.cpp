@@ -191,11 +191,20 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("There can be only one field named `.*`.", alter_op.error());
 
-    auto search_schema = coll1->get_schema();
-    ASSERT_EQ(7, search_schema.size());
+    // add non-index field
+    schema_changes = R"({
+        "fields": [
+            {"name": "raw", "type": "int32", "index": false, "optional": true}
+        ]
+    })"_json;
 
-    auto coll_fields = coll1->get_fields();
-    ASSERT_EQ(8, coll_fields.size());
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ(8, coll1->get_schema().size());
+    ASSERT_EQ(9, coll1->get_fields().size());
+
+    ASSERT_EQ(4, coll1->_get_index()->_get_numerical_index().size());
 
     // try restoring collection from disk: all fields should be preserved
     collectionManager.dispose();
@@ -206,11 +215,10 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();
 
-    search_schema = coll1->get_schema();
-    ASSERT_EQ(7, search_schema.size());
+    ASSERT_EQ(8, coll1->get_schema().size());
+    ASSERT_EQ(9, coll1->get_fields().size());
 
-    coll_fields = coll1->get_fields();
-    ASSERT_EQ(8, coll_fields.size());
+    ASSERT_EQ(4, coll1->_get_index()->_get_numerical_index().size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -314,14 +322,13 @@ TEST_F(CollectionSchemaChangeTest, DropFieldsFromCollection) {
 }
 
 TEST_F(CollectionSchemaChangeTest, AlterValidations) {
-    std::vector<field> fields = {field(".*", field_types::AUTO, false),
-                                 field("title", field_types::STRING, false, false, true, "", 1, 1),
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
                                  field("location", field_types::GEOPOINT, false),
                                  field("locations", field_types::GEOPOINT_ARRAY, false),
                                  field("tags", field_types::STRING_ARRAY, true),
                                  field("points", field_types::INT32, true),};
 
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "auto").get();
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
 
     std::vector<std::vector<double>> lat_lngs;
     lat_lngs.push_back({48.85821022164442, 2.294239067890161});
@@ -332,6 +339,7 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     doc["location"] = {48.85821022164442, 2.294239067890161};
     doc["locations"] = lat_lngs;
     doc["tags"] = {"experimental", "news"};
+    doc["desc"] = "Story about fox.";
     doc["points"] = 100;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
@@ -361,6 +369,56 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     ASSERT_EQ("Wrong format for `fields`. It should be an array of objects containing `name`, `type`, "
               "`optional` and `facet` properties.",alter_op.error());
 
+    // 3. Try to drop non-existing field
+    schema_changes = R"({
+        "fields": [
+            {"name": "age", "drop": true}
+        ]
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `age` is not part of collection schema.",alter_op.error());
+
+    // 4. Bad value for `drop` parameter
+    schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": 123}
+        ]
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `title` must have a drop value of `true`.", alter_op.error());
+
+    // 5. New field schema should match on-disk data
+    schema_changes = R"({
+        "fields": [
+            {"name": "desc", "type": "int32"}
+        ]
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change does not match on-disk data, error: Field `desc` must be an int32.", alter_op.error());
+
+    // 6. Prevent non-optional field when on-disk data has missing values
+    doc.clear();
+    doc["id"] = "1";
+    doc["title"] = "The brown lion was too slow.";
+    doc["location"] = {68.85821022164442, 4.294239067890161};
+    doc["locations"] = lat_lngs;
+    doc["tags"] = {"lion", "zoo"};
+    doc["points"] = 200;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "desc", "type": "string", "optional": false}
+        ]
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change does not match on-disk data, error: Field `desc` has been declared in the "
+              "schema, but is not found in the document.", alter_op.error());
+
     collectionManager.drop_collection("coll1");
 }
-
