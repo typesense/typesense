@@ -2710,26 +2710,24 @@ TEST_F(CollectionSpecificTest, RepeatedTokensInArray) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, HighlightOnlyIncludedFields) {
+TEST_F(CollectionSpecificTest, NonIndexField) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
-                                 field("description", field_types::STRING, false),};
+                                 field("description", field_types::STRING, false, true, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
 
     nlohmann::json doc1;
     doc1["id"] = "0";
     doc1["title"] = "Harry";
-    doc1["description"] = "Harry Roscow";
+    doc1["description"] = "A book.";
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
 
-    spp::sparse_hash_set<std::string> include_fields = {"title"};
-    auto results = coll1->search("harry", {"title", "description"},
-                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 10, include_fields).get();
+    auto results = coll1->search("harry", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
 
     ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
-    ASSERT_EQ("title", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ(1, coll1->_get_index()->_get_search_index().size());
 
     collectionManager.drop_collection("coll1");
 }
