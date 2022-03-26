@@ -271,6 +271,7 @@ struct override_t {
         }
 
         override["remove_matched_tokens"] = remove_matched_tokens;
+        override["filter_curated_hits"] = filter_curated_hits;
 
         return override;
     }
