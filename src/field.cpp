@@ -361,3 +361,152 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
 
     return Option<bool>(true);
 }
+
+Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<field>& the_fields,
+                                        string& fallback_field_type, size_t& num_auto_detect_fields) {
+
+    if(field_json["name"] == "id") {
+        // No field should exist with the name "id" as it is reserved for internal use
+        // We cannot throw an error here anymore since that will break backward compatibility!
+        LOG(WARNING) << "Collection schema cannot contain a field with name `id`. Ignoring field.";
+        return Option<bool>(true);
+    }
+
+    if(!field_json.is_object() ||
+       field_json.count(fields::name) == 0 || field_json.count(fields::type) == 0 ||
+       !field_json.at(fields::name).is_string() || !field_json.at(fields::type).is_string()) {
+
+        return Option<bool>(400, "Wrong format for `fields`. It should be an array of objects containing "
+                                 "`name`, `type`, `optional` and `facet` properties.");
+    }
+
+    if(field_json.count(fields::facet) != 0 && !field_json.at(fields::facet).is_boolean()) {
+        return Option<bool>(400, std::string("The `facet` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json.count(fields::optional) != 0 && !field_json.at(fields::optional).is_boolean()) {
+        return Option<bool>(400, std::string("The `optional` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json.count(fields::index) != 0 && !field_json.at(fields::index).is_boolean()) {
+        return Option<bool>(400, std::string("The `index` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json.count(fields::sort) != 0 && !field_json.at(fields::sort).is_boolean()) {
+        return Option<bool>(400, std::string("The `sort` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json.count(fields::infix) != 0 && !field_json.at(fields::infix).is_boolean()) {
+        return Option<bool>(400, std::string("The `infix` property of the field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));
+    }
+
+    if(field_json.count(fields::locale) != 0){
+        if(!field_json.at(fields::locale).is_string()) {
+            return Option<bool>(400, std::string("The `locale` property of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` should be a string."));
+        }
+
+        if(!field_json[fields::locale].get<std::string>().empty() &&
+           field_json[fields::locale].get<std::string>().size() != 2) {
+            return Option<bool>(400, std::string("The `locale` value of the field `") +
+                                     field_json[fields::name].get<std::string>() + std::string("` is not valid."));
+        }
+    }
+
+    if(field_json["name"] == ".*") {
+        if(field_json.count(fields::facet) == 0) {
+            field_json[fields::facet] = false;
+        }
+
+        if(field_json.count(fields::optional) == 0) {
+            field_json[fields::optional] = true;
+        }
+
+        if(field_json.count(fields::index) == 0) {
+            field_json[fields::index] = true;
+        }
+
+        if(field_json.count(fields::locale) == 0) {
+            field_json[fields::locale] = "";
+        }
+
+        if(field_json.count(fields::sort) == 0) {
+            field_json[fields::sort] = false;
+        }
+
+        if(field_json.count(fields::infix) == 0) {
+            field_json[fields::infix] = false;
+        }
+
+        if(field_json[fields::optional] == false) {
+            return Option<bool>(400, "Field `.*` must be an optional field.");
+        }
+
+        if(field_json[fields::facet] == true) {
+            return Option<bool>(400, "Field `.*` cannot be a facet field.");
+        }
+
+        if(field_json[fields::index] == false) {
+            return Option<bool>(400, "Field `.*` must be an index field.");
+        }
+
+        field fallback_field(field_json["name"], field_json["type"], field_json["facet"],
+                             field_json["optional"], field_json[fields::index], field_json[fields::locale],
+                             field_json[fields::sort], field_json[fields::infix]);
+
+        if(fallback_field.has_valid_type()) {
+            fallback_field_type = fallback_field.type;
+            num_auto_detect_fields++;
+        } else {
+            return Option<bool>(400, "The `type` of field `.*` is invalid.");
+        }
+
+        the_fields.emplace_back(fallback_field);
+        return Option<bool>(true);
+    }
+
+    if(field_json.count(fields::facet) == 0) {
+        field_json[fields::facet] = false;
+    }
+
+    if(field_json.count(fields::index) == 0) {
+        field_json[fields::index] = true;
+    }
+
+    if(field_json.count(fields::locale) == 0) {
+        field_json[fields::locale] = "";
+    }
+
+    if(field_json.count(fields::sort) == 0) {
+        if(field_json["type"] == field_types::INT32 || field_json["type"] == field_types::INT64 ||
+           field_json["type"] == field_types::FLOAT || field_json["type"] == field_types::BOOL ||
+           field_json["type"] == field_types::GEOPOINT || field_json["type"] == field_types::GEOPOINT_ARRAY) {
+            field_json[fields::sort] = true;
+        } else {
+            field_json[fields::sort] = false;
+        }
+    }
+
+    if(field_json.count(fields::infix) == 0) {
+        field_json[fields::infix] = false;
+    }
+
+    if(field_json.count(fields::optional) == 0) {
+        // dynamic fields are always optional
+        bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
+        field_json[fields::optional] = is_dynamic;
+    }
+
+    the_fields.emplace_back(
+            field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
+                  field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
+                  field_json[fields::sort], field_json[fields::infix])
+    );
+
+    return Option<bool>(true);
+}

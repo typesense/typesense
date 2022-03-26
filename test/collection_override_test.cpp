@@ -431,7 +431,8 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     ASSERT_EQ(1, overrides.size());
     auto override_json = overrides["include-rule"].to_json();
     ASSERT_FALSE(override_json.contains("filter_by"));
-    ASSERT_FALSE(override_json.contains("remove_matched_tokens"));
+    ASSERT_TRUE(override_json.contains("remove_matched_tokens"));
+    ASSERT_FALSE(override_json["remove_matched_tokens"].get<bool>());
 
     auto results = coll_mul_fields->search("not-found", {"title"}, "", {"starring"}, {}, {0}, 10, 1, FREQUENCY,
                                            {false}, Index::DROP_TOKENS_THRESHOLD,

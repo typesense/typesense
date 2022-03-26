@@ -268,8 +268,9 @@ struct override_t {
 
         if(!filter_by.empty()) {
             override["filter_by"] = filter_by;
-            override["remove_matched_tokens"] = remove_matched_tokens;
         }
+
+        override["remove_matched_tokens"] = remove_matched_tokens;
 
         return override;
     }
@@ -446,6 +447,9 @@ private:
 
     spp::sparse_hash_map<std::string, spp::sparse_hash_map<std::string, std::vector<uint32_t>>*> geopoint_index;
 
+    // geo_array_field => (seq_id => values) used for exact filtering of geo array records
+    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
+
     // facet_field => (seq_id => values)
     spp::sparse_hash_map<std::string, array_mapped_facet_t> facet_index_v3;
 
@@ -457,9 +461,6 @@ private:
 
     // infix field => value
     spp::sparse_hash_map<std::string, array_mapped_infix_t> infix_index;
-
-    // geo_array_field => (seq_id => values) used for exact filtering of geo array records
-    spp::sparse_hash_map<std::string, spp::sparse_hash_map<uint32_t, int64_t*>*> geo_array_index;
 
     // this is used for wildcard queries
     id_list_t* seq_ids;
@@ -711,7 +712,10 @@ public:
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
                 const bool filter_curated_hits, bool split_join_tokens) const;
 
-    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document, const bool is_update);
+    void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
+
+    Option<uint32_t> remove(const uint32_t seq_id, const nlohmann::json & document,
+                            const std::vector<field>& del_fields, const bool is_update);
 
     static void validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
                                           const size_t batch_start_index, const size_t batch_size,
@@ -719,15 +723,17 @@ public:
                                           const std::unordered_map<std::string, field> & search_schema,
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
-                                          const std::vector<char>& symbols_to_index);
+                                          const std::vector<char>& symbols_to_index,
+                                          const bool do_validation);
 
     static size_t batch_memory_index(Index *index,
-                                     std::vector<index_record> & iter_batch,
-                                     const std::string & default_sorting_field,
-                                     const std::unordered_map<std::string, field> & search_schema,
+                                     std::vector<index_record>& iter_batch,
+                                     const std::string& default_sorting_field,
+                                     const std::unordered_map<std::string, field>& search_schema,
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
-                                     const std::vector<char>& symbols_to_index);
+                                     const std::vector<char>& symbols_to_index,
+                                     const bool do_validation);
 
     void index_field_in_memory(const field& afield, std::vector<index_record>& iter_batch);
 
@@ -745,7 +751,7 @@ public:
     void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                 const std::vector<filter>& filters) const;
 
-    void refresh_schemas(const std::vector<field>& new_fields);
+    void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
     // the following methods are not synchronized because their parent calls are synchronized or they are const/static
 

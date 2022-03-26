@@ -160,6 +160,35 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
     return false;
 }
 
+bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        //LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+
+    CollectionManager & collectionManager = CollectionManager::get_instance();
+    auto collection = collectionManager.get_collection(req->params["collection"]);
+
+    if(collection == nullptr) {
+        res->set_404();
+        return false;
+    }
+
+    auto alter_op = collection->alter(req_json);
+    if(!alter_op.ok()) {
+        res->set(alter_op.code(), alter_op.error());
+        return false;
+    }
+
+    res->set_200(req->body);
+    return true;
+}
+
 bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     std::string doc_id = req->params["id"];
     CollectionManager & collectionManager = CollectionManager::get_instance();

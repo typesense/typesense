@@ -1368,7 +1368,6 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
     while(curr_block != end_block && curr_block->ids.last() < id) {
         curr_block = curr_block->next;
 
-        // FIXME: remove duplication
         delete [] ids;
         delete [] offset_index;
         delete [] offsets;

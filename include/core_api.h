@@ -14,6 +14,8 @@ bool get_collections(const std::shared_ptr<http_req>& req, const std::shared_ptr
 
 bool post_create_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
+bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+
 bool del_drop_collection(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 bool get_collection_summary(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
