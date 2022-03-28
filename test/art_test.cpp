@@ -188,7 +188,7 @@ TEST(ArtTest, test_art_insert_delete) {
         EXPECT_EQ(line, posting_t::first_id(l->values));
 
         // Delete, should get lineno back
-        void* values = (art_values*)art_delete(&t, (unsigned char*)buf, len);
+        void* values = art_delete(&t, (unsigned char*)buf, len);
         EXPECT_EQ(line, posting_t::first_id(values));
         posting_t::destroy_list(values);
 
@@ -537,8 +537,8 @@ TEST(ArtTest, test_art_delete_out_of_bounds) {
 
     // Try to delete a non-existing key
     const char *prefix = "foobarbaz1-long-";
-    art_values* values = (art_values *) art_delete(&t, (const unsigned char *) prefix, strlen(prefix));
-    ASSERT_EQ(NULL, values);
+    void* values = art_delete(&t, (const unsigned char *) prefix, strlen(prefix));
+    ASSERT_EQ(nullptr, values);
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
