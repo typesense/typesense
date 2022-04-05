@@ -444,9 +444,14 @@ void posting_t::get_array_token_positions(uint32_t id, const std::vector<void*>&
     for(posting_list_t* pl: plists) {
         its.push_back(pl->new_iterator());
         its.back().skip_to(id);
+        if(!its.back().valid() || its.back().id() != id) {
+            its.pop_back();
+        }
     }
 
-    posting_list_t::get_offsets(its, array_token_positions);
+    if(!its.empty()) {
+        posting_list_t::get_offsets(its, array_token_positions);
+    }
 
     for(posting_list_t* expanded_plist: expanded_plists) {
         delete expanded_plist;

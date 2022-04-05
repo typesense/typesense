@@ -40,11 +40,6 @@ struct compact_posting_list_t {
 };
 
 class posting_t {
-private:
-
-    static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
-                                   std::vector<posting_list_t*>& expanded_plists);
-
 public:
     static constexpr size_t COMPACT_LIST_THRESHOLD_LENGTH = 64;
     static constexpr size_t MAX_BLOCK_ELEMENTS = 256;
@@ -52,12 +47,12 @@ public:
     struct block_intersector_t {
         std::vector<posting_list_t*> plists;
         std::vector<posting_list_t*> expanded_plists;
-        posting_list_t::result_iter_state_t& iter_state;
+        result_iter_state_t& iter_state;
         ThreadPool* thread_pool;
         size_t parallelize_min_ids;
 
         block_intersector_t(const std::vector<void*>& raw_posting_lists,
-                            posting_list_t::result_iter_state_t& iter_state,
+                            result_iter_state_t& iter_state,
                             ThreadPool* thread_pool,
                             size_t parallelize_min_ids = 1):
                             iter_state(iter_state), thread_pool(thread_pool),
@@ -83,6 +78,9 @@ public:
 
         void split_lists(size_t concurrency, std::vector<std::vector<posting_list_t::iterator_t>>& partial_its_vec);
     };
+
+    static void to_expanded_plists(const std::vector<void*>& raw_posting_lists, std::vector<posting_list_t*>& plists,
+                                   std::vector<posting_list_t*>& expanded_plists);
 
     static void upsert(void*& obj, uint32_t id, const std::vector<uint32_t>& offsets);
 

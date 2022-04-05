@@ -373,15 +373,14 @@ TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
     ASSERT_TRUE(coll1->add(doc3.dump()).ok());
 
     auto res = coll1->search("us sneakers", {"category", "location"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
-
     ASSERT_EQ(3, res["hits"].size());
 
-    // NOTE: "2" is ranked above "1" because synonym matches uses the root query's number of tokens for counting
-    // This means that "united states" == "us" so a single token match, same as match on "sneakers" in record 2.
+    // NOTE: "1" is ranked above "0" because synonym matches uses the root query's number of tokens for counting
+    // This means that "united states" == "us" so both records have 2 tokens matched, so tie breaking happens on points.
 
-    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", res["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", res["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", res["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

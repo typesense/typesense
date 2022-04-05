@@ -1460,10 +1460,10 @@ TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
 
-    ASSERT_EQ(50291713, results["hits"][0]["text_match"].get<uint32_t>());
-    ASSERT_EQ(50291712, results["hits"][1]["text_match"].get<uint32_t>());
-    ASSERT_EQ(50291712, results["hits"][2]["text_match"].get<uint32_t>());
-    ASSERT_EQ(50291712, results["hits"][3]["text_match"].get<uint32_t>());
+    ASSERT_EQ(4284743939, results["hits"][0]["text_match"].get<uint32_t>());
+    ASSERT_EQ(4284743683, results["hits"][1]["text_match"].get<uint32_t>());
+    ASSERT_EQ(4284743683, results["hits"][2]["text_match"].get<uint32_t>());
+    ASSERT_EQ(4284743683, results["hits"][3]["text_match"].get<uint32_t>());
 
     collectionManager.drop_collection("coll1");
 }

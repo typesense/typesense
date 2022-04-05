@@ -925,7 +925,7 @@ bool posting_list_t::at_end2(const std::vector<posting_list_t::iterator_t>& its)
 }
 
 bool posting_list_t::equals(std::vector<posting_list_t::iterator_t>& its) {
-    for(size_t i = 0; i < its.size() - 1; i++) {
+    for(int i = 0; i < int(its.size()) - 1; i++) {
         if(its[i].id() != its[i+1].id()) {
             return false;
         }
@@ -938,9 +938,9 @@ bool posting_list_t::equals2(std::vector<posting_list_t::iterator_t>& its) {
     return its[0].id() == its[1].id();
 }
 
-posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, block_t* end_block) {
+posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, block_t* end_block, uint32_t field_id) {
     start_block = (start_block == nullptr) ? &root_block : start_block;
-    return posting_list_t::iterator_t(start_block, end_block);
+    return posting_list_t::iterator_t(start_block, end_block, true, field_id);
 }
 
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
@@ -1315,10 +1315,27 @@ void posting_list_t::get_matching_array_indices(uint32_t id, std::vector<iterato
     }
 }
 
+bool posting_list_t::all_ended(const std::vector<posting_list_t::iterator_t>& its) {
+    // if all iterators are at end, we return true
+    for(const auto& it : its) {
+        if(it.valid()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool posting_list_t::all_ended2(const std::vector<posting_list_t::iterator_t>& its) {
+    // if both iterators are at end, we return true
+    return !its[0].valid() && !its[1].valid();
+}
+
 /* iterator_t operations */
 
-posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* start, posting_list_t::block_t* end):
-        curr_block(start), curr_index(0), end_block(end) {
+posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* start, posting_list_t::block_t* end,
+                                       bool auto_destroy, uint32_t field_id):
+        curr_block(start), curr_index(0), end_block(end), auto_destroy(auto_destroy), field_id(field_id) {
 
     if(curr_block != end_block) {
         ids = curr_block->ids.uncompress();
@@ -1393,6 +1410,12 @@ void posting_list_t::iterator_t::skip_to(uint32_t id) {
 }
 
 posting_list_t::iterator_t::~iterator_t() {
+    if(auto_destroy) {
+        destroy();
+    }
+}
+
+void posting_list_t::iterator_t::destroy() {
     delete [] ids;
     ids = nullptr;
 
@@ -1410,6 +1433,8 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     ids = rhs.ids;
     offset_index = rhs.offset_index;
     offsets = rhs.offsets;
+    auto_destroy = rhs.auto_destroy;
+    field_id = rhs.field_id;
 
     rhs.curr_block = nullptr;
     rhs.end_block = nullptr;
@@ -1418,6 +1443,42 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     rhs.offsets = nullptr;
 }
 
+posting_list_t::iterator_t& posting_list_t::iterator_t::operator=(posting_list_t::iterator_t&& rhs) noexcept {
+    curr_block = rhs.curr_block;
+    curr_index = rhs.curr_index;
+    end_block = rhs.end_block;
+    ids = rhs.ids;
+    offset_index = rhs.offset_index;
+    offsets = rhs.offsets;
+    auto_destroy = rhs.auto_destroy;
+    field_id = rhs.field_id;
+
+    rhs.curr_block = nullptr;
+    rhs.end_block = nullptr;
+    rhs.ids = nullptr;
+    rhs.offset_index = nullptr;
+    rhs.offsets = nullptr;
+
+    return *this;
+}
+
 void posting_list_t::iterator_t::set_index(uint32_t index) {
     curr_index = index;
+}
+
+posting_list_t::iterator_t posting_list_t::iterator_t::clone() const {
+    posting_list_t::iterator_t it(nullptr, nullptr);
+    it.curr_block = curr_block;
+    it.curr_index = curr_index;
+    it.end_block = end_block;
+    it.ids = ids;
+    it.offsets = offsets;
+    it.offset_index = offset_index;
+    it.auto_destroy = false;
+    it.field_id = field_id;
+    return it;
+}
+
+uint32_t posting_list_t::iterator_t::get_field_id() const {
+    return field_id;
 }

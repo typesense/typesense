@@ -876,14 +876,14 @@ TEST_F(CollectionSpecificTest, HighlightLongFieldWithDropTokens) {
     ASSERT_EQ("Tripp Lite USB C to VGA Multiport Video Adapter Converter w/ USB-A Hub, "
               "USB-C PD <mark>Charging</mark> <mark>Port</mark> & <mark>Gigabit</mark> Ethernet "
               "<mark>Port,</mark> Thunderbolt 3 Compatible, USB Type C to VGA, USB-C, USB Type-C - for "
-              "Notebook/Tablet PC - 2 x USB <mark>Ports</mark> - 2 x USB 3.0 - Network (RJ-45) - "
+              "Notebook/Tablet PC - 2 x USB <mark>Port</mark>s - 2 x USB 3.0 - Network (RJ-45) - "
               "VGA - <mark>Wired</mark>",
               results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
+TEST_F(CollectionSpecificTest, HighlightWithTypoTokensAndPrefixSearch) {
     std::vector<field> fields = {field("username", field_types::STRING, false),
                                  field("name", field_types::STRING, false),
                                  field("tags", field_types::STRING_ARRAY, false),
@@ -915,8 +915,8 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                                  "<mark>", "</mark>").get();
 
-    ASSERT_EQ(1, results["hits"].size());
-    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ(2, results["hits"][0]["highlights"].size());
 
@@ -925,6 +925,14 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
 
     ASSERT_EQ("<mark>Pandaabear</mark>",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
+
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Panda's <mark>Bas</mark>ement",
+              results["hits"][1]["highlights"][1]["snippet"].get<std::string>());
 
     results = coll1->search("pandaabear bas", {"username", "name"},
                             "", {}, {}, {2, 2}, 10,
@@ -957,11 +965,22 @@ TEST_F(CollectionSpecificTest, HighlightWithDropTokensAndPrefixSearch) {
                   spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                   "<mark>", "</mark>").get();
 
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 
-    // NOT asserting here because given current highlighting limitations, prefixes which are not directly matched
-    // onto a token in an array is not used during highlighting
+    ASSERT_EQ(2, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("<mark>Pandaabear</mark> <mark>Bas</mark>ic",
+              results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>());
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
-    // ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+    ASSERT_EQ(2, results["hits"][1]["highlights"].size());
+    ASSERT_EQ("<mark>Pandaabear</mark>",
+              results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Panda's <mark>Bas</mark>ement",
+              results["hits"][1]["highlights"][1]["snippets"][0].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
@@ -1025,7 +1044,7 @@ TEST_F(CollectionSpecificTest, TokenStartingWithSameLetterAsPrevToken) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
+TEST_F(CollectionSpecificTest, CrossFieldMatchingExactMatchOnSingleField) {
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("description", field_types::STRING, false),
                                  field("points", field_types::INT32, false),};
@@ -1055,8 +1074,8 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
                                  "<mark>", "</mark>").get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     results = coll1->search("john vegatable farmer", {"name", "description"},
                             "", {}, {}, {1, 1}, 10,
@@ -1066,8 +1085,8 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeDeemedAsVerbatimMatch) {
                             "<mark>", "</mark>").get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

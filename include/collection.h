@@ -17,6 +17,7 @@
 #include <json.hpp>
 #include <field.h>
 #include <option.h>
+#include <tsl/htrie_map.h>
 #include "tokenizer.h"
 #include "synonym_index.h"
 
@@ -29,6 +30,7 @@ struct highlight_field_t {
     std::string name;
     bool fully_highlighted;
     bool infix;
+    tsl::htrie_map<char, token_leaf> qtoken_leaves;
 
     highlight_field_t(const std::string& name, bool fully_highlighted, bool infix):
             name(name), fully_highlighted(fully_highlighted), infix(infix) {
@@ -104,13 +106,14 @@ private:
     std::string get_seq_id_key(uint32_t seq_id) const;
 
     void highlight_result(const std::string& raw_query,
-                          const field &search_field, const std::vector<std::vector<art_leaf *>> &searched_queries,
+                          const field &search_field,
+                          const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                           const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
-                          bool highlighted_fully,
+                          bool highlight_fully,
                           bool is_infix_search,
                           const std::string& highlight_start_tag,
                           const std::string& highlight_end_tag,
@@ -279,7 +282,7 @@ public:
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   size_t per_page = 10, size_t page = 1,
-                                  token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {false},
+                                  token_ordering token_order = FREQUENCY, const std::vector<bool>& prefixes = {true},
                                   size_t drop_tokens_threshold = Index::DROP_TOKENS_THRESHOLD,
                                   const spp::sparse_hash_set<std::string> & include_fields = spp::sparse_hash_set<std::string>(),
                                   const spp::sparse_hash_set<std::string> & exclude_fields = spp::sparse_hash_set<std::string>(),
@@ -358,9 +361,9 @@ public:
 
     // highlight ops
 
-    static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag, const string& last_raw_q_token,
+    static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag,
                    const string& text, const std::map<size_t, size_t>& token_offsets,
-                   const std::map<size_t, std::string>& prefix_start_offsets, size_t snippet_end_offset,
+                   size_t snippet_end_offset,
                    std::vector<std::string>& matched_tokens, std::map<size_t, size_t>::iterator& offset_it,
                    std::stringstream& highlighted_text, size_t snippet_start_offset) ;
 
@@ -370,6 +373,8 @@ public:
                                   const string& highlight_fields,
                                   const std::string& highlight_full_fields,
                                   const std::vector<infix_t>& infixes,
+                                  std::vector<std::string>& q_tokens,
+                                  const tsl::htrie_map<char, token_leaf>& qtoken_set,
                                   std::vector<highlight_field_t>& highlight_items) const;
 
     Option<bool> alter(nlohmann::json& alter_payload);

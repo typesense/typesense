@@ -630,7 +630,7 @@ TEST_F(PostingListTest, SplittingOfListsSimple) {
     std::vector<void*> raw_lists = {&p1, &p2, &p3};
 
     std::vector<posting_list_t::iterator_t> its;
-    posting_list_t::result_iter_state_t iter_state;
+    result_iter_state_t iter_state;
     posting_t::block_intersector_t intersector(raw_lists, iter_state, pool);
 
     std::vector<std::vector<posting_list_t::iterator_t>> partial_its_vec(4);
@@ -702,7 +702,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     ASSERT_EQ(20, result_ids[1]);
 
     std::vector<posting_list_t::iterator_t> its;
-    posting_list_t::result_iter_state_t iter_state;
+    result_iter_state_t iter_state;
     result_ids.clear();
 
     posting_t::block_intersector_t(raw_lists, iter_state, pool).intersect([&](auto id, auto& its, size_t index){
@@ -727,7 +727,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
         ASSERT_EQ(expected_ids[i], result_ids[i]);
     }
 
-    posting_list_t::result_iter_state_t iter_state2;
+    result_iter_state_t iter_state2;
     result_ids.clear();
     raw_lists = {&p1};
 
@@ -750,7 +750,7 @@ TEST_F(PostingListTest, IntersectionBasics) {
     posting_list_t::intersect(empty_list, result_ids);
     ASSERT_EQ(0, result_ids.size());
 
-    posting_list_t::result_iter_state_t iter_state3;
+    result_iter_state_t iter_state3;
     result_ids.clear();
     raw_lists.clear();
 
@@ -816,7 +816,7 @@ TEST_F(PostingListTest, ResultsAndOffsetsBasics) {
 
     /*
     std::vector<posting_list_t::iterator_t> its;
-    posting_list_t::result_iter_state_t iter_state;
+    result_iter_state_t iter_state;
     bool has_more = posting_list_t::block_intersect(lists, 2, its, iter_state);
     ASSERT_FALSE(has_more);
 
@@ -1364,7 +1364,7 @@ TEST_F(PostingListTest, BlockIntersectionOnMixedLists) {
     p1.upsert(20, offsets1);
 
     std::vector<void*> raw_posting_lists = {SET_COMPACT_POSTING(list1), &p1};
-    posting_list_t::result_iter_state_t iter_state;
+    result_iter_state_t iter_state;
     std::vector<uint32_t> result_ids;
     std::mutex vecm;
 

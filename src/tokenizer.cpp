@@ -25,10 +25,18 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
 
 
 void Tokenizer::init(const std::string& input) {
+    // init() can be called multiple times safely without leaking memory as we check for prior initialization
+    if(normalized_text) {
+        free(normalized_text);
+        normalized_text = nullptr;
+    }
+
     if(locale == "zh") {
         UErrorCode translit_status = U_ZERO_ERROR;
-        transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
-                                                             UTRANS_FORWARD, translit_status);
+        if(!transliterator) {
+            transliterator = icu::Transliterator::createInstance("Traditional-Simplified",
+                                                                 UTRANS_FORWARD, translit_status);
+        }
         if(U_FAILURE(translit_status)) {
             //LOG(ERROR) << "Unable to create transliteration instance for `zh` locale.";
             transliterator = nullptr;
@@ -50,8 +58,10 @@ void Tokenizer::init(const std::string& input) {
     } else if(is_cyrillic(locale)) {
         // init transliterator but will only transliterate during tokenization
         UErrorCode translit_status = U_ZERO_ERROR;
-        transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
-                                                             UTRANS_FORWARD, translit_status);
+        if(!transliterator) {
+            transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
+                                                                 UTRANS_FORWARD, translit_status);
+        }
         text = input;
     } else {
         text = input;
@@ -60,7 +70,9 @@ void Tokenizer::init(const std::string& input) {
     if(!locale.empty() && locale != "en") {
         UErrorCode status = U_ZERO_ERROR;
         const icu::Locale& icu_locale = icu::Locale(locale.c_str());
-        bi = icu::BreakIterator::createWordInstance(icu_locale, status);
+        if(!bi) {
+            bi = icu::BreakIterator::createWordInstance(icu_locale, status);
+        }
 
         unicode_text = icu::UnicodeString::fromUTF8(text);
         bi->setText(unicode_text);
