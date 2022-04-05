@@ -109,7 +109,7 @@ TEST_F(CollectionLocaleTest, SearchAgainstChineseText) {
     // partial token should not match as prefix when prefix is set to false
 
     results = coll1->search("并",
-                            {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY).get();
+                            {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
 
@@ -506,6 +506,23 @@ TEST_F(CollectionLocaleTest, SearchCyrillicText) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionLocaleTest, SearchCyrillicTextWithDefaultLocale) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, ""),};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Test Тест";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "TEST ТЕСТ";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("тетст", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionLocaleTest, SearchCyrillicTextWithDropTokens) {
     // this test ensures that even when tokens are dropped, the eventual text is highlighted on all query tokens
     std::vector<field> fields = {field("description", field_types::STRING, false, false, true, "sr"),
@@ -554,7 +571,6 @@ TEST_F(CollectionLocaleTest, SearchAndFacetSearchForGreekText) {
     ASSERT_EQ("<mark>Εμφάν</mark>ιση κάθε μέρα.", results["hits"][0]["highlights"][0]["value"].get<std::string>());
 
     // with typo
-
     results = coll1->search("Εμφάιση", {"title"}, "", {}, {}, {1}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("<mark>Εμφάνιση</mark> κάθε μέρα.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
@@ -653,3 +669,28 @@ TEST_F(CollectionLocaleTest, SearchOnCyrillicLargeText) {
     ASSERT_STREQ("Петр <mark>Великий</mark>, царь России, в начале",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 }
+
+/*
+TEST_F(CollectionLocaleTest, TranslitPad) {
+    UErrorCode translit_status = U_ZERO_ERROR;
+    auto transliterator = icu::Transliterator::createInstance("Any-Latin; Latin-ASCII",
+                                                         UTRANS_FORWARD, translit_status);
+
+    icu::UnicodeString unicode_input = icu::UnicodeString::fromUTF8("எண்ணெய்");
+    transliterator->transliterate(unicode_input);
+    std::string output;
+    unicode_input.toUTF8String(output);
+    LOG(INFO) << output;
+
+    unicode_input = icu::UnicodeString::fromUTF8("எண்");
+    transliterator->transliterate(unicode_input);
+    unicode_input.toUTF8String(output);
+    LOG(INFO) << output;
+
+    unicode_input = icu::UnicodeString::fromUTF8("என்னை");
+    transliterator->transliterate(unicode_input);
+    unicode_input.toUTF8String(output);
+    LOG(INFO) << output;
+
+    delete transliterator;
+}*/

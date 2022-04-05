@@ -112,6 +112,37 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionInfixSearchTest, InfixOnArray) {
+    std::vector<field> fields = {field("model_numbers", field_types::STRING_ARRAY, false, false, true, "", -1, 1),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["model_numbers"] = {"GH100037IN8900X", "GH100047IN8900X", "GH100057IN8900X"};
+    doc["points"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("47in",
+                                 {"model_numbers"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "model_numbers", 20, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    ASSERT_EQ(1, results["hits"][0]["highlights"].size());
+    ASSERT_EQ("model_numbers", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("<mark>GH100047IN8900X</mark>", results["hits"][0]["highlights"][0]["snippets"][0].get<std::string>());
+    ASSERT_EQ("<mark>GH100047IN8900X</mark>", results["hits"][0]["highlights"][0]["values"][0].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
     std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", -1, 1),
                                  field("points", field_types::INT32, false),};
@@ -131,7 +162,7 @@ TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
-    auto results = coll1->search("37IN8",
+    auto results = coll1->search("37in8",
                                  {"title"}, "points: 200", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, "", "", {}, 0,

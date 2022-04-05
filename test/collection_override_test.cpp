@@ -1211,10 +1211,11 @@ TEST_F(CollectionOverrideTest, DynamicFilteringMultiplePlaceholders) {
     auto results = coll1->search("Nike Air Jordan light yellow shoes", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
 
+    // not happy with this order (0,2,1 is better)
     ASSERT_EQ(3, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     // query with tokens at the start that preceding the placeholders in the rule
     results = coll1->search("New Nike Air Jordan yellow shoes", {"name", "category", "brand"}, "",
@@ -1366,13 +1367,13 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
     ASSERT_TRUE(op.ok());
 
     auto results = coll1->search("popular nike shoes", {"name", "category", "brand"}, "",
-                                 {}, sort_fields, {2, 2, 2}, 10).get();
+                                 {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
     ASSERT_EQ(4, results["hits"].size());
 
     coll1->add_override(override);
 
     results = coll1->search("popular nike shoes", {"name", "category", "brand"}, "",
-                                 {}, sort_fields, {2, 2, 2}, 10).get();
+                                 {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
@@ -1381,7 +1382,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
 
     bool enable_overrides = false;
     results = coll1->search("popular nike shoes", {"name", "category", "brand"}, "",
-                            {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false, false, false}, 1,
+                            {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false, false, false}, 10,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 1, {}, {}, {}, 0,
                             "<mark>", "</mark>", {1, 1, 1}, 10000, true, false, enable_overrides).get();
@@ -1395,8 +1396,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithNumericalFilter) {
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
-    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
-    ASSERT_EQ("1", results["hits"][3]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
 
     results = coll1->search("adidas", {"name", "category", "brand"}, "",
                             {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {false}, 10).get();
@@ -1479,7 +1480,7 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatch) {
     coll1->add_override(override);
 
     auto results = coll1->search("really popular nike shoes", {"name", "category", "brand"}, "",
-                                  {}, sort_fields, {2, 2, 2}, 10).get();
+                                  {}, sort_fields, {2, 2, 2}, 10, 1, FREQUENCY, {true}, 10).get();
 
     ASSERT_EQ(4, results["hits"].size());
 

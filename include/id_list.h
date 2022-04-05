@@ -6,9 +6,6 @@
 
 typedef uint32_t last_id_t;
 
-#define FOR_ELE_SIZE sizeof(uint32_t)
-#define METADATA_OVERHEAD 5
-
 /*
     Compressed chain of blocks that store the document IDs and offsets of a given token.
     Offsets of singular and multi-valued fields are encoded differently.

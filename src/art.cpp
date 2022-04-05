@@ -942,8 +942,8 @@ void* art_delete(art_tree *t, const unsigned char *key, int key_len) {
 
 int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_results,
                   const uint32_t* filter_ids, size_t filter_ids_length,
-                  const std::set<art_leaf*>& exclude_leaves, const art_leaf* exact_leaf,
-                  std::vector<art_leaf *> &results) {
+                  const std::set<std::string>& exclude_leaves, const art_leaf* exact_leaf,
+                  std::vector<art_leaf *>& results) {
 
     printf("INSIDE art_topk_iter: root->type: %d\n", root->type);
 
@@ -956,8 +956,6 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
     }
 
     q.push(root);
-
-    size_t num_large_lists = 0;
 
     while(!q.empty() && results.size() < max_results*4) {
         art_node *n = (art_node *) q.top();
@@ -973,22 +971,22 @@ int art_topk_iter(const art_node *root, token_ordering token_order, size_t max_r
         if (!n) continue;
         if (IS_LEAF(n)) {
             art_leaf *l = (art_leaf *) LEAF_RAW(n);
-
             //LOG(INFO) << "END LEAF SCORE: " << l->max_score;
-            if(exclude_leaves.count(l) != 0 || l == exact_leaf) {
-                continue;
-            }
 
             if(filter_ids_length == 0) {
+                std::string tok(reinterpret_cast<char*>(l->key), l->key_len - 1);
+                if(exclude_leaves.count(tok) != 0 || l == exact_leaf) {
+                    continue;
+                }
                 results.push_back(l);
             } else {
                 // we will push leaf only if filter matches with leaf IDs
-                if(!IS_COMPACT_POSTING(l->values)) {
-                    num_large_lists++;
-                }
-
                 bool found_atleast_one = posting_t::contains_atleast_one(l->values, filter_ids, filter_ids_length);
                 if(found_atleast_one) {
+                    std::string tok(reinterpret_cast<char*>(l->key), l->key_len - 1);
+                    if(exclude_leaves.count(tok) != 0 || l == exact_leaf) {
+                        continue;
+                    }
                     results.push_back(l);
                 }
             }
@@ -1491,7 +1489,7 @@ static void art_fuzzy_recurse(unsigned char p, unsigned char c, const art_node *
 int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len, const int min_cost, const int max_cost,
                      const int max_words, const token_ordering token_order, const bool prefix,
                      const uint32_t *filter_ids, size_t filter_ids_length,
-                     std::vector<art_leaf *> &results, const std::set<art_leaf *>& exclude_leaves) {
+                     std::vector<art_leaf *> &results, const std::set<std::string>& exclude_leaves) {
 
     std::vector<const art_node*> nodes;
     int irow[term_len + 1];

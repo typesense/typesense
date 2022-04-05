@@ -110,7 +110,8 @@ TEST_F(CollectionTest, RetrieveADocumentById) {
 
 TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     std::vector<std::string> facets;
-    nlohmann::json results = collection->search("the", query_fields, "", facets, sort_fields, {0}, 10).get();
+    nlohmann::json results = collection->search("the", query_fields, "", facets, sort_fields, {0}, 10,
+                                                1, FREQUENCY, {false}).get();
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
 
@@ -131,7 +132,8 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     // check ASC sorting
     std::vector<sort_by> sort_fields_asc = { sort_by("points", "ASC") };
 
-    results = collection->search("the", query_fields, "", facets, sort_fields_asc, {0}, 10).get();
+    results = collection->search("the", query_fields, "", facets, sort_fields_asc, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
     ASSERT_EQ(7, results["hits"].size());
     ASSERT_EQ(7, results["found"].get<int>());
 
@@ -145,7 +147,8 @@ TEST_F(CollectionTest, ExactSearchShouldBeStable) {
     }
     
     // when a query does not return results, hits and found fields should still exist in response
-    results = collection->search("zxsadqewsad", query_fields, "", facets, sort_fields_asc, {0}, 10).get();
+    results = collection->search("zxsadqewsad", query_fields, "", facets, sort_fields_asc, {0}, 10,
+                                 1, FREQUENCY, {false}).get();
     ASSERT_EQ(0, results["hits"].size());
     ASSERT_EQ(0, results["found"].get<int>());
 }

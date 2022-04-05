@@ -8,8 +8,24 @@
 
 typedef uint32_t last_id_t;
 
-#define FOR_ELE_SIZE sizeof(uint32_t)
-#define METADATA_OVERHEAD 5
+struct result_iter_state_t {
+    const uint32_t* excluded_result_ids = nullptr;
+    const size_t excluded_result_ids_size = 0;
+
+    const uint32_t* filter_ids = nullptr;
+    const size_t filter_ids_length = 0;
+
+    size_t excluded_result_ids_index = 0;
+    size_t filter_ids_index = 0;
+    size_t index = 0;
+
+    result_iter_state_t() = default;
+
+    result_iter_state_t(const uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
+                        const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
+                                                                                      excluded_result_ids_size(excluded_result_ids_size),
+                                                                                      filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
+};
 
 /*
     Compressed chain of blocks that store the document IDs and offsets of a given token.
@@ -48,8 +64,10 @@ public:
     private:
         block_t* curr_block;
         uint32_t curr_index;
-
         block_t* end_block;
+
+        bool auto_destroy;
+        uint32_t field_id;
 
     public:
         // uncompressed data structures for performance
@@ -57,9 +75,13 @@ public:
         uint32_t* offset_index = nullptr;
         uint32_t* offsets = nullptr;
 
-        explicit iterator_t(block_t* start, block_t* end);
-        iterator_t(iterator_t&& rhs) noexcept;
+        explicit iterator_t(block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
         ~iterator_t();
+
+        iterator_t(iterator_t&& rhs) noexcept;
+        iterator_t& operator=(iterator_t&& rhs) noexcept;
+
+        void destroy();
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
@@ -67,28 +89,12 @@ public:
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
+        [[nodiscard]] uint32_t get_field_id() const;
+
+        posting_list_t::iterator_t clone() const;
     };
 
-    struct result_iter_state_t {
-        const uint32_t* excluded_result_ids = nullptr;
-        const size_t excluded_result_ids_size = 0;
-
-        const uint32_t* filter_ids = nullptr;
-        const size_t filter_ids_length = 0;
-
-        size_t excluded_result_ids_index = 0;
-        size_t filter_ids_index = 0;
-        size_t index = 0;
-
-        result_iter_state_t() = default;
-
-        result_iter_state_t(uint32_t* excluded_result_ids, size_t excluded_result_ids_size,
-                            const uint32_t* filter_ids, const size_t filter_ids_length) : excluded_result_ids(excluded_result_ids),
-                                                        excluded_result_ids_size(excluded_result_ids_size),
-                                                        filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
-    };
-
-private:
+public:
 
     // maximum number of IDs (and associated offsets) to store in each block before another block is created
     const uint16_t BLOCK_MAX_ELEMENTS;
@@ -104,6 +110,9 @@ private:
     static bool at_end(const std::vector<posting_list_t::iterator_t>& its);
     static bool at_end2(const std::vector<posting_list_t::iterator_t>& its);
 
+    static bool all_ended(const std::vector<posting_list_t::iterator_t>& its);
+    static bool all_ended2(const std::vector<posting_list_t::iterator_t>& its);
+
     static bool equals(std::vector<posting_list_t::iterator_t>& its);
     static bool equals2(std::vector<posting_list_t::iterator_t>& its);
 
@@ -115,8 +124,6 @@ private:
 
     static uint32_t advance_smallest(std::vector<posting_list_t::iterator_t>& its);
     static uint32_t advance_smallest2(std::vector<posting_list_t::iterator_t>& its);
-
-public:
 
     posting_list_t() = delete;
 
@@ -148,7 +155,7 @@ public:
 
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
-    iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr);
+    iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr, uint32_t field_id = 0);
 
     static void merge(const std::vector<posting_list_t*>& posting_lists, std::vector<uint32_t>& result_ids);
 
