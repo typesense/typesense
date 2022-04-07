@@ -2781,3 +2781,33 @@ TEST_F(CollectionSpecificTest, NonIndexField) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificTest, HighlightPrefixProperly) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"Cinderella: the story."},
+        {"The story of a girl."},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("cindrella o", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("<mark>Cinderella:</mark> the story.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+

@@ -1534,7 +1534,9 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
             const auto& field_name = highlight_item.name;
             art_leaf* leaf = index->get_token_leaf(field_name, (const unsigned char*) qtoken.c_str(), qtoken.size()+1);
             if(leaf) {
-                highlight_item.qtoken_leaves.insert(qtoken, token_leaf(leaf, it.value().root_len, it.value().num_typos));
+                highlight_item.qtoken_leaves.insert(qtoken,
+                    token_leaf(leaf, it.value().root_len, it.value().num_typos, it.value().is_prefix)
+                );
             }
         }
     }
@@ -1547,7 +1549,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
                 const auto& field_name = highlight_item.name;
                 art_leaf* leaf = index->get_token_leaf(field_name, (const unsigned char*) q_token.c_str(), q_token.size()+1);
                 if(leaf) {
-                    highlight_item.qtoken_leaves.insert(q_token, token_leaf(leaf, q_token.size(), 0));
+                    highlight_item.qtoken_leaves.insert(q_token, token_leaf(leaf, q_token.size(), 0, false));
                 }
             }
         }
@@ -1954,7 +1956,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                  match.offsets[match_offset_index].offset == raw_token_index)) {
 
                 // check if the matched token is a prefix of this found token
-                if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().root_len < raw_token.size()) {
+                if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
+                    qtoken_it.value().root_len < raw_token.size()) {
                     // need to ensure that only the prefix portion is highlighted
                     // if length diff is within 2, we still might not want to highlight partially in some cases
                     // e.g. "samsng" vs "samsung" -> full highlight is preferred, unless it's a full prefix match
@@ -1988,7 +1991,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                 // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
                 // locate all tokens that appear in the query / query candidates
 
-                if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().root_len < raw_token.size()) {
+                if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
+                   qtoken_it.value().root_len < raw_token.size()) {
                     // need to ensure that only the prefix portion is highlighted
                     size_t char_diff = (tok_end - tok_start + 1) - last_raw_q_token.size();
                     auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ?
