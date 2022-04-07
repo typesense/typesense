@@ -1172,12 +1172,12 @@ void Index::search_all_candidates(const size_t num_search_fields,
         //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
         //LOG(INFO) << "n: " << n;
 
-        std::stringstream fullq;
+        /*std::stringstream fullq;
         for(const auto& qtok : query_suggestion) {
             fullq << qtok.value << " ";
         }
 
-        /*LOG(INFO) << "query: " << fullq.str() << ", total_cost: " << total_cost;*/
+        LOG(INFO) << "query: " << fullq.str() << ", total_cost: " << total_cost;*/
 
         search_across_fields(query_suggestion, num_typos, prefixes, the_fields, num_search_fields,
                              sort_fields, topster,groups_processed,
@@ -2876,7 +2876,7 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
     if(!result_ids.empty()) {
         searched_queries.push_back(query_suggestion);
         for(const auto& qtoken: query_tokens) {
-            qtoken_set.insert(qtoken.value, token_leaf(nullptr, qtoken.root_len, qtoken.num_typos));
+            qtoken_set.insert(qtoken.value, token_leaf(nullptr, qtoken.root_len, qtoken.num_typos, qtoken.is_prefix_searched));
         }
     }
 
