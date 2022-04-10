@@ -712,7 +712,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     bool exhaustive_search = false;
     size_t search_cutoff_ms = 3600000;
     bool split_join_tokens = true;
-    size_t max_candidates = exhaustive_search ? 10000 : 4;
+    size_t max_candidates = 0;
     std::vector<infix_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
@@ -863,6 +863,10 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         } else if(req_params[RANK_TOKENS_BY] == "FREQUENCY") {
             token_order = FREQUENCY;
         }
+    }
+
+    if(!max_candidates) {
+        max_candidates = exhaustive_search ? 10000 : 4;
     }
 
     Option<nlohmann::json> result_op = collection->search(raw_query, search_fields, simple_filter_query, facet_fields,
