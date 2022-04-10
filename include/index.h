@@ -927,6 +927,7 @@ public:
                              const std::vector<bool>& prefixes,
                              const size_t typo_tokens_threshold,
                              const bool exhaustive_search,
+                             const size_t max_candidates,
                              size_t min_len_1typo,
                              size_t min_len_2typo,
                              int syn_orig_num_tokens,

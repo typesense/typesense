@@ -1172,13 +1172,6 @@ void Index::search_all_candidates(const size_t num_search_fields,
         //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
         //LOG(INFO) << "n: " << n;
 
-        /*std::stringstream fullq;
-        for(const auto& qtok : query_suggestion) {
-            fullq << qtok.value << " ";
-        }
-
-        LOG(INFO) << "query: " << fullq.str() << ", total_cost: " << total_cost;*/
-
         search_across_fields(query_suggestion, num_typos, prefixes, the_fields, num_search_fields,
                              sort_fields, topster,groups_processed,
                              searched_queries, qtoken_set, group_limit, group_by_fields, prioritize_exact_match,
@@ -1186,6 +1179,13 @@ void Index::search_all_candidates(const size_t num_search_fields,
                              exclude_token_ids, exclude_token_ids_size,
                              sort_order, field_values, geopoint_indices,
                              all_result_ids, all_result_ids_len);
+
+        /*std::stringstream fullq;
+        for(const auto& qtok : query_suggestion) {
+            fullq << qtok.value << " ";
+        }
+
+        LOG(INFO) << "query: " << fullq.str() << ", total_cost: " << total_cost << ", num: " << all_result_ids_len;*/
     }
 }
 
@@ -2265,8 +2265,9 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                             excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                             sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
-                            query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search, min_len_1typo,
-                            min_len_2typo, -1, sort_order, field_values, geopoint_indices);
+                            query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search,
+                            max_candidates, min_len_1typo, min_len_2typo, -1, sort_order,
+                            field_values, geopoint_indices);
 
         // try split/joining tokens if no results are found
         if(all_result_ids_len == 0 && split_join_tokens) {
@@ -2300,8 +2301,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                                     excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                                     sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                                     all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
-                                    query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search, min_len_1typo,
-                                    min_len_2typo, -1, sort_order, field_values, geopoint_indices);
+                                    query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search,
+                                    max_candidates, min_len_1typo, min_len_2typo, -1, sort_order, field_values, geopoint_indices);
             }
         }
 
@@ -2357,7 +2358,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                                             excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted,
                                             sort_fields_std, num_typos, searched_queries, qtoken_set, topster, groups_processed,
                                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
-                                            query_hashes, token_order, prefixes, typo_tokens_threshold, exhaustive_search, min_len_1typo,
+                                            query_hashes, token_order, prefixes, typo_tokens_threshold,
+                                            exhaustive_search, max_candidates, min_len_1typo,
                                             min_len_2typo, syn_orig_num_token, sort_order, field_values, geopoint_indices);
 
                     } else {
@@ -2513,6 +2515,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                                 const std::vector<bool>& prefixes,
                                 const size_t typo_tokens_threshold,
                                 const bool exhaustive_search,
+                                const size_t max_candidates,
                                 size_t min_len_1typo,
                                 size_t min_len_2typo,
                                 int syn_orig_num_tokens,
@@ -2552,7 +2555,6 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
     const long long combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
-    const size_t num_fuzzy_candidates = exhaustive_search ? 10000 : 4;
 
     while(n < N && n < combination_limit) {
         RETURN_CIRCUIT_BREAKER
@@ -2605,7 +2607,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
                     // need less candidates for filtered searches since we already only pick tokens with results
                     art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
-                                     costs[token_index], costs[token_index], num_fuzzy_candidates, token_order, prefix_search,
+                                     costs[token_index], costs[token_index], max_candidates, token_order, prefix_search,
                                      filter_ids, filter_ids_length, leaves, unique_tokens);
 
                     /*auto timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2623,7 +2625,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         unique_tokens.emplace(tok);
                     }
 
-                    if(unique_tokens.size() > num_fuzzy_candidates) {
+                    if(unique_tokens.size() > max_candidates) {
                         break;
                     }
                 }
@@ -3158,7 +3160,7 @@ void Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
                             sort_fields_std, {0}, searched_queries, qtoken_set, actual_topster, groups_processed,
                             all_result_ids, all_result_ids_len, group_limit, group_by_fields, prioritize_exact_match,
                             query_hashes, token_order, {0}, typo_tokens_threshold,
-                            exhaustive_search, min_len_1typo,
+                            exhaustive_search, max_candidates, min_len_1typo,
                             min_len_2typo, q_include_tokens.size(), sort_order, field_values, geopoint_indices);
     }
 
