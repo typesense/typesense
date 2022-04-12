@@ -469,7 +469,9 @@ namespace cmdline{
                                 errors.push_back("option needs value: --"+name);
                                 continue;
                             }
-                            else{
+                            else if(options[name]->is_boolean()) {
+                                set_option(name, "true");
+                            } else {
                                 i++;
                                 set_option(name, argv[i]);
                             }
@@ -519,7 +521,7 @@ namespace cmdline{
 
             for (std::map<std::string, option_base*>::iterator p=options.begin();
                  p!=options.end(); p++)
-                if (!p->second->valid())
+                if (p->second && !p->second->valid())
                     errors.push_back("need option: --"+std::string(p->first));
 
             return errors.size()==0;
@@ -626,6 +628,7 @@ namespace cmdline{
             virtual ~option_base(){}
 
             virtual bool has_value() const=0;
+            virtual bool is_boolean() const=0;
             virtual bool set()=0;
             virtual bool set(const std::string &value)=0;
             virtual bool has_set() const=0;
@@ -648,6 +651,8 @@ namespace cmdline{
             ~option_without_value(){}
 
             bool has_value() const { return false; }
+
+            bool is_boolean() const { return true; }
 
             bool set(){
                 has=true;
@@ -719,6 +724,12 @@ namespace cmdline{
             }
 
             bool set(const std::string &value){
+                if(is_boolean()) {
+                    actual = (value == "" || value == "true");
+                    has = true;
+                    return true;
+                }
+
                 try{
                     actual=read(value);
                     has=true;
@@ -756,6 +767,10 @@ namespace cmdline{
 
             std::string short_description() const{
                 return "--"+nam+"="+detail::readable_typename<T>();
+            }
+
+            bool is_boolean() const {
+                return std::is_same<T, bool>::value;
             }
 
         protected:

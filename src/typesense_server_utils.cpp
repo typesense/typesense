@@ -79,7 +79,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
     options.add<std::string>("ssl-certificate-key", 'k', "Path to the SSL certificate key file.", false, "");
     options.add<uint32_t>("ssl-refresh-interval-seconds", '\0', "Frequency of automatic reloading of SSL certs from disk.", false, 8 * 60 * 60);
 
-    options.add<std::string>("enable-cors", '\0', "Enable CORS requests.", false, "true");
+    options.add<bool>("enable-cors", '\0', "Enable CORS requests.", false, true);
+    options.add<std::string>("cors-domains", '\0', "Comma separated list of domains that are allowed for CORS.", false, "");
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
