@@ -56,7 +56,7 @@ protected:
         this->api_address = "0.0.0.0";
         this->api_port = 8108;
         this->peering_port = 8107;
-        this->enable_cors = false;
+        this->enable_cors = true;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
         this->healthy_read_lag = 1000;
@@ -291,8 +291,12 @@ public:
         this->ssl_certificate = get_env("TYPESENSE_SSL_CERTIFICATE");
         this->ssl_certificate_key = get_env("TYPESENSE_SSL_CERTIFICATE_KEY");
 
-        std::string cors_value = get_env("TYPESENSE_ENABLE_CORS");
-        set_cors_parameters(cors_value);
+        std::string enable_cors_str = get_env("TYPESENSE_ENABLE_CORS");
+        StringUtils::toupper(enable_cors_str);
+        this->enable_cors = ("TRUE" == enable_cors_str || enable_cors_str.empty()) ? true : false;
+
+        std::string cors_domains_value = get_env("TYPESENSE_CORS_DOMAINS");
+        set_cors_domains(cors_domains_value);
 
         if(!get_env("TYPESENSE_MAX_MEMORY_RATIO").empty()) {
             this->max_memory_ratio = std::stof(get_env("TYPESENSE_MAX_MEMORY_RATIO"));
@@ -397,8 +401,14 @@ public:
         }
 
         if(reader.Exists("server", "enable-cors")) {
-            std::string cors_value = reader.Get("server", "enable-cors", "false");
-            set_cors_parameters(cors_value);
+            auto enable_cors_value = reader.Get("server", "enable-cors", "true");
+            StringUtils::tolowercase(enable_cors_value);
+            this->enable_cors = enable_cors_value == "true";
+        }
+
+        if(reader.Exists("server", "cors-domains")) {
+            std::string cors_value = reader.Get("server", "cors-domains", "");
+            set_cors_domains(cors_value);
         }
 
         if(reader.Exists("server", "peering-address")) {
@@ -501,8 +511,12 @@ public:
         }
 
         if(options.exist("enable-cors")) {
-            std::string cors_value = options.get<std::string>("enable-cors");
-            set_cors_parameters(cors_value);
+            this->enable_cors = options.get<bool>("enable-cors");
+        }
+
+        if(options.exist("cors-domains")) {
+            std::string cors_domains_value = options.get<std::string>("cors-domains");
+            set_cors_domains(cors_domains_value);
         }
 
         if(options.exist("peering-address")) {
@@ -558,15 +572,11 @@ public:
         }
     }
 
-    void set_cors_parameters(std::string& cors_value) {
-        StringUtils::tolowercase(cors_value);
-        this->enable_cors = !(cors_value == "false");
-
-        if(cors_value != "true" && cors_value != "false") {
-            std::vector<std::string> cors_values;
-            StringUtils::split(cors_value, cors_values, ",");
-            cors_domains.insert(cors_values.begin(), cors_values.end());
-        }
+    void set_cors_domains(std::string& cors_domains_value) {
+        std::vector<std::string> cors_values_vec;
+        StringUtils::split(cors_domains_value, cors_values_vec, ",");
+        cors_domains.clear();
+        cors_domains.insert(cors_values_vec.begin(), cors_values_vec.end());
     }
 
     // validation

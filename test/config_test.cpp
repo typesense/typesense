@@ -43,6 +43,7 @@ TEST(ConfigTest, LoadCmdLineArguments) {
     ASSERT_EQ("abcd", config.get_api_key());
     ASSERT_EQ(8080, config.get_api_port());
     ASSERT_EQ("/tmp/data", config.get_data_dir());
+    ASSERT_EQ(true, config.get_enable_cors());
 }
 
 TEST(ConfigTest, LoadEnvVars) {
@@ -93,7 +94,7 @@ TEST(ConfigTest, LoadConfigFile) {
     ASSERT_EQ("1234", config.get_api_key());
     ASSERT_EQ("/tmp/logs", config.get_log_dir());
     ASSERT_EQ(9090, config.get_api_port());
-    ASSERT_EQ(false, config.get_enable_cors());
+    ASSERT_EQ(true, config.get_enable_cors());
 }
 
 TEST(ConfigTest, LoadIncompleteConfigFile) {
@@ -142,6 +143,7 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
         "--data-dir=/tmp/data",
         "--api-key=abcd",
         "--listen-address=192.168.10.10",
+        "--cors-domains=http://localhost:8108",
         std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
     };
 
@@ -150,6 +152,7 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     putenv((char*)"TYPESENSE_LISTEN_PORT=9090");
     putenv((char*)"TYPESENSE_LISTEN_ADDRESS=127.0.0.1");
     putenv((char*)"TYPESENSE_ENABLE_CORS=TRUE");
+    putenv((char*)"TYPESENSE_CORS_DOMAINS=http://localhost:7108");
 
     std::vector<char*> argv = get_argv(args);
     init_cmdline_options(options, argv.size() - 1, argv.data());
@@ -167,4 +170,43 @@ TEST(ConfigTest, CmdLineArgsOverrideConfigFileAndEnvVars) {
     ASSERT_EQ(true, config.get_enable_cors());
     ASSERT_EQ("192.168.10.10", config.get_api_address());
     ASSERT_EQ("abcd", config.get_api_key());  // cli parameter overrides file config
+    ASSERT_EQ(1, config.get_cors_domains().size());  // cli parameter overrides file config
+    ASSERT_EQ("http://localhost:8108", *(config.get_cors_domains().begin()));
+}
+
+TEST(ConfigTest, CorsDefaults) {
+    cmdline::parser options;
+
+    std::vector<std::string> args = {
+        "./typesense-server",
+        "--data-dir=/tmp/data",
+        "--api-key=abcd",
+        "--listen-address=192.168.10.10",
+        std::string("--config=") + std::string(ROOT_DIR)+"test/valid_sparse_config.ini"
+    };
+
+    std::vector<char*> argv = get_argv(args);
+    init_cmdline_options(options, argv.size() - 1, argv.data());
+    options.parse(argv.size() - 1, argv.data());
+
+    ConfigImpl config;
+    config.load_config_cmd_args(options);
+
+    ASSERT_EQ(true, config.get_enable_cors());
+    ASSERT_EQ(0, config.get_cors_domains().size());
+
+    unsetenv("TYPESENSE_ENABLE_CORS");
+    unsetenv("TYPESENSE_CORS_DOMAINS");
+
+    ConfigImpl config2;
+    config2.load_config_env();
+
+    ASSERT_EQ(true, config2.get_enable_cors());
+    ASSERT_EQ(0, config2.get_cors_domains().size());
+
+    ConfigImpl config3;
+    config3.load_config_file(options);
+
+    ASSERT_EQ(true, config3.get_enable_cors());
+    ASSERT_EQ(1, config3.get_cors_domains().size());
 }
