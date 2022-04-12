@@ -375,11 +375,8 @@ TEST_F(CollectionSynonymsTest, SynonymQueryVariantWithDropTokens) {
     auto res = coll1->search("us sneakers", {"category", "location"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(3, res["hits"].size());
 
-    // NOTE: "1" is ranked above "0" because synonym matches uses the root query's number of tokens for counting
-    // This means that "united states" == "us" so both records have 2 tokens matched, so tie breaking happens on points.
-
-    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", res["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
@@ -418,7 +415,7 @@ TEST_F(CollectionSynonymsTest, SynonymsTextMatchSameAsRootQuery) {
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
 
-    auto res = coll1->search("ceo", {"name", "title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    auto res = coll1->search("ceo", {"name", "title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 0).get();
     ASSERT_EQ(2, res["hits"].size());
 
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
@@ -531,6 +528,59 @@ TEST_F(CollectionSynonymsTest, ExactMatchRankedSameAsSynonymMatch) {
     ASSERT_STREQ("2", res["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", res["hits"][2]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("0", res["hits"][3]["document"]["id"].get<std::string>().c_str());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("description", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Head of Marketing", "The Chief Marketing Officer", "100"},
+        {"VP of Sales", "Preparing marketing and sales materials.", "120"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["description"] = records[i][1];
+        doc["points"] = std::stoi(records[i][2]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    nlohmann::json syn_json = {
+        {"id",       "syn-1"},
+        {"synonyms", {"cmo", "Chief Marketing Officer", "VP of Marketing"}}
+    };
+
+    synonym_t synonym;
+    auto syn_op = synonym_t::parse(syn_json, synonym);
+    ASSERT_TRUE(syn_op.ok());
+
+    coll1->add_synonym(synonym);
+
+    auto res = coll1->search("cmo", {"title", "description"}, "", {}, {},
+                             {0}, 10, 1, FREQUENCY, {false}, 0).get();
+
+    LOG(INFO) << res;
+
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<uint32_t>());
+
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

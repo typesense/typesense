@@ -706,6 +706,7 @@ public:
                            const size_t group_limit, const std::vector<std::string>& group_by_fields,
                            const bool prioritize_exact_match,
                            const bool single_exact_query_token,
+                           size_t num_query_tokens,
                            int syn_orig_num_tokens,
                            const std::vector<posting_list_t::iterator_t>& posting_lists) const;
 
@@ -892,7 +893,8 @@ public:
                            const std::vector<uint32_t>& curated_ids_sorted, const uint32_t* exclude_token_ids,
                            size_t exclude_token_ids_size,
                            Topster* actual_topster,
-                           std::vector<query_tokens_t>& field_query_tokens,
+                           std::vector<std::vector<token_t>>& q_pos_synonyms,
+                           int syn_orig_num_tokens,
                            spp::sparse_hash_set<uint64_t>& groups_processed,
                            std::vector<std::vector<art_leaf*>>& searched_queries,
                            uint32_t*& all_result_ids, size_t& all_result_ids_len,
@@ -901,8 +903,7 @@ public:
                            const int* sort_order,
                            std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                            const std::vector<size_t>& geopoint_indices,
-                           tsl::htrie_map<char, token_leaf>& qtoken_set,
-                           std::vector<std::vector<token_t>>& all_queries) const;
+                           tsl::htrie_map<char, token_leaf>& qtoken_set) const;
 
     void do_phrase_search(const size_t num_search_fields, const std::vector<search_field_t>& search_fields,
                           std::vector<query_tokens_t>& field_query_tokens,
