@@ -1171,14 +1171,13 @@ void Index::search_all_candidates(const size_t num_search_fields,
 
         //LOG(INFO) << "field_num_results: " << field_num_results << ", typo_tokens_threshold: " << typo_tokens_threshold;
         //LOG(INFO) << "n: " << n;
-
         search_across_fields(query_suggestion, num_typos, prefixes, the_fields, num_search_fields,
                              sort_fields, topster,groups_processed,
                              searched_queries, qtoken_set, group_limit, group_by_fields, prioritize_exact_match,
                              filter_ids, filter_ids_length, total_cost, syn_orig_num_tokens,
                              exclude_token_ids, exclude_token_ids_size,
                              sort_order, field_values, geopoint_indices,
-                             all_result_ids, all_result_ids_len);
+                             id_buff, all_result_ids, all_result_ids_len);
 
         /*std::stringstream fullq;
         for(const auto& qtok : query_suggestion) {
@@ -2744,6 +2743,7 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
                                  const int* sort_order,
                                  std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                                  const std::vector<size_t>& geopoint_indices,
+                                 std::vector<uint32_t>& id_buff,
                                  uint32_t*& all_result_ids, size_t& all_result_ids_len) const {
 
     std::vector<art_leaf*> query_suggestion;
@@ -2755,8 +2755,6 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
     std::vector<posting_list_t*> expanded_plists;
 
     result_iter_state_t istate(exclude_token_ids, exclude_token_ids_size, filter_ids, filter_ids_length);
-    std::vector<uint32_t> result_ids;
-    uint32_t* new_all_result_ids = nullptr;
 
     // for each token, find the posting lists across all query_by fields
     for(size_t ti = 0; ti < query_tokens.size(); ti++) {
@@ -2817,6 +2815,8 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         or_iterator_t token_fields(its);
         token_its.push_back(std::move(token_fields));
     }
+
+    std::vector<uint32_t> result_ids;
 
     or_iterator_t::intersect(token_its, istate, [&](uint32_t seq_id, const std::vector<or_iterator_t>& its) {
         // Convert [token -> fields] orientation to [field -> tokens] orientation
@@ -2902,10 +2902,20 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         result_ids.push_back(seq_id);
     });
 
-    all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &result_ids[0],
-                                               result_ids.size(), &new_all_result_ids);
-    delete [] all_result_ids;
-    all_result_ids = new_all_result_ids;
+    id_buff.insert(id_buff.end(), result_ids.begin(), result_ids.end());
+
+    if(id_buff.size() > 100000) {
+        // prevents too many ORs during exhaustive searching
+        std::sort(id_buff.begin(), id_buff.end());
+        id_buff.erase(std::unique( id_buff.begin(), id_buff.end() ), id_buff.end());
+
+        uint32_t* new_all_result_ids = nullptr;
+        all_result_ids_len = ArrayUtils::or_scalar(all_result_ids, all_result_ids_len, &id_buff[0],
+                                                   id_buff.size(), &new_all_result_ids);
+        delete[] all_result_ids;
+        all_result_ids = new_all_result_ids;
+        id_buff.clear();
+    }
 
     if(!result_ids.empty()) {
         searched_queries.push_back(query_suggestion);
