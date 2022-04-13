@@ -956,6 +956,7 @@ public:
                               const int* sort_order,
                               std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                               const std::vector<size_t>& geopoint_indices,
+                              std::vector<uint32_t>& id_buff,
                               uint32_t*& all_result_ids,
                               size_t& all_result_ids_len) const;
 
