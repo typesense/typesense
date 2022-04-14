@@ -380,6 +380,12 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
                                  "`name`, `type`, `optional` and `facet` properties.");
     }
 
+    if(field_json.count("drop") != 0) {
+        return Option<bool>(400, std::string("Invalid property `drop` on field `") +
+                                 field_json[fields::name].get<std::string>() + std::string("`: it is allowed only "
+                                 "during schema update."));
+    }
+
     if(field_json.count(fields::facet) != 0 && !field_json.at(fields::facet).is_boolean()) {
         return Option<bool>(400, std::string("The `facet` property of the field `") +
                                  field_json[fields::name].get<std::string>() + std::string("` should be a boolean."));

@@ -158,8 +158,14 @@ private:
 
     Option<bool> persist_collection_meta();
 
+    Option<bool> batch_alter_data(const std::unordered_map<std::string, field>& schema_additions,
+                                  const std::vector<field>& del_fields,
+                                  const std::string& this_fallback_field_type,
+                                  const bool do_validation);
+
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
                                         std::unordered_map<std::string, field>& schema_additions,
+                                        std::unordered_map<std::string, field>& schema_reindex,
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
 

@@ -52,6 +52,8 @@ struct field {
     bool sort;
     bool infix;
 
+    field() {}
+
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
