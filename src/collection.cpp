@@ -1175,6 +1175,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     std::string hits_key = group_limit ? "grouped_hits" : "hits";
     result[hits_key] = nlohmann::json::array();
 
+    uint8_t index_symbols[256] = {};
+    for(char c: symbols_to_index) {
+        index_symbols[uint8_t(c)] = 1;
+    }
+
     // construct results array
     for(long result_kvs_index = start_result_index; result_kvs_index <= end_result_index; result_kvs_index++) {
         const std::vector<KV*> & kv_group = result_group_kvs[result_kvs_index];
@@ -1217,7 +1222,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                     highlight_result(raw_query, search_field, highlight_item.qtoken_leaves, q_tokens, field_order_kv,
                                      document,string_utils, snippet_threshold, highlight_affix_num_tokens,
                                      highlight_item.fully_highlighted, highlight_item.infix,
-                                     highlight_start_tag, highlight_end_tag, highlight);
+                                     highlight_start_tag, highlight_end_tag, index_symbols, highlight);
                     if(!highlight.snippets.empty()) {
                         highlights.push_back(highlight);
                     }
@@ -1779,6 +1784,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                                   bool is_infix_search,
                                   const std::string& highlight_start_tag,
                                   const std::string& highlight_end_tag,
+                                  const uint8_t* index_symbols,
                                   highlight_t & highlight) const {
 
     if(q_tokens.size() == 1 && q_tokens[0] == "*") {
@@ -2050,7 +2056,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
         std::stringstream highlighted_text;
         highlight_text(highlight_start_tag, highlight_end_tag, text, token_offsets,
                        snippet_end_offset, matched_tokens, offset_it,
-                       highlighted_text, snippet_start_offset);
+                       highlighted_text, index_symbols, snippet_start_offset);
 
         highlight.snippets.push_back(highlighted_text.str());
         if(search_field.type == field_types::STRING_ARRAY) {
@@ -2063,7 +2069,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
             std::vector<std::string> full_matched_tokens;
             highlight_text(highlight_start_tag, highlight_end_tag, text, token_offsets,
                            text.size()-1, full_matched_tokens, offset_it,
-                           value_stream, 0);
+                           value_stream, index_symbols, 0);
             highlight.values.push_back(value_stream.str());
         }
     }
@@ -2081,16 +2087,29 @@ void Collection::highlight_text(const string& highlight_start_tag, const string&
                                   size_t snippet_end_offset, std::vector<std::string>& matched_tokens,
                                   std::map<size_t, size_t>::iterator& offset_it,
                                   std::stringstream& highlighted_text,
+                                  const uint8_t* index_symbols,
                                   size_t snippet_start_offset) {
 
     while(snippet_start_offset <= snippet_end_offset) {
         if(offset_it != token_offsets.end()) {
             if (snippet_start_offset == offset_it->first) {
                 highlighted_text << highlight_start_tag;
-                const std::string& text_token = text.substr(snippet_start_offset, (offset_it->second - snippet_start_offset) + 1);
-                matched_tokens.push_back(text_token);
 
-                size_t token_len = offset_it->second - snippet_start_offset + 1;
+                auto end_offset = offset_it->second;
+
+                // if a token ends with one or more puncutation chars, we should not highlight them
+                for(int j = end_offset; j > 0; j--) {
+                    if(!std::isalnum(text[j]) && Tokenizer::is_ascii_char(text[j]) &&
+                        index_symbols[uint8_t(text[j])] != 1) {
+                        end_offset--;
+                    } else {
+                        break;
+                    }
+                }
+
+                size_t token_len = end_offset - snippet_start_offset + 1;
+                const std::string& text_token = text.substr(snippet_start_offset, token_len);
+                matched_tokens.push_back(text_token);
 
                 for(size_t j = 0; j < token_len; j++) {
                     highlighted_text << text[snippet_start_offset + j];

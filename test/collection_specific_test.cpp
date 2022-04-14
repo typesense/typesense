@@ -875,7 +875,7 @@ TEST_F(CollectionSpecificTest, HighlightLongFieldWithDropTokens) {
 
     ASSERT_EQ("Tripp Lite USB C to VGA Multiport Video Adapter Converter w/ USB-A Hub, "
               "USB-C PD <mark>Charging</mark> <mark>Port</mark> & <mark>Gigabit</mark> Ethernet "
-              "<mark>Port,</mark> Thunderbolt 3 Compatible, USB Type C to VGA, USB-C, USB Type-C - for "
+              "<mark>Port</mark>, Thunderbolt 3 Compatible, USB Type C to VGA, USB-C, USB Type-C - for "
               "Notebook/Tablet PC - 2 x USB <mark>Port</mark>s - 2 x USB 3.0 - Network (RJ-45) - "
               "VGA - <mark>Wired</mark>",
               results["hits"][0]["highlights"][0]["value"].get<std::string>());
@@ -1228,8 +1228,8 @@ TEST_F(CollectionSpecificTest, CustomSymbolsForIndexing) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ(1, results["hits"][0]["highlights"].size());
-    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"]);
-    ASSERT_EQ("Yes, <mark>C++</mark> is great!", results["hits"][0]["highlights"][0]["snippet"]);
+    ASSERT_EQ("name", results["hits"][0]["highlights"][0]["field"].get<std::string>());
+    ASSERT_EQ("Yes, <mark>C++</mark> is great!", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     // without custom symbols, + should not be indexed, so the "C" record will show up first
 
@@ -2806,7 +2806,62 @@ TEST_F(CollectionSpecificTest, HighlightPrefixProperly) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("<mark>Cinderella:</mark> the story.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("<mark>Cinderella</mark>: the story.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, DontHighlightPunctuation) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"??Ensure! readability, use a legible font."},
+        {"Too much clutter-- use readability.js to clean up the page."},
+        {"'DMonte Harris"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("readability", {"title"},
+                                 "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    ASSERT_EQ("??Ensure! <mark>readability</mark>, use a legible font.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+    ASSERT_EQ("Too much clutter-- use <mark>readability</mark>.js to clean up the page.", results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("clutter", {"title"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("Too much <mark>clutter</mark>-- use readability.js to clean up the page.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("ensure", {"title"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("??<mark>Ensure</mark>! readability, use a legible font.", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    results = coll1->search("dmonte", {"title"},
+                            "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("'<mark>DMonte</mark> Harris", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

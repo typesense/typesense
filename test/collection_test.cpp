@@ -3558,7 +3558,7 @@ TEST_F(CollectionTest, MultiFieldHighlighting) {
               results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 
     ASSERT_EQ("description", results["hits"][0]["highlights"][1]["field"].get<std::string>());
-    ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger.</mark>",
+    ASSERT_EQ("Easily replenish your cell phone with this wireless <mark>charger</mark>.",
               results["hits"][0]["highlights"][1]["snippet"].get<std::string>());
 
     ASSERT_EQ("categories", results["hits"][0]["highlights"][2]["field"].get<std::string>());
@@ -4030,12 +4030,12 @@ TEST_F(CollectionTest, BadHighlightingOnText) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ(1, results["hits"].size());
 
-    ASSERT_STREQ("food\\nand water insecurity throughout <mark>Saint</mark> <mark>Lucia,</mark> as well\\nas suppressing long-term",
+    ASSERT_STREQ("food\\nand water insecurity throughout <mark>Saint</mark> <mark>Lucia</mark>, as well\\nas suppressing long-term",
                  results["hits"][0]["highlights"][0]["snippet"].get<std::string>().c_str());
 
     ASSERT_EQ(2, results["hits"][0]["highlights"][0]["matched_tokens"].size());
     ASSERT_STREQ("Saint", results["hits"][0]["highlights"][0]["matched_tokens"][0].get<std::string>().c_str());
-    ASSERT_STREQ("Lucia,", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
+    ASSERT_STREQ("Lucia", results["hits"][0]["highlights"][0]["matched_tokens"][1].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
 }

@@ -117,6 +117,7 @@ private:
                           bool is_infix_search,
                           const std::string& highlight_start_tag,
                           const std::string& highlight_end_tag,
+                          const uint8_t* index_symbols,
                           highlight_t &highlight) const;
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
@@ -371,7 +372,9 @@ public:
                    const string& text, const std::map<size_t, size_t>& token_offsets,
                    size_t snippet_end_offset,
                    std::vector<std::string>& matched_tokens, std::map<size_t, size_t>::iterator& offset_it,
-                   std::stringstream& highlighted_text, size_t snippet_start_offset) ;
+                   std::stringstream& highlighted_text,
+                   const uint8_t* index_symbols,
+                   size_t snippet_start_offset) ;
 
     void process_highlight_fields(const std::vector<std::string>& search_fields,
                                   const spp::sparse_hash_set<std::string>& exclude_fields,
