@@ -937,6 +937,7 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
     std::string token;
     std::string last_token;
     size_t token_index = 0;
+    uint64_t facet_hash = 1;
 
     while(tokenizer.next(token, token_index)) {
         if(token.empty()) {
@@ -945,6 +946,15 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
 
         token_to_offsets[token].push_back(token_index + 1);
         last_token = token;
+
+        if(is_facet) {
+            uint64_t token_hash = Index::facet_token_hash(a_field, token);
+            if(token_index == 0) {
+                facet_hash = token_hash;
+            } else {
+                facet_hash = StringUtils::hash_combine(facet_hash, token_hash);
+            }
+        }
     }
 
     if(!token_to_offsets.empty()) {
@@ -953,8 +963,7 @@ void Index::tokenize_string_with_facets(const std::string& text, bool is_facet, 
     }
 
     if(is_facet) {
-        uint64_t hash = Index::facet_token_hash(a_field, text);
-        facet_hashes.push_back(hash);
+        facet_hashes.push_back(facet_hash);
     }
 }
 
@@ -972,6 +981,7 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
         Tokenizer tokenizer(str, true, !a_field.is_string(), a_field.locale, symbols_to_index, token_separators);
         std::string token, last_token;
         size_t token_index = 0;
+        uint64_t facet_hash = 1;
 
         // iterate and append offset positions
         while(tokenizer.next(token, token_index)) {
@@ -982,6 +992,15 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
             token_to_offsets[token].push_back(token_index + 1);
             token_set.insert(token);
             last_token = token;
+
+            if(is_facet) {
+                uint64_t token_hash = Index::facet_token_hash(a_field, token);
+                if(token_index == 0) {
+                    facet_hash = token_hash;
+                } else {
+                    facet_hash = StringUtils::hash_combine(facet_hash, token_hash);
+                }
+            }
         }
 
         //LOG(INFO) << "Str: " << str << ", last_token: " << last_token;
@@ -991,9 +1010,7 @@ void Index::tokenize_string_array_with_facets(const std::vector<std::string>& st
         }
 
         if(is_facet) {
-            uint64_t hash = facet_token_hash(a_field, str);
-            //LOG(INFO) << "indexing " << token  << ", hash:" << hash;
-            facet_hashes.push_back(hash);
+            facet_hashes.push_back(facet_hash);
         }
 
         for(auto& the_token: token_set) {
