@@ -422,3 +422,93 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSchemaChangeTest, DropPropertyShouldNotBeAllowedInSchemaCreation) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [{"name": "title", "type": "string", "drop": true}]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_FALSE(coll1_op.ok());
+    ASSERT_EQ("Invalid property `drop` on field `title`: it is allowed only during schema update.", coll1_op.error());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "timestamp", "type": "int32"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "123";
+    doc["timestamp"] = 3433232;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // try to alter with a bad type
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "int32"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change does not match on-disk data, error: Field `title` must be an int32.", alter_op.error());
+
+    // existing data should not have been touched
+    auto res = coll1->search("12", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+
+    // drop re-add with facet index
+    schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    res = coll1->search("*",
+                        {}, "", {"title"}, {}, {0}, 3, 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, res["found"].get<size_t>());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ(1, res["facet_counts"].size());
+    ASSERT_EQ(3, res["facet_counts"][0].size());
+    ASSERT_EQ("title", res["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, res["facet_counts"][0]["counts"].size());
+    ASSERT_EQ("123", res["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    // migrate int32 to int64
+    schema_changes = R"({
+        "fields": [
+            {"name": "timestamp", "drop": true},
+            {"name": "timestamp", "type": "int64"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ("int64", coll1->get_schema()["timestamp"].type);
+
+    collectionManager.drop_collection("coll1");
+}
