@@ -575,8 +575,8 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(3, results["facet_counts"][0]["counts"].size());
 
-    ASSERT_STREQ("<mark>Cello</mark>phanes", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
-    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cell</mark> Phones", results["facet_counts"][0]["counts"][0]["highlighted"].get<std::string>().c_str());
+    ASSERT_STREQ("<mark>Cello</mark>phanes", results["facet_counts"][0]["counts"][1]["highlighted"].get<std::string>().c_str());
     ASSERT_STREQ("<mark>Cell</mark> Phone Accessories", results["facet_counts"][0]["counts"][2]["highlighted"].get<std::string>().c_str());
 
     collectionManager.drop_collection("coll1");
@@ -835,6 +835,71 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringArray) {
 
     ASSERT_EQ(1, results["facet_counts"].size());
     ASSERT_EQ(0, results["facet_counts"][0]["counts"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, FacetValuesShouldBeNormalized) {
+    std::vector<field> fields = {field("brand", field_types::STRING, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"BUQU"},
+        {"Buqu"},
+        {"bu-qu"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["brand"] = records[i][0];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"brand"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    // any document is chosen as representative
+    ASSERT_EQ("bu-qu", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionFacetingTest, FacetArrayValuesShouldBeNormalized) {
+    std::vector<field> fields = {field("brands", field_types::STRING_ARRAY, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::vector<std::string>> records = {
+        {"BUQU", "Buqu", "bu-qu"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["brands"] = nlohmann::json::array();
+
+        for(auto& str: records[i]) {
+            doc["brands"].push_back(str);
+        }
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {},
+                                 "", {"brands"}, {}, {2}, 10, 1, FREQUENCY, {true}, 1).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+
+    // any document is chosen as representative
+    ASSERT_EQ("bu-qu", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
