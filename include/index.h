@@ -992,6 +992,14 @@ public:
                              const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
                              int64_t max_field_match_score,
                              int64_t* scores, int64_t& match_score_index) const;
+
+    void
+    process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                        const std::vector<uint32_t>& excluded_ids,
+                        const size_t group_limit, const bool filter_curated_hits, const uint32_t* filter_ids,
+                        uint32_t filter_ids_length, std::set<uint32_t>& curated_ids,
+                        std::map<size_t, std::map<size_t, uint32_t>>& included_ids_map,
+                        std::vector<uint32_t>& included_ids_vec) const;
 };
 
 template<class T>

@@ -518,7 +518,90 @@ TEST_F(CollectionOverrideTest, ExcludeIncludeFacetFilterQuery) {
     coll_mul_fields->remove_override("include-rule");
 }
 
-TEST_F(CollectionOverrideTest, IncludeExcludeHitsQuery) {
+TEST_F(CollectionOverrideTest, FilterCuratedHitsSlideToCoverMissingSlots) {
+    // when some of the curated hits are filtered away, lower ranked hits must be pulled up
+    nlohmann::json override_json_include = {
+            {"id", "include-rule"},
+            {
+             "rule", {
+                           {"query", "scott"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            }
+    };
+
+    // first 2 hits won't match the filter, 3rd position should float up to position 1
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "7";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "17";
+    override_json_include["includes"][1]["position"] = 2;
+
+    override_json_include["includes"][2] = nlohmann::json::object();
+    override_json_include["includes"][2]["id"] = "10";
+    override_json_include["includes"][2]["position"] = 3;
+
+    override_json_include["filter_curated_hits"] = true;
+
+    override_t override_include;
+    override_t::parse(override_json_include, "", override_include);
+    coll_mul_fields->add_override(override_include);
+
+    auto results = coll_mul_fields->search("scott", {"starring"}, "points:>55", {}, {}, {0}, 10, 1, FREQUENCY,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "").get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("10", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("11", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("12", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // another curation where there is an ID missing in the middle
+    override_json_include = {
+        {"id", "include-rule"},
+        {
+         "rule", {
+                   {"query", "glenn"},
+                   {"match", override_t::MATCH_EXACT}
+               }
+        }
+    };
+
+    // middle hit ("10") will not satisfy filter, so "11" will move to position 2
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "9";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_json_include["includes"][1] = nlohmann::json::object();
+    override_json_include["includes"][1]["id"] = "10";
+    override_json_include["includes"][1]["position"] = 2;
+
+    override_json_include["includes"][2] = nlohmann::json::object();
+    override_json_include["includes"][2]["id"] = "11";
+    override_json_include["includes"][2]["position"] = 3;
+
+    override_json_include["filter_curated_hits"] = true;
+
+    override_t override_include2;
+    override_t::parse(override_json_include, "", override_include2);
+    coll_mul_fields->add_override(override_include2);
+
+    results = coll_mul_fields->search("glenn", {"starring"}, "points:[43,86]", {}, {}, {0}, 10, 1, FREQUENCY,
+                                           {false}, Index::DROP_TOKENS_THRESHOLD,
+                                           spp::sparse_hash_set<std::string>(),
+                                           spp::sparse_hash_set<std::string>(), 10, "").get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("9", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("11", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {
     auto pinned_hits = "13:1,4:2";
 
     // basic pinning
