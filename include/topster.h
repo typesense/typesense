@@ -275,8 +275,8 @@ struct Topster {
     }
 
     static bool is_smaller(const struct KV* i, const struct KV* j) {
-        return std::tie(i->scores[0], i->scores[1], i->scores[2]) <
-               std::tie(j->scores[0], j->scores[1], j->scores[2]);
+        return std::tie(i->scores[0], i->scores[1], i->scores[2], i->key) <
+               std::tie(j->scores[0], j->scores[1], j->scores[2], j->key);
     }
 
     static bool is_greater_kv_group(const std::vector<KV*>& i, const std::vector<KV*>& j) {
