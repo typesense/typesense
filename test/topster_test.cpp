@@ -2,6 +2,7 @@
 #include <index.h>
 #include "topster.h"
 #include "match_score.h"
+#include <fstream>
 
 TEST(TopsterTest, MaxIntValues) {
     Topster topster(5);
@@ -55,6 +56,84 @@ TEST(TopsterTest, MaxIntValues) {
         if(ids[i] == 5) {
             EXPECT_EQ(10, (int) topster.getKV(i)->scores[topster.getKV(i)->match_score_index]);
         }
+    }
+}
+
+TEST(TopsterTest, StableSorting) {
+    // evaluate if the positions of the documents in Topster<1000> is the same in Topster 250, 500 and 750
+
+    std::ifstream infile(std::string(ROOT_DIR)+"test/resources/record_values.txt");
+    std::string line;
+    std::vector<std::pair<uint64_t, int64_t>> records;
+
+    while (std::getline(infile, line)) {
+        std::vector<std::string> parts;
+        StringUtils::split(line, parts, ",");
+        uint64_t key = std::stoll(parts[0]);
+        records.emplace_back(key, std::stoi(parts[1]));
+    }
+
+    infile.close();
+
+    Topster topster1K(1000);
+
+    for(auto id_score: records) {
+        int64_t scores[3] = {id_score.second, 0, 0};
+        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        topster1K.add(&kv);
+    }
+
+    topster1K.sort();
+
+    std::vector<uint64_t> record_ids;
+
+    for(uint32_t i = 0; i < topster1K.size; i++) {
+        record_ids.push_back(topster1K.getKeyAt(i));
+    }
+
+    // check on Topster<250>
+    Topster topster250(250);
+
+    for(auto id_score: records) {
+        int64_t scores[3] = {id_score.second, 0, 0};
+        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        topster250.add(&kv);
+    }
+
+    topster250.sort();
+
+    for(uint32_t i = 0; i < topster250.size; i++) {
+        ASSERT_EQ(record_ids[i], topster250.getKeyAt(i));
+    }
+
+    // check on Topster<500>
+    Topster topster500(500);
+
+    for(auto id_score: records) {
+        int64_t scores[3] = {id_score.second, 0, 0};
+        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        topster500.add(&kv);
+    }
+
+    topster500.sort();
+
+    for(uint32_t i = 0; i < topster500.size; i++) {
+        ASSERT_EQ(record_ids[i], topster500.getKeyAt(i));
+    }
+
+    // check on Topster<750>
+    Topster topster750(750);
+
+    for(auto id_score: records) {
+        int64_t scores[3] = {id_score.second, 0, 0};
+        KV kv(0, 0, 0, id_score.first, id_score.first, 0, scores);
+        topster750.add(&kv);
+    }
+
+    topster750.sort();
+
+    for(uint32_t i = 0; i < topster750.size; i++) {
+        ASSERT_EQ(record_ids[i], topster750.getKeyAt(i));
     }
 }
 
