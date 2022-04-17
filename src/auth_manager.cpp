@@ -167,6 +167,8 @@ bool AuthManager::authenticate(const std::string& action,
         }
 
         num_keys_matched++;
+
+        // lengths of embedded_params_vec and collection_keys are guaranteed by upstream to be the same
         embedded_params_vec[i] = embedded_params;
     }
 

@@ -452,3 +452,48 @@ TEST_F(CoreAPIUtilsTest, ExtractCollectionsFromRequestBodyExtended) {
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ(1, embedded_params_vec.size());
 }
+
+TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
+    nlohmann::json preset_value = R"(
+        {"searches":[
+            {"collection":"foo","q":"apple", "query_by": "title"},
+            {"collection":"bar","q":"apple", "query_by": "title"}
+        ]}
+    )"_json;
+
+    Option<bool> success_op = collectionManager.upsert_preset("apple", preset_value);
+
+    route_path rpath_multi_search = route_path("POST", {"multi_search"}, post_multi_search, false, false);
+    std::map<std::string, std::string> req_params;
+
+    std::vector<collection_key_t> collections;
+    std::vector<nlohmann::json> embedded_params_vec;
+
+    std::string other_body = R"(
+        {"searches":[
+            {"collection":"foo1","q":"apple", "query_by": "title"},
+            {"collection":"bar1","q":"apple", "query_by": "title"}
+        ]}
+    )";
+
+    // without preset parameter, use collections from request body
+
+    get_collections_for_auth(req_params, other_body, rpath_multi_search, "", collections, embedded_params_vec);
+    
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("foo1", collections[0].collection);
+    ASSERT_EQ("bar1", collections[1].collection);
+    ASSERT_EQ(2, embedded_params_vec.size());
+
+    // with preset parameter, use collections from preset configuration
+    collections.clear();
+    embedded_params_vec.clear();
+
+    req_params["preset"] = "apple";
+    get_collections_for_auth(req_params, other_body, rpath_multi_search, "", collections, embedded_params_vec);
+    
+    ASSERT_EQ(2, collections.size());
+    ASSERT_EQ("foo", collections[0].collection);
+    ASSERT_EQ("bar", collections[1].collection);
+    ASSERT_EQ(2, embedded_params_vec.size());
+}
