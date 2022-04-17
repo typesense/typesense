@@ -32,6 +32,13 @@ bool handle_authentication(std::map<std::string, std::string>& req_params,
         return true;
     }
 
+    if(collections.size() != embedded_params_vec.size()) {
+        LOG(ERROR) << "Impossible error: size of collections and embedded_params_vec don't match, "
+                   << "collections.size: " << collections.size()
+                   << ", embedded_params_vec.size: " << embedded_params_vec.size();
+        return false;
+    }
+
     return collectionManager.auth_key_matches(req_auth_key, rpath.action, collections, req_params, embedded_params_vec);
 }
 
@@ -56,22 +63,28 @@ void defer_processing(const std::shared_ptr<http_req>& req, const std::shared_pt
     server->get_message_dispatcher()->send_message(HttpServer::DEFER_PROCESSING_MESSAGE, defer);
 }
 
-void get_collections_for_auth(std::map<std::string, std::string>& req_params, const string& body,
-                              const route_path& rpath, const string& req_auth_key,
-                              std::vector<collection_key_t>& collections,
-                              std::vector<nlohmann::json>& embedded_params_vec) {
+// we cannot return errors here because that will end up as auth failure and won't convey
+// bad schema errors
+void get_collections_for_auth(std::map<std::string, std::string>& req_params,
+                                      const string& body,
+                                      const route_path& rpath, const string& req_auth_key,
+                                      std::vector<collection_key_t>& collections,
+                                      std::vector<nlohmann::json>& embedded_params_vec) {
 
     if(rpath.handler == post_multi_search) {
-        nlohmann::json obj = nlohmann::json::parse(body, nullptr, false);
+        nlohmann::json req_obj;
 
-        if(obj.is_discarded()) {
-            LOG(ERROR) << "Multi search request body is malformed.";
-            collections.emplace_back("", req_auth_key);
-            embedded_params_vec.emplace_back(nlohmann::json::object());
+        // If a `preset` parameter is present, we've to only load a pre-existing search configuration
+        // and ignore the actual request body.
+        auto preset_it = req_params.find("preset");
+        if(preset_it != req_params.end()) {
+            CollectionManager::get_instance().get_preset(preset_it->second, req_obj);
+        } else {
+            req_obj = nlohmann::json::parse(body, nullptr, false);
         }
 
-        else if(obj.count("searches") != 0 && obj["searches"].is_array()) {
-            for(auto& el : obj["searches"]) {
+        if(!req_obj.is_discarded() && req_obj.count("searches") != 0  && req_obj["searches"].is_array()) {
+            for(auto& el : req_obj["searches"]) {
                 if(el.is_object()) {
                     std::string coll_name;
                     if(el.count("collection") != 0 && el["collection"].is_string()) {
@@ -87,8 +100,13 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
 
                     collections.emplace_back(coll_name, access_key);
                     embedded_params_vec.emplace_back(nlohmann::json::object());
+                } else {
+                    collections.emplace_back("", req_auth_key);
+                    embedded_params_vec.emplace_back(nlohmann::json::object());
                 }
             }
+        } else {
+            LOG(ERROR) << "Multi search request body is malformed, body: " << body;
         }
     } else {
         if(rpath.handler == post_create_collection) {
@@ -96,12 +114,12 @@ void get_collections_for_auth(std::map<std::string, std::string>& req_params, co
 
             if(obj.is_discarded()) {
                 LOG(ERROR) << "Create collection request body is malformed.";
-                collections.emplace_back("", req_auth_key);
-            } else if(obj.count("name") != 0 && obj["name"].is_string()) {
-                collections.emplace_back(obj["name"].get<std::string>(), req_auth_key);
             }
 
-            embedded_params_vec.emplace_back(nlohmann::json::object());
+            else if(obj.count("name") != 0 && obj["name"].is_string()) {
+                collections.emplace_back(obj["name"].get<std::string>(), req_auth_key);
+                embedded_params_vec.emplace_back(nlohmann::json::object());
+            }
 
         } else if(req_params.count("collection") != 0) {
             collections.emplace_back(req_params.at("collection"), req_auth_key);
@@ -405,13 +423,11 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     }
 
     nlohmann::json req_json;
-    const auto preset_it = req->params.find("preset");
 
+    const auto preset_it = req->params.find("preset");
     if(preset_it != req->params.end()) {
         CollectionManager::get_instance().get_preset(preset_it->second, req_json);
-    }
-
-    if(req_json.empty()) {
+    } else {
         try {
             req_json = nlohmann::json::parse(req->body);
         } catch(const std::exception& e) {
@@ -459,6 +475,14 @@ bool post_multi_search(const std::shared_ptr<http_req>& req, const std::shared_p
     response["results"] = nlohmann::json::array();
 
     nlohmann::json& searches = req_json["searches"];
+
+    if(searches.size() != req->embedded_params_vec.size()) {
+        LOG(ERROR) << "Embedded params parsing error: length does not match multi search array, searches.size(): "
+                   << searches.size() << ", embedded_params_vec.size: " << req->embedded_params_vec.size()
+                   << ", req_body: " << req->body;
+        res->set_500("Embedded params parsing error.");
+        return false;
+    }
 
     for(size_t i = 0; i < searches.size(); i++) {
         auto& search_params = searches[i];
