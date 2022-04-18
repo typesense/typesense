@@ -2811,8 +2811,36 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            fallback_field_type,
                                                            DIRTY_VALUES::REJECT);
         if(!validate_op.ok()) {
-            std::string schema_err = "Schema change does not match on-disk data, error: " + validate_op.error();
-            return Option<bool>(validate_op.code(), schema_err);
+            std::string err_message = validate_op.error();
+
+            // we've to message the error message to suite the schema alter context
+            if(err_message.find("but is not found in the document.") != std::string::npos) {
+                // missing field
+                err_message.pop_back(); // delete trailing dot
+                err_message += "s already present in the collection. If you still want to add this field, "
+                               "set it as `optional: true`.";
+                return Option<bool>(validate_op.code(), err_message);
+            }
+
+            else if(err_message.find("must be") != std::string::npos) {
+                // type of an already stored document conflicts with new schema
+                std::string type_error = "Schema change is incompatible with the type of documents already stored "
+                                         "in this collection.";
+                std::vector<std::string> err_parts;
+                StringUtils::split(err_message, err_parts, "must be");
+                if(err_parts.size() == 2) {
+                    err_parts[0][0] = std::tolower(err_parts[0][0]);
+                    type_error += " Existing data for " + err_parts[0] + " cannot be coerced into " + err_parts[1];
+                }
+
+                return Option<bool>(validate_op.code(), type_error);
+            }
+
+            else {
+                std::string schema_err = "Schema change is incompatible with the type of documents already stored "
+                                         "in this collection. error: " + validate_op.error();
+                return Option<bool>(validate_op.code(), schema_err);
+            }
         }
 
         if(num_found_docs % ((1 << 14)) == 0) {

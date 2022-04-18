@@ -419,7 +419,8 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     })"_json;
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change does not match on-disk data, error: Field `desc` must be an int32.", alter_op.error());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `desc` cannot be coerced into an int32.", alter_op.error());
 
     // 6. Prevent non-optional field when on-disk data has missing values
     doc.clear();
@@ -439,8 +440,8 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     })"_json;
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change does not match on-disk data, error: Field `desc` has been declared in the "
-              "schema, but is not found in the document.", alter_op.error());
+    ASSERT_EQ("Field `desc` has been declared in the schema, but is not found in the documents already present "
+              "in the collection. If you still want to add this field, set it as `optional: true`.", alter_op.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -490,7 +491,8 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Schema change does not match on-disk data, error: Field `title` must be an int32.", alter_op.error());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `title` cannot be coerced into an int32.", alter_op.error());
 
     // existing data should not have been touched
     auto res = coll1->search("12", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
