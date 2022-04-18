@@ -2526,6 +2526,7 @@ Option<bool> Collection::batch_alter_data(const std::unordered_map<std::string, 
         if(f.is_dynamic()) {
             // regexp fields and fields with auto type are treated as dynamic fields
             dynamic_fields.push_back(f);
+            fields.push_back(f);
             continue;
         }
 
