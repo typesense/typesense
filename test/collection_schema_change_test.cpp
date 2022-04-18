@@ -114,12 +114,18 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     // add a dynamic field
     schema_changes = R"({
         "fields": [
-            {"name": ".*_bool", "type": "bool"}
+            {"name": ".*_bool", "type": "bool"},
+            {"name": "age", "type": "auto", "optional": true}
         ]
     })"_json;
 
     alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
+
+    auto coll_fields = coll1->get_fields();
+    ASSERT_EQ(7, coll_fields.size());
+    ASSERT_EQ("age", coll_fields[5].name);
+    ASSERT_EQ(".*_bool", coll_fields[6].name);
 
     doc["id"] = "1";
     doc["title"] = "The one";
@@ -128,11 +134,23 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     doc["quantity"] = 200;
     doc["points"] = 100;
     doc["on_sale_bool"] = true;
+    doc["age"] = 45;
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
 
     results = coll1->search("*",
                             {}, "on_sale_bool: true", {}, {}, {0}, 3, 1, FREQUENCY,
+                            {true}, 5,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {always}).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_STREQ("1", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    results = coll1->search("*",
+                            {}, "age: 45", {}, {}, {0}, 3, 1, FREQUENCY,
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
@@ -201,10 +219,15 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
 
-    ASSERT_EQ(8, coll1->get_schema().size());
-    ASSERT_EQ(9, coll1->get_fields().size());
+    ASSERT_EQ(9, coll1->get_schema().size());
+    ASSERT_EQ(12, coll1->get_fields().size());
+    ASSERT_EQ(5, coll1->_get_index()->_get_numerical_index().size());
 
-    ASSERT_EQ(4, coll1->_get_index()->_get_numerical_index().size());
+    // fields should also be persisted properly on disk
+    std::string collection_meta_json;
+    store->get(Collection::get_meta_key("coll1"), collection_meta_json);
+    nlohmann::json collection_meta = nlohmann::json::parse(collection_meta_json);
+    ASSERT_EQ(12, collection_meta["fields"].size());
 
     // try restoring collection from disk: all fields should be preserved
     collectionManager.dispose();
@@ -215,10 +238,9 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     collectionManager.load(8, 1000);
     coll1 = collectionManager.get_collection("coll1").get();
 
-    ASSERT_EQ(8, coll1->get_schema().size());
-    ASSERT_EQ(9, coll1->get_fields().size());
-
-    ASSERT_EQ(4, coll1->_get_index()->_get_numerical_index().size());
+    ASSERT_EQ(9, coll1->get_schema().size());
+    ASSERT_EQ(12, coll1->get_fields().size());
+    ASSERT_EQ(5, coll1->_get_index()->_get_numerical_index().size());
 
     collectionManager.drop_collection("coll1");
 }
@@ -511,4 +533,48 @@ TEST_F(CollectionSchemaChangeTest, AbilityToDropAndReAddIndexAtTheSameTime) {
     ASSERT_EQ("int64", coll1->get_schema()["timestamp"].type);
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
+                                 field("points", field_types::INT32, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The quick brown fox was too fast.";
+    doc["points"] = 100;
+    doc["quantity"] = 1000;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_EQ(2, coll1->get_schema().size());
+
+    auto results = coll1->search("*",
+                                 {}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+
+    // add a field via alter which we will try dropping immediately
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "quantity", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(3, coll1->get_schema().size());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "quantity", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(2, coll1->get_schema().size());
 }
