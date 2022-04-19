@@ -547,10 +547,12 @@ TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
     doc["id"] = "0";
     doc["title"] = "The quick brown fox was too fast.";
     doc["points"] = 100;
-    doc["quantity"] = 1000;
+    doc["quantity_int"] = 1000;
+    doc["some_txt"] = "foo";
 
     ASSERT_TRUE(coll1->add(doc.dump()).ok());
     ASSERT_EQ(2, coll1->get_schema().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
 
     auto results = coll1->search("*",
                                  {}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
@@ -559,24 +561,152 @@ TEST_F(CollectionSchemaChangeTest, AddAndDropFieldImmediately) {
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
-    // add a field via alter which we will try dropping immediately
+    // add a field via alter which we will try dropping later
     auto schema_changes = R"({
         "fields": [
-            {"name": "quantity", "type": "int32", "optional": true}
+            {"name": ".*_int", "type": "int32", "optional": true}
         ]
     })"_json;
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
     ASSERT_EQ(3, coll1->get_schema().size());
+    ASSERT_EQ(4, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
 
+    results = coll1->search("*",
+                            {}, "quantity_int: 1000", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // drop + re-add dynamic field
     schema_changes = R"({
         "fields": [
-            {"name": "quantity", "drop": true}
+            {"name": ".*_int", "type": "int32", "facet": true},
+            {"name": ".*_int", "drop": true}
         ]
     })"_json;
 
     alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ(3, coll1->get_schema().size());
+    ASSERT_EQ(4, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    results = coll1->search("*",
+                            {}, "", {"quantity_int"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("quantity_int", results["facet_counts"][0]["field_name"].get<std::string>());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": ".*_int", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
     ASSERT_EQ(2, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+
+    // with bad on-disk data
+    schema_changes = R"({
+        "fields": [
+            {"name": ".*_txt", "type": "int32"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `some_txt` cannot be coerced into an int32.", alter_op.error());
+
+    ASSERT_EQ(2, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, AddDynamicFieldMatchingMultipleFields) {
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", 1, 1),
+                                 field("points", field_types::INT32, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "The quick brown fox was too fast.";
+    doc["points"] = 100;
+    doc["quantity_int"] = 1000;
+    doc["year_int"] = 2020;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    ASSERT_EQ(2, coll1->get_schema().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+
+    // add a dynamic field via alter that will target both _int fields
+    auto schema_changes = R"({
+        "fields": [
+            {"name": ".*_int", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+    ASSERT_EQ(4, coll1->get_schema().size());
+    ASSERT_EQ(5, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    auto results = coll1->search("*",
+                            {}, "quantity_int: 1000", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*",
+                            {}, "year_int: 2020", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // drop + re-add dynamic field that targets 2 underlying fields
+    schema_changes = R"({
+        "fields": [
+            {"name": ".*_int", "type": "int32", "facet": true},
+            {"name": ".*_int", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ(4, coll1->get_schema().size());
+    ASSERT_EQ(5, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    results = coll1->search("*",
+                            {}, "", {"quantity_int"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("quantity_int", results["facet_counts"][0]["field_name"].get<std::string>());
+
+    results = coll1->search("*",
+                            {}, "", {"year_int"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("year_int", results["facet_counts"][0]["field_name"].get<std::string>());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": ".*_int", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    ASSERT_EQ(2, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
 }

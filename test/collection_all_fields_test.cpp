@@ -961,7 +961,7 @@ TEST_F(CollectionAllFieldsTest, DynamicFieldsMustOnlyBeOptional) {
         coll1 = op.get();
     }
 
-    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[".*_name"].optional);
 
     collectionManager.drop_collection("coll1");
 }
@@ -1044,13 +1044,13 @@ TEST_F(CollectionAllFieldsTest, BothFallbackAndDynamicFields) {
     ASSERT_EQ(4, coll1->get_fields().size());
     ASSERT_EQ(2, coll1->get_dynamic_fields().size());
 
-    ASSERT_EQ(".*_name", coll1->get_dynamic_fields()[0].name);
-    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
-    ASSERT_FALSE(coll1->get_dynamic_fields()[0].facet);
+    ASSERT_TRUE(coll1->get_dynamic_fields().count(".*_name") != 0);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[".*_name"].optional);
+    ASSERT_FALSE(coll1->get_dynamic_fields()[".*_name"].facet);
 
-    ASSERT_EQ(".*_year", coll1->get_dynamic_fields()[1].name);
-    ASSERT_TRUE(coll1->get_dynamic_fields()[0].optional);
-    ASSERT_FALSE(coll1->get_dynamic_fields()[0].facet);
+    ASSERT_TRUE(coll1->get_dynamic_fields().count(".*_year") != 0);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[".*_year"].optional);
+    ASSERT_TRUE(coll1->get_dynamic_fields()[".*_year"].facet);
 
     nlohmann::json doc;
     doc["title"]  = "Amazon Inc.";
@@ -1484,6 +1484,8 @@ TEST_F(CollectionAllFieldsTest, SchemaUpdateShouldBeAtomicForAllFields) {
 
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
+
+    auto f = coll1->get_fields();
 
     ASSERT_EQ(1, coll1->get_fields().size());
     ASSERT_EQ(0, coll1->get_sort_fields().size());
