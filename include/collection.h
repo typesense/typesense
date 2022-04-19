@@ -89,7 +89,7 @@ private:
 
     std::string fallback_field_type;
 
-    std::vector<field> dynamic_fields;
+    std::unordered_map<std::string, field> dynamic_fields;
 
     std::vector<char> symbols_to_index;
 
@@ -129,7 +129,12 @@ private:
                         std::vector<uint32_t>& excluded_ids, std::vector<const override_t*>& filter_overrides,
                         bool& filter_curated_hits) const;
 
-    Option<bool> check_and_update_schema(nlohmann::json& document, const DIRTY_VALUES& dirty_values);
+    static Option<bool> detect_new_fields(nlohmann::json& document,
+                                          const DIRTY_VALUES& dirty_values,
+                                          const std::unordered_map<std::string, field>& schema,
+                                          const std::unordered_map<std::string, field>& dyn_fields,
+                                          const std::string& fallback_field_type,
+                                          std::vector<field>& new_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -232,7 +237,7 @@ public:
 
     std::vector<field> get_fields();
 
-    std::vector<field> get_dynamic_fields();
+    std::unordered_map<std::string, field> get_dynamic_fields();
 
     std::unordered_map<std::string, field> get_schema();
 

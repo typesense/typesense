@@ -4509,11 +4509,11 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
     std::unique_lock lock(mutex);
 
     for(const auto & new_field: new_fields) {
-        search_schema.emplace(new_field.name, new_field);
-
-        if(!new_field.index) {
+        if(new_field.is_dynamic() || !new_field.index) {
             continue;
         }
+
+        search_schema.emplace(new_field.name, new_field);
 
         if(new_field.is_sortable()) {
             if(new_field.is_num_sortable()) {
@@ -4569,6 +4569,11 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
     }
 
     for(const auto & del_field: del_fields) {
+        if(search_schema.count(del_field.name) == 0) {
+            // could be a dynamic field
+            continue;
+        }
+
         search_schema.erase(del_field.name);
 
         if(del_field.is_string() || field_types::is_string_or_array(del_field.type)) {
