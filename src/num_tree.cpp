@@ -1,5 +1,6 @@
 #include "num_tree.h"
 #include "parasort.h"
+#include "timsort.hpp"
 
 void num_tree_t::insert(int64_t value, uint32_t id) {
     if (int64map.count(value) == 0) {
@@ -32,11 +33,7 @@ void num_tree_t::range_inclusive_search(int64_t start, int64_t end, uint32_t** i
         it_start++;
     }
 
-    if(consolidated_ids.size() > 50000) {
-        parasort(consolidated_ids.size(), &consolidated_ids[0], 4);
-    } else {
-        std::sort(consolidated_ids.begin(), consolidated_ids.end());
-    }
+    gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
 
     uint32_t *out = nullptr;
     ids_len = ArrayUtils::or_scalar(&consolidated_ids[0], consolidated_ids.size(),
@@ -102,11 +99,7 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
             iter_ge_value++;
         }
 
-        if(consolidated_ids.size() > 50000) {
-            parasort(consolidated_ids.size(), &consolidated_ids[0], 4);
-        } else {
-            std::sort(consolidated_ids.begin(), consolidated_ids.end());
-        }
+        gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
 
         consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
@@ -144,12 +137,7 @@ void num_tree_t::search(NUM_COMPARATOR comparator, int64_t value, uint32_t** ids
             delete [] values;
         }
 
-        if(consolidated_ids.size() > 50000) {
-            parasort(consolidated_ids.size(), &consolidated_ids[0], 4);
-        } else {
-            std::sort(consolidated_ids.begin(), consolidated_ids.end());
-        }
-
+        gfx::timsort(consolidated_ids.begin(), consolidated_ids.end());
         consolidated_ids.erase(unique(consolidated_ids.begin(), consolidated_ids.end()), consolidated_ids.end());
 
         uint32_t *out = nullptr;
