@@ -20,6 +20,7 @@
 #include <thread_local_vars.h>
 #include <unordered_set>
 #include <or_iterator.h>
+#include <timsort.hpp>
 #include "logger.h"
 
 #define RETURN_CIRCUIT_BREAKER if(std::chrono::duration_cast<std::chrono::milliseconds>(\
@@ -1554,7 +1555,7 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     }
                 }
 
-                std::sort(geo_result_ids.begin(), geo_result_ids.end());
+                gfx::timsort(geo_result_ids.begin(), geo_result_ids.end());
                 geo_result_ids.erase(std::unique( geo_result_ids.begin(), geo_result_ids.end() ), geo_result_ids.end());
 
                 // `geo_result_ids` will contain all IDs that are within approximately within query radius
@@ -2749,7 +2750,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                                   query_hashes, id_buff);
 
             if(id_buff.size() > 1) {
-                std::sort(id_buff.begin(), id_buff.end());
+                gfx::timsort(id_buff.begin(), id_buff.end());
                 id_buff.erase(std::unique( id_buff.begin(), id_buff.end() ), id_buff.end());
             }
 
@@ -2952,7 +2953,7 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
 
     if(id_buff.size() > 100000) {
         // prevents too many ORs during exhaustive searching
-        std::sort(id_buff.begin(), id_buff.end());
+        gfx::timsort(id_buff.begin(), id_buff.end());
         id_buff.erase(std::unique( id_buff.begin(), id_buff.end() ), id_buff.end());
 
         uint32_t* new_all_result_ids = nullptr;
@@ -3259,7 +3260,7 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
             search_infix(query_tokens[0].value, field_name, infix_ids, max_extra_prefix, max_extra_suffix);
 
             if(!infix_ids.empty()) {
-                std::sort(infix_ids.begin(), infix_ids.end());
+                gfx::timsort(infix_ids.begin(), infix_ids.end());
                 infix_ids.erase(std::unique( infix_ids.begin(), infix_ids.end() ), infix_ids.end());
 
                 uint32_t *raw_infix_ids = nullptr;
