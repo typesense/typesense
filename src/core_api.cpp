@@ -963,7 +963,7 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
     const char *FILTER_BY = "filter_by";
 
     if(req->params.count(BATCH_SIZE) == 0) {
-        req->params[BATCH_SIZE] = "40";
+        req->params[BATCH_SIZE] = "1000000000"; // 1 Billion
     }
 
     if(req->params.count(FILTER_BY) == 0) {
@@ -1025,6 +1025,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     bool done = true;
     Option<bool> remove_op = stateful_remove_docs(deletion_state, DELETE_BATCH_SIZE, done);
+
+    //LOG(INFO) << "Deletion batch size: " << DELETE_BATCH_SIZE << ", done: " << done;
 
     if(!remove_op.ok()) {
         res->set(remove_op.code(), remove_op.error());
