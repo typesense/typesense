@@ -6,7 +6,7 @@
 
 struct deletion_state_t {
     Collection* collection;
-    std::vector<std::pair<size_t, uint32_t*>> index_ids;
+    std::vector<std::pair<size_t, uint32_t*>> index_ids;  // ids_len -> ids
     std::vector<size_t> offsets;
     size_t num_removed;
 
