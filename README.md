@@ -14,12 +14,14 @@
  <a href="https://circleci.com/gh/typesense/typesense"><img src="https://circleci.com/gh/typesense/typesense.svg?style=shield&circle-token=1addd775339738a3d90869ddd8201110d561feaa"></a>
  <a href="https://hub.docker.com/r/typesense/typesense/tags"><img src="https://img.shields.io/docker/pulls/typesense/typesense"></a>
   <a href="https://github.com/typesense"><img src="https://img.shields.io/github/stars/typesense/typesense?label=github%20stars"></a>
-  <a href="https://twitter.com/typesense"><img src="https://img.shields.io/badge/%40typesense-follow-blue"></a>
-  <br/>
-  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg"><img src="https://img.shields.io/badge/slack%20community-join-d90368"></a>
-  <a href="https://typesense.org/api"><img src="https://img.shields.io/badge/documentation-read-d90368"></a>
-  <a href="https://github.com/typesense/typesense/projects/2"><img src="https://img.shields.io/badge/roadmap-view-d90368"></a>  
-  <a href="https://calendly.com/jason-typesense/typesense-office-hours"><img src="https://img.shields.io/badge/office%20hours-schedule-d90368"></a>
+<p>
+<p align="center">
+  <a href="https://typesense.org">Website</a> | 
+  <a href="https://typesense.org/api">Documentation</a> | 
+  <a href="https://github.com/typesense/typesense/projects/2">Roadmap</a> | 
+  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg">Slack Community</a> | 
+  <a href="https://twitter.com/typesense">Twitter</a> | 
+  <a href="https://calendly.com/jason-typesense/typesense-office-hours">Office Hours</a>
 </p>
 <br>
 <p align="center">
