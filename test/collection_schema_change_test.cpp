@@ -376,8 +376,8 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
-    ASSERT_EQ("Field `title` is already part of schema: only field additions and deletions are supported for now.",
-              alter_op.error());
+    ASSERT_EQ("Field `title` is already part of the schema: To change this field, drop it first before adding it "
+              "back to the schema.",alter_op.error());
 
     // 2. Bad field format
     schema_changes = R"({

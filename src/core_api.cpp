@@ -203,7 +203,7 @@ bool patch_update_collection(const std::shared_ptr<http_req>& req, const std::sh
         return false;
     }
 
-    res->set_200(req->body);
+    res->set_200(req_json.dump());
     return true;
 }
 
