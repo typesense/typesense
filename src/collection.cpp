@@ -2820,8 +2820,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                 }
             } else {
                 // partial update is not supported for now
-                return Option<bool>(400, "Field `" + field_name + "` is already part of schema: only "
-                                         "field additions and deletions are supported for now.");
+                return Option<bool>(400, "Field `" + field_name + "` is already part of the schema: To "
+                                         "change this field, drop it first before adding it back to the schema.");
             }
         }
     }
