@@ -3,8 +3,10 @@
 #include "sparsepp.h"
 #include "json.hpp"
 #include "logger.h"
+#include "config.h"
 #include <string>
 #include <shared_mutex>
+#include <fstream>
 
 class AppMetrics {
 private:
@@ -18,12 +20,20 @@ private:
     spp::sparse_hash_map<std::string, uint64_t>* current_counts;
     spp::sparse_hash_map<std::string, uint64_t>* current_durations;
 
+    std::string access_log_path;
+    std::ofstream access_log;
+
     AppMetrics() {
         current_counts = new spp::sparse_hash_map<std::string, uint64_t>();
         counts = new spp::sparse_hash_map<std::string, uint64_t>();
 
         current_durations = new spp::sparse_hash_map<std::string, uint64_t>();
         durations = new spp::sparse_hash_map<std::string, uint64_t>();
+
+        access_log_path = Config::get_instance().get_access_log_path();
+        if(!access_log_path.empty()) {
+            access_log.open(access_log_path, std::ofstream::out | std::ofstream::app);
+        }
     }
 
     ~AppMetrics() {
@@ -61,6 +71,10 @@ public:
     }
 
     void increment_write_metrics(uint64_t route_hash, uint64_t duration);
+
+    void write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path);
+
+    void flush_access_log();
 
     void window_reset();
 

@@ -97,6 +97,8 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<std::string>("config", '\0', "Path to the configuration file.", false, "");
 
+    options.add<bool>("enable-access-logging", '\0', "Enable access logging.", false, false);
+
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
     options.add<uint32_t>("listen-port", 'p', "[DEPRECATED: use `api-port`] Port on which Typesense API service listens.", false, 8108);
@@ -104,7 +106,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
                                             "to start as read-only replica.", false, "");
 }
 
-int init_logger(Config & config, const std::string & server_version) {
+int init_root_logger(Config & config, const std::string & server_version) {
     google::InitGoogleLogging("typesense");
 
     std::string log_dir = config.get_log_dir();

@@ -59,6 +59,7 @@ void HttpServer::on_metrics_refresh_timeout(h2o_timer_t *entry) {
     h2o_custom_timer_t* custom_timer = reinterpret_cast<h2o_custom_timer_t*>(entry);
 
     AppMetrics::get_instance().window_reset();
+    AppMetrics::get_instance().flush_access_log();
 
     HttpServer *hs = static_cast<HttpServer*>(custom_timer->data);
 
@@ -302,6 +303,23 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     std::string metric_identifier = http_method + " " + path_without_query;
     AppMetrics::get_instance().increment_count(metric_identifier, 1);
+
+    if(Config::get_instance().get_enable_access_logging()) {
+        const size_t IP_MAX_LEN = 64;
+        char ip_str[IP_MAX_LEN];
+        sockaddr sa;
+
+        if(0 != req->conn->callbacks->get_peername(req->conn, &sa)) {
+            StringUtils::get_ip_str(&sa, ip_str, IP_MAX_LEN);
+        } else {
+            strncpy(ip_str, "NA", 2);
+        }
+
+        uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+        auto epoch_millis = now / 1000;
+        AppMetrics::get_instance().write_access_log(epoch_millis, ip_str, metric_identifier);
+    }
 
     // Handle CORS
     if(h2o_handler->http_server->cors_enabled) {
