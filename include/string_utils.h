@@ -327,4 +327,6 @@ struct StringUtils {
     static bool ends_with(std::string const &str, std::string const &ending);
 
     static bool contains_word(const std::string& haystack, const std::string& needle);
+
+    static char* get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen);
 };

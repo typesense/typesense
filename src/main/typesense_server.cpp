@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    int ret_code = init_logger(config, TYPESENSE_VERSION);
+    int ret_code = init_root_logger(config, TYPESENSE_VERSION);
     if(ret_code != 0) {
         return ret_code;
     }

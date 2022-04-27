@@ -6,6 +6,7 @@
 #include <vector>
 #include <future>
 #include <chrono>
+#include <iomanip>
 #include "json.hpp"
 #include "string_utils.h"
 #include "logger.h"
@@ -258,27 +259,25 @@ struct http_req {
 
         //LOG(INFO) << "~http_req " << this;
         if(_req != nullptr) {
+            Config& config = Config::get_instance();
+
             uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch()).count();
             uint64_t ms_since_start = (now - start_ts) / 1000;
 
             std::string metric_identifier = http_method + " " + path_without_query;
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
-
             AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
-            // log slow request if logging is enabled
-            Config& config = Config::get_instance();
-            std::string query_string = "?";
-            for(const auto& kv: params) {
-                if(kv.first != AUTH_HEADER) {
-                    query_string += kv.first + "=" + kv.second + "&";
-                }
-            }
-
-            std::string full_url_path = metric_identifier + query_string;
-
             if(config.get_log_slow_requests_time_ms() > 0 && int(ms_since_start) > config.get_log_slow_requests_time_ms()) {
+                // log slow request if logging is enabled
+                std::string query_string = "?";
+                for(const auto& kv: params) {
+                    if(kv.first != AUTH_HEADER) {
+                        query_string += kv.first + "=" + kv.second + "&";
+                    }
+                }
+                std::string full_url_path = metric_identifier + query_string;
                 LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) " << full_url_path;
             }
         }

@@ -5,6 +5,8 @@
 #include <random>
 #include <openssl/sha.h>
 #include <map>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include "logger.h"
 
 
@@ -311,6 +313,24 @@ bool StringUtils::contains_word(const std::string& haystack, const std::string& 
     }
 
     return true;
+}
+
+char* StringUtils::get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen) {
+    switch (sa->sa_family) {
+        case AF_INET:
+            inet_ntop(AF_INET, &(((struct sockaddr_in*) sa)->sin_addr), s, maxlen);
+            break;
+
+        case AF_INET6:
+            inet_ntop(AF_INET6, &(((struct sockaddr_in6*) sa)->sin6_addr), s, maxlen);
+            break;
+
+        default:
+            strncpy(s, "Unknown AF", maxlen);
+            return NULL;
+    }
+
+    return s;
 }
 
 /*size_t StringUtils::unicode_length(const std::string& bytes) {

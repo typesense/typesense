@@ -112,3 +112,14 @@ void AppMetrics::window_reset() {
     current_durations = new spp::sparse_hash_map<std::string, uint64_t>();
 }
 
+void AppMetrics::write_access_log(const uint64_t epoch_millis, const char* remote_ip, const std::string& path) {
+    if(!access_log_path.empty()) {
+        access_log << epoch_millis << "\t" << remote_ip << "\t" << path << "\n";
+    }
+}
+
+void AppMetrics::flush_access_log() {
+    if(!access_log_path.empty()) {
+        access_log << std::flush;
+    }
+}

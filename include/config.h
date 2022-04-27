@@ -50,6 +50,8 @@ private:
 
     uint32_t thread_pool_size;
 
+    bool enable_access_logging;
+
 protected:
 
     Config() {
@@ -66,6 +68,7 @@ protected:
         this->num_documents_parallel_load = 1000;
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
+        this->enable_access_logging = false;
     }
 
     Config(Config const&) {
@@ -239,6 +242,18 @@ public:
         return this->ssl_refresh_interval_seconds;
     }
 
+    bool get_enable_access_logging() const {
+        return this->enable_access_logging;
+    }
+
+    std::string get_access_log_path() const {
+        if(this->log_dir.empty()) {
+            return "";
+        }
+
+        return this->log_dir + "/typesense-access.log";
+    }
+
     // loaders
 
     std::string get_env(const char *name) {
@@ -333,6 +348,8 @@ public:
         if(!get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS").empty()) {
             this->ssl_refresh_interval_seconds = std::stoi(get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS"));
         }
+
+        this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -462,6 +479,11 @@ public:
         if(reader.Exists("server", "ssl-refresh-interval-seconds")) {
             this->ssl_refresh_interval_seconds = (int) reader.GetInteger("server", "ssl-refresh-interval-seconds", 8 * 60 * 60);
         }
+
+        if(reader.Exists("server", "enable-access-logging")) {
+            auto enable_access_logging_str = reader.Get("server", "enable-cors", "false");
+            this->enable_access_logging = (enable_access_logging_str == "true");
+        }
     }
 
     void load_config_cmd_args(cmdline::parser & options) {
@@ -569,6 +591,10 @@ public:
 
         if(options.exist("ssl-refresh-interval-seconds")) {
             this->ssl_refresh_interval_seconds = options.get<uint32_t>("ssl-refresh-interval-seconds");
+        }
+
+        if(options.exist("enable-access-logging")) {
+            this->enable_cors = options.get<bool>("enable-access-logging");
         }
     }
 
