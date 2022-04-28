@@ -17,7 +17,7 @@
 <p>
 <p align="center">
   <a href="https://typesense.org">Website</a> | 
-  <a href="https://typesense.org/api">Documentation</a> | 
+  <a href="https://typesense.org/docs/">Documentation</a> | 
   <a href="https://github.com/typesense/typesense/projects/2">Roadmap</a> | 
   <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg">Slack Community</a> | 
   <a href="https://twitter.com/typesense">Twitter</a> | 
