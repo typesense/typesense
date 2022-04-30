@@ -152,8 +152,6 @@ public:
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {});
 
-    Option<bool> update_collection(const std::string& name, nlohmann::json& req_json);
-
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 
     locked_resource_view_t<Collection> get_collection_with_id(uint32_t collection_id) const;

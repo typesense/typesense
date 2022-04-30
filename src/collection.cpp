@@ -2716,7 +2716,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     const std::string err_msg = "The `fields` value should be an array of objects containing "
                                 "the field `name` and other properties.";
 
-    if(!schema_changes["fields"].is_array() || schema_changes["fields"].empty()) {
+    if(!schema_changes.contains("fields") || !schema_changes["fields"].is_array() || schema_changes["fields"].empty()) {
         return Option<bool>(400, err_msg);
     }
 
