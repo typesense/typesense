@@ -465,12 +465,11 @@ namespace cmdline{
                             continue;
                         }
                         if (options[name]->has_value()){
-                            if (i+1>=argc){
+                            if(options[name]->is_boolean()) {
+                                set_option(name, "true");
+                            } else if (i+1>=argc){
                                 errors.push_back("option needs value: --"+name);
                                 continue;
-                            }
-                            else if(options[name]->is_boolean()) {
-                                set_option(name, "true");
                             } else {
                                 i++;
                                 set_option(name, argv[i]);

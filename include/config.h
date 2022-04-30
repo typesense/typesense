@@ -594,7 +594,7 @@ public:
         }
 
         if(options.exist("enable-access-logging")) {
-            this->enable_cors = options.get<bool>("enable-access-logging");
+            this->enable_access_logging = options.get<bool>("enable-access-logging");
         }
     }
 
