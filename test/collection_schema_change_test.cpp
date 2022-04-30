@@ -443,6 +443,15 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     ASSERT_EQ("Field `desc` has been declared in the schema, but is not found in the documents already present "
               "in the collection. If you still want to add this field, set it as `optional: true`.", alter_op.error());
 
+    // 7. schema JSON missing "fields" property
+    schema_changes = R"({
+        "foo": "bar"
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("The `fields` value should be an array of objects containing the field `name` "
+              "and other properties.", alter_op.error());
+
     collectionManager.drop_collection("coll1");
 }
 

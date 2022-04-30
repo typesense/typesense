@@ -1244,21 +1244,3 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
     preset_configs.erase(preset_name);
     return Option<bool>(true);
 }
-
-Option<bool> CollectionManager::update_collection(const std::string& name, nlohmann::json& req_json) {
-    if(!req_json["fields"].is_array() || req_json["fields"].empty()) {
-        return Option<bool>(400, "The `fields` value should be an array of objects containing "
-                                 "the field properties.");
-    }
-
-    auto collection = get_collection(name);
-    if(collection == nullptr) {
-        return Option<bool>(404, "Not found.");
-    }
-
-    // Supported operations:
-    // - Adding a new field
-    // - Dropping a field
-
-    return collection->alter(req_json);
-}
