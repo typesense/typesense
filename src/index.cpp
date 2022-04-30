@@ -4456,6 +4456,10 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
 
     if(!del_fields.empty()) {
         for(auto& the_field: del_fields) {
+            if(!document.contains(the_field.name)) {
+                // could be an optional field
+                continue;
+            }
             remove_field(seq_id, document, the_field.name);
         }
     } else {

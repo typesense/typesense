@@ -710,3 +710,26 @@ TEST_F(CollectionSchemaChangeTest, AddDynamicFieldMatchingMultipleFields) {
     ASSERT_EQ(2, coll1->get_fields().size());
     ASSERT_EQ(0, coll1->get_dynamic_fields().size());
 }
+
+TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
+    // optional title field
+    std::vector<field> fields = {field("title", field_types::STRING, false, true, true, "", 1, 1),
+                                 field("points", field_types::INT32, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+}
