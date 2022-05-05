@@ -35,8 +35,12 @@
 - Spellchecker with type-ahead, with 333K English words: [spellcheck.typesense.org](https://spellcheck.typesense.org/)
 - An E-Commerce Store Browsing experience: [ecommerce-store.typesense.org](https://ecommerce-store.typesense.org/)
 - GeoSearch / Browsing experience: [airbnb-geosearch.typesense.org](https://airbnb-geosearch.typesense.org/)
+- Search / Browse xkcd comics by topic: [xkcd-search.typesense.org](https://xkcd-search.typesense.org/)
 
-🗣️ 🎥 If you prefer watching videos, here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
+🗣️ 🎥 If you prefer watching videos:
+
+- Here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
+- Here's our [roadmap](https://github.com/typesense/typesense/projects/2) call from Q1 2022: https://aviyel.com/events/297/typesense-community-call-q1-2022-roadmap-and-contributor-spotlight
 
 ## Quick Links
 
@@ -122,7 +126,7 @@ Here's a quick example showcasing how you can create a collection, index a docum
 Let's begin by starting the Typesense server via Docker:
 
 ```
-docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.22.1 --data-dir /data --api-key=Hu52dwsas2AdxdE
+docker run -p 8108:8108 -v/tmp/data:/data typesense/typesense:0.22.2 --data-dir /data --api-key=Hu52dwsas2AdxdE
 ```
 
 We have [API Clients](#api-clients) in a couple of languages, but let's use the Python client for this example.
@@ -225,7 +229,7 @@ We welcome community contributions to add more official client libraries and int
 You can use our [InstantSearch.js adapter](https://github.com/typesense/typesense-instantsearch-adapter) 
 to quickly build powerful search experiences, complete with filtering, sorting, pagination and more.
 
-Here's how: [https://typesense.org/docs/0.22.1/guide/#search-ui](https://typesense.org/docs/0.22.1/guide/#search-ui) 
+Here's how: [https://typesense.org/docs/0.22.2/guide/#search-ui](https://typesense.org/docs/0.22.2/guide/#search-ui) 
 
 ## FAQ
 
@@ -360,4 +364,4 @@ Typesense requires the following dependencies:
 The first build will take some time since other third-party libraries are pulled and built as part of the build process.
 
 ---
-&copy; 2016-2021 Typesense Inc.
+&copy; 2016-present Typesense Inc.

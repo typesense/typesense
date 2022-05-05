@@ -799,7 +799,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
         if(!search_field.index) {
             std::string error = "Field `" + field_name + "` is marked as a non-indexed field in the schema.";
-            return Option<nlohmann::json>(404, error);
+            return Option<nlohmann::json>(400, error);
         }
 
         if(search_field.type != field_types::STRING && search_field.type != field_types::STRING_ARRAY) {
