@@ -465,6 +465,17 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Only `fields` can be updated at the moment.",alter_op.error());
 
+    // 9. bad datatype in alter
+    schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "foobar"}
+        ]
+    })"_json;
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `title` has an invalid data type `foobar`, see docs for supported data types.",alter_op.error());
+
     collectionManager.drop_collection("coll1");
 }
 
