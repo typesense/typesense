@@ -2535,6 +2535,7 @@ Option<bool> Collection::persist_collection_meta() {
 }
 
 Option<bool> Collection::batch_alter_data(const std::unordered_map<std::string, field>& schema_additions,
+                                          const std::unordered_map<std::string, field>& new_dynamic_fields,
                                           const std::vector<field>& del_fields,
                                           const std::string& this_fallback_field_type,
                                           const bool do_validation) {
@@ -2549,14 +2550,15 @@ Option<bool> Collection::batch_alter_data(const std::unordered_map<std::string, 
             continue;
         }
 
-        if(f.is_dynamic()) {
-            // regexp fields and fields with auto type are treated as dynamic fields
-            dynamic_fields.emplace(f.name, f);
-        } else {
-            search_schema.emplace(kv.first, f);
-            new_fields.push_back(f);
-        }
+        search_schema.emplace(kv.first, f);
+        new_fields.push_back(f);
+        fields.push_back(f);
+    }
 
+    for(auto& kv: new_dynamic_fields) {
+        // regexp fields and fields with auto type are treated as dynamic fields
+        const auto& f = kv.second;
+        dynamic_fields.emplace(f.name, f);
         fields.push_back(f);
     }
 
@@ -2659,10 +2661,13 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     // Validate that all stored documents are compatible with the proposed schema changes.
     std::unordered_map<std::string, field> schema_additions;
     std::unordered_map<std::string, field> schema_reindex;
+    std::unordered_map<std::string, field> addition_dynamic_fields;
+    std::unordered_map<std::string, field> reindex_dynamic_fields;
     std::vector<field> del_fields;
     std::string this_fallback_field_type;
 
     auto validate_op = validate_alter_payload(alter_payload, schema_additions, schema_reindex,
+                                              addition_dynamic_fields, reindex_dynamic_fields,
                                               del_fields, this_fallback_field_type);
     if(!validate_op.ok()) {
         return validate_op;
@@ -2681,7 +2686,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
 
-    auto batch_alter_op = batch_alter_data(schema_additions, del_fields, fallback_field_type, false);
+    auto batch_alter_op = batch_alter_data(schema_additions, addition_dynamic_fields, del_fields, fallback_field_type, false);
     if(!batch_alter_op.ok()) {
         return batch_alter_op;
     }
@@ -2691,7 +2696,7 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         // we've to run revaliation because during schema change, some coercion might be needed
         // e.g. "123" -> 123 (string to integer)
         bool do_validation = true;
-        batch_alter_op = batch_alter_data(schema_reindex, {}, fallback_field_type, do_validation);
+        batch_alter_op = batch_alter_data(schema_reindex, reindex_dynamic_fields, {}, fallback_field_type, do_validation);
         if(!batch_alter_op.ok()) {
             return batch_alter_op;
         }
@@ -2703,6 +2708,8 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
 Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                 std::unordered_map<std::string, field>& schema_additions,
                                                 std::unordered_map<std::string, field>& schema_reindex,
+                                                std::unordered_map<std::string, field>& addition_dynamic_fields,
+                                                std::unordered_map<std::string, field>& reindex_dynamic_fields,
                                                 std::vector<field>& del_fields,
                                                 std::string& fallback_field_type) {
     if(!schema_changes.is_object()) {
@@ -2753,7 +2760,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         auto found_field = (field_it != search_schema.end());
 
         auto dyn_field_it = dynamic_fields.find(field_name);
-        auto found_dyn_field = (dyn_field_it != dynamic_fields.end());
+        auto found_dyn_field = (dyn_field_it != dynamic_fields.end()) ||
+                               (found_field && field_types::is_string_or_array(field_it->second.type));
 
         if(kv.value().contains("drop")) {
             if(!kv.value()["drop"].is_boolean() || !kv.value()["drop"].get<bool>()) {
@@ -2771,7 +2779,17 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
             if(found_field) {
                 del_fields.push_back(field_it->second);
-            } else if(found_dyn_field) {
+                updated_search_schema.erase(field_it->first);
+
+                // we will also have to resolve the dynamic field names which match the static field name
+                for(auto& field_kv: dynamic_fields) {
+                    if(std::regex_match(field_kv.first, std::regex(field_it->first))) {
+                        del_fields.push_back(field_kv.second);
+                    }
+                }
+            }
+
+            else if(found_dyn_field) {
                 del_fields.push_back(dyn_field_it->second);
                 // we will also have to resolve the actual field names which match the dynamic field pattern
                 for(auto& field_kv: search_schema) {
@@ -2805,18 +2823,20 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
                 if(f.is_dynamic()) {
                     new_dynamic_fields.emplace(f.name, f);
+
+                    if(is_reindex) {
+                        reindex_dynamic_fields.emplace(f.name, f);
+                    } else {
+                        addition_dynamic_fields.emplace(f.name, f);
+                    }
                 } else {
                     updated_search_schema[f.name] = f;
-                }
-
-                if(is_reindex) {
-                    // delete + reindex is fine, we will handle these fields separately
-                    //if(!f.is_dynamic()) {
-                        // expanded versions of dynamic fields will be discovered during data iteration below
+                    if(is_reindex) {
+                        // delete + reindex: we will handle these fields separately
                         schema_reindex.emplace(f.name, f);
-                    //}
-                } else {
-                    schema_additions.emplace(f.name, f);
+                    } else {
+                        schema_additions.emplace(f.name, f);
+                    }
                 }
             } else {
                 // partial update is not supported for now
@@ -2851,7 +2871,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                                                 nlohmann::detail::error_handler_t::ignore));
         }
 
-        if(!fallback_field_type.empty() || !new_dynamic_fields.empty()) {
+        if(!fallback_field_type.empty() || !addition_dynamic_fields.empty() || !reindex_dynamic_fields.empty()) {
             std::vector<field> new_fields;
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
@@ -2862,8 +2882,8 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             }
 
             for(auto& new_field: new_fields) {
-                updated_search_schema.emplace(new_field.name, new_field);
-                schema_reindex.emplace(new_field.name, new_field);
+                updated_search_schema[new_field.name] = new_field;
+                schema_reindex[new_field.name] = new_field;
             }
         }
 
