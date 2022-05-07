@@ -452,6 +452,19 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     ASSERT_EQ("The `fields` value should be an array of objects containing the field `name` "
               "and other properties.", alter_op.error());
 
+    // 8. sending full collection schema, like creation body
+    schema_changes = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Only `fields` can be updated at the moment.",alter_op.error());
+
     collectionManager.drop_collection("coll1");
 }
 
@@ -741,4 +754,187 @@ TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
 
     auto alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "tags", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["tags"] = "123";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+
+    // try to alter to string* type
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "string*", "facet": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // go back to plain string type
+    schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToAutoField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "tags", "type": "string"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["tags"] = "123";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+
+    // try to alter to auto type
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "auto", "facet": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // go back to plain string type
+    schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "string", "facet": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(1, coll1->get_fields().size());
+    ASSERT_EQ(0, coll1->get_dynamic_fields().size());
+}
+
+TEST_F(CollectionSchemaChangeTest, ChangeFromStringStarToAutoField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "tags", "type": "string*"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["tags"] = "123";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // try to alter to auto type
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "auto", "facet": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
+
+    // go back to string* type
+    schema_changes = R"({
+        "fields": [
+            {"name": "tags", "drop": true},
+            {"name": "tags", "type": "string*", "facet": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    results = coll1->search("123", {"tags"}, "", {"tags"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    ASSERT_EQ(1, coll1->get_schema().size());
+    ASSERT_EQ(2, coll1->get_fields().size());
+    ASSERT_EQ(1, coll1->get_dynamic_fields().size());
 }
