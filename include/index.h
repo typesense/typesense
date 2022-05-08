@@ -749,7 +749,9 @@ public:
 
     static void tokenize_string_field(const nlohmann::json& document,
                                       const field& search_field, std::vector<std::string>& tokens,
-                                      const std::string& locale);
+                                      const std::string& locale,
+                                      const std::vector<char>& symbols_to_index,
+                                      const std::vector<char>& token_separators);
 
     // Public operations
 
