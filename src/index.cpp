@@ -4338,7 +4338,7 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
-        tokenize_string_field(document, search_field, tokens, search_field.locale);
+        tokenize_string_field(document, search_field, tokens, search_field.locale, symbols_to_index, token_separators);
 
         for(size_t i = 0; i < tokens.size(); i++) {
             const auto& token = tokens[i];
@@ -4477,16 +4477,18 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
 }
 
 void Index::tokenize_string_field(const nlohmann::json& document, const field& search_field,
-                                  std::vector<std::string>& tokens, const std::string& locale) {
+                                  std::vector<std::string>& tokens, const std::string& locale,
+                                  const std::vector<char>& symbols_to_index,
+                                  const std::vector<char>& token_separators) {
 
     const std::string& field_name = search_field.name;
 
     if(search_field.type == field_types::STRING) {
-        Tokenizer(document[field_name], true, false, locale).tokenize(tokens);
+        Tokenizer(document[field_name], true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
     } else if(search_field.type == field_types::STRING_ARRAY) {
         const std::vector<std::string>& values = document[field_name].get<std::vector<std::string>>();
         for(const std::string & value: values) {
-            Tokenizer(value, true, false, locale).tokenize(tokens);
+            Tokenizer(value, true, false, locale, symbols_to_index, token_separators).tokenize(tokens);
         }
     }
 }
