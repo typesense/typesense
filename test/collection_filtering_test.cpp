@@ -2292,3 +2292,29 @@ TEST_F(CollectionFilteringTest, ExcludeMultipleTokens) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArray) {
+    std::vector<field> fields = {field("name", field_types::STRING, false), field("tags", field_types::STRING_ARRAY, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "david";
+    doc1["tags"] = {"alpha-beta-gamma", "foo-bar-baz"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("david", {"name"},"tags:=[foo-bar-baz]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // upsert with "foo-bar-baz" removed
+    doc1["tags"] = {"alpha-beta-gamma"};
+    coll1->add(doc1.dump(), UPSERT);
+
+    results = coll1->search("david", {"name"},"tags:=[foo-bar-baz]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
