@@ -23,8 +23,11 @@ fi
 
 
 TYPESENSE_DEV_IMAGE="typesense-development:29-DEC-2021-1"
+ARCH_NAME="amd64"
+
 if [[ "$@" == *"--graviton2"* ]]; then
   TYPESENSE_DEV_IMAGE="typesense-development-arm:03-DEC-2021-1"
+  ARCH_NAME="arm64"
 fi
 
 echo "Building Typesense $TYPESENSE_VERSION..."
@@ -43,7 +46,7 @@ fi
 
 if [[ "$@" == *"--package-binary"* ]]; then
     OS_FAMILY=linux
-    RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-amd64
+    RELEASE_NAME=typesense-server-$TYPESENSE_VERSION-$OS_FAMILY-$ARCH_NAME
     printf `md5sum $PROJECT_DIR/$BUILD_DIR/typesense-server | cut -b-32` > $PROJECT_DIR/$BUILD_DIR/typesense-server.md5.txt
     tar -cvzf $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz -C $PROJECT_DIR/$BUILD_DIR typesense-server typesense-server.md5.txt
     echo "Built binary successfully: $PROJECT_DIR/$BUILD_DIR/$RELEASE_NAME.tar.gz"
