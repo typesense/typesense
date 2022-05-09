@@ -52,6 +52,8 @@ private:
 
     bool enable_access_logging;
 
+    int disk_used_max_percentage;
+
 protected:
 
     Config() {
@@ -69,6 +71,7 @@ protected:
         this->thread_pool_size = 0; // will be set dynamically if not overridden
         this->ssl_refresh_interval_seconds = 8 * 60 * 60;
         this->enable_access_logging = false;
+        this->disk_used_max_percentage = 100;
     }
 
     Config(Config const&) {
@@ -246,6 +249,10 @@ public:
         return this->enable_access_logging;
     }
 
+    int get_disk_used_max_percentage() const {
+        return this->disk_used_max_percentage;
+    }
+
     std::string get_access_log_path() const {
         if(this->log_dir.empty()) {
             return "";
@@ -350,6 +357,10 @@ public:
         }
 
         this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
+
+        if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
+            this->disk_used_max_percentage = std::stoi(get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE"));
+        }
     }
 
     void load_config_file(cmdline::parser & options) {
@@ -481,8 +492,12 @@ public:
         }
 
         if(reader.Exists("server", "enable-access-logging")) {
-            auto enable_access_logging_str = reader.Get("server", "enable-cors", "false");
+            auto enable_access_logging_str = reader.Get("server", "enable-access-logging", "false");
             this->enable_access_logging = (enable_access_logging_str == "true");
+        }
+
+        if(reader.Exists("server", "disk-used-max-percentage")) {
+            this->disk_used_max_percentage = (int) reader.GetInteger("server", "disk-used-max-percentage", 100);
         }
     }
 
@@ -595,6 +610,10 @@ public:
 
         if(options.exist("enable-access-logging")) {
             this->enable_access_logging = options.get<bool>("enable-access-logging");
+        }
+
+        if(options.exist("disk-used-max-percentage")) {
+            this->disk_used_max_percentage = options.get<int>("disk-used-max-percentage");
         }
     }
 

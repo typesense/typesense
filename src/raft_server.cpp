@@ -182,6 +182,13 @@ void ReplicationState::write(const std::shared_ptr<http_req>& request, const std
         return ;
     }
 
+    // reject write if disk space is running out
+    if(!cached_disk_stat.has_enough_space(raft_dir_path, config->get_disk_used_max_percentage())) {
+        response->set_500("Rejecting write: running out of disk space!");
+        auto req_res = new async_req_res_t(request, response, true);
+        return message_dispatcher->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, req_res);
+    }
+
     std::shared_lock lock(node_mutex);
 
     if(!node) {

@@ -8,6 +8,7 @@
 #include <braft/protobuf_file.h>         // braft::ProtoBufFile
 #include <rocksdb/db.h>
 #include <future>
+#include <sys/statvfs.h>
 
 #include "http_data.h"
 #include "threadpool.h"
@@ -81,6 +82,29 @@ public:
     void Run();
 };
 
+struct cached_disk_stat_t {
+    const static size_t REFRESH_INTERVAL_SECS = 30;
+    uint64_t disk_total_bytes = 0;
+    uint64_t disk_used_bytes = 0;
+    uint64_t last_checked_ts = 0;
+
+    bool has_enough_space(const std::string& data_dir_path, const int disk_used_max_percentage) {
+        uint64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+        if((now - last_checked_ts) > REFRESH_INTERVAL_SECS) {
+            struct statvfs st{};
+            statvfs(data_dir_path.c_str(), &st);
+            disk_total_bytes = st.f_blocks * st.f_frsize;
+            disk_used_bytes = (st.f_blocks - st.f_bavail) * st.f_frsize;
+            last_checked_ts = now;
+        }
+
+        int disk_used_percentage = (double(disk_used_bytes)/double(disk_total_bytes)) * 100;
+        return disk_used_percentage <= disk_used_max_percentage;
+    }
+};
+
 
 // Implements braft::StateMachine.
 class ReplicationState : public braft::StateMachine {
@@ -122,6 +146,8 @@ private:
 
     std::atomic<bool> shutting_down;
     std::atomic<size_t> pending_writes;
+
+    cached_disk_stat_t cached_disk_stat;
 
 public:
 
