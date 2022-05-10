@@ -2294,7 +2294,9 @@ TEST_F(CollectionFilteringTest, ExcludeMultipleTokens) {
 }
 
 TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithTokenSeparators) {
-    std::vector<field> fields = {field("name", field_types::STRING, false), field("tags", field_types::STRING_ARRAY, false)};
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),
+                                 field("tag", field_types::STRING, false)};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {}, {"-"}).get();
 
@@ -2302,11 +2304,13 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithTokenSeparators) 
     doc1["id"] = "0";
     doc1["name"] = "david";
     doc1["tags"] = {"alpha-beta-gamma", "foo-bar-baz"};
+    doc1["tag"] = "foo-bar-baz";
 
     nlohmann::json doc2;
     doc2["id"] = "1";
     doc2["name"] = "david";
     doc2["tags"] = {"alpha-gamma-beta", "bar-foo-baz"};
+    doc2["tag"] = "alpha-beta";
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
@@ -2326,11 +2330,20 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithTokenSeparators) 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
 
+    // repeat for singular string field: upsert with "foo-bar-baz" removed
+    doc1["tag"] = "alpha-beta-gamma";
+    coll1->add(doc1.dump(), UPSERT);
+
+    results = coll1->search("david", {"name"},"tag:=[foo-bar-baz]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
 
 TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
-    std::vector<field> fields = {field("name", field_types::STRING, false), field("tags", field_types::STRING_ARRAY, false)};
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),
+                                 field("tag", field_types::STRING, false)};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, "", {"-"}, {}).get();
 
@@ -2338,11 +2351,13 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
     doc1["id"] = "0";
     doc1["name"] = "david";
     doc1["tags"] = {"alpha-beta-gamma", "foo-bar-baz"};
+    doc1["tag"] = "foo-bar-baz";
 
     nlohmann::json doc2;
     doc2["id"] = "1";
     doc2["name"] = "david";
     doc2["tags"] = {"alpha-gamma-beta", "bar-foo-baz"};
+    doc2["tag"] = "alpha-beta";
 
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
     ASSERT_TRUE(coll1->add(doc2.dump()).ok());
@@ -2361,6 +2376,13 @@ TEST_F(CollectionFilteringTest, FilteringAfterUpsertOnArrayWithSymbolsToIndex) {
     results = coll1->search("david", {"name"},"tags:=[bar-foo-baz]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // repeat for singular string field: upsert with "foo-bar-baz" removed
+    doc1["tag"] = "alpha-beta-gamma";
+    coll1->add(doc1.dump(), UPSERT);
+
+    results = coll1->search("david", {"name"},"tag:=[foo-bar-baz]", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }
