@@ -725,6 +725,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
 
     std::shared_lock lock(mutex);
 
+    // setup thread local vars
+    search_stop_ms = search_stop_millis;
+    search_begin = std::chrono::high_resolution_clock::now();
+    search_cutoff = false;
+
     if(raw_query != "*" && search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
