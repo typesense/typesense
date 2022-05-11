@@ -2147,10 +2147,6 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                    const size_t max_extra_suffix, const size_t facet_query_num_typos,
                    const bool filter_curated_hits, const bool split_join_tokens) const {
 
-    search_begin = std::chrono::high_resolution_clock::now();
-    search_stop_ms = search_cutoff_ms;
-    search_cutoff = false;
-
     // process the filters
 
     uint32_t* filter_ids = nullptr;
