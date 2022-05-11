@@ -2061,3 +2061,55 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithJustRemoveTokens) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
+    // when query tokens do not match placeholder field value exactly, don't do filtering
+    Collection* coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("category", field_types::STRING, true),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if (coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["category"] = "Running Shoes";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
+
+    auto results = coll1->search("shoes", {"name"}, "",
+                                 {}, sort_fields, {0}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // with override, we return all records
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-filter"},
+            {
+             "rule", {
+                             {"query", "{ category }"},
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"filter_by", "category:= {category}"},
+            {"remove_matched_tokens", true}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    results = coll1->search("shoes", {"name"}, "",
+                            {}, sort_fields, {0}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}

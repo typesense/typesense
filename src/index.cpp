@@ -2045,23 +2045,46 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, token_order, false, 0, 1, false, -1, 3, 7, 4);
 
-            delete [] result_ids;
-
             if(result_ids_len != 0) {
-                // remove window_tokens from `tokens`
-                std::vector<std::string> new_tokens;
-                for(size_t new_i = start_index; new_i < tokens.size(); new_i++) {
-                    const auto& token = tokens[new_i];
-                    if(window_tokens_set.count(token) == 0) {
-                        new_tokens.emplace_back(token);
-                    } else {
-                        absorbed_tokens.insert(token);
-                        field_absorbed_tokens.emplace_back(token);
+                // we need to narraw onto the exact matches
+                std::vector<void*> posting_lists;
+                art_tree* t = search_index.at(field_name);
+
+                for(auto& w_token: window_tokens) {
+                    art_leaf* leaf = (art_leaf *) art_search(t, (const unsigned char*) w_token.value.c_str(),
+                                                             w_token.value.length()+1);
+                    if(leaf == nullptr) {
+                        continue;
                     }
+
+                    posting_lists.push_back(leaf->values);
                 }
 
-                tokens = new_tokens;
-                return true;
+                uint32_t* exact_strt_ids = new uint32_t[result_ids_len];
+                size_t exact_strt_size = 0;
+
+                posting_t::get_exact_matches(posting_lists, field_it->second.is_array(), result_ids, result_ids_len,
+                                             exact_strt_ids, exact_strt_size);
+
+                delete [] result_ids;
+                delete [] exact_strt_ids;
+
+                if(exact_strt_size != 0) {
+                    // remove window_tokens from `tokens`
+                    std::vector<std::string> new_tokens;
+                    for(size_t new_i = start_index; new_i < tokens.size(); new_i++) {
+                        const auto& token = tokens[new_i];
+                        if(window_tokens_set.count(token) == 0) {
+                            new_tokens.emplace_back(token);
+                        } else {
+                            absorbed_tokens.insert(token);
+                            field_absorbed_tokens.emplace_back(token);
+                        }
+                    }
+
+                    tokens = new_tokens;
+                    return true;
+                }
             }
 
             if(!slide_window) {
