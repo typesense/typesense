@@ -195,6 +195,11 @@ struct cached_res_t {
     }
 };
 
+struct ip_addr_str_t {
+    static const size_t IP_MAX_LEN = 64;
+    char ip[IP_MAX_LEN];
+};
+
 struct http_req {
     static constexpr const char* AUTH_HEADER = "x-typesense-api-key";
     static constexpr const char* AGENT_HEADER = "user-agent";
@@ -278,7 +283,8 @@ struct http_req {
                     }
                 }
                 std::string full_url_path = metric_identifier + query_string;
-                LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) " << full_url_path;
+                LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) "
+                          << http_req::get_ip_addr(_req).ip << " " << full_url_path;
             }
         }
     }
@@ -335,6 +341,18 @@ struct http_req {
         content["log_index"] = log_index;
 
         return content.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
+    }
+
+    static ip_addr_str_t get_ip_addr(h2o_req_t* h2o_req) {
+        ip_addr_str_t ip_addr;
+        sockaddr sa;
+        if(0 != h2o_req->conn->callbacks->get_peername(h2o_req->conn, &sa)) {
+            StringUtils::get_ip_str(&sa, ip_addr.ip, ip_addr.IP_MAX_LEN);
+        } else {
+            strcpy(ip_addr.ip, "0.0.0.0");
+        }
+
+        return ip_addr;
     }
 };
 
