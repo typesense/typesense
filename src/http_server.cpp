@@ -273,6 +273,8 @@ void HttpServer::on_res_generator_dispose(void *self) {
         custom_generator->res()->notify();
     }
 
+    // without this, warning about memory allocated by std::string leaking happens
+    std::string().swap(custom_generator->h2o_handler->api_auth_key_sent);
     delete custom_generator;
 }
 
