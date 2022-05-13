@@ -583,6 +583,7 @@ private:
                                const std::vector<bool>& prefixes,
                                bool prioritize_exact_match,
                                const bool exhaustive_search,
+                               const size_t max_candidates,
                                int syn_orig_num_tokens,
                                const int* sort_order,
                                std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
