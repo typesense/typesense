@@ -43,6 +43,7 @@
 
 - Here's one where we introduce Typesense and show a walk-through: https://youtu.be/F4mB0x_B1AE?t=144
 - Here's our [roadmap](https://github.com/typesense/typesense/projects/2) call from Q1 2022: https://aviyel.com/events/297/typesense-community-call-q1-2022-roadmap-and-contributor-spotlight
+- Check out Typesense's recent mention during Google I/O Developer Keynote: https://youtu.be/qBkyU1TJKDg?t=2399
 
 ## Quick Links
 
