@@ -1156,6 +1156,7 @@ void Index::search_all_candidates(const size_t num_search_fields,
                                   const std::vector<bool>& prefixes,
                                   bool prioritize_exact_match,
                                   const bool exhaustive_search,
+                                  const size_t max_candidates,
                                   int syn_orig_num_tokens,
                                   const int* sort_order,
                                   std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
@@ -1166,7 +1167,7 @@ void Index::search_all_candidates(const size_t num_search_fields,
     auto product = []( long long a, tok_candidates & b ) { return a*b.candidates.size(); };
     long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
 
-    long long combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
+    long long combination_limit = std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
 
     for(long long n = 0; n < N && n < combination_limit; ++n) {
         RETURN_CIRCUIT_BREAKER
@@ -2647,7 +2648,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
     long long n = 0;
     long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
-    const long long combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
+    const long long combination_limit = std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
 
     while(n < N && n < combination_limit) {
         RETURN_CIRCUIT_BREAKER
@@ -2764,7 +2765,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                                   sort_fields, token_candidates_vec, searched_queries, qtoken_set, topster,
                                   groups_processed, all_result_ids, all_result_ids_len,
                                   typo_tokens_threshold, group_limit, group_by_fields, query_tokens,
-                                  num_typos, prefixes, prioritize_exact_match, exhaustive_search,
+                                  num_typos, prefixes, prioritize_exact_match, exhaustive_search, max_candidates,
                                   syn_orig_num_tokens, sort_order, field_values, geopoint_indices,
                                   query_hashes, id_buff);
 
