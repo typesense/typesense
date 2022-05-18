@@ -98,6 +98,12 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
             filter id_filter;
             std::string&& raw_value = filter_block.substr(found_index+1, std::string::npos);
             StringUtils::trim(raw_value);
+            std::string empty_filter_err = "Error with filter field `id`: Filter value cannot be empty.";
+
+            if(raw_value.empty()) {
+                return Option<bool>(400, empty_filter_err);
+            }
+
             id_filter = {field_name, {}, {}};
 
             NUM_COMPARATOR id_comparator = EQUALS;
@@ -114,8 +120,8 @@ Option<bool> filter::parse_filter_query(const string& simple_filter_query,
                 raw_value = raw_value.substr(filter_value_index);
             }
 
-            if(filter_value_index == raw_value.size()) {
-                return Option<bool>(400, "Error with filter field `id`: Filter value cannot be empty.");
+            if(raw_value.empty()) {
+                return Option<bool>(400, empty_filter_err);
             }
 
             if(raw_value[0] == '[' && raw_value[raw_value.size() - 1] == ']') {

@@ -1633,8 +1633,21 @@ TEST_F(CollectionFilteringTest, FilteringViaDocumentIds) {
     ASSERT_STREQ("125", results["hits"][1]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("127", results["hits"][2]["document"]["id"].get<std::string>().c_str());
 
+    // empty id list not allowed
+    auto res_op = coll1->search("*", {}, "id:=", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {}, "id:= ", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
+
+    res_op = coll1->search("*", {}, "id: ", {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Error with filter field `id`: Filter value cannot be empty.", res_op.error());
+
     // not equals is not supported yet
-    auto res_op = coll1->search("*",
+    res_op = coll1->search("*",
                             {}, "id:!= [123,125] && num_employees: <300",
                             {}, sort_fields, {0}, 10, 1, FREQUENCY, {true});
     ASSERT_FALSE(res_op.ok());
