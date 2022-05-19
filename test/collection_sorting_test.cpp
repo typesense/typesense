@@ -221,6 +221,7 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
         }
     }
 
+    // max candidates as default 4
     auto results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, {true}).get();
 
     // [11 + 10 + 9 + 8] + 7 + 6 + 5 + 4 + 3 + 2
@@ -233,6 +234,16 @@ TEST_F(CollectionSortingTest, FrequencyOrderedTokensWithoutDefaultSortingField) 
             found_end = true;
         }
     }
+
+    // 2 candidates
+    results = coll1->search("e", {"title"}, "", {}, {}, {0}, 100, 1, NOT_SET, {true},
+                            0, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>(),
+                            10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
+                            false, 2).get();
+
+    // [11 + 10] + 9 + 8 + 7 + 6 + 5 + 4 + 3 + 2
+    ASSERT_EQ(21, results["found"].get<size_t>());
 
     ASSERT_FALSE(found_end);
 }
