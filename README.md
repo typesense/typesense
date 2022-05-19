@@ -19,7 +19,7 @@
   <a href="https://typesense.org">Website</a> | 
   <a href="https://typesense.org/docs/">Documentation</a> | 
   <a href="https://github.com/typesense/typesense/projects/2">Roadmap</a> | 
-  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-RLRTGP6w0gbO3ZUICbbRHw">Slack Community</a> | 
+  <a href="https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg">Slack Community</a> | 
   <a href="https://twitter.com/typesense">Twitter</a> | 
   <a href="https://calendly.com/jason-typesense/typesense-office-hours">Office Hours</a>
 </p>
@@ -309,7 +309,7 @@ If you have specifics that prevent you from using Typesense due to a licensing i
 
 ## Support
 
-👋 🌐 New: If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-RLRTGP6w0gbO3ZUICbbRHw). 
+👋 🌐 New: If you have general questions about Typesense, want to say hello or just follow along, we'd like to invite you to join our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 We also do virtual office hours every Friday. Reserve a time slot [here](https://calendly.com/jason-typesense/typesense-office-hours).
 
@@ -335,7 +335,7 @@ If you'd like to get updates when we release new versions, click on the "Watch" 
 
 We also post updates to our Twitter account about releases and additional topics related to Typesense. Follow us here: [@typesense](https://twitter.com/typesense).
 
-👋 🌐 New: We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-RLRTGP6w0gbO3ZUICbbRHw). 
+👋 🌐 New: We'll also post updates on our [Slack Community](https://join.slack.com/t/typesense-community/shared_invite/zt-mx4nbsbn-AuOL89O7iBtvkz136egSJg). 
 
 ## Build from source
 
