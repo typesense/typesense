@@ -501,8 +501,6 @@ private:
     static inline uint32_t next_suggestion2(const std::vector<tok_candidates>& token_candidates_vec,
                                             long long int n,
                                             std::vector<token_t>& query_suggestion,
-                                            int syn_orig_num_tokens,
-                                            uint32_t& token_bits,
                                             uint64& qhash);
 
     static inline uint32_t next_suggestion(const std::vector<token_candidates> &token_candidates_vec,
@@ -680,6 +678,7 @@ public:
 
     enum {COMBINATION_MAX_LIMIT = 10000};
     enum {COMBINATION_MIN_LIMIT = 10};
+    enum {MAX_CANDIDATES_DEFAULT = 4};
 
     // If the number of results found is less than this threshold, Typesense will attempt to drop the tokens
     // in the query that have the least individual hits one by one until enough results are found.
@@ -938,6 +937,17 @@ public:
                              const int* sort_order,
                              std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values,
                              const std::vector<size_t>& geopoint_indices) const;
+
+    void find_across_fields(const std::vector<token_t>& query_tokens,
+                              const size_t num_query_tokens,
+                              const std::vector<uint32_t>& num_typos,
+                              const std::vector<bool>& prefixes,
+                              const std::vector<search_field_t>& the_fields,
+                              const size_t num_search_fields,
+                              const uint32_t* filter_ids, uint32_t filter_ids_length,
+                              const uint32_t* exclude_token_ids,
+                              size_t exclude_token_ids_size,
+                              std::vector<uint32_t>& id_buff) const;
 
     void search_across_fields(const std::vector<token_t>& query_tokens,
                               const std::vector<uint32_t>& num_typos,
