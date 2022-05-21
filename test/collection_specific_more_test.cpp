@@ -55,3 +55,33 @@ TEST_F(CollectionSpecificMoreTest, MaxCandidatesShouldBeRespected) {
     ASSERT_EQ(200, results["found"].get<size_t>());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, PrefixExpansionWhenExactMatchExists) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "The Little Prince [by] Antoine de Saint Exupéry : teacher guide";
+    doc1["author"] = "Barbara Valdez";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Little Prince";
+    doc2["author"] = "Antoine de Saint-Exupery";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("little prince antoine saint", {"title", "author"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}

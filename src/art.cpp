@@ -1531,7 +1531,7 @@ int art_fuzzy_search(art_tree *t, const unsigned char *term, const int term_len,
         std::sort(results.begin(), results.end(), compare_art_leaf_score);
     }
 
-    if(exact_leaf) {
+    if(exact_leaf && min_cost == 0) {
         results.insert(results.begin(), exact_leaf);
     }
 

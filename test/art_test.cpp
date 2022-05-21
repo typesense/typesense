@@ -683,6 +683,10 @@ TEST(ArtTest, test_art_fuzzy_search_prefix_token_ordering) {
     std::string third_key(reinterpret_cast<char*>(leaves[2]->key), leaves[2]->key_len - 1);
     ASSERT_EQ("elephant", third_key);
 
+    leaves.clear();
+    art_fuzzy_search(&t, (const unsigned char *) "enter", 5, 1, 1, 3, MAX_SCORE, true, nullptr, 0, leaves);
+    ASSERT_TRUE(leaves.empty());
+
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);
 }
