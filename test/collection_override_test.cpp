@@ -271,7 +271,8 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `remove_matched_tokens`.", parse_op.error().c_str());
+    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `sort_by`, `remove_matched_tokens`.",
+                 parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
     include_json2["includes"][0] = 100;
@@ -2058,6 +2059,73 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithJustRemoveTokens) {
                             {}, sort_fields, {0, 0, 0}, 1).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, StaticSorting) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["price"] = 399.99;
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Track Shoes";
+    doc2["price"] = 49.99;
+    doc2["points"] = 5;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json_contains = {
+            {"id",   "static-sort"},
+            {
+             "rule", {
+                             {"query", "shoes"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"sort_by", "price:desc"}
+    };
+
+    override_t override_contains;
+    auto op = override_t::parse(override_json_contains, "static-sort", override_contains);
+    ASSERT_TRUE(op.ok());
+
+    // without override kicking in
+    auto results = coll1->search("shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // now add override
+    coll1->add_override(override_contains);
+
+    results = coll1->search("shoes", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    // with override we will sort on price
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }

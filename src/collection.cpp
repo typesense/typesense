@@ -419,7 +419,8 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                 std::vector<uint32_t>& excluded_ids,
                                 std::vector<const override_t*>& filter_overrides,
-                                bool& filter_curated_hits) const {
+                                bool& filter_curated_hits,
+                                std::string& curated_sort_by) const {
 
     std::set<uint32_t> excluded_set;
 
@@ -486,6 +487,7 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                 }
 
                 filter_curated_hits = override.filter_curated_hits;
+                curated_sort_by = override.sort_by;
             }
         }
     }
@@ -915,29 +917,6 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         }
     }
 
-    // validate sort fields and standardize
-
-    std::vector<sort_by> sort_fields_std;
-    auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std);
-    if(!sort_validation_op.ok()) {
-        return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
-    }
-
-    // apply bucketing on text match score
-    int match_score_index = -1;
-    for(size_t i = 0; i < sort_fields_std.size(); i++) {
-        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
-            match_score_index = i;
-
-            if(sort_fields_std[i].text_match_buckets > 1) {
-                // we will disable prioritize exact match because it's incompatible with bucketing
-                prioritize_exact_match = false;
-            }
-
-            break;
-        }
-    }
-
     // check for valid pagination
     if(page < 1) {
         std::string message = "Page must be an integer of value greater than 0.";
@@ -994,8 +973,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     std::vector<const override_t*> filter_overrides;
     std::string query = raw_query;
     bool filter_curated_hits = false;
+    std::string curated_sort_by;
     curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
-                   included_ids, excluded_ids, filter_overrides, filter_curated_hits);
+                   included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {
         // When query param has explicit value set, override level configuration takes lower precedence.
@@ -1024,6 +1004,43 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         LOG(INFO) << "----";
     }
     */
+
+    // validate sort fields and standardize
+
+    std::vector<sort_by> sort_fields_std;
+
+    if(curated_sort_by.empty()) {
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std);
+        if(!sort_validation_op.ok()) {
+            return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
+        }
+    } else {
+        std::vector<sort_by> curated_sort_fields;
+        bool parsed_sort_by = CollectionManager::parse_sort_by_str(curated_sort_by, curated_sort_fields);
+        if(!parsed_sort_by) {
+            return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
+        }
+
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std);
+        if(!sort_validation_op.ok()) {
+            return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
+        }
+    }
+
+    // apply bucketing on text match score
+    int match_score_index = -1;
+    for(size_t i = 0; i < sort_fields_std.size(); i++) {
+        if(sort_fields_std[i].name == sort_field_const::text_match && sort_fields_std[i].text_match_buckets != 0) {
+            match_score_index = i;
+
+            if(sort_fields_std[i].text_match_buckets > 1) {
+                // we will disable prioritize exact match because it's incompatible with bucketing
+                prioritize_exact_match = false;
+            }
+
+            break;
+        }
+    }
 
     //LOG(INFO) << "Num indices used for querying: " << indices.size();
     std::vector<query_tokens_t> field_query_tokens;
@@ -1081,7 +1098,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                                  drop_tokens_threshold, typo_tokens_threshold,
                                                  group_by_fields, group_limit, default_sorting_field,
                                                  prioritize_exact_match,
-                                                 exhaustive_search, 4, filter_overrides,
+                                                 exhaustive_search, 4,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
