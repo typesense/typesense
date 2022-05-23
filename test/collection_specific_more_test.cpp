@@ -85,3 +85,85 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionWhenExactMatchExists) {
     ASSERT_EQ(2, results["hits"].size());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTotalMatch) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Harry Potter and the Prisoner of Azkaban";
+    doc1["author"] = "Rowling";
+    doc1["tags"] = {"harry", ""};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Fantastic beasts and where to find them";
+    doc2["author"] = "Rowling";
+    doc2["tags"] = {"harry", "potter", "prisoner", "azkaban", "beasts", "guide", "rowling"};
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "Fantastic beasts and where to find them";
+    doc3["author"] = "Rowling";
+    doc3["tags"] = {"harry potter", "prisoner azkaban", "beasts", "guide", "rowling"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("harry potter rowling prisoner azkaban", {"title", "author", "tags"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, MatchedSegmentMoreImportantThanTotalMatches) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "One Two Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen";
+    doc1["author"] = "Rowling";
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "One Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Three Rowling";
+    doc2["author"] = "Two";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["title"] = "One Three Four Five Six Seven Eight Nine Ten Eleven Twelve Thirteen Fourteen Two Rowling";
+    doc3["author"] = "Foo";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    auto results = coll1->search("one two three rowling", {"title", "author"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    LOG(INFO) << results;
+    ASSERT_EQ(3, results["hits"].size());
+
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+}

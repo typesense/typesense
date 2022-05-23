@@ -4160,8 +4160,8 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             // might be available within the window used for proximity calculation (this_words_present)
 
             uint64_t mod_match_score = (
-                (int64_t(unique_words) << 32) |
-                (int64_t(this_words_present) << 24) |
+                (int64_t(this_words_present) << 32) |
+                (int64_t(unique_words) << 24) |
                 (int64_t(typo_score) << 16) |
                 (int64_t(proximity) << 8) |
                 (int64_t(verbatim) << 0)
@@ -4172,11 +4172,13 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             }
 
             /*std::ostringstream os;
-            os << name << ", total_cost: " << (255 - total_cost)
-               << ", words_present: " << match.words_present
-               << ", match_score: " << match_score
-               << ", match.distance: " << match.distance
-               << ", seq_id: " << seq_id << std::endl;
+            os << "seq_id: " << seq_id
+               << ", this_words_present: " << this_words_present
+               << ", unique_words: " << unique_words
+               << ", typo_score: " << typo_score
+               << ", proximity: " << proximity
+               << ", verbatim: " << verbatim
+               << std::endl;
             LOG(INFO) << os.str();*/
         }
     }
