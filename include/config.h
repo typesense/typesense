@@ -255,7 +255,7 @@ public:
         }
 
         if(!get_env("TYPESENSE_API_ADDRESS").empty()) {
-            this->api_address = get_env("TYPESENSE_LISTEN_ADDRESS");
+            this->api_address = get_env("TYPESENSE_API_ADDRESS");
         }
 
         if(!get_env("TYPESENSE_API_PORT").empty()) {
