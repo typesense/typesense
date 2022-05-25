@@ -2126,9 +2126,9 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
             }
 
             search_field(0, window_tokens, nullptr, 0, num_toks_dropped, field_it->second, field_name,
-                         nullptr, 0, {}, {}, -1, 2, searched_queries, topster, groups_processed,
+                         nullptr, 0, {}, {}, -1, 0, searched_queries, topster, groups_processed,
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
-                         false, 4, query_hashes, token_order, false, 0, 1, false, -1, 3, 7, 4);
+                         false, 4, query_hashes, token_order, false, 0, 0, false, -1, 3, 7, 4);
 
             if(result_ids_len != 0) {
                 // we need to narraw onto the exact matches
