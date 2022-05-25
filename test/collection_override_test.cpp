@@ -2079,7 +2079,19 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
     doc1["name"] = "Amazing Shoes";
     doc1["category"] = "Running Shoes";
 
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Magic Lamp";
+    doc2["category"] = "Shoo";
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Shox and Us";
+    doc3["category"] = "Socks";
+
     ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
 
     std::vector<sort_by> sort_fields = {sort_by("_text_match", "DESC")};
 
@@ -2111,5 +2123,11 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithPartialTokenMatch) {
                             {}, sort_fields, {0}, 10).get();
 
     ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("shox", {"name"}, "",
+                            {}, sort_fields, {0}, 10).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
     collectionManager.drop_collection("coll1");
 }
