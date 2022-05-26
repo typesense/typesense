@@ -1505,3 +1505,33 @@ TEST_F(CollectionAllFieldsTest, SchemaUpdateShouldBeAtomicForAllFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionAllFieldsTest, FieldNameMatchingRegexpShouldNotBeIndexed) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("name.*", field_types::STRING, true, true)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "One Two Three";
+    doc1["name.*"] = "Rowling";
+
+    std::vector<std::string> json_lines;
+    json_lines.push_back(doc1.dump());
+
+    coll1->add_many(json_lines, doc1, UPSERT);
+    coll1->add_many(json_lines, doc1, UPSERT);
+
+    ASSERT_EQ(1, coll1->_get_index()->_get_search_index().size());
+
+    auto results = coll1->search("one", {"title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+}
+

@@ -160,7 +160,6 @@ TEST_F(CollectionSpecificMoreTest, MatchedSegmentMoreImportantThanTotalMatches) 
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true).get();
 
-    LOG(INFO) << results;
     ASSERT_EQ(3, results["hits"].size());
 
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
