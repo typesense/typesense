@@ -116,6 +116,10 @@ struct field {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
 
+    bool is_string_star() const {
+        return field_types::is_string_or_array(type);
+    }
+
     bool is_facet() const {
         return facet;
     }

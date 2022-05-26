@@ -269,10 +269,9 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                     auto persist_op = persist_collection_meta();
                     if(!persist_op.ok()) {
                         record.index_failure(persist_op.code(), persist_op.error());
-                        continue;
+                    } else {
+                        index->refresh_schemas(new_fields, {});
                     }
-
-                    index->refresh_schemas(new_fields, {});
                 }
             }
         }
@@ -2968,6 +2967,12 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             // check against dynamic field definitions
             for(const auto& dynamic_field: dyn_fields) {
                 if(std::regex_match (kv.key(), std::regex(dynamic_field.first))) {
+                    // unless the field is auto or string*, ignore field name matching regexp pattern
+                    if(kv.key() == dynamic_field.first && !dynamic_field.second.is_auto() &&
+                       !dynamic_field.second.is_string_star()) {
+                        continue;
+                    }
+
                     new_field = dynamic_field.second;
                     new_field.name = fname;
                     found_dynamic_field = true;
