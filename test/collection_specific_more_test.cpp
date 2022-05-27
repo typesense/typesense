@@ -86,6 +86,35 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionWhenExactMatchExists) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
+    // when no default sorting field is provided, tokens must be ordered on frequency
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "Mark Jack", "John Jack", "John James", "John Joseph", "John Jim", "John Jordan",
+        "Mark Nicholas", "Mark Abbey", "Mark Boucher", "Mark Bicks", "Mark Potter"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    // max candidates as default 4
+    auto results = coll1->search("mark j", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTotalMatch) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("author", field_types::STRING, false),
