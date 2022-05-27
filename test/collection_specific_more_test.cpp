@@ -157,6 +157,40 @@ TEST_F(CollectionSpecificMoreTest, ArrayElementMatchShouldBeMoreImportantThanTot
     ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, ArrayMatchAcrossElementsMustNotMatter) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("author", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Por do sol immateur";
+    doc1["author"] = "Vermelho";
+    doc1["tags"] = {"por do sol", "immateur", "gemsor", "praia", "sol", "vermelho", "suyay"};
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["title"] = "Sunset Rising";
+    doc2["author"] = "Vermelho";
+    doc2["tags"] = {"sunset", "por do sol", "praia", "somao", "vermelho"};
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+
+    auto results = coll1->search("praia por sol vermelho", {"title", "author", "tags"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 1, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 5, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, MatchedSegmentMoreImportantThanTotalMatches) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("author", field_types::STRING, false)};

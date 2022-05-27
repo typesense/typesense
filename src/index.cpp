@@ -4170,8 +4170,8 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             const Match &match = Match(seq_id, token_positions, false, prioritize_exact_match);
             uint64_t this_match_score = match.get_match_score(total_cost, posting_lists.size());
 
-            auto unique_words = ((this_match_score >> 32) & 0xFF);
             auto this_words_present = ((this_match_score >> 24) & 0xFF);
+            auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 32) & 0xFF);
             auto typo_score = ((this_match_score >> 16) & 0xFF);
             auto proximity = ((this_match_score >> 8) & 0xFF);
             auto verbatim = (this_match_score & 0xFF);
