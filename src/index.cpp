@@ -1164,16 +1164,9 @@ void Index::search_all_candidates(const size_t num_search_fields,
                                   std::set<uint64>& query_hashes,
                                   std::vector<uint32_t>& id_buff) const {
 
-    auto product = []( long long a, tok_candidates & b ) { return a*b.candidates.size(); };
-    long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
-
-    // escape hatch to prevent too much looping but subject to being overriden explicitly via `max_candidates`
-    long long combination_limit = std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
-
     /*if(!token_candidates_vec.empty()) {
         LOG(INFO) << "Prefix candidates size: " << token_candidates_vec.back().candidates.size();
         LOG(INFO) << "max_candidates: " << max_candidates;
-        LOG(INFO) << "combination_limit: " << combination_limit;
         LOG(INFO) << "token_candidates_vec.size(): " << token_candidates_vec.size();
     }*/
 
@@ -1251,8 +1244,14 @@ void Index::search_all_candidates(const size_t num_search_fields,
 
         token_candidates_vec.back().candidates.clear();
         token_candidates_vec.back().candidates.assign(trimmed_candidates.begin(), trimmed_candidates.end());
-
     }
+
+    auto product = []( long long a, tok_candidates & b ) { return a*b.candidates.size(); };
+    long long int N = std::accumulate(token_candidates_vec.begin(), token_candidates_vec.end(), 1LL, product);
+
+    // escape hatch to prevent too much looping but subject to being overriden explicitly via `max_candidates`
+    long long combination_limit = (num_search_fields == 1 && prefixes[0]) ? max_candidates :
+                                    std::max<size_t>(Index::COMBINATION_MIN_LIMIT, max_candidates);
 
     for(long long n = 0; n < N && n < combination_limit; ++n) {
         RETURN_CIRCUIT_BREAKER
@@ -2809,8 +2808,7 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
                         continue;
                     }
 
-                    size_t max_words = (num_search_fields == 1 && prefix_search) ? max_candidates : 100000;
-                    // need less candidates for filtered searches since we already only pick tokens with results
+                    size_t max_words = 100000;
                     art_fuzzy_search(search_index.at(the_field.name), (const unsigned char *) token.c_str(), token_len,
                                      costs[token_index], costs[token_index], max_words, token_order, prefix_search,
                                      filter_ids, filter_ids_length, leaves, unique_tokens);
