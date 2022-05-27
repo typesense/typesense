@@ -2199,14 +2199,27 @@ void Index::search_infix(const std::string& query, const std::string& field_name
 
     auto search_tree = search_index.at(field_name);
 
+    const auto parent_search_begin = search_begin;
+    const auto parent_search_stop_ms = search_stop_ms;
+    auto parent_search_cutoff = search_cutoff;
+
     for(auto infix_set: infix_sets) {
         thread_pool->enqueue([infix_set, &leaves, search_tree, &query, max_extra_prefix, max_extra_suffix,
-                              &num_processed, &m_process, &cv_process]() {
+                              &num_processed, &m_process, &cv_process,
+                              &parent_search_begin, &parent_search_stop_ms, &parent_search_cutoff]() {
+
+            search_begin = parent_search_begin;
+            search_cutoff = parent_search_cutoff;
+            auto op_search_stop_ms = parent_search_stop_ms/2;
+
             std::vector<art_leaf*> this_leaves;
             std::string key_buffer;
+            size_t num_iterated = 0;
 
             for(auto it = infix_set->begin(); it != infix_set->end(); it++) {
                 it.key(key_buffer);
+                num_iterated++;
+
                 auto start_index = key_buffer.find(query);
                 if(start_index != std::string::npos && start_index <= max_extra_prefix &&
                    (key_buffer.size() - (start_index + query.size())) <= max_extra_suffix) {
@@ -2217,17 +2230,28 @@ void Index::search_infix(const std::string& query, const std::string& field_name
                         this_leaves.push_back(l);
                     }
                 }
+
+                // check for search cutoff but only once every 2^10 docs to reduce overhead
+                if(((num_iterated + 1) % (1 << 12)) == 0) {
+                    if (std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::high_resolution_clock::now() - search_begin).count() > op_search_stop_ms) {
+                        search_cutoff = true;
+                        break;
+                    }
+                }
             }
 
             std::unique_lock<std::mutex> lock(m_process);
             leaves.insert(leaves.end(), this_leaves.begin(), this_leaves.end());
             num_processed++;
+            parent_search_cutoff = parent_search_cutoff || search_cutoff;
             cv_process.notify_one();
         });
     }
 
     std::unique_lock<std::mutex> lock_process(m_process);
     cv_process.wait(lock_process, [&](){ return num_processed == infix_sets.size(); });
+    search_cutoff = parent_search_cutoff;
 
     for(auto leaf: leaves) {
         posting_t::merge({leaf->values}, ids);
@@ -3506,6 +3530,10 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
 
                     KV kv(field_id, searched_queries.size(), 0, seq_id, distinct_id, match_score_index, scores);
                     actual_topster->add(&kv);
+
+                    if(((i + 1) % (1 << 12)) == 0) {
+                        BREAK_CIRCUIT_BREAKER
+                    }
                 }
 
                 uint32_t* new_all_result_ids = nullptr;
