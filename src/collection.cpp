@@ -2996,6 +2996,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             bool parseable;
 
             bool found_dynamic_field = false;
+            bool skip_field = false;
 
             // check against dynamic field definitions
             for(const auto& dynamic_field: dyn_fields) {
@@ -3003,7 +3004,8 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                     // unless the field is auto or string*, ignore field name matching regexp pattern
                     if(kv.key() == dynamic_field.first && !dynamic_field.second.is_auto() &&
                        !dynamic_field.second.is_string_star()) {
-                        continue;
+                        skip_field = true;
+                        break;
                     }
 
                     new_field = dynamic_field.second;
@@ -3011,6 +3013,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                     found_dynamic_field = true;
                     break;
                 }
+            }
+
+            if(skip_field) {
+                kv++;
+                continue;
             }
 
             if(!found_dynamic_field && fallback_field_type.empty()) {
@@ -3035,6 +3042,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
             const std::string& test_field_type = found_dynamic_field ? new_field.type : fallback_field_type;
 
             if(test_field_type == field_types::AUTO || field_types::is_string_or_array(test_field_type)) {
+                if(kv.key() == ".*") {
+                    kv++;
+                    continue;
+                }
+
                 parseable = field::get_type(kv.value(), field_type);
                 if(!parseable) {
 
