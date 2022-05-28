@@ -19,7 +19,7 @@ TEST_F(ADITreeTest, BasicOps) {
     adi_tree_t tree;
 
     // operations on fresh tree
-    ASSERT_EQ(UINT64_MAX, tree.rank(100));
+    ASSERT_EQ(INT64_MAX, tree.rank(100));
     tree.remove(100);
 
     tree.index(100, "f");
@@ -33,8 +33,8 @@ TEST_F(ADITreeTest, BasicOps) {
     ASSERT_EQ(1, tree.rank(100));
 
     tree.remove(100);
-    ASSERT_EQ(UINT64_MAX, tree.rank(100));
-    ASSERT_EQ(UINT64_MAX, tree.rank(101));
+    ASSERT_EQ(INT64_MAX, tree.rank(100));
+    ASSERT_EQ(INT64_MAX, tree.rank(101));
 }
 
 TEST_F(ADITreeTest, OverlappedString) {
@@ -48,8 +48,8 @@ TEST_F(ADITreeTest, OverlappedString) {
     tree.remove(1);
     tree.remove(2);
 
-    ASSERT_EQ(UINT64_MAX, tree.rank(2));
-    ASSERT_EQ(UINT64_MAX, tree.rank(1));
+    ASSERT_EQ(INT64_MAX, tree.rank(2));
+    ASSERT_EQ(INT64_MAX, tree.rank(1));
 }
 
 TEST_F(ADITreeTest, OrderInsertedStrings) {
@@ -100,8 +100,8 @@ TEST_F(ADITreeTest, InsertDuplicateAndDelete) {
     tree.remove(100);
     tree.remove(101);
 
-    ASSERT_EQ(UINT64_MAX, tree.rank(100));
-    ASSERT_EQ(UINT64_MAX, tree.rank(101));
+    ASSERT_EQ(INT64_MAX, tree.rank(100));
+    ASSERT_EQ(INT64_MAX, tree.rank(101));
 
     ASSERT_EQ(nullptr, tree.get_root());
 }

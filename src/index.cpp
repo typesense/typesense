@@ -3265,6 +3265,17 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[0] = geopoint_distances[0];
         } else if(field_values[0] == &str_sentinel_value) {
             scores[0] = str_sort_index.at(sort_fields[0].name)->rank(seq_id);
+            if(scores[0] == adi_tree_t::NOT_FOUND) {
+                if(sort_fields[0].order == sort_field_const::asc &&
+                   sort_fields[0].missing_values == sort_by::missing_values_t::first) {
+                    scores[0] = -scores[0];
+                }
+
+                else if(sort_fields[0].order == sort_field_const::desc &&
+                   sort_fields[0].missing_values == sort_by::missing_values_t::last) {
+                    scores[0] = -scores[0];
+                }
+            }
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
@@ -3285,6 +3296,17 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[1] = geopoint_distances[1];
         } else if(field_values[1] == &str_sentinel_value) {
             scores[1] = str_sort_index.at(sort_fields[1].name)->rank(seq_id);
+            if(scores[1] == adi_tree_t::NOT_FOUND) {
+                if(sort_fields[1].order == sort_field_const::asc &&
+                   sort_fields[1].missing_values == sort_by::missing_values_t::first) {
+                    scores[1] = -scores[1];
+                }
+
+                else if(sort_fields[1].order == sort_field_const::desc &&
+                        sort_fields[1].missing_values == sort_by::missing_values_t::last) {
+                    scores[1] = -scores[1];
+                }
+            }
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
@@ -3305,6 +3327,17 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
             scores[2] = geopoint_distances[2];
         } else if(field_values[2] == &str_sentinel_value) {
             scores[2] = str_sort_index.at(sort_fields[2].name)->rank(seq_id);
+            if(scores[2] == adi_tree_t::NOT_FOUND) {
+                if(sort_fields[2].order == sort_field_const::asc &&
+                   sort_fields[2].missing_values == sort_by::missing_values_t::first) {
+                    scores[2] = -scores[2];
+                }
+
+                else if(sort_fields[2].order == sort_field_const::desc &&
+                        sort_fields[2].missing_values == sort_by::missing_values_t::last) {
+                    scores[2] = -scores[2];
+                }
+            }
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;

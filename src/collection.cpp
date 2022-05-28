@@ -522,6 +522,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
 
             const std::string& actual_field_name = sort_field_std.name.substr(0, paran_start);
+            const auto field_it = search_schema.find(actual_field_name);
 
             if(actual_field_name == sort_field_const::text_match) {
                 std::vector<std::string> match_parts;
@@ -539,97 +540,129 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
 
             } else {
-                if(search_schema.count(actual_field_name) == 0 || !search_schema.at(actual_field_name).sort) {
+                if(field_it == search_schema.end() || !field_it->second.sort) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
                     return Option<bool>(404, error);
                 }
 
-                const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+                std::string error = "Bad syntax for sorting field `" + actual_field_name + "`";
 
-                // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
-
-                std::vector<std::string> geo_parts;
-                StringUtils::split(geo_coordstr, geo_parts, ",");
-
-                std::string error = "Bad syntax for geopoint sorting field `" + actual_field_name + "`";
-
-                if(geo_parts.size() != 2 && geo_parts.size() != 3) {
-                    return Option<bool>(400, error);
-                }
-
-                if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
-                    return Option<bool>(400, error);
-                }
-
-                if(geo_parts.size() == 3) {
-                    // try to parse the exclude radius option
-                    bool is_exclude_option = false;
-
-                    if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
-                        is_exclude_option = true;
-                    } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
-                        is_exclude_option = false;
-                    } else {
-                        return Option<bool>(400, error);
-                    }
+                if(field_it->second.type == field_types::STRING) {
+                    // check for null value order
+                    const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
+                                                                                     sort_field_std.name.size() -
+                                                                                     paran_start - 2);
 
                     std::vector<std::string> param_parts;
-                    StringUtils::split(geo_parts[2], param_parts, ":");
+                    StringUtils::split(sort_params_str, param_parts, ":");
 
                     if(param_parts.size() != 2) {
                         return Option<bool>(400, error);
                     }
 
-                    // param_parts[1] is the value, in either "20km" or "20 km" format
-
-                    if(param_parts[1].size() < 2) {
+                    if(param_parts[0] != sort_field_const::missing_values) {
                         return Option<bool>(400, error);
                     }
 
-                    std::string unit = param_parts[1].substr(param_parts[1].size()-2, 2);
-
-                    if(unit != "km" && unit != "mi") {
-                        return Option<bool>(400, "Sort field's parameter unit must be either `km` or `mi`.");
-                    }
-
-                    std::vector<std::string> dist_values;
-                    StringUtils::split(param_parts[1], dist_values, unit);
-
-                    if(dist_values.size() != 1) {
-                        return Option<bool>(400, error);
-                    }
-
-                    if(!StringUtils::is_float(dist_values[0])) {
-                        return Option<bool>(400, error);
-                    }
-
-                    int32_t value_meters;
-
-                    if(unit == "km") {
-                        value_meters = std::stof(dist_values[0]) * 1000;
-                    } else if(unit == "mi") {
-                        value_meters = std::stof(dist_values[0]) * 1609.34;
+                    auto missing_values_op = magic_enum::enum_cast<sort_by::missing_values_t>(param_parts[1]);
+                    if(missing_values_op.has_value()) {
+                        sort_field_std.missing_values = missing_values_op.value();
                     } else {
-                        return Option<bool>(400, "Sort field's parameter "
-                                                 "unit must be either `km` or `mi`.");
-                    }
-
-                    if(value_meters <= 0) {
-                        return Option<bool>(400, "Sort field's parameter must be a positive number.");
-                    }
-
-                    if(is_exclude_option) {
-                        sort_field_std.exclude_radius = value_meters;
-                    } else {
-                        sort_field_std.geo_precision = value_meters;
+                        return Option<bool>(400, error);
                     }
                 }
 
-                double lat = std::stod(geo_parts[0]);
-                double lng = std::stod(geo_parts[1]);
-                int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
+                else if(field_it->second.is_geopoint()) {
+                    const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
+
+                    // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
+
+                    std::vector<std::string> geo_parts;
+                    StringUtils::split(geo_coordstr, geo_parts, ",");
+
+                    if(geo_parts.size() != 2 && geo_parts.size() != 3) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(!StringUtils::is_float(geo_parts[0]) || !StringUtils::is_float(geo_parts[1])) {
+                        return Option<bool>(400, error);
+                    }
+
+                    if(geo_parts.size() == 3) {
+                        // try to parse the exclude radius option
+                        bool is_exclude_option = false;
+
+                        if(StringUtils::begins_with(geo_parts[2], sort_field_const::exclude_radius)) {
+                            is_exclude_option = true;
+                        } else if(StringUtils::begins_with(geo_parts[2], sort_field_const::precision)) {
+                            is_exclude_option = false;
+                        } else {
+                            return Option<bool>(400, error);
+                        }
+
+                        std::vector<std::string> param_parts;
+                        StringUtils::split(geo_parts[2], param_parts, ":");
+
+                        if(param_parts.size() != 2) {
+                            return Option<bool>(400, error);
+                        }
+
+                        // param_parts[1] is the value, in either "20km" or "20 km" format
+
+                        if(param_parts[1].size() < 2) {
+                            return Option<bool>(400, error);
+                        }
+
+                        std::string unit = param_parts[1].substr(param_parts[1].size()-2, 2);
+
+                        if(unit != "km" && unit != "mi") {
+                            return Option<bool>(400, "Sort field's parameter unit must be either `km` or `mi`.");
+                        }
+
+                        std::vector<std::string> dist_values;
+                        StringUtils::split(param_parts[1], dist_values, unit);
+
+                        if(dist_values.size() != 1) {
+                            return Option<bool>(400, error);
+                        }
+
+                        if(!StringUtils::is_float(dist_values[0])) {
+                            return Option<bool>(400, error);
+                        }
+
+                        int32_t value_meters;
+
+                        if(unit == "km") {
+                            value_meters = std::stof(dist_values[0]) * 1000;
+                        } else if(unit == "mi") {
+                            value_meters = std::stof(dist_values[0]) * 1609.34;
+                        } else {
+                            return Option<bool>(400, "Sort field's parameter "
+                                                     "unit must be either `km` or `mi`.");
+                        }
+
+                        if(value_meters <= 0) {
+                            return Option<bool>(400, "Sort field's parameter must be a positive number.");
+                        }
+
+                        if(is_exclude_option) {
+                            sort_field_std.exclude_radius = value_meters;
+                        } else {
+                            sort_field_std.geo_precision = value_meters;
+                        }
+                    }
+
+                    double lat = std::stod(geo_parts[0]);
+                    double lng = std::stod(geo_parts[1]);
+                    int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
+                    sort_field_std.geopoint = lat_lng;
+                }
+
+                else {
+                    return Option<bool>(400, error);
+                }
+
                 sort_field_std.name = actual_field_name;
-                sort_field_std.geopoint = lat_lng;
             }
         }
 
