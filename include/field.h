@@ -446,9 +446,17 @@ namespace sort_field_const {
 
     static const std::string exclude_radius = "exclude_radius";
     static const std::string precision = "precision";
+
+    static const std::string missing_values = "missing_values";
 }
 
 struct sort_by {
+    enum missing_values_t {
+        first,
+        last,
+        ordered,
+    };
+
     std::string name;
     std::string order;
 
@@ -460,15 +468,19 @@ struct sort_by {
     uint32_t exclude_radius;
     uint32_t geo_precision;
 
+    missing_values_t missing_values;
+
     sort_by(const std::string & name, const std::string & order):
-        name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0) {
+        name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
+        missing_values(ordered) {
 
     }
 
     sort_by(const std::string &name, const std::string &order, uint32_t text_match_buckets, int64_t geopoint,
             uint32_t exclude_radius, uint32_t geo_precision) :
             name(name), order(order), text_match_buckets(text_match_buckets),
-            geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision) {
+            geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
+            missing_values(ordered) {
 
     }
 
@@ -479,6 +491,7 @@ struct sort_by {
         geopoint = other.geopoint;
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
+        missing_values = other.missing_values;
         return *this;
     }
 };

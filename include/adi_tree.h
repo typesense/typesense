@@ -7,7 +7,6 @@ struct adi_node_t;
 class adi_tree_t {
 
 private:
-    static constexpr size_t NOT_FOUND = UINT64_MAX;
 
     spp::sparse_hash_map<uint32_t, std::string> id_keys;
     adi_node_t* root = nullptr;
@@ -22,6 +21,7 @@ private:
     void remove_node(adi_node_t* node, const std::string& key, const size_t key_index);
 
 public:
+    static constexpr size_t NOT_FOUND = INT64_MAX;
 
     adi_tree_t();
 

@@ -661,7 +661,7 @@ TEST_F(CollectionSortingTest, GeoPointSorting) {
                             {}, bad_geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Bad syntax for geopoint sorting field `loc`", res_op.error().c_str());
+    ASSERT_STREQ("Bad syntax for sorting field `loc`", res_op.error().c_str());
 
     bad_geo_sort_fields = {
             sort_by("loc(x, y)", "ASC")
@@ -672,7 +672,7 @@ TEST_F(CollectionSortingTest, GeoPointSorting) {
                                 {}, bad_geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_STREQ("Bad syntax for geopoint sorting field `loc`", res_op.error().c_str());
+    ASSERT_STREQ("Bad syntax for sorting field `loc`", res_op.error().c_str());
 
     bad_geo_sort_fields = {
         sort_by("loc(", "ASC")
@@ -809,7 +809,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+    ASSERT_EQ("Bad syntax for sorting field `loc`", res_op.error());
 
     geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: 1 meter)", "ASC") };
     res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
@@ -830,7 +830,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+    ASSERT_EQ("Bad syntax for sorting field `loc`", res_op.error());
 
     geo_sort_fields = { sort_by("loc(32.24348, 77.1893, exclude_radius: 1k)", "ASC") };
     res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
@@ -842,7 +842,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithExcludeRadius) {
     res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
                            {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+    ASSERT_EQ("Bad syntax for sorting field `loc`", res_op.error());
 
     collectionManager.drop_collection("coll1");
 }
@@ -915,7 +915,7 @@ TEST_F(CollectionSortingTest, GeoPointSortingWithPrecision) {
                                 {}, geo_sort_fields, {0}, 10, 1, FREQUENCY);
 
     ASSERT_FALSE(res_op.ok());
-    ASSERT_EQ("Bad syntax for geopoint sorting field `loc`", res_op.error());
+    ASSERT_EQ("Bad syntax for sorting field `loc`", res_op.error());
 
     geo_sort_fields = { sort_by("loc(32.24348, 77.1893, precision: 1 meter)", "ASC") };
     res_op = coll1->search("*", {}, "loc: (32.24348, 77.1893, 20 km)",
@@ -1257,6 +1257,264 @@ TEST_F(CollectionSortingTest, SortByIntegerAndString) {
     ASSERT_EQ("bcma", results["hits"][4]["document"]["title"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSortingTest, SortByStringEmptyValuesConfigFirstField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", true),
+                                 field("points1", field_types::INT32, false),
+                                 field("points2", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points1").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "alpha", "beta", "", "gamma"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points1"] = 100;
+        doc["points2"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // ascending
+    std::vector<sort_by> sort_fields = {
+        sort_by("title(missing_values: first)", "ASC"),
+    };
+    auto results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("title(missing_values: last)", "ASC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {
+        sort_by("title(missing_values: first)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("title(missing_values: last)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // without explicit arg, missing values will be deemed as having largest value (same as SQL)
+    sort_fields = {
+        sort_by("title", "asc"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("title", "desc"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // natural order
+    sort_fields = {
+        sort_by("title(missing_values: ordered)", "asc"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("title(missing_values: ordered)", "desc"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // bad syntax
+    sort_fields = {
+        sort_by("title(foo: bar)", "desc"),
+    };
+    auto res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for sorting field `title`", res_op.error());
+
+    sort_fields = {
+        sort_by("title(missing_values: bar)", "desc"),
+    };
+    res_op = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for sorting field `title`", res_op.error());
+}
+
+TEST_F(CollectionSortingTest, SortByStringEmptyValuesConfigSecondField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", true),
+                                 field("points1", field_types::INT32, false),
+                                 field("points2", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+    coll1 = collectionManager.create_collection("coll1", 1, fields, "points1").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "alpha", "beta", "", "gamma"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points1"] = 100;
+        doc["points2"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // ascending
+    std::vector<sort_by> sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title(missing_values: first)", "ASC"),
+    };
+    auto results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title(missing_values: last)", "ASC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title(missing_values: first)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title(missing_values: last)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // without explicit arg, missing values will be deemed as having largest value (same as SQL)
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title", "ASC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("title", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSortingTest, SortByStringEmptyValuesConfigThirdField) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", true),
+                                 field("points1", field_types::INT32, false),
+                                 field("points2", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points1").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "alpha", "beta", "", "gamma"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points1"] = 100;
+        doc["points2"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // ascending
+    std::vector<sort_by> sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title(missing_values: first)", "ASC"),
+    };
+    auto results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title(missing_values: last)", "ASC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title(missing_values: first)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title(missing_values: last)", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // without explicit arg, missing values will be deemed as having largest value (same as SQL)
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title", "ASC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {
+        sort_by("points1", "ASC"),
+        sort_by("points2", "ASC"),
+        sort_by("title", "DESC"),
+    };
+    results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
