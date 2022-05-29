@@ -700,10 +700,9 @@ public:
     static void concat_topster_ids(Topster* topster, spp::sparse_hash_map<uint64_t, std::vector<KV*>>& topster_ids);
 
     int64_t score_results2(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
-                           const bool field_is_array, const uint32_t total_cost,
+                           const size_t field_id, const bool field_is_array, const uint32_t total_cost,
                            int64_t& match_score,
                            const uint32_t seq_id, const int sort_order[3],
-                           const size_t group_limit, const std::vector<std::string>& group_by_fields,
                            const bool prioritize_exact_match,
                            const bool single_exact_query_token,
                            size_t num_query_tokens,

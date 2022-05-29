@@ -3118,9 +3118,9 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
                 single_exact_query_token = true;
             }
 
-            score_results2(sort_fields, searched_queries.size(), field_is_array,
+            score_results2(sort_fields, searched_queries.size(), fi, field_is_array,
                           total_cost, field_match_score,
-                          seq_id, sort_order, group_limit, group_by_fields,
+                          seq_id, sort_order,
                           prioritize_exact_match, single_exact_query_token,
                           query_tokens.size(), syn_orig_num_tokens, token_postings);
 
@@ -3543,9 +3543,8 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                     auto seq_id = raw_infix_ids[i];
 
                     int64_t match_score = 0;
-                    score_results2(sort_fields, searched_queries.size(), field_is_array,
-                                   0, match_score, seq_id, sort_order, group_limit, group_by_fields,
-                                   false, false, 1, -1, {});
+                    score_results2(sort_fields, searched_queries.size(), field_id, field_is_array,
+                                   0, match_score, seq_id, sort_order, false, false, 1, -1, {});
 
                     int64_t scores[3] = {0};
                     int64_t match_score_index = 0;
@@ -3870,9 +3869,8 @@ void Index::search_wildcard(const std::vector<filter>& filters,
                 const uint32_t seq_id = batch_result_ids[i];
                 int64_t match_score = 0;
 
-                score_results2(sort_fields, (uint16_t) searched_queries.size(), false, 0,
-                               match_score, seq_id, sort_order, group_limit, group_by_fields, false,
-                               false, 1, -1, plists);
+                score_results2(sort_fields, (uint16_t) searched_queries.size(), 0, false, 0,
+                               match_score, seq_id, sort_order, false, false, 1, -1, plists);
 
                 int64_t scores[3] = {0};
                 int64_t match_score_index = 0;
@@ -4168,10 +4166,11 @@ void Index::log_leaves(const int cost, const std::string &token, const std::vect
 }
 
 int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const uint16_t & query_index,
-                          const bool field_is_array, const uint32_t total_cost,
+                          const size_t field_id,
+                          const bool field_is_array,
+                          const uint32_t total_cost,
                           int64_t& match_score,
                           const uint32_t seq_id, const int sort_order[3],
-                          const size_t group_limit, const std::vector<std::string>& group_by_fields,
                           const bool prioritize_exact_match,
                           const bool single_exact_query_token,
                           size_t num_query_tokens,
@@ -4183,8 +4182,8 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
 
     if (posting_lists.size() <= 1) {
         const uint8_t is_verbatim_match = uint8_t(
-                prioritize_exact_match && single_exact_query_token &&
-                posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
+            prioritize_exact_match && single_exact_query_token &&
+            posting_list_t::is_single_token_verbatim_match(posting_lists[0], field_is_array)
         );
         size_t words_present = (num_query_tokens == 1 && syn_orig_num_tokens != -1) ? syn_orig_num_tokens : 1;
         size_t distance = (num_query_tokens == 1 && syn_orig_num_tokens != -1) ? syn_orig_num_tokens-1 : 0;
@@ -4203,20 +4202,24 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             const Match &match = Match(seq_id, token_positions, false, prioritize_exact_match);
             uint64_t this_match_score = match.get_match_score(total_cost, posting_lists.size());
 
+            // Within a field, only a subset of query tokens can match (unique_words), but even a smaller set
+            // might be available within the window used for proximity calculation (this_words_present)
+
             auto this_words_present = ((this_match_score >> 24) & 0xFF);
             auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 32) & 0xFF);
             auto typo_score = ((this_match_score >> 16) & 0xFF);
             auto proximity = ((this_match_score >> 8) & 0xFF);
-            auto verbatim = (this_match_score & 0xFF);
+
+            // for array we have to compare with total query tokens to account for global context
+            auto verbatim = field_is_array ?
+                            (this_match_score & 0xFF) && (int64_t)(num_query_tokens == this_words_present) :
+                            (this_match_score & 0xFF);
 
             if(syn_orig_num_tokens != -1 && num_query_tokens == posting_lists.size()) {
                 unique_words = syn_orig_num_tokens;
                 this_words_present = syn_orig_num_tokens;
                 proximity = 100 - (syn_orig_num_tokens - 1);
             }
-
-            // Within a field, only a subset of query tokens can match (unique_words), but even a smaller set
-            // might be available within the window used for proximity calculation (this_words_present)
 
             uint64_t mod_match_score = (
                 (int64_t(this_words_present) << 32) |
@@ -4231,12 +4234,17 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             }
 
             /*std::ostringstream os;
-            os << "seq_id: " << seq_id
+            os << "seq_id: " << seq_id << ", field_id: " << field_id
                << ", this_words_present: " << this_words_present
                << ", unique_words: " << unique_words
                << ", typo_score: " << typo_score
                << ", proximity: " << proximity
                << ", verbatim: " << verbatim
+               << ", mod_match_score: " << mod_match_score
+               << ", token_positions: " << token_positions.size()
+               << ", num_query_tokens: " << num_query_tokens
+               << ", posting_lists.size: " << posting_lists.size()
+               << ", array_index: " << kv.first
                << std::endl;
             LOG(INFO) << os.str();*/
         }

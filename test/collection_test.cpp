@@ -3687,8 +3687,7 @@ TEST_F(CollectionTest, MultiFieldMatchRankingOnArray) {
     ASSERT_EQ(2, results["found"].get<size_t>());
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
-    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
+    ASSERT_EQ(results["hits"][0]["text_match"].get<size_t>(), results["hits"][0]["text_match"].get<size_t>());
 
     collectionManager.drop_collection("coll1");
 }
