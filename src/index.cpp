@@ -3279,6 +3279,14 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else {
             auto it = field_values[0]->find(seq_id);
             scores[0] = (it == field_values[0]->end()) ? default_score : it->second;
+
+            if(scores[0] == INT64_MIN && sort_fields[0].missing_values == sort_by::missing_values_t::first) {
+                // By default, missing numerical value are always going to be sorted to be at the end
+                // because: -INT64_MIN == INT64_MIN. To account for missing values config, we will have to change
+                // the default for missing value based on whether it's asc or desc sort.
+                bool is_asc = (sort_order[0] == -1);
+                scores[0] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
+            }
         }
 
         if (sort_order[0] == -1) {
@@ -3310,6 +3318,10 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else {
             auto it = field_values[1]->find(seq_id);
             scores[1] = (it == field_values[1]->end()) ? default_score : it->second;
+            if(scores[1] == INT64_MIN && sort_fields[1].missing_values == sort_by::missing_values_t::first) {
+                bool is_asc = (sort_order[1] == -1);
+                scores[1] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
+            }
         }
 
         if (sort_order[1] == -1) {
@@ -3341,6 +3353,10 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
+            if(scores[2] == INT64_MIN && sort_fields[2].missing_values == sort_by::missing_values_t::first) {
+                bool is_asc = (sort_order[2] == -1);
+                scores[2] = is_asc ? (INT64_MIN + 1) : INT64_MAX;
+            }
         }
 
         if (sort_order[2] == -1) {

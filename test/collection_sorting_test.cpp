@@ -1330,14 +1330,14 @@ TEST_F(CollectionSortingTest, SortByStringEmptyValuesConfigFirstField) {
 
     // natural order
     sort_fields = {
-        sort_by("title(missing_values: ordered)", "asc"),
+        sort_by("title(missing_values: normal)", "asc"),
     };
     results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
     ASSERT_EQ(4, results["hits"].size());
     ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
 
     sort_fields = {
-        sort_by("title(missing_values: ordered)", "desc"),
+        sort_by("title(missing_values: normal)", "desc"),
     };
     results = coll1->search("*", {"title"}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
     ASSERT_EQ(4, results["hits"].size());

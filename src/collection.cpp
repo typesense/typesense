@@ -547,7 +547,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 std::string error = "Bad syntax for sorting field `" + actual_field_name + "`";
 
-                if(field_it->second.type == field_types::STRING) {
+                if(!field_it->second.is_geopoint()) {
                     // check for null value order
                     const std::string& sort_params_str = sort_field_std.name.substr(paran_start + 1,
                                                                                      sort_field_std.name.size() -
@@ -572,7 +572,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     }
                 }
 
-                else if(field_it->second.is_geopoint()) {
+                else {
                     const std::string& geo_coordstr = sort_field_std.name.substr(paran_start+1, sort_field_std.name.size() - paran_start - 2);
 
                     // e.g. geopoint_field(lat1, lng1, exclude_radius: 10 miles)
@@ -656,10 +656,6 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                     double lng = std::stod(geo_parts[1]);
                     int64_t lat_lng = GeoPoint::pack_lat_lng(lat, lng);
                     sort_field_std.geopoint = lat_lng;
-                }
-
-                else {
-                    return Option<bool>(400, error);
                 }
 
                 sort_field_std.name = actual_field_name;

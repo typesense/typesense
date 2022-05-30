@@ -454,7 +454,7 @@ struct sort_by {
     enum missing_values_t {
         first,
         last,
-        ordered,
+        normal,
     };
 
     std::string name;
@@ -472,7 +472,7 @@ struct sort_by {
 
     sort_by(const std::string & name, const std::string & order):
         name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),
-        missing_values(ordered) {
+        missing_values(normal) {
 
     }
 
@@ -480,7 +480,7 @@ struct sort_by {
             uint32_t exclude_radius, uint32_t geo_precision) :
             name(name), order(order), text_match_buckets(text_match_buckets),
             geopoint(geopoint), exclude_radius(exclude_radius), geo_precision(geo_precision),
-            missing_values(ordered) {
+            missing_values(normal) {
 
     }
 

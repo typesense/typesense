@@ -260,3 +260,173 @@ TEST_F(CollectionSpecificMoreTest, VerbatimMatchNotOnPartialTokenMatch) {
     ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
     ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 }
+
+TEST_F(CollectionSpecificMoreTest, SortByStringEmptyValuesConfigFirstField) {
+    std::vector<field> fields = {field("points", field_types::INT32, false, true),
+                                 field("points2", field_types::INT32, false, true),
+                                 field("points3", field_types::INT32, false, true)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        if(i == 2) {
+            doc["points"] = nullptr;
+        } else {
+            doc["points"] = i;
+        }
+        doc["points2"] = 100;
+        doc["points3"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // without any order config: missing integers always end up last
+    sort_fields = {sort_by("points", "asc"),};
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points", "desc"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // ascending
+    sort_fields = {sort_by("points(missing_values: first)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points(missing_values: last)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {sort_by("points(missing_values: first)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points(missing_values: last)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // bad syntax
+    sort_fields = {sort_by("points(foo: bar)", "desc"),};
+    auto res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for sorting field `points`", res_op.error());
+
+    sort_fields = {sort_by("points(missing_values: bar)", "desc"),};
+    res_op = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true});
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Bad syntax for sorting field `points`", res_op.error());
+}
+
+TEST_F(CollectionSpecificMoreTest, SortByStringEmptyValuesConfigSecondField) {
+    std::vector<field> fields = {field("points", field_types::INT32, false, true),
+                                 field("points2", field_types::INT32, false, true),
+                                 field("points3", field_types::INT32, false, true)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        if(i == 2) {
+            doc["points"] = nullptr;
+        } else {
+            doc["points"] = i;
+        }
+        doc["points2"] = 100;
+        doc["points3"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // without any order config: missing integers always end up last
+    sort_fields = {sort_by("points2", "asc"),sort_by("points", "asc")};
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points", "desc"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // ascending
+    sort_fields = {sort_by("points2", "asc"),sort_by("points(missing_values: first)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points(missing_values: last)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {sort_by("points2", "asc"),sort_by("points(missing_values: first)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points(missing_values: last)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, SortByStringEmptyValuesConfigThirdField) {
+    std::vector<field> fields = {field("points", field_types::INT32, false, true),
+                                 field("points2", field_types::INT32, false, true),
+                                 field("points3", field_types::INT32, false, true)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    for(size_t i = 0; i < 4; i++) {
+        nlohmann::json doc;
+        if(i == 2) {
+            doc["points"] = nullptr;
+        } else {
+            doc["points"] = i;
+        }
+        doc["points2"] = 100;
+        doc["points3"] = 100;
+        coll1->add(doc.dump());
+    }
+
+    // without any order config: missing integers always end up last
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points", "asc")};
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points", "desc"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // ascending
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points(missing_values: first)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points(missing_values: last)", "ASC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+
+    // descending
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points(missing_values: first)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    sort_fields = {sort_by("points2", "asc"),sort_by("points3", "asc"),sort_by("points(missing_values: last)", "DESC"),};
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 10, 1, MAX_SCORE, {true}).get();
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][3]["document"]["id"].get<std::string>());
+}
