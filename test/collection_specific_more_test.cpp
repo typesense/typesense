@@ -257,5 +257,6 @@ TEST_F(CollectionSpecificMoreTest, VerbatimMatchNotOnPartialTokenMatch) {
                                  "<mark>", "</mark>", {}, 1000, true).get();
 
     ASSERT_EQ(2, results["hits"].size());
-    ASSERT_EQ(results["hits"][0]["text_match"].get<size_t>(), results["hits"][1]["text_match"].get<size_t>());
+    ASSERT_STREQ("0", results["hits"][0]["document"]["id"].get<std::string>().c_str());
+    ASSERT_STREQ("1", results["hits"][1]["document"]["id"].get<std::string>().c_str());
 }

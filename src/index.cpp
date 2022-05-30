@@ -4209,11 +4209,7 @@ int64_t Index::score_results2(const std::vector<sort_by> & sort_fields, const ui
             auto unique_words = field_is_array ? this_words_present : ((this_match_score >> 32) & 0xFF);
             auto typo_score = ((this_match_score >> 16) & 0xFF);
             auto proximity = ((this_match_score >> 8) & 0xFF);
-
-            // for array we have to compare with total query tokens to account for global context
-            auto verbatim = field_is_array ?
-                            (this_match_score & 0xFF) && (int64_t)(num_query_tokens == this_words_present) :
-                            (this_match_score & 0xFF);
+            auto verbatim = (this_match_score & 0xFF);
 
             if(syn_orig_num_tokens != -1 && num_query_tokens == posting_lists.size()) {
                 unique_words = syn_orig_num_tokens;
