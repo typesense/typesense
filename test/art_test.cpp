@@ -655,6 +655,24 @@ TEST(ArtTest, test_art_fuzzy_search_single_leaf_non_prefix) {
     ASSERT_TRUE(res == 0);
 }
 
+TEST(ArtTest, test_art_prefix_larger_than_key) {
+    art_tree t;
+    int res = art_tree_init(&t);
+    ASSERT_TRUE(res == 0);
+
+    const char* key = "arvin";
+    art_document doc = get_document((uint32_t) 1);
+    ASSERT_TRUE(NULL == art_insert(&t, (unsigned char*)key, strlen(key)+1, &doc));
+
+    std::string term = "earrings";
+    std::vector<art_leaf*> leaves;
+    art_fuzzy_search(&t, (const unsigned char *)(term.c_str()), term.size()+1, 0, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
+    ASSERT_EQ(0, leaves.size());
+
+    res = art_tree_destroy(&t);
+    ASSERT_TRUE(res == 0);
+}
+
 TEST(ArtTest, test_art_fuzzy_search_prefix_token_ordering) {
     art_tree t;
     int res = art_tree_init(&t);
@@ -732,9 +750,8 @@ TEST(ArtTest, test_art_fuzzy_search) {
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("zymosthenic", (const char *)leaves.at(0)->key);
 
-    // transpose + missing -- temporarily ignored because too slow for the value!
-
-    /*leaves.clear();
+    // transpose + missing
+    leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 0, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
     ASSERT_STREQ("dacrycystalgia", (const char *)leaves.at(0)->key);
@@ -742,7 +759,7 @@ TEST(ArtTest, test_art_fuzzy_search) {
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "dacrcyystlgia", strlen("dacrcyystlgia") + 1, 1, 2, 10, FREQUENCY, false, nullptr, 0, leaves);
     ASSERT_EQ(1, leaves.size());
-    ASSERT_STREQ("dacrycystalgia", (const char *)leaves.at(0)->key);*/
+    ASSERT_STREQ("dacrycystalgia", (const char *)leaves.at(0)->key);
 
     // missing char
     leaves.clear();
@@ -794,12 +811,11 @@ TEST(ArtTest, test_art_fuzzy_search) {
 
     leaves.clear();
     art_fuzzy_search(&t, (const unsigned char *) "antisocao", strlen("antisocao"), 0, 2, 10, FREQUENCY, true, nullptr, 0, leaves);
-    ASSERT_EQ(7, leaves.size());
+    ASSERT_EQ(9, leaves.size());
 
     long long int timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::high_resolution_clock::now() - begin).count();
     LOG(INFO) << "Time taken for: " << timeMillis << "ms";
-
 
     res = art_tree_destroy(&t);
     ASSERT_TRUE(res == 0);

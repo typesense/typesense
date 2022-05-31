@@ -1304,24 +1304,28 @@ static inline int fuzzy_search_state(const bool prefix, int key_index, bool last
     // b) term_len < iter_len: "pst" (term) on "pltninum" (key)
 
     int cost = 0;
-    int key_len = key_index + 1;
 
     // a) because key's null character will appear first
     if(last_key_char) {
-
-        if(key_len > 5 && term_len > key_len && (term_len - key_len) <= max_cost) {
-            // used to handle some trailing edge cases, but limit to larger keys to prevent eager matches
-            cost = std::min(cost_row[key_len], cost_row[term_len]);
-        } else {
-            cost = cost_row[term_len];
-        }
+        int key_len = key_index;
+        cost = cost_row[term_len];
 
         if(cost >= min_cost && cost <= max_cost) {
             return 1;
         }
 
+        cost = cost_row[key_len];
+
+        // used to match q=strawberries on key=strawberry, but limit to larger keys to prevent eager matches
+        if(key_len > 5 && term_len > key_len && (term_len - key_len) <= max_cost &&
+           cost >= min_cost && cost <= max_cost) {
+            return 1;
+        }
+
         return -1;
     }
+
+    int key_len = key_index + 1;
 
     // b) we might iterate past term_len to catch trailing typos
     if(key_len >= term_len && prefix) {
