@@ -45,6 +45,7 @@ fi
 rm -rf /tmp/typesense-server-$TSV /tmp/typesense-server-$TSV.tar.gz
 
 sed -i "s/\$VERSION/$TSV/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
+sed -i "s/\$ARCH/$ARCH/g" `find /tmp/typesense-deb-build -maxdepth 10 -type f`
 
 dpkg-deb -Zgzip -z6 \
          -b /tmp/typesense-deb-build/typesense-server "/tmp/typesense-deb-build/typesense-server-${TSV}-${ARCH}.deb"
