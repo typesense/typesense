@@ -31,7 +31,7 @@ private:
         durations = new spp::sparse_hash_map<std::string, uint64_t>();
 
         access_log_path = Config::get_instance().get_access_log_path();
-        if(!access_log_path.empty()) {
+        if(Config::get_instance().get_enable_access_logging() && !access_log_path.empty()) {
             access_log.open(access_log_path, std::ofstream::out | std::ofstream::app);
         }
     }
