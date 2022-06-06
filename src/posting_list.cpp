@@ -772,14 +772,15 @@ bool posting_list_t::take_id(result_iter_state_t& istate, uint32_t id) {
 }
 
 bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
-                                 std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos) {
+                                 std::map<size_t, std::vector<token_positions_t>>& array_token_pos) {
 
     // Plain string format:
     // offset1, offset2, ... , 0 (if token is the last offset for the document)
 
     // Array string format:
     // offset1, ... , offsetn, offsetn, array_index, 0 (if token is the last offset for the document)
-    // (last offset is repeated to indicate end of offsets for a given array index)
+    // NOTE 1: last offset is repeated to indicate end of offsets for a given array index)
+    // NOTE 2: offsets are 1-index based (since 0 is used as last offset marking)
 
     // For each result ID and for each block it is contained in, calculate offsets
 
@@ -901,7 +902,7 @@ bool posting_list_t::is_single_token_verbatim_match(const posting_list_t::iterat
 
         return false;
     } else if((end_offset - start_offset) == 2 && offsets[end_offset-1] == 0) {
-        // already checked for `offsets[start_offset] == 1` first
+        // we've already checked for `offsets[start_offset] == 1` earlier
         return true;
     }
 
@@ -1242,7 +1243,7 @@ void posting_list_t::get_phrase_matches(std::vector<iterator_t>& its, bool field
                 it.skip_to(id);
             }
 
-            std::unordered_map<size_t, std::vector<token_positions_t>> array_token_positions;
+            std::map<size_t, std::vector<token_positions_t>> array_token_positions;
             get_offsets(its, array_token_positions);
 
             for(auto& kv: array_token_positions) {
@@ -1329,6 +1330,60 @@ bool posting_list_t::all_ended(const std::vector<posting_list_t::iterator_t>& it
 bool posting_list_t::all_ended2(const std::vector<posting_list_t::iterator_t>& its) {
     // if both iterators are at end, we return true
     return !its[0].valid() && !its[1].valid();
+}
+
+size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array) {
+    block_t* curr_block = it.block();
+    uint32_t curr_index = it.index();
+    uint32_t* offsets = it.offsets;
+
+    if(curr_block == nullptr || curr_index == UINT32_MAX) {
+        return 0;
+    }
+
+    uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
+                          curr_block->offsets.getLength() :
+                          it.offset_index[curr_index + 1];
+
+    if(field_is_array) {
+        uint32_t start_offset = it.offset_index[curr_index];
+        int prev_pos = -1;
+        size_t max_offset = 0;
+
+        while(start_offset < end_offset) {
+            int pos = offsets[start_offset];
+            start_offset++;
+
+            if(pos > max_offset) {
+                max_offset = pos;
+            }
+
+            if(pos == prev_pos) {  // indicates end of array index
+                size_t array_index = (size_t) offsets[start_offset];
+
+                if(start_offset+1 < end_offset) {
+                    size_t next_offset = (size_t) offsets[start_offset + 1];
+                    if(next_offset == 0) {
+                        // indicates that token is the last token on the doc
+                        start_offset++;
+                    }
+                }
+
+                start_offset++;  // skip current value which is the array index or flag for last index
+                prev_pos = -1;
+                continue;
+            }
+
+            prev_pos = pos;
+        }
+
+        return max_offset;
+
+    } else {
+        return offsets[end_offset-1] == 0 ? offsets[end_offset-2] : offsets[end_offset-1];
+    }
+
+    return 0;
 }
 
 /* iterator_t operations */

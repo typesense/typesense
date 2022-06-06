@@ -433,7 +433,7 @@ void posting_t::destroy_list(void*& obj) {
 }
 
 void posting_t::get_array_token_positions(uint32_t id, const std::vector<void*>& raw_posting_lists,
-                                          std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions) {
+                                          std::map<size_t, std::vector<token_positions_t>>& array_token_positions) {
 
     std::vector<posting_list_t*> plists;
     std::vector<posting_list_t*> expanded_plists;

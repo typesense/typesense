@@ -172,7 +172,7 @@ public:
 
     static bool get_offsets(
         const std::vector<iterator_t>& its,
-        std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_pos
+        std::map<size_t, std::vector<token_positions_t>>& array_token_pos
     );
 
     static bool is_single_token_verbatim_match(const posting_list_t::iterator_t& it, bool field_is_array);
@@ -187,6 +187,8 @@ public:
 
     static void get_matching_array_indices(uint32_t id, std::vector<iterator_t>& its,
                                            std::vector<size_t>& indices);
+
+    static size_t get_last_offset(const posting_list_t::iterator_t& it, bool field_is_array);
 };
 
 template<class T>

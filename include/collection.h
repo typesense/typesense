@@ -48,6 +48,7 @@ private:
     const size_t DEFAULT_TOPSTER_SIZE = 250;
 
     struct highlight_t {
+        size_t field_index;
         std::string field;
         std::vector<std::string> snippets;
         std::vector<std::string> values;
@@ -60,7 +61,7 @@ private:
         }
 
         bool operator<(const highlight_t& a) const {
-            return match_score > a.match_score;
+            return std::tie(match_score, field_index) > std::tie(a.match_score, field_index);
         }
     };
 
@@ -107,6 +108,7 @@ private:
 
     void highlight_result(const std::string& raw_query,
                           const field &search_field,
+                          const size_t search_field_index,
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                           const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
@@ -330,7 +332,8 @@ public:
                                   const size_t max_extra_prefix = INT16_MAX,
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
-                                  const size_t filter_curated_hits_option = 2) const;
+                                  const size_t filter_curated_hits_option = 2,
+                                  const bool prioritize_token_position = false) const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

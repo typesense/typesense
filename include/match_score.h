@@ -37,27 +37,31 @@ struct TokenOffset {
 struct Match {
     uint8_t words_present;
     uint8_t distance;
+    uint8_t max_offset;
     uint8_t exact_match;
     uint8_t phrase_match;
+
     std::vector<TokenOffset> offsets;
 
-    Match() : words_present(0), distance(0), exact_match(0) {
+    Match() : words_present(0), distance(0), exact_match(0), max_offset(0) {
 
     }
 
-    Match(uint8_t words_present, uint8_t distance, uint8_t exact_match = 0) :
-            words_present(words_present), distance(distance), exact_match(exact_match) {
+    Match(uint8_t words_present, uint8_t distance, uint8_t max_offset, uint8_t exact_match = 0) :
+            words_present(words_present), distance(distance), max_offset(max_offset),
+            exact_match(exact_match), phrase_match(0) {
 
     }
 
     // Construct a single match score from individual components (for multi-field sort)
     inline uint64_t get_match_score(const uint32_t total_cost, const uint32_t unique_words) const {
         uint64_t match_score = (
-            (int64_t(unique_words) << 32) |
-            (int64_t(words_present) << 24) |
-            (int64_t(255 - total_cost) << 16) |
-            (int64_t(100 - distance) << 8) |
-            (int64_t(exact_match) << 0)
+            (int64_t(unique_words) << 40) |
+            (int64_t(words_present) << 32) |
+            (int64_t(255 - total_cost) << 24) |
+            (int64_t(100 - distance) << 16) |
+            (int64_t(exact_match) << 8) |
+            (int64_t(255 - max_offset) << 0)
         );
 
         return match_score;
@@ -189,6 +193,7 @@ struct Match {
                  (this_num_match == best_num_match && this_displacement < best_displacement)) {
                 best_displacement = this_displacement;
                 best_num_match = this_num_match;
+                max_offset = std::min((uint16_t)255, window.front().offset);
                 if(populate_window) {
                     best_window = this_window;
                 }

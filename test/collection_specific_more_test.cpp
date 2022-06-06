@@ -87,7 +87,6 @@ TEST_F(CollectionSpecificMoreTest, PrefixExpansionWhenExactMatchExists) {
 }
 
 TEST_F(CollectionSpecificMoreTest, PrefixExpansionOnSingleField) {
-    // when no default sorting field is provided, tokens must be ordered on frequency
     Collection *coll1;
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("points", field_types::INT32, false)};
@@ -451,4 +450,132 @@ TEST_F(CollectionSpecificMoreTest, WrongTypoCorrection) {
 
     ASSERT_EQ(0, results["hits"].size());
     collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, PositionalTokenRanking) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::string> tokens = {
+        "Alpha Beta Gamma", "Omega Alpha Theta", "Omega Theta Alpha", "Indigo Omega Theta Alpha"
+    };
+
+    for(size_t i = 0; i < tokens.size(); i++) {
+        std::string title = tokens[i];
+        nlohmann::json doc;
+        doc["title"] = title;
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    auto results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][3]["document"]["id"].get<std::string>());
+
+    results = coll1->search("alpha", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][3]["document"]["id"].get<std::string>());
+
+    results = coll1->search("theta alpha", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {off}, 32767, 32767, 2,
+                            false, false).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("theta alpha", {"title"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {off}, 32767, 32767, 2,
+                            false, true).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("3", results["hits"][2]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionSpecificMoreTest, PositionalTokenRankingWithArray) {
+    Collection *coll1;
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["tags"] = {"alpha foo", "gamma", "beta alpha"};
+    doc1["points"] = 100;
+
+    nlohmann::json doc2;
+    doc2["tags"] = {"omega", "omega beta alpha"};
+    doc2["points"] = 200;
+
+    coll1->add(doc1.dump());
+    coll1->add(doc2.dump());
+
+    auto results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, false).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("alpha", {"tags"}, "", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                            Index::DROP_TOKENS_THRESHOLD,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                            "", 10, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            4, {off}, 32767, 32767, 2,
+                            false, true).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 }

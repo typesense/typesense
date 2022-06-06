@@ -103,7 +103,7 @@ public:
     static void get_array_token_positions(
         uint32_t id,
         const std::vector<void*>& posting_lists,
-        std::unordered_map<size_t, std::vector<token_positions_t>>& array_token_positions
+        std::map<size_t, std::vector<token_positions_t>>& array_token_positions
     );
 
     static void get_exact_matches(const std::vector<void*>& raw_posting_lists, bool field_is_array,
