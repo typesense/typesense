@@ -574,8 +574,6 @@ TEST_F(CollectionSynonymsTest, ExactMatchVsSynonymMatchCrossFields) {
     auto res = coll1->search("cmo", {"title", "description"}, "", {}, {},
                              {0}, 10, 1, FREQUENCY, {false}, 0).get();
 
-    LOG(INFO) << res;
-
     ASSERT_EQ(2, res["hits"].size());
     ASSERT_EQ(2, res["found"].get<uint32_t>());
 
@@ -777,6 +775,44 @@ TEST_F(CollectionSynonymsTest, SynonymExpansionAndCompressionRanking) {
     ASSERT_EQ("1", res["hits"][1]["document"]["id"].get<std::string>());
 
     ASSERT_EQ(res["hits"][0]["text_match"].get<size_t>(), res["hits"][1]["text_match"].get<size_t>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSynonymsTest, SynonymQueriesMustHavePrefixEnabled) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"Nonstick Cookware", "100"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["points"] = std::stoi(records[i][1]);
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    synonym_t synonym1{"syn-1", {"ns"}, {{"nonstick"}}};
+    coll1->add_synonym(synonym1);
+
+    auto res = coll1->search("ns cook", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(1, res["found"].get<uint32_t>());
+
+    res = coll1->search("ns cook", {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(0, res["hits"].size());
 
     collectionManager.drop_collection("coll1");
 }
