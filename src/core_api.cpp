@@ -693,6 +693,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
     const char *DIRTY_VALUES = "dirty_values";
+    const char *RETURN_RES = "return_res";
 
     if(req->params.count(BATCH_SIZE) == 0) {
         req->params[BATCH_SIZE] = "40";
@@ -706,6 +707,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         req->params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
+    if(req->params.count(RETURN_RES) == 0) {
+        req->params[RETURN_RES] = "false";
+    }
+
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
         res->final = true;
         res->set_400("Parameter `" + std::string(BATCH_SIZE) + "` must be a positive integer.");
@@ -717,6 +722,13 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
        req->params[ACTION] != "emplace") {
         res->final = true;
         res->set_400("Parameter `" + std::string(ACTION) + "` must be a create|update|upsert.");
+        stream_response(req, res);
+        return false;
+    }
+
+    if(req->params[RETURN_RES] != "true" && req->params[RETURN_RES] != "false") {
+        res->final = true;
+        res->set_400("Parameter `" + std::string(RETURN_RES) + "` must be a true|false.");
         stream_response(req, res);
         return false;
     }
@@ -796,8 +808,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         nlohmann::json document;
 
         const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES]);
+        const bool& return_res = req->params[RETURN_RES] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values);
+                                                       dirty_values, return_res);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
