@@ -47,9 +47,8 @@ if [[ "$@" == *"--test"* ]]; then
     docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp /typesense/$BUILD_DIR/Makefile /typesense/$TEST_BUILD_DIR
     docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp -R /typesense/$BUILD_DIR/CMakeFiles /typesense/$TEST_BUILD_DIR/
     docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-test -C/typesense/$TEST_BUILD_DIR
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp typesense-test /opt
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE chmod +x /opt/typesense-test
-    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE typesense-test
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE chmod +x /typesense/$TEST_BUILD_DIR/typesense-test
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE /typesense/$TEST_BUILD_DIR/typesense-test
 fi
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
