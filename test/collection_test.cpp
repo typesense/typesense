@@ -1264,7 +1264,7 @@ TEST_F(CollectionTest, ImportDocumentsEmplace) {
     nlohmann::json document;
     std::vector<std::string> records = {R"({"id": "0", "title": "The Matrix", "points":0})",
                                         R"({"id": "1", "title": "Inception", "points":1})"};
-    std::vector<nloman::json> docs = import_res_to_json(records)
+    std::vector<nlohmann::json> docs = import_res_to_json(records)
 
     // use `emplace` mode for creating documents
     auto import_response = coll1->add_many(records, document, EMPLACE, true, true);
