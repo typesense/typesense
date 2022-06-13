@@ -579,3 +579,33 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRankingWithArray) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray) {
+    Collection *coll1;
+    std::vector<field> fields = {field("tags", field_types::STRING_ARRAY, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["tags"] = {"§ 23",
+                    "§ 34d EStG",
+                    "§ 23 Satz EStG"};
+    doc1["points"] = 100;
+
+    coll1->add(doc1.dump());
+
+    auto results = coll1->search("*", {"tags"}, "tags:=§ 23 EStG", {}, {}, {0}, 100, 1, MAX_SCORE, {true},
+                                 Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, false).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+}

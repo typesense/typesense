@@ -1161,6 +1161,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                     int prev_pos = -1;
                     bool has_atleast_one_last_token = false;
                     bool found_matching_index = false;
+                    size_t num_matching_index = 0;
 
                     while(start_offset_index < end_offset_index) {
                         int pos = offsets[start_offset_index];
@@ -1184,12 +1185,14 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
 
                             start_offset_index++;  // skip current value which is the array index or flag for last index
                             prev_pos = -1;
+                            found_matching_index = false;
                             continue;
                         }
 
                         if(pos == (j + 1)) {
                             // we have found a matching index
                             found_matching_index = true;
+                            num_matching_index++;
                         }
 
                         prev_pos = pos;
@@ -1201,7 +1204,7 @@ void posting_list_t::get_exact_matches(std::vector<iterator_t>& its, const bool 
                         break;
                     }
 
-                    if(!found_matching_index) {
+                    if(num_matching_index == 0) {
                         // not even a single matching index found: can never be an exact match
                         premature_exit = true;
                         break;

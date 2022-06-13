@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <curl/curl.h>
 #include <gflags/gflags.h>
 #include <dlfcn.h>
