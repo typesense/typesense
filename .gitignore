@@ -2,6 +2,7 @@
 *.iml
 external*
 build*
+test-build*
 cmake-build*
 cmake-build-debug
 cmake-build-release

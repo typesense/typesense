@@ -1264,9 +1264,10 @@ TEST_F(CollectionTest, ImportDocumentsEmplace) {
     nlohmann::json document;
     std::vector<std::string> records = {R"({"id": "0", "title": "The Matrix", "points":0})",
                                         R"({"id": "1", "title": "Inception", "points":1})"};
+    std::vector<nlohmann::json> docs = import_res_to_json(records);
 
     // use `emplace` mode for creating documents
-    auto import_response = coll1->add_many(records, document, EMPLACE);
+    auto import_response = coll1->add_many(records, document, EMPLACE, "", DIRTY_VALUES::COERCE_OR_REJECT, true, true);
 
     ASSERT_TRUE(import_response["success"].get<bool>());
     ASSERT_EQ(2, import_response["num_imported"].get<int>());
@@ -1276,7 +1277,9 @@ TEST_F(CollectionTest, ImportDocumentsEmplace) {
 
     for (size_t i = 0; i < 2; i++) {
         ASSERT_TRUE(import_results[i]["success"].get<bool>());
-        ASSERT_EQ(1, import_results[i].size());
+        ASSERT_EQ(3, import_results[i].size());
+        ASSERT_EQ(docs[i], import_results[i]["document"]);
+        ASSERT_EQ(docs[i]["id"], import_results[i]["id"]);
     }
 
     auto res = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, token_ordering::FREQUENCY, {true}, 10).get();

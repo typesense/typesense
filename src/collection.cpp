@@ -184,7 +184,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
                                        const DIRTY_VALUES& dirty_values) {
     nlohmann::json document;
     std::vector<std::string> json_lines = {json_str};
-    const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values);
+    const nlohmann::json& res = add_many(json_lines, document, operation, id, dirty_values, false, false);
 
     if(!res["success"].get<bool>()) {
         nlohmann::json res_doc;
@@ -204,7 +204,7 @@ Option<nlohmann::json> Collection::add(const std::string & json_str,
 
 nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                                     const index_operation_t& operation, const std::string& id,
-                                    const DIRTY_VALUES& dirty_values) {
+                                    const DIRTY_VALUES& dirty_values, const bool& write_docs, const bool& write_id) {
     //LOG(INFO) << "Memory ratio. Max = " << max_memory_ratio << ", Used = " << SystemMetrics::used_memory_ratio();
     std::vector<index_record> index_records;
 
@@ -281,7 +281,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
         do_batched_index:
 
         if((i+1) % index_batch_size == 0 || i == json_lines.size()-1 || repeated_doc) {
-            batch_index(index_records, json_lines, num_indexed);
+            batch_index(index_records, json_lines, num_indexed, write_docs, write_id);
 
             // to return the document for the single doc add cases
             if(index_records.size() == 1) {
@@ -305,7 +305,7 @@ bool Collection::is_exceeding_memory_threshold() const {
 }
 
 void Collection::batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out,
-                             size_t &num_indexed) {
+                             size_t &num_indexed, const bool& write_docs, const bool& write_id) {
 
     batch_index_in_memory(index_records);
 
@@ -349,8 +349,14 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                     index_record.index_success();
                 }
             }
-
             res["success"] = index_record.indexed.ok();
+
+            if (write_docs & index_record.indexed.ok()) {
+                res["document"] = index_record.is_update ? index_record.new_doc : index_record.doc;
+            }
+            if (write_id & index_record.indexed.ok()) {
+                res["id"] = index_record.is_update ? index_record.new_doc["id"] : index_record.doc["id"];
+            }
             if(!index_record.indexed.ok()) {
                 res["document"] = json_out[index_record.position];
                 res["error"] = index_record.indexed.error();
