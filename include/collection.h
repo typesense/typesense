@@ -270,7 +270,7 @@ public:
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
-    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed);
+    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed, const bool& write_docs, const bool& write_id);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -291,7 +291,8 @@ public:
 
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
-                            const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT);
+                            const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
+                            const bool& write_docs=false, const bool& write_id=false);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,

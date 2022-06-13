@@ -4,6 +4,7 @@ set -ex
 PROJECT_DIR=`dirname $0 | while read a; do cd $a && pwd && break; done`
 SYSTEM_NAME=Linux
 BUILD_DIR=build-$SYSTEM_NAME
+TEST_BUILD_DIR=test-$BUILD_DIR
 
 if [ -z "$TYPESENSE_VERSION" ]; then
   TYPESENSE_VERSION="nightly"
@@ -13,6 +14,12 @@ if [[ "$@" == *"--clean"* ]]; then
   echo "Cleaning..."
   rm -rf $PROJECT_DIR/$BUILD_DIR
   mkdir $PROJECT_DIR/$BUILD_DIR
+fi
+
+if [[ "$@" == *"--clean-test"* ]]; then
+  echo "Cleaning..."
+  rm -rf $PROJECT_DIR/$TEST_BUILD_DIR
+  mkdir $PROJECT_DIR/$TEST_BUILD_DIR
 fi
 
 if [[ "$@" == *"--depclean"* ]]; then
@@ -32,9 +39,17 @@ fi
 
 echo "Building Typesense $TYPESENSE_VERSION..."
 docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cmake -DTYPESENSE_VERSION=$TYPESENSE_VERSION \
--DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
-
+ -DCMAKE_BUILD_TYPE=Release -H/typesense -B/typesense/$BUILD_DIR
 docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-server -C/typesense/$BUILD_DIR
+
+if [[ "$@" == *"--test"* ]]; then
+    echo "Running tests"
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp /typesense/$BUILD_DIR/Makefile /typesense/$TEST_BUILD_DIR
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE cp -R /typesense/$BUILD_DIR/CMakeFiles /typesense/$TEST_BUILD_DIR/
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE make typesense-test -C/typesense/$TEST_BUILD_DIR
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE chmod +x /typesense/$TEST_BUILD_DIR/typesense-test
+    docker run -it -v $PROJECT_DIR:/typesense typesense/$TYPESENSE_DEV_IMAGE /typesense/$TEST_BUILD_DIR/typesense-test
+fi
 
 if [[ "$@" == *"--build-deploy-image"* ]]; then
     echo "Creating deployment image for Typesense $TYPESENSE_VERSION server ..."
