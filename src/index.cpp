@@ -5514,7 +5514,7 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
             leaves.push_back(leaf);
         }
 
-        if(candidate_tokens.size() == leaves.size() && common_results_exist(leaves, false)) {
+        if(common_results_exist(leaves, false)) {
             resolved_queries.push_back(candidate_tokens);
             return;
         }

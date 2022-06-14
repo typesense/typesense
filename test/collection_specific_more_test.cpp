@@ -609,3 +609,25 @@ TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray) {
 
     ASSERT_EQ(0, results["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, SplitTokensCrossFieldMatching) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Vitamin C1";
+    doc1["brand"] = "Paulas Choice";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("paulaschoice c1", {"name", "brand"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    collectionManager.drop_collection("coll1");
+}

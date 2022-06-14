@@ -2076,6 +2076,9 @@ TEST_F(CollectionSpecificTest, SearchShouldSplitAndJoinTokens) {
     results = coll1->search("the pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
     ASSERT_EQ(1, results["hits"].size());
 
+    results = coll1->search("pressurecooker great", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+
     // splitting requires tokens to co-occur as a phrase in the dataset
 
     results = coll1->search("the pressureis", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
