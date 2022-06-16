@@ -713,7 +713,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     }
 
     if(req->params.count(RETURN_ID) == 0) {
-        req->params[RETURN_RES] = "false";
+        req->params[RETURN_ID] = "false";
     }
 
     if(!StringUtils::is_uint32_t(req->params[BATCH_SIZE])) {
