@@ -322,6 +322,10 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
             replication_state.refresh_catchup_status(log_msg);
         }
 
+        if(raft_counter % 60 == 0) {
+            replication_state.do_snapshot();
+        }
+
         raft_counter++;
         sleep(1);
     }

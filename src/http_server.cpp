@@ -15,10 +15,10 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
                        uint32_t listen_port, const std::string & ssl_cert_path, const std::string & ssl_cert_key_path,
                        const uint64_t ssl_refresh_interval_ms, bool cors_enabled,
                        const std::set<std::string>& cors_domains, ThreadPool* thread_pool):
-                       SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
-                       exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
-                       ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
-                       cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
+        SSL_REFRESH_INTERVAL_MS(ssl_refresh_interval_ms),
+        exit_loop(false), version(version), listen_address(listen_address), listen_port(listen_port),
+        ssl_cert_path(ssl_cert_path), ssl_cert_key_path(ssl_cert_key_path),
+        cors_enabled(cors_enabled), cors_domains(cors_domains), thread_pool(thread_pool) {
     accept_ctx = new h2o_accept_ctx_t();
     h2o_config_init(&config);
     hostconf = h2o_config_register_host(&config, h2o_iovec_init(H2O_STRLIT("default")), 65535);
@@ -34,8 +34,9 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     message_dispatcher = new http_message_dispatcher;
     message_dispatcher->init(ctx.loop);
 
-    ssl_refresh_timer.timer.expire_at = 0;  // used during destructor
-    metrics_refresh_timer.timer.expire_at = 0;  // used during destructor
+    // used during destructor
+    ssl_refresh_timer.timer.expire_at = 0;
+    metrics_refresh_timer.timer.expire_at = 0;
 
     accept_ctx->ssl_ctx = nullptr;
 }
