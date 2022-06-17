@@ -36,6 +36,7 @@ private:
 
     float max_memory_ratio;
     int snapshot_interval_seconds;
+    int snapshot_max_byte_count_per_rpc;
 
     std::atomic<size_t> healthy_read_lag;
     std::atomic<size_t> healthy_write_lag;
@@ -63,6 +64,7 @@ protected:
         this->enable_cors = true;
         this->max_memory_ratio = 1.0f;
         this->snapshot_interval_seconds = 3600;
+        this->snapshot_max_byte_count_per_rpc = 4194304;
         this->healthy_read_lag = 1000;
         this->healthy_write_lag = 500;
         this->log_slow_requests_time_ms = -1;
@@ -217,6 +219,10 @@ public:
         return this->snapshot_interval_seconds;
     }
 
+    int get_snapshot_max_byte_count_per_rpc() const {
+        return this->snapshot_max_byte_count_per_rpc;
+    }
+
     size_t get_healthy_read_lag() const {
         return this->healthy_read_lag;
     }
@@ -356,6 +362,10 @@ public:
             this->ssl_refresh_interval_seconds = std::stoi(get_env("TYPESENSE_SSL_REFRESH_INTERVAL_SECONDS"));
         }
 
+        if(!get_env("TYPESENSE_SNAPSHOT_MAX_BYTE_COUNT_PER_RPC").empty()) {
+            this->snapshot_max_byte_count_per_rpc = std::stoi(get_env("TYPESENSE_SNAPSHOT_MAX_BYTE_COUNT_PER_RPC"));
+        }
+
         this->enable_access_logging = ("TRUE" == get_env("TYPESENSE_ENABLE_ACCESS_LOGGING"));
 
         if(!get_env("TYPESENSE_DISK_USED_MAX_PERCENTAGE").empty()) {
@@ -461,6 +471,10 @@ public:
 
         if(reader.Exists("server", "snapshot-interval-seconds")) {
             this->snapshot_interval_seconds = (int) reader.GetInteger("server", "snapshot-interval-seconds", 3600);
+        }
+
+        if(reader.Exists("server", "snapshot-max-byte-count-per-rpc")) {
+            this->snapshot_max_byte_count_per_rpc = (int) reader.GetInteger("server", "snapshot-max-byte-count-per-rpc", 4194304);
         }
 
         if(reader.Exists("server", "healthy-read-lag")) {
@@ -578,6 +592,10 @@ public:
 
         if(options.exist("snapshot-interval-seconds")) {
             this->snapshot_interval_seconds = options.get<int>("snapshot-interval-seconds");
+        }
+
+        if(options.exist("snapshot-max-byte-count-per-rpc")) {
+            this->snapshot_max_byte_count_per_rpc = options.get<int>("snapshot-max-byte-count-per-rpc");
         }
 
         if(options.exist("healthy-read-lag")) {

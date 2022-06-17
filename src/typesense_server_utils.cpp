@@ -85,6 +85,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<float>("max-memory-ratio", '\0', "Maximum fraction of system memory to be used.", false, 1.0f);
     options.add<int>("snapshot-interval-seconds", '\0', "Frequency of replication log snapshots.", false, 3600);
+    options.add<int>("snapshot-max-byte-count-per-rpc", '\0', "Maximum snapshot file size in bytes transferred for each RPC.", false, 4194304);
     options.add<size_t>("healthy-read-lag", '\0', "Reads are rejected if the updates lag behind this threshold.", false, 1000);
     options.add<size_t>("healthy-write-lag", '\0', "Writes are rejected if the updates lag behind this threshold.", false, 500);
     options.add<int>("log-slow-requests-time-ms", '\0', "When > 0, requests that take longer than this duration are logged.", false, -1);
@@ -243,7 +244,7 @@ const char* get_internal_ip(const std::string& subnet_cidr) {
 
 int start_raft_server(ReplicationState& replication_state, const std::string& state_dir, const std::string& path_to_nodes,
                       const std::string& peering_address, uint32_t peering_port, const std::string& peering_subnet,
-                      uint32_t api_port, int snapshot_interval_seconds) {
+                      uint32_t api_port, int snapshot_interval_seconds, int snapshot_max_byte_count_per_rpc) {
 
     if(path_to_nodes.empty()) {
         LOG(INFO) << "Since no --nodes argument is provided, starting a single node Typesense cluster.";
@@ -291,7 +292,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
     // Reference: https://github.com/apache/incubator-brpc/blob/122770d/docs/en/client.md#timeout
     size_t election_timeout_ms = 5000;
 
-    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_interval_seconds, state_dir,
+    if (replication_state.start(peering_endpoint, api_port, election_timeout_ms, snapshot_max_byte_count_per_rpc, state_dir,
                                 nodes_config_op.get(), quit_raft_service) != 0) {
         LOG(ERROR) << "Failed to start peering state";
         exit(-1);
@@ -299,6 +300,7 @@ int start_raft_server(ReplicationState& replication_state, const std::string& st
 
     LOG(INFO) << "Typesense peering service is running on " << raft_server.listen_address();
     LOG(INFO) << "Snapshot interval configured as: " << snapshot_interval_seconds << "s";
+    LOG(INFO) << "Snapshot max byte count configured as: " << snapshot_max_byte_count_per_rpc;
 
     // Wait until 'CTRL-C' is pressed. then Stop() and Join() the service
     size_t raft_counter = 0;
@@ -461,7 +463,8 @@ int run_server(const Config & config, const std::string & version, void (*master
                           config.get_peering_port(),
                           config.get_peering_subnet(),
                           config.get_api_port(),
-                          config.get_snapshot_interval_seconds());
+                          config.get_snapshot_interval_seconds(),
+                          config.get_snapshot_max_byte_count_per_rpc());
 
         LOG(INFO) << "Shutting down batch indexer...";
         batch_indexer->stop();

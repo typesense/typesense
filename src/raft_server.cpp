@@ -28,7 +28,7 @@ void ReplicationClosure::Run() {
 // State machine implementation
 
 int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int api_port,
-                            int election_timeout_ms, int snapshot_interval_s,
+                            int election_timeout_ms, int snapshot_max_byte_count_per_rpc,
                             const std::string & raft_dir, const std::string & nodes,
                             const std::atomic<bool>& quit_abruptly) {
 
@@ -78,7 +78,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
     braft::FLAGS_raft_max_append_entries_cache_size = 8;
 
     // flag controls snapshot download size of each RPC
-    braft::FLAGS_raft_max_byte_count_per_rpc = 4 * 1024 * 1024; // 4 MB
+    braft::FLAGS_raft_max_byte_count_per_rpc = snapshot_max_byte_count_per_rpc;
 
     // automatic snapshot is disabled since it caused issues during slow follower catch-ups
     node_options.snapshot_interval_s = -1;
