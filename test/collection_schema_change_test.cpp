@@ -219,6 +219,17 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_TRUE(alter_op.ok());
 
+    // try to add `id` field
+    schema_changes = R"({
+        "fields": [
+            {"name": "id", "type": "int32"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `id` cannot be altered.", alter_op.error());
+
     ASSERT_EQ(9, coll1->get_schema().size());
     ASSERT_EQ(12, coll1->get_fields().size());
     ASSERT_EQ(5, coll1->_get_index()->_get_numerical_index().size());
@@ -309,6 +320,17 @@ TEST_F(CollectionSchemaChangeTest, DropFieldsFromCollection) {
     ASSERT_EQ(1, coll1->_get_index()->num_seq_ids());
     ASSERT_EQ("", coll1->get_fallback_field_type());
     ASSERT_EQ("", coll1->get_default_sorting_field());
+
+    // try to drop `id` field
+    schema_changes = R"({
+        "fields": [
+            {"name": "id", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `id` cannot be altered.", alter_op.error());
 
     // try restoring collection from disk: all fields should be deleted
     collectionManager.dispose();
@@ -475,6 +497,18 @@ TEST_F(CollectionSchemaChangeTest, AlterValidations) {
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
     ASSERT_EQ("Field `title` has an invalid data type `foobar`, see docs for supported data types.",alter_op.error());
+
+    // add + drop `id` field
+    schema_changes = R"({
+        "fields": [
+            {"name": "id", "drop": true},
+            {"name": "id", "type": "string"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Field `id` cannot be altered.", alter_op.error());
 
     collectionManager.drop_collection("coll1");
 }

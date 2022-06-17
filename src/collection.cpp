@@ -2810,6 +2810,10 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
 
         const std::string& field_name = kv.value()["name"].get<std::string>();
 
+        if(field_name == "id") {
+            return Option<bool>(400, "Field `" + field_name + "` cannot be altered.");
+        }
+
         if(kv.value().contains("drop")) {
             delete_field_names.insert(field_name);
         }
