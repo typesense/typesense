@@ -229,7 +229,7 @@ public:
     const std::string& get_ext_snapshot_path() const;
 
     // for timed snapshots
-    void do_snapshot();
+    void do_snapshot(const std::string& nodes);
 
     void persist_applying_index();
 
