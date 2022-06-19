@@ -1,4 +1,4 @@
-version: 2
+version: 0
 jobs:
   build:
     docker:
@@ -30,3 +30,4 @@ jobs:
       - run: 
           name: test
           command: $PROJECT_DIR/build-Linux/typesense-test
+0
