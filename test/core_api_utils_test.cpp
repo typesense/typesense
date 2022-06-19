@@ -34,7 +34,6 @@ protected:
     }
 };
 
-
 TEST_F(CoreAPIUtilsTest, StatefulRemoveDocs) {
     Collection *coll1;
 
@@ -496,4 +495,44 @@ TEST_F(CoreAPIUtilsTest, MultiSearchWithPresetShouldUsePresetForAuth) {
     ASSERT_EQ("foo", collections[0].collection);
     ASSERT_EQ("bar", collections[1].collection);
     ASSERT_EQ(2, embedded_params_vec.size());
+}
+
+TEST_F(CoreAPIUtilsTest, ExportWithFilter) {
+    Collection *coll1;
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 2, fields, "points").get();
+    }
+
+    for(size_t i=0; i<4; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = "Title " + std::to_string(i);
+        doc["points"] = i;
+        coll1->add(doc.dump());
+    }
+
+    bool done;
+    std::string res_body;
+
+    export_state_t export_state;
+    coll1->get_filter_ids("points:>=0", export_state.index_ids);
+    for(size_t i=0; i<export_state.index_ids.size(); i++) {
+        export_state.offsets.push_back(0);
+    }
+
+    export_state.collection = coll1;
+    export_state.res_body = &res_body;
+
+    stateful_export_docs(&export_state, 2, done);
+    ASSERT_FALSE(done);
+    ASSERT_EQ('\n', export_state.res_body->back());
+
+    // should not have trailing newline character for the last line
+    stateful_export_docs(&export_state, 2, done);
+    ASSERT_TRUE(done);
+    ASSERT_EQ('}', export_state.res_body->back());
 }

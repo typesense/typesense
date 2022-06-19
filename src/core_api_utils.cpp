@@ -102,5 +102,9 @@ Option<bool> stateful_export_docs(export_state_t* export_state, size_t batch_siz
         done = done && (current_offset == export_state->index_ids[i].first);
     }
 
+    if(done && !export_state->res_body->empty()) {
+        export_state->res_body->pop_back();
+    }
+
     return Option<bool>(true);
 }
