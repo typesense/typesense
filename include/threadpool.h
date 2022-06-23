@@ -21,6 +21,7 @@ private:
     // synchronization
     std::mutex queue_mutex;
     std::condition_variable condition;
+    std::condition_variable condition_producers;
     bool stop;
 };
 
@@ -48,6 +49,9 @@ inline ThreadPool::ThreadPool(size_t threads)
                             }
                             task = std::move(this->tasks.front());
                             this->tasks.pop();
+                            if (tasks.empty()) {
+                                condition_producers.notify_one(); // notify the destructor that the queue is empty
+                            }
                         }
 
                         task();
@@ -82,6 +86,7 @@ decltype(auto) ThreadPool::enqueue(F&& f, Args&&... args)
 inline void ThreadPool::shutdown() {
     {
         std::unique_lock<std::mutex> lock(queue_mutex);
+        condition_producers.wait(lock, [this] { return tasks.empty(); });
         stop = true;
     }
     condition.notify_all();
