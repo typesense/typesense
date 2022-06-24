@@ -270,6 +270,7 @@ void HttpServer::on_res_generator_dispose(void *self) {
         custom_generator->res()->final = true;
         custom_generator->res()->generator = nullptr;
         custom_generator->res()->is_alive = false;
+        custom_generator->req()->is_diposed = true;
         custom_generator->req()->notify();
         custom_generator->res()->notify();
     }

@@ -233,10 +233,12 @@ struct http_req {
     int64_t log_index;
 
     std::atomic<bool> is_http_v1;
+    std::atomic<bool> is_diposed;
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
-                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true) {
+                chunk_len(0), body_index(0), data(nullptr), ready(false), log_index(0), is_http_v1(true),
+                is_diposed(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -250,7 +252,7 @@ struct http_req {
             params(params), embedded_params_vec(embedded_params_vec),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
-            log_index(0) {
+            log_index(0), is_diposed(false) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -274,7 +276,7 @@ struct http_req {
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
             AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
-            if(config.get_log_slow_requests_time_ms() > 0 && int(ms_since_start) > config.get_log_slow_requests_time_ms()) {
+            if(config.get_log_slow_requests_time_ms() >= 0 && int(ms_since_start) > config.get_log_slow_requests_time_ms()) {
                 // log slow request if logging is enabled
                 std::string query_string = "?";
                 for(const auto& kv: params) {
@@ -283,8 +285,13 @@ struct http_req {
                     }
                 }
                 std::string full_url_path = metric_identifier + query_string;
+                std::string req_ip = "0.0.0.0";
+                if(!is_diposed) {
+                    req_ip = http_req::get_ip_addr(_req).ip;
+                }
+
                 LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) "
-                          << http_req::get_ip_addr(_req).ip << " " << full_url_path;
+                          << req_ip << " " << full_url_path;
             }
         }
     }

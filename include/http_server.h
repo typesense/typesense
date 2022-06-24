@@ -57,8 +57,10 @@ public:
 
     h2o_generator_t* generator = nullptr;
 
-    stream_response_state_t(h2o_req_t* _req): req(_req), is_res_start(req->res.status == 0) {
-
+    explicit stream_response_state_t(h2o_req_t* _req): req(_req) {
+        if(req != nullptr) {
+            is_res_start = (req->res.status == 0);
+        }
     }
 
     void set_response(uint32_t status_code, const std::string& content_type, const std::string& body) {
@@ -108,7 +110,8 @@ public:
 
     async_req_res_t(const std::shared_ptr<http_req>& h_req, const std::shared_ptr<http_res>& h_res,
                     const bool destroy_after_use) :
-            req(h_req), res(h_res), destroy_after_use(destroy_after_use), res_state(h_req->_req) {
+            req(h_req), res(h_res), destroy_after_use(destroy_after_use),
+            res_state((std::shared_lock(res->mres), h_req->is_diposed ? nullptr : h_req->_req)) {
 
         std::shared_lock lk(res->mres);
 
