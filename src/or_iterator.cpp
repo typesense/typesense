@@ -128,7 +128,7 @@ void or_iterator_t::advance_smallest() {
         }
 
         if(!its[i].valid()) {
-            its[i].destroy();
+            its[i].reset_cache();
             its.erase(its.cbegin() + i);
             i--;
         }
@@ -152,7 +152,7 @@ bool or_iterator_t::skip_to(uint32_t id) {
         it.skip_to(id);
 
         if(!it.valid()) {
-            its[i].destroy();
+            its[i].reset_cache();
             its.erase(its.begin() + i);
             i--;
         } else {
@@ -238,7 +238,7 @@ const std::vector<posting_list_t::iterator_t>& or_iterator_t::get_its() const {
 
 or_iterator_t::~or_iterator_t() noexcept {
     for(auto& it: its) {
-        it.destroy();
+        it.reset_cache();
     }
 }
 

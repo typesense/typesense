@@ -58,7 +58,6 @@ TEST(OrIteratorTest, IntersectTwoListsWith3SubLists) {
     std::vector<uint32_t> results;
 
     or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
-        LOG(INFO) << "id: " << id;
         results.push_back(id);
     });
 
@@ -68,6 +67,14 @@ TEST(OrIteratorTest, IntersectTwoListsWith3SubLists) {
     std::vector<uint32_t> expected_results = {0, 1, 2, 3, 5, 7, 10, 20};
     for(size_t i = 0; i < expected_results.size(); i++) {
         ASSERT_EQ(expected_results[i], results[i]);
+    }
+
+    for(auto p: postings1) {
+        delete p;
+    }
+
+    for(auto p: postings2) {
+        delete p;
     }
 }
 
@@ -137,5 +144,13 @@ TEST(OrIteratorTest, IntersectTwoListsWith4SubLists) {
 
     for(size_t i = 0; i < expected_results.size(); i++) {
         ASSERT_EQ(expected_results[i], results[i]);
+    }
+
+    for(auto p: postings1) {
+        delete p;
+    }
+
+    for(auto p: postings2) {
+        delete p;
     }
 }

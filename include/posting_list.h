@@ -62,6 +62,7 @@ public:
 
     class iterator_t {
     private:
+        const std::map<last_id_t, block_t*>* id_block_map;
         block_t* curr_block;
         uint32_t curr_index;
         block_t* end_block;
@@ -75,18 +76,20 @@ public:
         uint32_t* offset_index = nullptr;
         uint32_t* offsets = nullptr;
 
-        explicit iterator_t(block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
+        explicit iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
+                            block_t* start, block_t* end, bool auto_destroy = true, uint32_t field_id = 0);
         ~iterator_t();
 
         iterator_t(iterator_t&& rhs) noexcept;
         iterator_t& operator=(iterator_t&& rhs) noexcept;
 
-        void destroy();
+        void reset_cache();
         [[nodiscard]] bool valid() const;
         void next();
         void skip_to(uint32_t id);
         void set_index(uint32_t index);
         [[nodiscard]] uint32_t id() const;
+        [[nodiscard]] uint32_t last_block_id() const;
         [[nodiscard]] inline uint32_t index() const;
         [[nodiscard]] inline block_t* block() const;
         [[nodiscard]] uint32_t get_field_id() const;

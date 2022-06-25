@@ -69,40 +69,43 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                 auto id = its[0].id();
                 if(take_id(istate, id, is_excluded)) {
                     func(id, its);
-                    its[0].next();
-                } else {
-                    // skip iterator till next id available in filter
-                    if(istate.filter_ids_length != 0 && !is_excluded) {
-                        if(istate.filter_ids_index < istate.filter_ids_length) {
-                            its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
-                        } else {
-                            break;
-                        }
+                }
+
+                if(istate.filter_ids_length != 0 && !is_excluded) {
+                    if(istate.filter_ids_index < istate.filter_ids_length) {
+                        // skip iterator till next id available in filter
+                        its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
                     } else {
-                        its[0].next();
+                        break;
                     }
+                } else {
+                    its[0].next();
                 }
             }
             break;
         case 2:
+            if(istate.filter_ids_length != 0) {
+                its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
+                its[1].skip_to(istate.filter_ids[istate.filter_ids_index]);
+            }
+
             while(its.size() == it_size && !at_end2(its)) {
                 if(equals2(its)) {
                     auto id = its[0].id();
                     if(take_id(istate, id, is_excluded)) {
                         func(id, its);
-                        advance_all2(its);
-                    } else {
-                        // skip iterator till next id available in filter
-                        if(istate.filter_ids_length != 0 && !is_excluded) {
-                            if(istate.filter_ids_index < istate.filter_ids_length) {
-                                its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
-                                its[1].skip_to(istate.filter_ids[istate.filter_ids_index]);
-                            } else {
-                                break;
-                            }
+                    }
+
+                    if(istate.filter_ids_length != 0 && !is_excluded) {
+                        if(istate.filter_ids_index < istate.filter_ids_length) {
+                            // skip iterator till next id available in filter
+                            its[0].skip_to(istate.filter_ids[istate.filter_ids_index]);
+                            its[1].skip_to(istate.filter_ids[istate.filter_ids_index]);
                         } else {
-                            advance_all2(its);
+                            break;
                         }
+                    } else {
+                        advance_all2(its);
                     }
                 } else {
                     advance_non_largest2(its);
@@ -110,26 +113,30 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
             break;
         default:
+            if(istate.filter_ids_length != 0) {
+                for(auto& it: its) {
+                    it.skip_to(istate.filter_ids[istate.filter_ids_index]);
+                }
+            }
+
             while(its.size() == it_size && !at_end(its)) {
                 if(equals(its)) {
-                    //LOG(INFO) << its[0].id();
                     auto id = its[0].id();
                     if(take_id(istate, id, is_excluded)) {
                         func(id, its);
-                        advance_all(its);
-                    } else {
-                        // skip iterator till next id available in filter
-                        if(istate.filter_ids_length != 0 && !is_excluded) {
-                            if(istate.filter_ids_index < istate.filter_ids_length) {
-                                for(auto& it: its) {
-                                    it.skip_to(istate.filter_ids[istate.filter_ids_index]);
-                                }
-                            } else {
-                                break;
+                    }
+
+                    if(istate.filter_ids_length != 0 && !is_excluded) {
+                        if(istate.filter_ids_index < istate.filter_ids_length) {
+                            // skip iterator till next id available in filter
+                            for(auto& it: its) {
+                                it.skip_to(istate.filter_ids[istate.filter_ids_index]);
                             }
                         } else {
-                            advance_all2(its);
+                            break;
                         }
+                    } else {
+                        advance_all2(its);
                     }
                 } else {
                     advance_non_largest(its);

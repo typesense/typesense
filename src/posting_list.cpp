@@ -794,13 +794,6 @@ bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
             continue;
         }
 
-        /*uint32_t* offsets = curr_block->offsets.uncompress();
-
-        uint32_t start_offset = curr_block->offset_index.at(curr_index);
-        uint32_t end_offset = (curr_index == curr_block->size() - 1) ?
-                              curr_block->offsets.getLength() :
-                              curr_block->offset_index.at(curr_index + 1);*/
-
         uint32_t* offsets = its[j].offsets;
 
         uint32_t start_offset = its[j].offset_index[curr_index];
@@ -859,8 +852,6 @@ bool posting_list_t::get_offsets(const std::vector<iterator_t>& its,
             // for plain string fields
             array_token_pos[0].push_back(token_positions_t{is_last_token, positions});
         }
-
-        //delete [] offsets;
     }
 
     return true;
@@ -941,7 +932,7 @@ bool posting_list_t::equals2(std::vector<posting_list_t::iterator_t>& its) {
 
 posting_list_t::iterator_t posting_list_t::new_iterator(block_t* start_block, block_t* end_block, uint32_t field_id) {
     start_block = (start_block == nullptr) ? &root_block : start_block;
-    return posting_list_t::iterator_t(start_block, end_block, true, field_id);
+    return posting_list_t::iterator_t(&id_block_map, start_block, end_block, true, field_id);
 }
 
 void posting_list_t::advance_all(std::vector<posting_list_t::iterator_t>& its) {
@@ -1391,9 +1382,11 @@ size_t posting_list_t::get_last_offset(const posting_list_t::iterator_t& it, boo
 
 /* iterator_t operations */
 
-posting_list_t::iterator_t::iterator_t(posting_list_t::block_t* start, posting_list_t::block_t* end,
+posting_list_t::iterator_t::iterator_t(const std::map<last_id_t, block_t*>* id_block_map,
+                                       posting_list_t::block_t* start, posting_list_t::block_t* end,
                                        bool auto_destroy, uint32_t field_id):
-        curr_block(start), curr_index(0), end_block(end), auto_destroy(auto_destroy), field_id(field_id) {
+        id_block_map(id_block_map), curr_block(start), curr_index(0), end_block(end),
+        auto_destroy(auto_destroy), field_id(field_id) {
 
     if(curr_block != end_block) {
         ids = curr_block->ids.uncompress();
@@ -1426,6 +1419,10 @@ void posting_list_t::iterator_t::next() {
     }
 }
 
+uint32_t posting_list_t::iterator_t::last_block_id() const {
+    return ids[curr_block->size() - 1];
+}
+
 uint32_t posting_list_t::iterator_t::id() const {
     return ids[curr_index];
 }
@@ -1439,52 +1436,56 @@ posting_list_t::block_t* posting_list_t::iterator_t::block() const {
 }
 
 void posting_list_t::iterator_t::skip_to(uint32_t id) {
-    bool skipped_block = false;
-    while(curr_block != end_block && curr_block->ids.last() < id) {
-        curr_block = curr_block->next;
-
-        delete [] ids;
-        delete [] offset_index;
-        delete [] offsets;
-
-        ids = offset_index = offsets = nullptr;
-
-        if(curr_block != end_block) {
-            ids = curr_block->ids.uncompress();
-            offset_index = curr_block->offset_index.uncompress();
-            offsets = curr_block->offsets.uncompress();
+    // first look to skip within current block
+    if(id <= this->last_block_id()) {
+        while(curr_index < curr_block->size() && this->id() < id) {
+            curr_index++;
         }
 
-        skipped_block = true;
+        return ;
     }
 
-    if(skipped_block) {
-        curr_index = 0;
+    // identify the block where the id could exist and skip to that
+    reset_cache();
+
+    const auto it = id_block_map->lower_bound(id);
+    if(it == id_block_map->end()) {
+        return;
     }
 
-    while(curr_block != end_block && curr_index < curr_block->size() && this->id() < id) {
+    curr_block = it->second;
+    curr_index = 0;
+    ids = curr_block->ids.uncompress();
+    offset_index = curr_block->offset_index.uncompress();
+    offsets = curr_block->offsets.uncompress();
+
+    while(curr_index < curr_block->size() && this->id() < id) {
         curr_index++;
+    }
+
+    if(curr_index == curr_block->size()) {
+        reset_cache();
     }
 }
 
 posting_list_t::iterator_t::~iterator_t() {
     if(auto_destroy) {
-        destroy();
+        reset_cache();
     }
 }
 
-void posting_list_t::iterator_t::destroy() {
+void posting_list_t::iterator_t::reset_cache() {
     delete [] ids;
-    ids = nullptr;
-
     delete [] offsets;
-    offsets = nullptr;
-
     delete [] offset_index;
-    offset_index = nullptr;
+
+    ids = offset_index = offsets = nullptr;
+    curr_index = 0;
+    curr_block = end_block = nullptr;
 }
 
 posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
+    id_block_map = rhs.id_block_map;
     curr_block = rhs.curr_block;
     curr_index = rhs.curr_index;
     end_block = rhs.end_block;
@@ -1494,6 +1495,7 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
     auto_destroy = rhs.auto_destroy;
     field_id = rhs.field_id;
 
+    rhs.id_block_map = nullptr;
     rhs.curr_block = nullptr;
     rhs.end_block = nullptr;
     rhs.ids = nullptr;
@@ -1502,6 +1504,7 @@ posting_list_t::iterator_t::iterator_t(iterator_t&& rhs) noexcept {
 }
 
 posting_list_t::iterator_t& posting_list_t::iterator_t::operator=(posting_list_t::iterator_t&& rhs) noexcept {
+    id_block_map = rhs.id_block_map;
     curr_block = rhs.curr_block;
     curr_index = rhs.curr_index;
     end_block = rhs.end_block;
@@ -1511,6 +1514,7 @@ posting_list_t::iterator_t& posting_list_t::iterator_t::operator=(posting_list_t
     auto_destroy = rhs.auto_destroy;
     field_id = rhs.field_id;
 
+    rhs.id_block_map = nullptr;
     rhs.curr_block = nullptr;
     rhs.end_block = nullptr;
     rhs.ids = nullptr;
@@ -1525,7 +1529,8 @@ void posting_list_t::iterator_t::set_index(uint32_t index) {
 }
 
 posting_list_t::iterator_t posting_list_t::iterator_t::clone() const {
-    posting_list_t::iterator_t it(nullptr, nullptr);
+    posting_list_t::iterator_t it(nullptr, nullptr, nullptr);
+    it.id_block_map = id_block_map;
     it.curr_block = curr_block;
     it.curr_index = curr_index;
     it.end_block = end_block;

@@ -600,69 +600,6 @@ TEST_F(PostingListTest, MergeBasics) {
     }
 }
 
-TEST_F(PostingListTest, SplittingOfListsSimple) {
-    std::vector<uint32_t> offsets = {0, 1, 3};
-
-    // [0, 2] [3, 20]
-    // [1, 3], [5, 10], [20]
-    // [2, 3], [5, 7], [20]
-
-    posting_list_t p1(2);
-    p1.upsert(0, offsets);
-    p1.upsert(2, offsets);
-    p1.upsert(3, offsets);
-    p1.upsert(20, offsets);
-
-    posting_list_t p2(2);
-    p2.upsert(1, offsets);
-    p2.upsert(3, offsets);
-    p2.upsert(5, offsets);
-    p2.upsert(10, offsets);
-    p2.upsert(20, offsets);
-
-    posting_list_t p3(2);
-    p3.upsert(2, offsets);
-    p3.upsert(3, offsets);
-    p3.upsert(5, offsets);
-    p3.upsert(7, offsets);
-    p3.upsert(20, offsets);
-
-    std::vector<void*> raw_lists = {&p1, &p2, &p3};
-
-    std::vector<posting_list_t::iterator_t> its;
-    result_iter_state_t iter_state;
-    posting_t::block_intersector_t intersector(raw_lists, iter_state, pool);
-
-    std::vector<std::vector<posting_list_t::iterator_t>> partial_its_vec(4);
-    intersector.split_lists(4, partial_its_vec);
-
-    std::vector<std::vector<std::vector<uint32_t>>> split_ids = {
-        {{0, 2}, {1, 3}, {2, 3}},
-        {{3, 20}, {1, 3, 5, 10, 20}, {2, 3, 5, 7, 20}}
-    };
-
-    ASSERT_EQ(4, partial_its_vec.size());
-    ASSERT_EQ(3, partial_its_vec[0].size());
-    ASSERT_EQ(3, partial_its_vec[1].size());
-
-    for(size_t i = 0; i < partial_its_vec.size(); i++) {
-        auto& partial_its = partial_its_vec[i];
-        for (size_t j = 0; j < partial_its.size(); j++) {
-            auto& it = partial_its[j];
-            size_t k = 0;
-
-            while (it.valid()) {
-                //LOG(INFO) << it.id();
-                ASSERT_EQ(split_ids[i][j][k], it.id());
-                k++;
-                it.next();
-            }
-
-            //LOG(INFO) << "---";
-        }
-    }
-}
-
 TEST_F(PostingListTest, IntersectionBasics) {
     std::vector<uint32_t> offsets = {0, 1, 3};
 
