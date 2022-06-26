@@ -73,7 +73,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -84,7 +84,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -103,7 +103,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -143,7 +143,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -154,7 +154,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -185,7 +185,7 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
                             {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());

@@ -751,9 +751,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                   const size_t search_stop_millis,
                                   const size_t min_len_1typo,
                                   const size_t min_len_2typo,
-                                  bool split_join_tokens,
+                                  enable_t split_join_tokens,
                                   const size_t max_candidates,
-                                  const std::vector<infix_t>& infixes,
+                                  const std::vector<enable_t>& infixes,
                                   const size_t max_extra_prefix,
                                   const size_t max_extra_suffix,
                                   const size_t facet_query_num_typos,
@@ -1553,7 +1553,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
                                           const spp::sparse_hash_set<std::string>& exclude_fields,
                                           const string& highlight_fields,
                                           const std::string& highlight_full_fields,
-                                          const std::vector<infix_t>& infixes,
+                                          const std::vector<enable_t>& infixes,
                                           std::vector<std::string>& q_tokens,
                                           const tsl::htrie_map<char, token_leaf>& qtoken_set,
                                           std::vector<highlight_field_t>& highlight_items) const {
@@ -1572,7 +1572,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     for(size_t i = 0; i < search_fields.size(); i++) {
         const auto& field_name = search_fields[i];
 
-        infix_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
+        enable_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
         if(field_infix != off) {
             fields_infixed_set.insert(field_name);
         }

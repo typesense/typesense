@@ -2276,9 +2276,9 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                    const string& default_sorting_field, bool prioritize_exact_match,
                    const bool prioritize_token_position, bool exhaustive_search,
                    size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
-                   size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                   size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                    const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                   const bool filter_curated_hits, const bool split_join_tokens) const {
+                   const bool filter_curated_hits, const enable_t split_join_tokens) const {
 
     // process the filters
 
@@ -2397,7 +2397,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                             field_values, geopoint_indices);
 
         // try split/joining tokens if no results are found
-        if(all_result_ids_len == 0 && split_join_tokens) {
+        if(split_join_tokens == always || (all_result_ids_len == 0 && split_join_tokens == fallback)) {
             std::vector<std::vector<std::string>> space_resolved_queries;
 
             for(size_t i = 0; i < num_search_fields; i++) {
@@ -3515,7 +3515,7 @@ void Index::do_synonym_search(const std::vector<search_field_t>& the_fields,
 }
 
 void Index::do_infix_search(const size_t num_search_fields, const std::vector<search_field_t>& the_fields,
-                            const std::vector<infix_t>& infixes,
+                            const std::vector<enable_t>& infixes,
                             const std::vector<sort_by>& sort_fields,
                             std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                             const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
@@ -3531,7 +3531,7 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
 
     for(size_t field_id = 0; field_id < num_search_fields; field_id++) {
         auto& field_name = the_fields[field_id].name;
-        infix_t field_infix = (field_id < infixes.size()) ? infixes[field_id] : infixes[0];
+        enable_t field_infix = (field_id < infixes.size()) ? infixes[field_id] : infixes[0];
 
         if(field_infix == always || (field_infix == fallback && all_result_ids_len == 0)) {
             std::vector<uint32_t> infix_ids;
@@ -5408,10 +5408,6 @@ void Index::resolve_space_as_typos(std::vector<std::string>& qtokens, const stri
         }
 
         leaves.push_back(leaf);
-    }
-
-    if(leaves.size() == qtokens.size() && common_results_exist(leaves, false)) {
-        return ;
     }
 
     // When we cannot find verbatim match, we can try concatting and splitting query tokens for alternatives.

@@ -818,7 +818,7 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringArray) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "genres: eletronic",
                             30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 1).get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -830,7 +830,7 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringArray) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "genres: eletronic",
                             30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 0).get();
 
     ASSERT_EQ(1, results["facet_counts"].size());
@@ -863,7 +863,7 @@ TEST_F(CollectionFacetingTest, FacetQueryReturnAllCandidates) {
                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
                                 spp::sparse_hash_set<std::string>(), 10, "title:e", 30, 5,
                                 "", 10, {}, {}, {}, 0,
-                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                 10, {off}, 32767, 32767, 2,
                                 false, false);
 

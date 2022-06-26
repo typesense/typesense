@@ -368,7 +368,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       spp::sparse_hash_set<std::string>(), 10, "",
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
-                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                       4, {off}, 32767, 32767, 2, 1).get();
 
     ASSERT_EQ(1, results["hits"].size());
@@ -385,7 +385,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       spp::sparse_hash_set<std::string>(), 10, "",
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
-                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                       4, {off}, 32767, 32767, 2, 1).get();
 
     ASSERT_EQ(1, results["hits"].size());
@@ -401,7 +401,7 @@ TEST_F(CollectionOverrideTest, IncludeHitsFilterOverrides) {
                                       spp::sparse_hash_set<std::string>(), 10, "",
                                       30, 5,
                                       "", 10, {}, {}, {}, 0,
-                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                       4, {off}, 32767, 32767, 2, 0).get();
 
     ASSERT_EQ(2, results["hits"].size());
@@ -644,7 +644,7 @@ TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {
                                       spp::sparse_hash_set<std::string>(),
                                       spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                       "", 10, pinned_hits, {}, {}, 0,
-                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                      "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                       4, {off}, 32767, 32767, 2, 1).get();
 
     ASSERT_EQ(4, results["found"].get<size_t>());

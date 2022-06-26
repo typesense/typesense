@@ -713,9 +713,9 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     std::string highlight_fields;
     bool exhaustive_search = false;
     size_t search_cutoff_ms = 3600000;
-    bool split_join_tokens = true;
+    enable_t split_join_tokens = fallback;
     size_t max_candidates = 0;
-    std::vector<infix_t> infixes;
+    std::vector<enable_t> infixes;
     size_t max_extra_prefix = INT16_MAX;
     size_t max_extra_suffix = INT16_MAX;
 
@@ -755,7 +755,6 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         {PRIORITIZE_TOKEN_POSITION, &prioritize_token_position},
         {PRE_SEGMENTED_QUERY, &pre_segmented_query},
         {EXHAUSTIVE_SEARCH, &exhaustive_search},
-        {SPLIT_JOIN_TOKENS, &split_join_tokens},
         {ENABLE_OVERRIDES, &enable_overrides},
     };
 
@@ -785,6 +784,19 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                 StringUtils::split(val, prefix_str, ",");
                 for(auto& prefix_s : prefix_str) {
                     prefixes.push_back(prefix_s == "true");
+                }
+            }
+        }
+
+        else if(key == SPLIT_JOIN_TOKENS) {
+            if(val == "false") {
+                split_join_tokens = off;
+            } else if(val == "true") {
+                split_join_tokens = fallback;
+            } else {
+                auto enable_op = magic_enum::enum_cast<enable_t>(val);
+                if(enable_op.has_value()) {
+                    split_join_tokens = enable_op.value();
                 }
             }
         }
@@ -850,7 +862,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
         StringUtils::split(req_params[INFIX], infix_strs, ",");
 
         for(auto& infix_str: infix_strs) {
-            auto infix_op = magic_enum::enum_cast<infix_t>(infix_str);
+            auto infix_op = magic_enum::enum_cast<enable_t>(infix_str);
             if(infix_op.has_value()) {
                 infixes.push_back(infix_op.value());
             }

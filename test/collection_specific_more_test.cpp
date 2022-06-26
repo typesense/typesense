@@ -50,7 +50,7 @@ TEST_F(CollectionSpecificMoreTest, MaxCandidatesShouldBeRespected) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7,
-                                 false, 1000).get();
+                                 fallback, 1000).get();
 
     ASSERT_EQ(200, results["found"].get<size_t>());
     collectionManager.drop_collection("coll1");
@@ -479,7 +479,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRanking) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {off}, 32767, 32767, 2,
                                  false, true).get();
 
@@ -494,7 +494,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRanking) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 2,
                             false, false).get();
 
@@ -509,7 +509,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRanking) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 2,
                             false, false).get();
 
@@ -523,7 +523,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRanking) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 2,
                             false, true).get();
     ASSERT_EQ(3, results["hits"].size());
@@ -558,7 +558,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRankingWithArray) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {off}, 32767, 32767, 2,
                                  false, false).get();
 
@@ -571,7 +571,7 @@ TEST_F(CollectionSpecificMoreTest, PositionalTokenRankingWithArray) {
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                             "", 10, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}, 32767, 32767, 2,
                             false, true).get();
 
@@ -603,7 +603,7 @@ TEST_F(CollectionSpecificMoreTest, ExactFilteringOnArray) {
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
                                  "", 10, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {off}, 32767, 32767, 2,
                                  false, false).get();
 

@@ -304,7 +304,7 @@ struct override_t {
     }
 };
 
-enum infix_t {
+enum enable_t {
     always,
     fallback,
     off
@@ -339,12 +339,12 @@ struct search_args {
     size_t min_len_1typo;
     size_t min_len_2typo;
     size_t max_candidates;
-    std::vector<infix_t> infixes;
+    std::vector<enable_t> infixes;
     const size_t max_extra_prefix;
     const size_t max_extra_suffix;
     const size_t facet_query_num_typos;
     const bool filter_curated_hits;
-    const bool split_join_tokens;
+    const enable_t split_join_tokens;
     tsl::htrie_map<char, token_leaf> qtoken_set;
 
     spp::sparse_hash_set<uint64_t> groups_processed;
@@ -364,9 +364,9 @@ struct search_args {
                 const string& default_sorting_field, bool prioritize_exact_match,
                 const bool prioritize_token_position, bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms,
-                size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<infix_t>& infixes,
+                size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, const bool split_join_tokens) :
+                const bool filter_curated_hits, const enable_t split_join_tokens) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -787,9 +787,9 @@ public:
                 const string& default_sorting_field, bool prioritize_exact_match,
                 const bool prioritize_token_position, bool exhaustive_search,
                 size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
-                size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, bool split_join_tokens) const;
+                const bool filter_curated_hits, enable_t split_join_tokens) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 
@@ -885,7 +885,7 @@ public:
                           size_t& exclude_token_ids_size) const;
 
     void do_infix_search(const size_t num_search_fields, const std::vector<search_field_t>& the_fields,
-                         const std::vector<infix_t>& infixes,
+                         const std::vector<enable_t>& infixes,
                          const std::vector<sort_by>& sort_fields,
                          std::vector<std::vector<art_leaf*>>& searched_queries, const size_t group_limit,
                          const std::vector<std::string>& group_by_fields, const size_t max_extra_prefix,
@@ -1006,7 +1006,7 @@ public:
                   const size_t typo_tokens_threshold, const size_t group_limit,
                   const std::vector<std::string>& group_by_fields, bool prioritize_exact_match,
                   const bool exhaustive_search, const size_t concurrency, size_t min_len_1typo, size_t min_len_2typo,
-                  const size_t max_candidates, const std::vector<infix_t>& infixes, const size_t max_extra_prefix,
+                  const size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                   const size_t max_extra_suffix, uint32_t* filter_ids, uint32_t filter_ids_length,
                   const std::set<uint32_t>& curated_ids, const std::vector<uint32_t>& curated_ids_sorted,
                   const size_t num_search_fields, const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,

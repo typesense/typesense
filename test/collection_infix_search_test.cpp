@@ -51,7 +51,7 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
                                  {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -69,7 +69,7 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off}).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
@@ -86,7 +86,7 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {fallback}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -99,7 +99,7 @@ TEST_F(CollectionInfixSearchTest, InfixBasics) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -128,7 +128,7 @@ TEST_F(CollectionInfixSearchTest, InfixOnArray) {
                                  {"model_numbers"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "model_numbers", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -166,7 +166,7 @@ TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
                                  {"title"}, "points: 200", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, "", "", {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -183,7 +183,7 @@ TEST_F(CollectionInfixSearchTest, InfixWithFiltering) {
     results = coll1->search("37IN8", {"title"}, "points:>= 200", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                              spp::sparse_hash_set<std::string>(),
                              spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, "", "2", {}, 0,
-                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                             "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                              4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -216,7 +216,7 @@ TEST_F(CollectionInfixSearchTest, RespectPrefixAndSuffixLimits) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}, 1).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -227,7 +227,7 @@ TEST_F(CollectionInfixSearchTest, RespectPrefixAndSuffixLimits) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}, 2).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -240,7 +240,7 @@ TEST_F(CollectionInfixSearchTest, RespectPrefixAndSuffixLimits) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}, INT16_MAX, 2).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -251,7 +251,7 @@ TEST_F(CollectionInfixSearchTest, RespectPrefixAndSuffixLimits) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}, INT16_MAX, 5).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());
@@ -286,7 +286,7 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
                                  {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always, off}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -297,7 +297,7 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
                             {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off, always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -315,7 +315,7 @@ TEST_F(CollectionInfixSearchTest, InfixSpecificField) {
                             {"title", "description"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {off, always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -346,7 +346,7 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
                                  {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -363,7 +363,7 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
                         {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                         spp::sparse_hash_set<std::string>(),
                         spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                        "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                         4, {always}).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
@@ -376,7 +376,7 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -389,7 +389,7 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
@@ -400,7 +400,7 @@ TEST_F(CollectionInfixSearchTest, InfixDeleteAndUpdate) {
                             {"title"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                             4, {always}).get();
 
     ASSERT_EQ(0, results["found"].get<size_t>());
@@ -444,7 +444,7 @@ TEST_F(CollectionInfixSearchTest, MultiFielInfixSearch) {
                                  {"title", "mpn"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5,
                                  spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
                                  4, {always}).get();
 
     ASSERT_EQ(2, results["found"].get<size_t>());

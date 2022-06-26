@@ -2055,7 +2055,6 @@ TEST_F(CollectionSpecificTest, DroppedTokensShouldNotBeUsedForPrefixSearch) {
 }
 
 TEST_F(CollectionSpecificTest, SearchShouldSplitAndJoinTokens) {
-    // when the first document containing a token already cannot fit compact posting list
     std::vector<field> fields = {field("title", field_types::STRING, false),};
 
     Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
@@ -2112,14 +2111,14 @@ TEST_F(CollectionSpecificTest, SearchShouldSplitAndJoinTokens) {
     results = coll1->search("non stick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, false).get();
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, off).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // don't split when feature is disabled
     results = coll1->search("pressurecooker", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
                             spp::sparse_hash_set<std::string>(),
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
-                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, false).get();
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, off).get();
     ASSERT_EQ(0, results["hits"].size());
 
     // drop tokens should not happen on tokens split
@@ -2131,6 +2130,54 @@ TEST_F(CollectionSpecificTest, SearchShouldSplitAndJoinTokens) {
                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("Pressure Copper vessel", results["hits"][0]["document"]["title"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificTest, SplitJoinTokenAlways) {
+    // even if verbatim matches are found, do split+join anyway
+    std::vector<field> fields = {field("title", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Non stick cookware";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Nonstick cookware";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Non cookware stick";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // return only query match docs as default
+    auto results = coll1->search("non stick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    results = coll1->search("nonstick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // in always mode, both results should be returned
+    results = coll1->search("non stick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, always).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
+
+    results = coll1->search("nonstick", {"title"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}, 0,
+                            spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "title", 20, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000*1000, 4, 7, always).get();
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][2]["document"]["id"].get<std::string>());
 
     collectionManager.drop_collection("coll1");
 }
