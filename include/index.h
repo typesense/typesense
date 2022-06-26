@@ -872,6 +872,7 @@ public:
                              const size_t facet_query_num_typos,
                              const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                              const std::vector<std::string>& group_by_fields,
+                             size_t max_candidates,
                              std::vector<facet_info_t>& facet_infos) const;
 
     void resolve_space_as_typos(std::vector<std::string>& qtokens, const std::string& field_name,

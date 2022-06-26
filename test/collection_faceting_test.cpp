@@ -839,6 +839,41 @@ TEST_F(CollectionFacetingTest, FacetQueryOnStringArray) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionFacetingTest, FacetQueryReturnAllCandidates) {
+    std::vector<field> fields = {field("title", field_types::STRING, true),
+                                 field("points", field_types::INT32, false)};
+
+    std::vector<sort_by> sort_fields = {sort_by("points", "DESC")};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 4, fields, "points").get();
+
+    std::vector<std::string> titles = {
+        "everest", "evergreen", "everlast", "estrange", "energy", "extra"
+    };
+
+    for(size_t i=0; i < titles.size(); i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["points"] = i;
+        doc["title"] = titles[i];
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto res_op = coll1->search("*", {}, "", {"title"}, sort_fields, {0}, 10, 1,
+                                token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "title:e", 30, 5,
+                                "", 10, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, true,
+                                10, {off}, 32767, 32767, 2,
+                                false, false);
+
+    ASSERT_TRUE(res_op.ok());
+
+    auto results = res_op.get();
+    ASSERT_EQ(6, results["facet_counts"][0]["counts"].size());
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionFacetingTest, FacetValuesShouldBeNormalized) {
     std::vector<field> fields = {field("brand", field_types::STRING, true),};
 

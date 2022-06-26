@@ -2524,7 +2524,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
         std::vector<facet_info_t> facet_infos(facets.size());
         compute_facet_infos(facets, facet_query, facet_query_num_typos, all_result_ids, all_result_ids_len,
-                                     group_by_fields, facet_infos);
+                            group_by_fields, max_candidates, facet_infos);
 
         std::vector<std::vector<facet>> facet_batches(num_threads);
         for(size_t i = 0; i < num_threads; i++) {
@@ -2609,7 +2609,7 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
 
     std::vector<facet_info_t> facet_infos(facets.size());
     compute_facet_infos(facets, facet_query, facet_query_num_typos,
-                        &included_ids_vec[0], included_ids_vec.size(), group_by_fields, facet_infos);
+                        &included_ids_vec[0], included_ids_vec.size(), group_by_fields, max_candidates, facet_infos);
     do_facets(facets, facet_query, facet_infos, group_limit, group_by_fields, &included_ids_vec[0], included_ids_vec.size());
 
     all_result_ids_len += curated_topster->size;
@@ -3665,6 +3665,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                                 const size_t facet_query_num_typos,
                                 const uint32_t* all_result_ids, const size_t& all_result_ids_len,
                                 const std::vector<std::string>& group_by_fields,
+                                const size_t max_candidates,
                                 std::vector<facet_info_t>& facet_infos) const {
 
     if(all_result_ids_len == 0) {
@@ -3727,7 +3728,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
                          facet_field, facet_field.faceted_name(),
                          all_result_ids, all_result_ids_len, {}, {}, -1, facet_query_num_typos, searched_queries, topster,
                          groups_processed, &field_result_ids, field_result_ids_len, field_num_results, 0, group_by_fields,
-                         false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, -1, 3, 1000, 4);
+                         false, 4, query_hashes, MAX_SCORE, true, 0, 1, false, -1, 3, 1000, max_candidates);
 
             //LOG(INFO) << "searched_queries.size: " << searched_queries.size();
 
