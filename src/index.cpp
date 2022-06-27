@@ -3145,7 +3145,7 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         }
 
         int64_t scores[3] = {0};
-        int64_t match_score_index = 0;
+        int64_t match_score_index = -1;
 
         compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices, seq_id,
                             max_field_match_score, scores, match_score_index);
@@ -3170,7 +3170,9 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
                   << ", aggregated_score: " << aggregated_score;*/
 
         KV kv(0, searched_queries.size(), 0, seq_id, distinct_id, match_score_index, scores);
-        kv.scores[match_score_index] = aggregated_score;
+        if(match_score_index != -1) {
+            kv.scores[match_score_index] = aggregated_score;
+        }
         topster->add(&kv);
         result_ids.push_back(seq_id);
     });

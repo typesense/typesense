@@ -678,3 +678,48 @@ TEST_F(CollectionSpecificMoreTest, PrefixSearchOnSpecificFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, OrderWithThreeSortFields) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("type", field_types::INT32, false),
+                                 field("valid_from", field_types::INT64, false),
+                                 field("created_at", field_types::INT64, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["name"] = "should be 1st";
+    doc1["type"] = 2;
+    doc1["valid_from"] = 1655741107972;
+    doc1["created_at"] = 1655741107724;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["name"] = "should be 2nd";
+    doc1["type"] = 1;
+    doc1["valid_from"] = 1656309617303;
+    doc1["created_at"] = 1656309617194;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["name"] = "should be 3rd";
+    doc1["type"] = 0;
+    doc1["valid_from"] = 0;
+    doc1["created_at"] = 1656309677131;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    sort_fields = {sort_by("type", "desc"), sort_by("valid_from", "desc"), sort_by("created_at", "desc")};
+
+    auto results = coll1->search("s", {"name"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
