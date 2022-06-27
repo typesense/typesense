@@ -29,7 +29,7 @@ if [[ "$@" == *"--depclean"* ]]; then
 fi
 
 
-TYPESENSE_DEV_IMAGE="typesense-development:29-DEC-2021-1"
+TYPESENSE_DEV_IMAGE="typesense-development:27-JUN-2022-1"
 ARCH_NAME="amd64"
 
 if [[ "$@" == *"--graviton2"* ]]; then
