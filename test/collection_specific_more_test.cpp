@@ -631,3 +631,50 @@ TEST_F(CollectionSpecificMoreTest, SplitTokensCrossFieldMatching) {
     ASSERT_EQ(1, results["hits"].size());
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, PrefixSearchOnSpecificFields) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    // atleast 4 tokens that begin with "girl" to trigger this regression
+    std::vector<std::string> names = {
+        "Jungle Girl", "Jungle Girlz", "Jam Foo1", "Jam Foo2", "Jam Foo3", "Jam Foo4", "Jam Foo"
+    };
+
+    std::vector<std::string> brands = {
+        "Foobar", "Foobar2", "Girlx", "Girly", "Girlz", "Girlz", "Girlzz"
+    };
+
+    for(size_t i = 0; i < names.size(); i++) {
+        nlohmann::json doc1;
+        doc1["name"] = names[i];
+        doc1["brand"] = brands[i];
+        ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    }
+
+    auto results = coll1->search("jungle girl", {"name", "brand"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {false, true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("jam foo", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {true},
+                            0).get();
+
+    ASSERT_EQ(4, results["hits"].size());
+    ASSERT_EQ("6", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("jam foo", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {false},
+                            0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}

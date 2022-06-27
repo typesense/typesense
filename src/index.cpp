@@ -1171,7 +1171,7 @@ void Index::search_all_candidates(const size_t num_search_fields,
         LOG(INFO) << "token_candidates_vec.size(): " << token_candidates_vec.size();
     }*/
 
-    std::unordered_set<std::string> trimmed_candidates;
+    std::set<std::string> trimmed_candidates;
 
     if(token_candidates_vec.size() > 1 && token_candidates_vec.back().candidates.size() > max_candidates) {
         std::vector<uint32_t> temp_ids;
@@ -1187,7 +1187,7 @@ void Index::search_all_candidates(const size_t num_search_fields,
 
             const bool prefix_search = query_tokens.back().is_prefix_searched;
             const uint32_t token_num_typos = query_tokens.back().num_typos;
-            const bool token_prefix = query_tokens.back().is_prefix_searched;
+            const bool token_prefix = (token_str.size() > token_candidates_vec.back().token.value.size());
 
             auto token_c_str = (const unsigned char*) token_str.c_str();
             const size_t token_len = token_str.size() + 1;
