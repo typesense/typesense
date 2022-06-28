@@ -3750,7 +3750,7 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
                 //LOG(INFO) << "si: " << si << ", field_result_ids_len: " << field_result_ids_len;
 
-                for(size_t i = 0; i < std::min<size_t>(1000, field_result_ids_len); i++) {
+                for(size_t i = 0; i < field_result_ids_len; i++) {
                     uint32_t seq_id = field_result_ids[i];
 
                     const auto doc_fvalues_it = field_facet_mapping_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
@@ -3762,7 +3762,8 @@ void Index::compute_facet_infos(const std::vector<facet>& facets, facet_query_t&
 
                     for(auto pl: posting_lists) {
                         if(!posting_t::contains(pl, seq_id)) {
-                            // need to ensure that document ID actually contains both searched_query tokens
+                            // need to ensure that document ID actually contains searched_query tokens
+                            // since `field_result_ids` contains documents matched across all queries
                             id_matched = false;
                             break;
                         }
