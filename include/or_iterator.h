@@ -136,7 +136,7 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
                             break;
                         }
                     } else {
-                        advance_all2(its);
+                        advance_all(its);
                     }
                 } else {
                     advance_non_largest(its);
@@ -144,5 +144,5 @@ bool or_iterator_t::intersect(std::vector<or_iterator_t>& its, result_iter_state
             }
     }
 
-    return false;
+    return true;
 }

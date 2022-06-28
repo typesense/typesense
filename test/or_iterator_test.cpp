@@ -154,3 +154,105 @@ TEST(OrIteratorTest, IntersectTwoListsWith4SubLists) {
         delete p;
     }
 }
+
+TEST(OrIteratorTest, IntersectAndFilterThreeIts) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+
+    std::vector<std::vector<uint32_t>> id_list = {
+        {4207, 29159, 47182, 47250, 47337, 48518, 99820,},
+        {62, 330, 367, 4124, 4207, 4242, 4418, 28740, 29099, 29159, 29284, 40795, 43556, 46779, 47182, 47250, 47322, 48494, 48518, 48633, 98813, 98821, 99069, 99368, 99533, 99670, 99820, 99888, 99973,},
+        {723, 1504, 29038, 29164, 29390, 30890, 34743, 35067, 36466, 40268, 40965, 42161, 43425, 45188, 47326, 47443, 49319, 53043, 58436, 58774, 61123, 70973, 71393, 81575, 82323, 88301, 88502, 88594, 88690, 88951, 90662, 91016, 91915, 92069, 92844, 99820,}
+    };
+
+    posting_list_t* p1 = new posting_list_t(256);
+    posting_list_t* p2 = new posting_list_t(256);
+    posting_list_t* p3 = new posting_list_t(256);
+
+    for(auto id: id_list[0]) {
+        p1->upsert(id, offsets);
+    }
+
+    for(auto id: id_list[1]) {
+        p2->upsert(id, offsets);
+    }
+
+    for(auto id: id_list[2]) {
+        p3->upsert(id, offsets);
+    }
+
+    std::vector<posting_list_t::iterator_t> pits1;
+    std::vector<posting_list_t::iterator_t> pits2;
+    std::vector<posting_list_t::iterator_t> pits3;
+    pits1.push_back(p1->new_iterator());
+    pits2.push_back(p2->new_iterator());
+    pits3.push_back(p3->new_iterator());
+
+    or_iterator_t it1(pits1);
+    or_iterator_t it2(pits2);
+    or_iterator_t it3(pits3);
+
+    std::vector<or_iterator_t> or_its;
+    or_its.push_back(std::move(it1));
+    or_its.push_back(std::move(it2));
+    or_its.push_back(std::move(it3));
+
+    std::vector<uint32_t> filter_ids = {44424, 44425, 44447, 99820, 99834, 99854, 99859, 99963};
+    result_iter_state_t istate(nullptr, 0, &filter_ids[0], filter_ids.size());
+
+    std::vector<uint32_t> results;
+    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
+        results.push_back(id);
+    });
+
+    ASSERT_EQ(1, results.size());
+
+    delete p1;
+    delete p2;
+    delete p3;
+}
+
+TEST(OrIteratorTest, IntersectAndFilterTwoIts) {
+    std::vector<uint32_t> offsets = {0, 1, 3};
+
+    std::vector<std::vector<uint32_t>> id_list = {
+            {4207, 29159, 47182, 47250, 47337, 48518, 99820,},
+            {62, 330, 367, 4124, 4207, 4242, 4418, 28740, 29099, 29159, 29284, 40795, 43556, 46779, 47182, 47250, 47322, 48494, 48518, 48633, 98813, 98821, 99069, 99368, 99533, 99670, 99820, 99888, 99973,},
+            {723, 1504, 29038, 29164, 29390, 30890, 34743, 35067, 36466, 40268, 40965, 42161, 43425, 45188, 47326, 47443, 49319, 53043, 58436, 58774, 61123, 70973, 71393, 81575, 82323, 88301, 88502, 88594, 88690, 88951, 90662, 91016, 91915, 92069, 92844, 99820,}
+    };
+
+    posting_list_t* p1 = new posting_list_t(256);
+    posting_list_t* p2 = new posting_list_t(256);
+
+    for(auto id: id_list[0]) {
+        p1->upsert(id, offsets);
+    }
+
+    for(auto id: id_list[1]) {
+        p2->upsert(id, offsets);
+    }
+
+    std::vector<posting_list_t::iterator_t> pits1;
+    std::vector<posting_list_t::iterator_t> pits2;
+    pits1.push_back(p1->new_iterator());
+    pits2.push_back(p2->new_iterator());
+
+    or_iterator_t it1(pits1);
+    or_iterator_t it2(pits2);
+
+    std::vector<or_iterator_t> or_its;
+    or_its.push_back(std::move(it1));
+    or_its.push_back(std::move(it2));
+
+    std::vector<uint32_t> filter_ids = {44424, 44425, 44447, 99820, 99834, 99854, 99859, 99963};
+    result_iter_state_t istate(nullptr, 0, &filter_ids[0], filter_ids.size());
+
+    std::vector<uint32_t> results;
+    or_iterator_t::intersect(or_its, istate, [&results](uint32_t id, std::vector<or_iterator_t>& its) {
+        results.push_back(id);
+    });
+
+    ASSERT_EQ(1, results.size());
+
+    delete p1;
+    delete p2;
+}

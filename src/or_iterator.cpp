@@ -2,14 +2,14 @@
 
 
 bool or_iterator_t::at_end(const std::vector<or_iterator_t>& its) {
-    // if any iterator is empty, we stop
+    // if any iterator is invalid, we stop
     for(const auto& it : its) {
-        if(it.valid()) {
-            return false;
+        if(!it.valid()) {
+            return true;
         }
     }
 
-    return true;
+    return false;
 }
 
 bool or_iterator_t::at_end2(const std::vector<or_iterator_t>& its) {
