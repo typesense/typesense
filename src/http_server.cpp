@@ -38,6 +38,8 @@ HttpServer::HttpServer(const std::string & version, const std::string & listen_a
     ssl_refresh_timer.timer.expire_at = 0;
     metrics_refresh_timer.timer.expire_at = 0;
 
+    meta_thread_pool = new ThreadPool(4);
+
     accept_ctx->ssl_ctx = nullptr;
 }
 
@@ -414,8 +416,11 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
          !(
              root_resource == "health" || root_resource == "debug" ||
              root_resource == "stats.json" || root_resource == "metrics.json" ||
-             root_resource == "sequence" || root_resource == "operations" || root_resource == "config"
+             root_resource == "sequence" || root_resource == "operations" ||
+             root_resource == "config" || root_resource == "status"
          );
+
+    bool use_meta_thread_pool = (root_resource == "status");
 
     if(needs_readiness_check) {
         bool write_op = is_write_request(root_resource, http_method);
@@ -487,7 +492,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         // Full request body is already available, so we don't care if handler is async or not
         //LOG(INFO) << "Full request body is already available: " << req->entity.len;
         request->last_chunk_aggregate = true;
-        return process_request(request, response, rpath, h2o_handler);
+        return process_request(request, response, rpath, h2o_handler, use_meta_thread_pool);
     } else {
         // Only partial request body is available.
         // If rpath->async_req is true, the request handler function will be invoked multiple times, for each chunk
@@ -610,7 +615,7 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 
         // default value for last_chunk_aggregate is false
         request->last_chunk_aggregate = (is_end_stream == 1);
-        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler);
+        process_request(request, response, custom_generator->rpath, custom_generator->h2o_handler, false);
         return 0;
     }
 
@@ -634,7 +639,8 @@ int HttpServer::async_req_cb(void *ctx, h2o_iovec_t chunk, int is_end_stream) {
 }
 
 int HttpServer::process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response,
-                                route_path *rpath, const h2o_custom_req_handler_t *handler) {
+                                route_path *rpath, const h2o_custom_req_handler_t *handler,
+                                const bool use_meta_thread_pool) {
 
     //LOG(INFO) << "process_request called";
     const std::string& root_resource = (rpath->path_parts.empty()) ? "" : rpath->path_parts[0];
@@ -657,11 +663,13 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
         return 0;
     }
 
-    auto http_server = handler->http_server;
     auto message_dispatcher = handler->http_server->get_message_dispatcher();
 
+    auto thread_pool = use_meta_thread_pool ? handler->http_server->get_meta_thread_pool() :
+                       handler->http_server->get_thread_pool();
+
     // LOG(INFO) << "Before enqueue res: " << response
-    handler->http_server->get_thread_pool()->enqueue([rpath, message_dispatcher, request, response]() {
+    thread_pool->enqueue([rpath, message_dispatcher, request, response]() {
         // call the API handler
         //LOG(INFO) << "Wait for response " << response.get() << ", action: " << rpath->_get_action();
         (rpath->handler)(request, response);
@@ -904,6 +912,9 @@ HttpServer::~HttpServer() {
 
     SSL_CTX_free(accept_ctx->ssl_ctx);
     delete accept_ctx;
+
+    meta_thread_pool->shutdown();
+    delete meta_thread_pool;
 }
 
 http_message_dispatcher* HttpServer::get_message_dispatcher() const {
@@ -931,6 +942,10 @@ bool HttpServer::get_route(uint64_t hash, route_path** found_rpath) {
 
 uint64_t HttpServer::node_state() const {
     return replication_state->node_state();
+}
+
+nlohmann::json HttpServer::node_status() {
+    return replication_state->get_status();
 }
 
 bool HttpServer::on_stream_response_message(void *data) {
@@ -1066,4 +1081,8 @@ int64_t HttpServer::get_num_queued_writes() {
 
 bool HttpServer::is_leader() const {
     return replication_state->is_leader();
+}
+
+ThreadPool* HttpServer::get_meta_thread_pool() const {
+    return meta_thread_pool;
 }

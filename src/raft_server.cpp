@@ -572,7 +572,8 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
         return ;
     }
 
-    bool leader_or_follower = (node->is_leader() || !node->leader_id().is_empty());
+    bool is_leader = node->is_leader();
+    bool leader_or_follower = (is_leader || !node->leader_id().is_empty());
     if(!leader_or_follower) {
         read_caught_up = write_caught_up = false;
         return ;
@@ -624,6 +625,52 @@ void ReplicationState::refresh_catchup_status(bool log_msg) {
         } else {
             this->write_caught_up = true;
         }
+    }
+
+    if(is_leader || !this->read_caught_up) {
+        // no need to re-check status with leader
+        return ;
+    }
+
+    lock.lock();
+
+    if(node->leader_id().is_empty()) {
+        LOG(ERROR) << "Could not get leader status, as node does not have a leader!";
+        return ;
+    }
+
+    const std::string & leader_addr = node->leader_id().to_string();
+    lock.unlock();
+
+    const std::string protocol = api_uses_ssl ? "https" : "http";
+    std::string url = get_node_url_path(leader_addr, "/status", protocol);
+
+    std::string api_res;
+    std::map<std::string, std::string> res_headers;
+    long status_code = HttpClient::get_response(url, api_res, res_headers);
+    if(status_code == 404) {
+        // earlier versions don't have this end-point, so we just ignore
+        return ;
+    }
+
+    if(status_code != 200) {
+        this->read_caught_up = false;
+        return ;
+    }
+
+    // compare leader's applied log with local applied to see if we are lagging
+    nlohmann::json leader_status = nlohmann::json::parse(api_res);
+    if(leader_status.contains("committed_index")) {
+        int64_t leader_committed_index = leader_status["committed_index"].get<int64_t>();
+        if(leader_committed_index <= n_status.committed_index) {
+            // this can happen due to network latency in making the /status call
+            // we will refrain from changing current status
+            return ;
+        }
+        this->read_caught_up = ((leader_committed_index - n_status.committed_index) < healthy_read_lag);
+    } else {
+        // we will refrain from changing current status
+        LOG(ERROR) << "Error, `committed_index` key not found in /status response from leader.";
     }
 }
 
@@ -772,6 +819,25 @@ bool ReplicationState::is_leader() {
     }
 
     return node->is_leader();
+}
+
+nlohmann::json ReplicationState::get_status() {
+    nlohmann::json status;
+
+    std::shared_lock lock(node_mutex);
+    if(!node) {
+        return status;
+    }
+
+    braft::NodeStatus node_status;
+    node->get_status(&node_status);
+    lock.unlock();
+
+    status["state"] = braft::state2str(node_status.state);
+    status["committed_index"] = node_status.committed_index;
+    status["queued_writes"] = batched_indexer->get_queued_writes();
+
+    return status;
 }
 
 void ReplicationState::do_snapshot(const std::string& nodes) {

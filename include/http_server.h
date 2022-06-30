@@ -202,6 +202,8 @@ private:
 
     ThreadPool* thread_pool;
 
+    ThreadPool* meta_thread_pool;
+
     bool (*auth_handler)(std::map<std::string, std::string>& params,
                          std::vector<nlohmann::json>& embedded_params_vec,
                          const std::string& body, const route_path& rpath,
@@ -259,6 +261,8 @@ public:
 
     uint64_t node_state() const;
 
+    nlohmann::json node_status();
+
     void set_auth_handler(bool (*handler)(std::map<std::string, std::string>& params,
                                           std::vector<nlohmann::json>& embedded_params_vec, const std::string& body,
                                           const route_path & rpath, const std::string & auth_key));
@@ -304,13 +308,16 @@ public:
 
     ThreadPool* get_thread_pool() const;
 
+    ThreadPool* get_meta_thread_pool() const;
+
     static constexpr const char* STOP_SERVER_MESSAGE = "STOP_SERVER";
     static constexpr const char* STREAM_RESPONSE_MESSAGE = "STREAM_RESPONSE";
     static constexpr const char* REQUEST_PROCEED_MESSAGE = "REQUEST_PROCEED";
     static constexpr const char* DEFER_PROCESSING_MESSAGE = "DEFER_PROCESSING";
 
-    static int process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response, route_path *rpath,
-                               const h2o_custom_req_handler_t *req_handler);
+    static int process_request(const std::shared_ptr<http_req>& request, const std::shared_ptr<http_res>& response,
+                               route_path *rpath, const h2o_custom_req_handler_t *req_handler,
+                               bool use_meta_thread_pool);
 
     static void on_deferred_process_request(h2o_timer_t *entry);
 

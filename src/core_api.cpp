@@ -282,11 +282,9 @@ bool get_stats_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     return true;
 }
 
-bool get_log_sequence(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    const uint64_t seq_num = collectionManager.get_store()->get_latest_seq_number();
-    res->content_type_header = "text/plain; charset=utf8";
-    res->set_body(200, std::to_string(seq_num));
+bool get_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
+    nlohmann::json status = server->node_status();
+    res->set_body(200, status.dump());
     return true;
 }
 

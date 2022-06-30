@@ -70,7 +70,7 @@ void master_server_routes() {
     server->get("/debug", get_debug);
     server->get("/health", get_health);
     server->post("/health", post_health);
-    server->get("/sequence", get_log_sequence);
+    server->get("/status", get_status);
 
     server->post("/operations/snapshot", post_snapshot, false, true);
     server->post("/operations/vote", post_vote, false, false);

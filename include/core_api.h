@@ -102,7 +102,7 @@ bool get_metrics_json(const std::shared_ptr<http_req>& req, const std::shared_pt
 
 bool get_stats_json(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
-bool get_log_sequence(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
+bool get_status(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res);
 
 // operations
 

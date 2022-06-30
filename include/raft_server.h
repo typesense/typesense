@@ -253,6 +253,8 @@ public:
 
     bool is_leader();
 
+    nlohmann::json get_status();
+
 private:
 
     friend class ReplicationClosure;
