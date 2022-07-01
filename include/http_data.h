@@ -234,6 +234,7 @@ struct http_req {
 
     std::atomic<bool> is_http_v1;
     std::atomic<bool> is_diposed;
+    std::string client_ip = "0.0.0.0";
 
     http_req(): _req(nullptr), route_hash(1),
                 first_chunk_aggregate(true), last_chunk_aggregate(false),
@@ -247,12 +248,12 @@ struct http_req {
 
     http_req(h2o_req_t* _req, const std::string & http_method, const std::string & path_without_query, uint64_t route_hash,
             const std::map<std::string, std::string>& params,
-            std::vector<nlohmann::json>& embedded_params_vec, const std::string& body):
+            std::vector<nlohmann::json>& embedded_params_vec, const std::string& body, const std::string& client_ip):
             _req(_req), http_method(http_method), path_without_query(path_without_query), route_hash(route_hash),
             params(params), embedded_params_vec(embedded_params_vec),
             first_chunk_aggregate(true), last_chunk_aggregate(false),
             chunk_len(0), body(body), body_index(0), data(nullptr), ready(false),
-            log_index(0), is_diposed(false) {
+            log_index(0), is_diposed(false), client_ip(client_ip) {
 
         start_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -276,7 +277,7 @@ struct http_req {
             AppMetrics::get_instance().increment_duration(metric_identifier, ms_since_start);
             AppMetrics::get_instance().increment_write_metrics(route_hash, ms_since_start);
 
-            if(config.get_log_slow_requests_time_ms() >= 0 && int(ms_since_start) > config.get_log_slow_requests_time_ms()) {
+            if(config.get_log_slow_requests_time_ms() >= 0 && int(ms_since_start) >= config.get_log_slow_requests_time_ms()) {
                 // log slow request if logging is enabled
                 std::string query_string = "?";
                 for(const auto& kv: params) {
@@ -285,13 +286,8 @@ struct http_req {
                     }
                 }
                 std::string full_url_path = metric_identifier + query_string;
-                std::string req_ip = "0.0.0.0";
-                if(!is_diposed) {
-                    req_ip = http_req::get_ip_addr(_req).ip;
-                }
-
                 LOG(INFO) << "SLOW REQUEST: " << "(" + std::to_string(ms_since_start) + " ms) "
-                          << req_ip << " " << full_url_path;
+                          << client_ip << " " << full_url_path;
             }
         }
     }

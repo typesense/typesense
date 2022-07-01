@@ -310,11 +310,18 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     std::string metric_identifier = http_method + " " + path_without_query;
     AppMetrics::get_instance().increment_count(metric_identifier, 1);
 
+    std::string client_ip = "0.0.0.0";
+
+    if(Config::get_instance().get_enable_access_logging() ||
+       Config::get_instance().get_log_slow_requests_time_ms() >= 0) {
+        client_ip = http_req::get_ip_addr(req).ip;
+    }
+
     if(Config::get_instance().get_enable_access_logging()) {
         uint64_t now = std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count();
         auto epoch_millis = now / 1000;
-        AppMetrics::get_instance().write_access_log(epoch_millis, http_req::get_ip_addr(req).ip, metric_identifier);
+        AppMetrics::get_instance().write_access_log(epoch_millis, client_ip.c_str(), metric_identifier);
     }
 
     // Handle CORS
@@ -462,7 +469,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
-                                                                   route_hash, query_map, embedded_params_vec, body);
+                                                                   route_hash, query_map, embedded_params_vec, body,
+                                                                   client_ip);
 
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
