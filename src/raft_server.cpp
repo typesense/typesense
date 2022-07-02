@@ -128,6 +128,7 @@ int ReplicationState::start(const butil::EndPoint & peering_endpoint, const int 
 
     LOG(INFO) << "Node last_index: " << node_status.last_index;
 
+    std::unique_lock lock(node_mutex);
     this->node = node;
     return 0;
 }
@@ -826,6 +827,10 @@ nlohmann::json ReplicationState::get_status() {
 
     std::shared_lock lock(node_mutex);
     if(!node) {
+        // `node` is not yet initialized (probably loading snapshot)
+        status["state"] = "NOT_READY";
+        status["committed_index"] = 0;
+        status["queued_writes"] = 0;
         return status;
     }
 
