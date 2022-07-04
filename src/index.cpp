@@ -2035,15 +2035,16 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
             bool resolved_override = static_filter_query_eval(override, query_tokens, filters);
 
             if(resolved_override) {
-                if(!override->remove_matched_tokens) {
-                    return ;
+                if(override->remove_matched_tokens) {
+                    std::vector<std::string> rule_tokens;
+                    Tokenizer(override->rule.query, true).tokenize(rule_tokens);
+                    std::set<std::string> rule_token_set(rule_tokens.begin(), rule_tokens.end());
+                    remove_matched_tokens(query_tokens, rule_token_set);
                 }
 
-                std::vector<std::string> rule_tokens;
-                Tokenizer(override->rule.query, true).tokenize(rule_tokens);
-                std::set<std::string> rule_token_set(rule_tokens.begin(), rule_tokens.end());
-                remove_matched_tokens(query_tokens, rule_token_set);
-                return ;
+                if(override->stop_processing) {
+                    return;
+                }
             }
         } else {
             // need to extract placeholder field names from the search query, filter on them and rewrite query
@@ -2072,7 +2073,9 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                     }
                 }
 
-                return ;
+                if(override->stop_processing) {
+                    return;
+                }
             }
         }
     }

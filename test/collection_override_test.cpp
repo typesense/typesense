@@ -1809,6 +1809,214 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionOverrideTest, StaticFilteringMultipleRuleMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["tags"] = {"twitter"};
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Track Shoes";
+    doc2["tags"] = {"starred"};
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Track Shoes";
+    doc3["tags"] = {"twitter", "starred"};
+    doc3["points"] = 10;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_filter1_json = {
+            {"id",   "static-filter-1"},
+            {
+             "rule", {
+                             {"query", "twitter"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"stop_processing", false},
+            {"filter_by", "tags: twitter"}
+    };
+
+    override_t override_filter1;
+    auto op = override_t::parse(override_filter1_json, "static-filter-1", override_filter1);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter1);
+
+    nlohmann::json override_filter2_json = {
+            {"id",   "static-filter-2"},
+            {
+             "rule", {
+                             {"query", "starred"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"stop_processing", false},
+            {"filter_by", "tags: starred"}
+    };
+
+    override_t override_filter2;
+    op = override_t::parse(override_filter2_json, "static-filter-2", override_filter2);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter2);
+
+    auto results = coll1->search("starred twitter", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // when stop_processing is enabled (default is true)
+    override_filter1_json.erase("stop_processing");
+    override_filter2_json.erase("stop_processing");
+
+    override_t override_filter1_reset;
+    op = override_t::parse(override_filter1_json, "static-filter-1", override_filter1_reset);
+    ASSERT_TRUE(op.ok());
+    override_t override_filter2_reset;
+    op = override_t::parse(override_filter2_json, "static-filter-2", override_filter2_reset);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter1_reset);
+    coll1->add_override(override_filter2_reset);
+
+    results = coll1->search("starred twitter", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionOverrideTest, DynamicFilteringMultipleRuleMatch) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),
+                                 field("tags", field_types::STRING_ARRAY, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["brand"] = "Nike";
+    doc1["tags"] = {"twitter"};
+    doc1["points"] = 3;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Track Shoes";
+    doc2["brand"] = "Adidas";
+    doc2["tags"] = {"starred"};
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Track Shoes";
+    doc3["brand"] = "Nike";
+    doc3["tags"] = {"twitter", "starred"};
+    doc3["points"] = 10;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_filter1_json = {
+            {"id",   "dynamic-filter-1"},
+            {
+             "rule", {
+                             {"query", "{brand}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"stop_processing", false},
+            {"filter_by", "tags: twitter"}
+    };
+
+    override_t override_filter1;
+    auto op = override_t::parse(override_filter1_json, "dynamic-filter-1", override_filter1);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter1);
+
+    nlohmann::json override_filter2_json = {
+            {"id",   "dynamic-filter-2"},
+            {
+             "rule", {
+                             {"query", "{tags}"},
+                             {"match", override_t::MATCH_CONTAINS}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"stop_processing", false},
+            {"filter_by", "tags: starred"}
+    };
+
+    override_t override_filter2;
+    op = override_t::parse(override_filter2_json, "dynamic-filter-2", override_filter2);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter2);
+
+    auto results = coll1->search("starred nike", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // when stop_processing is enabled (default is true)
+    override_filter1_json.erase("stop_processing");
+    override_filter2_json.erase("stop_processing");
+
+    override_t override_filter1_reset;
+    op = override_t::parse(override_filter1_json, "dynamic-filter-1", override_filter1_reset);
+    ASSERT_TRUE(op.ok());
+    override_t override_filter2_reset;
+    op = override_t::parse(override_filter2_json, "dynamic-filter-2", override_filter2_reset);
+    ASSERT_TRUE(op.ok());
+
+    coll1->add_override(override_filter1_reset);
+    coll1->add_override(override_filter2_reset);
+
+    results = coll1->search("starred nike", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(0, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
     Collection *coll1;
 

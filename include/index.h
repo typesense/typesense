@@ -108,6 +108,8 @@ struct override_t {
     bool remove_matched_tokens = false;
     bool filter_curated_hits = false;
 
+    bool stop_processing = true;
+
     std::string sort_by;
 
     override_t() = default;
@@ -199,6 +201,12 @@ struct override_t {
             }
         }
 
+        if(override_json.count("stop_processing") != 0) {
+            if (!override_json["stop_processing"].is_boolean()) {
+                return Option<bool>(400, "The `stop_processing` must be a boolean.");
+            }
+        }
+
         if(!id.empty()) {
             override.id = id;
         } else if(override_json.count("id") != 0) {
@@ -243,6 +251,10 @@ struct override_t {
 
         if(override_json.count("filter_curated_hits") != 0) {
             override.filter_curated_hits = override_json["filter_curated_hits"].get<bool>();
+        }
+
+        if(override_json.count("stop_processing") != 0) {
+            override.stop_processing = override_json["stop_processing"].get<bool>();
         }
 
         // we have to also detect if it is a dynamic query rule
@@ -299,6 +311,7 @@ struct override_t {
 
         override["remove_matched_tokens"] = remove_matched_tokens;
         override["filter_curated_hits"] = filter_curated_hits;
+        override["stop_processing"] = stop_processing;
 
         return override;
     }
