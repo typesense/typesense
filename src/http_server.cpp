@@ -278,7 +278,6 @@ void HttpServer::on_res_generator_dispose(void *self) {
     }
 
     // without this, warning about memory allocated by std::string leaking happens
-    std::string().swap(custom_generator->h2o_handler->api_auth_key_sent);
     delete custom_generator;
 }
 
@@ -398,14 +397,13 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
 
     // Extract auth key from header. If that does not exist, look for a GET parameter.
     ssize_t auth_header_cursor = h2o_find_header_by_str(&req->headers, http_req::AUTH_HEADER, strlen(http_req::AUTH_HEADER), -1);
+    std::string api_auth_key_sent;
 
     if(auth_header_cursor != -1) {
         h2o_iovec_t & slot = req->headers.entries[auth_header_cursor].value;
-        const std::string api_auth_key_sent = std::string(slot.base, slot.len);
-        // NOTE: directly using `h2o_handler->api_auth_key_sent` without an intermediate string causes memory errors
-        h2o_handler->api_auth_key_sent = api_auth_key_sent;
+        api_auth_key_sent = std::string(slot.base, slot.len);
     } else if(query_map.count(http_req::AUTH_HEADER) != 0) {
-        h2o_handler->api_auth_key_sent = query_map[http_req::AUTH_HEADER];
+        api_auth_key_sent = query_map[http_req::AUTH_HEADER];
     }
 
     route_path *rpath = nullptr;
@@ -460,7 +458,7 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
         // multi_search needs to be handled later because the API key could be part of request body and
         // the whole request body might not be available right now.
         bool authenticated = h2o_handler->http_server->auth_handler(query_map, embedded_params_vec, body, *rpath,
-                                                                    h2o_handler->api_auth_key_sent);
+                                                                    api_auth_key_sent);
         if(!authenticated) {
             std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                   "` header must be sent.\"}";
@@ -469,8 +467,8 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     }
 
     std::shared_ptr<http_req> request = std::make_shared<http_req>(req, rpath->http_method, path_without_query,
-                                                                   route_hash, query_map, embedded_params_vec, body,
-                                                                   client_ip);
+                                                                   route_hash, query_map, embedded_params_vec,
+                                                                   api_auth_key_sent, body, client_ip);
 
     // add custom generator with a dispose function for cleaning up resources
     h2o_custom_generator_t* custom_gen = new h2o_custom_generator_t;
@@ -656,7 +654,7 @@ int HttpServer::process_request(const std::shared_ptr<http_req>& request, const 
     if(root_resource == "multi_search") {
         // We can authenticate only when the full request body is available
         bool authenticated = handler->http_server->auth_handler(request->params, request->embedded_params_vec,
-                                                                request->body, *rpath, handler->api_auth_key_sent);
+                                                                request->body, *rpath, request->api_auth_key);
         if(!authenticated) {
             std::string message = std::string("{\"message\": \"Forbidden - a valid `") + http_req::AUTH_HEADER +
                                   "` header must be sent.\"}";

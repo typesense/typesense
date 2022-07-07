@@ -251,6 +251,13 @@ TEST_F(AuthManagerTest, VerifyAuthentication) {
                                            {collection_key_t("collection1", coll_a_key.value),
                                             collection_key_t("collectionB", coll_b_key.value)},
                                            sparams, embedded_params));
+
+    // bad collection allow regexp
+    api_key_t coll_c_key = api_key_t("coll_c", "one action key", {"documents:search"}, {"*coll_c"}, FUTURE_TS);
+    auth_manager.create_key(coll_c_key);
+    ASSERT_FALSE(auth_manager.authenticate("documents:search",
+                                           {collection_key_t("coll_c", coll_c_key.value),},
+                                           sparams, embedded_params));
 }
 
 TEST_F(AuthManagerTest, GenerationOfAPIAction) {

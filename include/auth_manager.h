@@ -117,6 +117,8 @@ private:
     bool auth_against_key(const std::string& req_collection, const std::string& action,
                           const api_key_t &api_key, const bool search_only) const;
 
+    static bool regexp_match(const std::string& value, const std::string& regexp);
+
 public:
 
     static const size_t GENERATED_KEY_LEN = 32;
