@@ -22,7 +22,6 @@ class HttpServer;
 struct h2o_custom_req_handler_t {
     h2o_handler_t super;
     HttpServer* http_server;
-    std::string api_auth_key_sent;
 };
 
 struct h2o_custom_generator_t {
