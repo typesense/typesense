@@ -176,6 +176,15 @@ bool AuthManager::authenticate(const std::string& action,
     return (num_keys_matched == collection_keys.size());
 }
 
+bool AuthManager::regexp_match(const std::string& value, const std::string& regexp) {
+    try {
+        return std::regex_match (value, std::regex(regexp));
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "Error while matching regexp " << regexp << " against value " << value;
+        return false;
+    }
+}
+
 bool AuthManager::auth_against_key(const std::string& req_collection, const std::string& action,
                                    const api_key_t& api_key, const bool search_only) const {
 
@@ -221,7 +230,7 @@ bool AuthManager::auth_against_key(const std::string& req_collection, const std:
 
     for(const std::string& allowed_collection: api_key.collections) {
         if(allowed_collection == "*" || (allowed_collection == req_collection) || req_collection.empty() ||
-           std::regex_match (req_collection, std::regex(allowed_collection))) {
+            regexp_match(req_collection, allowed_collection)) {
             coll_allowed = true;
             break;
         }
