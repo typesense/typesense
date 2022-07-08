@@ -602,6 +602,117 @@ TEST_F(CollectionOverrideTest, FilterCuratedHitsSlideToCoverMissingSlots) {
     ASSERT_EQ("11", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionOverrideTest, SimpleOverrideStopProcessing) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["price"] = 399.99;
+    doc1["points"] = 30;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Fast Joggers";
+    doc2["price"] = 49.99;
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Comfortable Sneakers";
+    doc3["price"] = 19.99;
+    doc3["points"] = 1;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json_include = {
+            {"id", "include-rule-1"},
+            {
+             "rule", {
+                           {"query", "shoes"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            },
+            {"stop_processing", false}
+    };
+
+    // first 2 hits won't match the filter, 3rd position should float up to position 1
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "2";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_t override_include1;
+    auto op = override_t::parse(override_json_include, "include-rule-1", override_include1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_include1);
+
+    override_json_include["id"] = "include-rule-2";
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "1";
+    override_json_include["includes"][0]["position"] = 2;
+
+    override_t override_include2;
+    op = override_t::parse(override_json_include, "include-rule-2", override_include2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_include2);
+
+    auto results = coll1->search("shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][2]["document"]["id"].get<std::string>());
+
+    // now with stop processing enabled for the first rule
+    override_include1.stop_processing = true;
+    coll1->add_override(override_include1);
+
+    results = coll1->search("shoes", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // check that default value for stop_processing is true
+
+    nlohmann::json override_json_test = {
+        {"id", "include-rule-test"},
+        {
+         "rule", {
+                   {"query", "fast"},
+                   {"match", override_t::MATCH_CONTAINS}
+               }
+        },
+    };
+
+    override_json_test["includes"] = nlohmann::json::array();
+    override_json_test["includes"][0] = nlohmann::json::object();
+    override_json_test["includes"][0]["id"] = "2";
+    override_json_test["includes"][0]["position"] = 1;
+
+    override_t override_include_test;
+    op = override_t::parse(override_json_test, "include-rule-test", override_include_test);
+    ASSERT_TRUE(op.ok());
+    ASSERT_TRUE(override_include_test.stop_processing);
+}
+
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {
     auto pinned_hits = "13:1,4:2";
 

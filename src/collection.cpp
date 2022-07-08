@@ -494,6 +494,10 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
 
                 filter_curated_hits = override.filter_curated_hits;
                 curated_sort_by = override.sort_by;
+
+                if(override.stop_processing) {
+                    break;
+                }
             }
         }
     }
