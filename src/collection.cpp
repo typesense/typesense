@@ -454,7 +454,6 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
             // ID-based overrides are applied first as they take precedence over filter-based overrides
             if(!override.filter_by.empty()) {
                 filter_overrides.push_back(&override);
-                continue;
             }
 
             if ((override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
@@ -482,7 +481,8 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                     }
                 }
 
-                if(override.remove_matched_tokens) {
+                if(override.remove_matched_tokens && override.filter_by.empty()) {
+                    // don't prematurely remove tokens from query because dynamic filtering will require them
                     StringUtils::replace_all(query, override.rule.query, "");
                     StringUtils::trim(query);
                     if(query.empty()) {
@@ -1078,7 +1078,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                            field_locale, pre_segmented_query);
 
         // process filter overrides first, before synonyms (order is important)
-        index->process_filter_overrides(filter_overrides, q_include_tokens, token_order, filters);
+
+        // included_ids, excluded_ids
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filters,
+                                 included_ids, excluded_ids);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
             auto& q_include_token = q_include_tokens[i];
@@ -1639,6 +1642,43 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
                 if(leaf) {
                     highlight_item.qtoken_leaves.insert(q_token, token_leaf(leaf, q_token.size(), 0, false));
                 }
+            }
+        }
+    }
+}
+
+void Collection::process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+                                          std::vector<std::string>& q_include_tokens,
+                                          token_ordering token_order,
+                                          std::vector<filter>& filters,
+                                          std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                          std::vector<uint32_t>& excluded_ids) const {
+
+    std::vector<const override_t*> matched_dynamic_overrides;
+    index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
+                                    filters, matched_dynamic_overrides);
+
+    // we will check the dynamic overrides to see if they also have include/exclude
+    std::set<uint32_t> excluded_set;
+
+    for(auto matched_dynamic_override: matched_dynamic_overrides) {
+        for(const auto& hit: matched_dynamic_override->drop_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+            if(seq_id_op.ok()) {
+                excluded_ids.push_back(seq_id_op.get());
+                excluded_set.insert(seq_id_op.get());
+            }
+        }
+
+        for(const auto& hit: matched_dynamic_override->add_hits) {
+            Option<uint32_t> seq_id_op = doc_id_to_seq_id(hit.doc_id);
+            if(!seq_id_op.ok()) {
+                continue;
+            }
+            uint32_t seq_id = seq_id_op.get();
+            bool excluded = (excluded_set.count(seq_id) != 0);
+            if(!excluded) {
+                included_ids.emplace_back(seq_id, hit.position);
             }
         }
     }

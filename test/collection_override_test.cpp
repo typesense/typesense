@@ -713,6 +713,74 @@ TEST_F(CollectionOverrideTest, SimpleOverrideStopProcessing) {
     ASSERT_TRUE(override_include_test.stop_processing);
 }
 
+TEST_F(CollectionOverrideTest, IncludeOverrideWithFilterBy) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("price", field_types::FLOAT, true),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["price"] = 399.99;
+    doc1["points"] = 30;
+
+    nlohmann::json doc2;
+    doc2["id"] = "1";
+    doc2["name"] = "Fast Shoes";
+    doc2["price"] = 49.99;
+    doc2["points"] = 5;
+
+    nlohmann::json doc3;
+    doc3["id"] = "2";
+    doc3["name"] = "Comfortable Shoes";
+    doc3["price"] = 199.99;
+    doc3["points"] = 1;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump()).ok());
+    ASSERT_TRUE(coll1->add(doc3.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json_include = {
+            {"id", "include-rule-1"},
+            {
+             "rule", {
+                           {"query", "shoes"},
+                           {"match", override_t::MATCH_EXACT}
+                   }
+            },
+            {"filter_curated_hits", false},
+            {"stop_processing", false},
+            {"remove_matched_tokens", false},
+            {"filter_by", "price: >55"}
+    };
+
+    override_json_include["includes"] = nlohmann::json::array();
+    override_json_include["includes"][0] = nlohmann::json::object();
+    override_json_include["includes"][0]["id"] = "2";
+    override_json_include["includes"][0]["position"] = 1;
+
+    override_t override_include1;
+    auto op = override_t::parse(override_json_include, "include-rule-1", override_include1);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_include1);
+
+    auto results = coll1->search("shoes", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {
     auto pinned_hits = "13:1,4:2";
 
@@ -1232,6 +1300,27 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
     ASSERT_TRUE(op.ok());
     coll1->add_override(override);
 
+    override_json = {
+            {"id",   "dynamic-brand-filter"},
+            {
+             "rule", {
+                     {"query", "{brand}"},
+                     {"match", override_t::MATCH_EXACT}
+                 }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "brand: {brand}"}
+    };
+
+    override_json["includes"] = nlohmann::json::array();
+    override_json["includes"][0] = nlohmann::json::object();
+    override_json["includes"][0]["id"] = "0";
+    override_json["includes"][0]["position"] = 1;
+
+    op = override_t::parse(override_json, "dynamic-brand-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
     results = coll1->search("shoes", {"name", "category", "brand"}, "",
                                        {}, sort_fields, {2, 2, 2}, 10).get();
 
@@ -1253,6 +1342,14 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // dynamic brand filter + explicit ID include
+    results = coll1->search("adidas", {"name", "category", "brand"}, "",
+                            {}, sort_fields, {2, 2, 2}, 10).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     // with bad override
 

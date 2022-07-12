@@ -2023,7 +2023,8 @@ bool Index::resolve_override(const std::vector<std::string>& rule_tokens, const 
 void Index::process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                      std::vector<std::string>& query_tokens,
                                      token_ordering token_order,
-                                     std::vector<filter>& filters) const {
+                                     std::vector<filter>& filters,
+                                     std::vector<const override_t*>& matched_dynamic_overrides) const {
 
     std::shared_lock lock(mutex);
     size_t orig_filters_size = filters.size();
@@ -2067,6 +2068,9 @@ void Index::process_filter_overrides(const std::vector<const override_t*>& filte
                 Option<bool> filter_parse_op = filter::parse_filter_query(filter_by_clause, search_schema, store, "",
                                                                           filters);
                 if(filter_parse_op.ok()) {
+                    // have to ensure that dropped hits take precedence over added hits
+                    matched_dynamic_overrides.push_back(override);
+
                     if(override->remove_matched_tokens) {
                         std::vector<std::string>& tokens = query_tokens;
                         remove_matched_tokens(tokens, absorbed_tokens);

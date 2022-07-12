@@ -1032,7 +1032,8 @@ public:
     void process_filter_overrides(const std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& query_tokens,
                                   token_ordering token_order,
-                                  std::vector<filter>& filters) const;
+                                  std::vector<filter>& filters,
+                                  std::vector<const override_t*>& matched_dynamic_overrides) const;
 
     void compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                              std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,

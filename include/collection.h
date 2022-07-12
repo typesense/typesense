@@ -181,6 +181,13 @@ private:
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
 
+    void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
+                                  std::vector<std::string>& q_include_tokens,
+                                  token_ordering token_order,
+                                  std::vector<filter>& filters,
+                                  std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
+                                  std::vector<uint32_t>& excluded_ids) const;
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
