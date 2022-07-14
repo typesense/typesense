@@ -1832,9 +1832,9 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
     synonym_t synonym1{"sneakers-shoes", {"sneakers"}, {{"shoes"}} };
     synonym_t synonym2{"boots-shoes", {"boots"}, {{"shoes"}} };
     synonym_t synonym3{"exciting-amazing", {"exciting"}, {{"amazing"}} };
-    coll1->add_synonym(synonym1);
-    coll1->add_synonym(synonym2);
-    coll1->add_synonym(synonym3);
+    coll1->add_synonym(synonym1.to_view_json());
+    coll1->add_synonym(synonym2.to_view_json());
+    coll1->add_synonym(synonym3.to_view_json());
 
     std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
 
@@ -2007,7 +2007,7 @@ TEST_F(CollectionOverrideTest, StaticFiltering) {
 
     // with synonym for expensive: should NOT match as synonyms are resolved after override substitution
     synonym_t synonym1{"costly-expensive", {"costly"}, {{"expensive"}} };
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     results = coll1->search("costly", {"name"}, "",
                             {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
@@ -2280,7 +2280,7 @@ TEST_F(CollectionOverrideTest, SynonymsAppliedToOverridenQuery) {
     coll1->add_override(override_contains);
 
     synonym_t synonym1{"shoes-sneakers", {"shoes"}, {{"sneakers"}} };
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     auto results = coll1->search("expensive shoes", {"name"}, "",
                                  {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();

@@ -129,7 +129,7 @@ Option<bool> SynonymIndex::add_synonym(const std::string & collection_name, cons
 
     write_lock.unlock();
 
-    bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_json().dump());
+    bool inserted = store->insert(get_synonym_key(collection_name, synonym.id), synonym.to_view_json().dump());
     if(!inserted) {
         return Option<bool>(500, "Error while storing the synonym on disk.");
     }

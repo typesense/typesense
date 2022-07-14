@@ -246,9 +246,9 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     synonym_t synonym2("id2", {"mobile", "phone"}, {{"samsung", "phone"}});
     synonym_t synonym3("id3", {}, {{"football"}, {"foot", "ball"}});
 
-    collection1->add_synonym(synonym1);
-    collection1->add_synonym(synonym2);
-    collection1->add_synonym(synonym3);
+    ASSERT_TRUE(collection1->add_synonym(synonym1.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(synonym2.to_view_json()).ok());
+    ASSERT_TRUE(collection1->add_synonym(synonym3.to_view_json()).ok());
 
     collection1->remove_synonym("id2");
 

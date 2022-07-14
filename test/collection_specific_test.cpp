@@ -657,7 +657,7 @@ TEST_F(CollectionSpecificTest, DeleteOverridesAndSynonymsOnDiskDuringCollDrop) {
 
     // add synonym
     synonym_t synonym1{"ipod-synonyms", {}, {{"ipod"}, {"i", "pod"}, {"pod"}} };
-    coll1->add_synonym(synonym1);
+    coll1->add_synonym(synonym1.to_view_json());
 
     collectionManager.drop_collection("coll1");
 

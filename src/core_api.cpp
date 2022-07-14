@@ -1578,16 +1578,7 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     }
 
     syn_json["id"] = synonym_id;
-
-    synonym_t synonym;
-    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
-
-    if(!syn_op.ok()) {
-        res->set(syn_op.code(), syn_op.error());
-        return false;
-    }
-
-    Option<bool> upsert_op = collection->add_synonym(synonym);
+    Option<bool> upsert_op = collection->add_synonym(syn_json);
 
     if(!upsert_op.ok()) {
         res->set(upsert_op.code(), upsert_op.error());

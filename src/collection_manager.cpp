@@ -1134,8 +1134,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
 
     for(const auto & collection_synonym_json: collection_synonym_jsons) {
         nlohmann::json collection_synonym = nlohmann::json::parse(collection_synonym_json);
-        synonym_t synonym(collection_synonym);
-        collection->add_synonym(synonym);
+        collection->add_synonym(collection_synonym);
     }
 
     // Fetch records from the store and re-create memory index

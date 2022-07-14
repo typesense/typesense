@@ -379,7 +379,7 @@ public:
 
     bool get_synonym(const std::string& id, synonym_t& synonym);
 
-    Option<bool> add_synonym(const synonym_t& synonym);
+    Option<bool> add_synonym(const nlohmann::json& syn_json);
 
     Option<bool> remove_synonym(const std::string & id);
 

@@ -21,22 +21,6 @@ struct synonym_t {
 
     }
 
-    explicit synonym_t(const nlohmann::json& synonym) {
-        id = synonym["id"].get<std::string>();
-        if(synonym.count("root") != 0) {
-            root = synonym["root"].get<std::vector<std::string>>();
-        }
-        synonyms = synonym["synonyms"].get<std::vector<std::vector<std::string>>>();
-    }
-
-    nlohmann::json to_json() const {
-        nlohmann::json obj;
-        obj["id"] = id;
-        obj["root"] = root;
-        obj["synonyms"] = synonyms;
-        return obj;
-    }
-
     nlohmann::json to_view_json() const {
         nlohmann::json obj;
         obj["id"] = id;
@@ -74,13 +58,19 @@ struct synonym_t {
             }
 
             std::vector<std::string> tokens;
-            Tokenizer(synonym, true).tokenize(tokens);
+            StringUtils::split(synonym, tokens, " ");
+            for(auto& token: tokens) {
+                StringUtils::tolowercase(token);
+            }
             syn.synonyms.push_back(tokens);
         }
 
         if(synonym_json.count("root") != 0) {
             std::vector<std::string> tokens;
-            Tokenizer(synonym_json["root"], true).tokenize(tokens);
+            StringUtils::split(synonym_json["root"], tokens, " ");
+            for(auto& token: tokens) {
+                StringUtils::tolowercase(token);
+            }
             syn.root = tokens;
         }
 

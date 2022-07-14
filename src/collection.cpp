@@ -2580,8 +2580,15 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
     return Option<bool>(true);
 }
 
-Option<bool> Collection::add_synonym(const synonym_t& synonym) {
+Option<bool> Collection::add_synonym(const nlohmann::json& syn_json) {
     std::shared_lock lock(mutex);
+    synonym_t synonym;
+    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
+
+    if(!syn_op.ok()) {
+        return syn_op;
+    }
+
     return synonym_index->add_synonym(name, synonym);
 }
 
