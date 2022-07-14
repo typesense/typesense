@@ -2843,6 +2843,12 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     // we will first do a pass at basic validations and pick out fields to be deleted
     std::set<std::string> delete_field_names;
 
+    // ensure that drop values are at the top: required for drop+add use case
+    std::sort(schema_changes["fields"].begin(), schema_changes["fields"].end(),
+              [](nlohmann::json& a, nlohmann::json& b) {
+                    return a.contains("drop") > b.contains("drop");
+              });
+
     for(const auto& kv: schema_changes["fields"].items()) {
         if (!kv.value().is_object()) {
             return Option<bool>(400, err_msg);

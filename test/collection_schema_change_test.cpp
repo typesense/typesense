@@ -983,3 +983,45 @@ TEST_F(CollectionSchemaChangeTest, ChangeFromStringStarToAutoField) {
     ASSERT_EQ(2, coll1->get_fields().size());
     ASSERT_EQ(1, coll1->get_dynamic_fields().size());
 }
+
+TEST_F(CollectionSchemaChangeTest, ChangeFromGeoToIntField) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "loc", "type": "geopoint"}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["loc"] = {1, 2};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // try to alter to a bad type (int32)
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "loc", "type": "int32"},
+            {"name": "loc", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+
+    schema_changes = R"({
+        "fields": [
+            {"name": "loc", "drop": true},
+            {"name": "loc", "type": "int32"}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+}
