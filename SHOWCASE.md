@@ -43,6 +43,7 @@ This is a selection of sites and apps using Typesense.
 | [Job Ads Now](https://www.jobadsnow.com) | Job Ads Now is a jobs search engine focusing on the best candidate experience. Blazing fast search and filters by salary, location, bonus and more. You can also read the job highlights (TL;DR) for each job identified from the origina job post using AI | 
 | [OpenTacos](https://tacos.openbeta.io) | Free and open source rock climbing route wiki |
 | [Bikifi](https://bikifi.com/) | A free education platform that brings premium educational content to anyone, anywhere in Turkey |
+| [MyHearty](https://myhearty.my) | A one-stop charity website to fundraise, donate, volunteer and apply for aids. It comes with a full-featured search UI (instant search, geosearch) for campaigns, volunteer events and aids. |
 
 ### Typesense Demos
 
