@@ -1591,6 +1591,7 @@ void Index::search_candidates(const uint8_t & field_id, bool field_is_array,
     }
 }
 
+// TODO:
 void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                          const std::vector<filter>& filters,
                          const bool enable_short_circuit) const {

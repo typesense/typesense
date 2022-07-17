@@ -7,8 +7,10 @@
 #include <vector>
 #include <random>
 #include <map>
+#include <queue>
 #include "wyhash_v5.h"
 #include <unicode/normalizer2.h>
+#include "option.h"
 
 struct StringUtils {
 
@@ -331,4 +333,47 @@ struct StringUtils {
     static char* get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen);
 
     static size_t get_num_chars(const std::string& text);
+    
+    static Option<bool> tokenize(std::string filter_query, std::queue<std::string>& tokens) {
+        auto size = filter_query.size();
+        for(auto i = 0; i < size;) {
+            auto c = filter_query[i];
+            if (c == ' ') {
+                i++;
+                continue;
+            }
+
+            if (c == '(') {
+                tokens.push("(");
+                i++;
+            } else if (c == ')') {
+                tokens.push(")");
+                i++;
+            } else if (c == '&') {
+                if (i+1 >= size || filter_query[i + 1] != '&') {
+                    return Option<bool>(400, "Could not parse the filter filter_query.");
+                }
+                tokens.push("&&");
+                i += 2;
+            } else if (c == '|') {
+                if (i+1 >= size || filter_query[i + 1] != '|') {
+                    return Option<bool>(400, "Could not parse the filter filter_query.");
+                }
+                tokens.push("||");
+                i += 2;
+            } else {
+                std::stringstream ss;
+                bool inBacktick = false;
+                do {
+                    ss << c;
+                    c = filter_query[++i];
+                    if (c == '`') {
+                        inBacktick = !inBacktick;
+                    }
+                } while (i < size && (inBacktick || (c != '(' && c != ')' && c != '|' && c != '&')));
+                tokens.push(ss.str());
+            }
+        }
+        return Option<bool>(true);
+    }
 };
