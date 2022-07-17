@@ -422,6 +422,8 @@ struct field {
     static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields);
 };
 
+struct filter_node_t;
+
 struct filter {
     std::string field_name;
     std::vector<std::string> values;
@@ -500,6 +502,26 @@ struct filter {
                                            const Store* store,
                                            const std::string& doc_id_prefix,
                                            std::vector<filter>& filters);
+
+    static Option<bool> parse_filter_query2(const std::string& filter_query,
+                                            const std::unordered_map<std::string, field>& search_schema,
+                                            const Store* store,
+                                            const std::string& doc_id_prefix,
+                                            filter_node_t* root);
+};
+
+struct filter_node_t {
+    std::string token;
+    filter_node_t *left;
+    filter_node_t *right;
+    filter filter;
+
+    filter_node_t(std::string token) : token(std::move(token)), left(nullptr), right(nullptr) {}
+    filter_node_t(std::string token, filter_node_t *left, filter_node_t *right) : token(std::move(token)), left(left), right(right) {}
+
+    bool isOperator() {
+        return token == "&&" || token == "||";
+    }
 };
 
 namespace sort_field_const {
