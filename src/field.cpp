@@ -914,15 +914,6 @@ Option<bool> initFilter(filter_node_t *&node,
             return Option<bool>(400, "Error with filter field `" + _field.name +
                                          "`: Unidentified field data type, see docs for supported data types.");
         }
-
-        if (!node->filter.comparators.empty() && node->filter.comparators.front() == NOT_EQUALS)
-        {
-            exclude_filters.push_back(f);
-        }
-        else
-        {
-            filters.push_back(f);
-        }
     }
 
     return Option<bool>(true);
@@ -934,8 +925,6 @@ Option<bool> parse_filter_query2(const std::string &filter_query,
                                  const std::string &doc_id_prefix,
                                  filter_node_t *root)
 {
-    //    std::vector<filter> exclude_filters;  // to ensure that they go last in the list of filters
-
     std::queue<std::string> tokens;
     Option<bool> tokenize_op = StringUtils::tokenize(filter_query, tokens);
     if (!tokenize_op.ok())
