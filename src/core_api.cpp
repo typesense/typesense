@@ -691,7 +691,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
     const char *DIRTY_VALUES = "dirty_values";
-    const char *RETURN_RES = "return_res";
+    const char *RETURN_DOC = "return_doc";
     const char *RETURN_ID = "return_id";
 
     if(req->params.count(BATCH_SIZE) == 0) {
@@ -706,8 +706,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         req->params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
-    if(req->params.count(RETURN_RES) == 0) {
-        req->params[RETURN_RES] = "false";
+    if(req->params.count(RETURN_DOC) == 0) {
+        req->params[RETURN_DOC] = "false";
     }
 
     if(req->params.count(RETURN_ID) == 0) {
@@ -729,9 +729,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    if(req->params[RETURN_RES] != "true" && req->params[RETURN_RES] != "false") {
+    if(req->params[RETURN_DOC] != "true" && req->params[RETURN_DOC] != "false") {
         res->final = true;
-        res->set_400("Parameter `" + std::string(RETURN_RES) + "` must be a true|false.");
+        res->set_400("Parameter `" + std::string(RETURN_DOC) + "` must be a true|false.");
         stream_response(req, res);
         return false;
     }
@@ -818,10 +818,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         nlohmann::json document;
 
         const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES]);
-        const bool& return_res = req->params[RETURN_RES] == "true";
+        const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_res, return_id);
+                                                       dirty_values, return_doc, return_id);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
