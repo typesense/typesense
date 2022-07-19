@@ -104,6 +104,35 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     ASSERT_EQ("1", next_collection_id);
 }
 
+TEST_F(CollectionManagerTest, ParallelCollectionCreation) {
+    std::vector<std::thread> threads;
+    for(size_t i = 0; i < 10; i++) {
+        threads.emplace_back([i, &collectionManager = collectionManager]() {
+            nlohmann::json coll_json = R"({
+                "name": "parcoll",
+                "fields": [
+                    {"name": "title", "type": "string"}
+                ]
+            })"_json;
+            coll_json["name"] = coll_json["name"].get<std::string>() + std::to_string(i+1);
+            auto coll_op = collectionManager.create_collection(coll_json);
+            ASSERT_TRUE(coll_op.ok());
+        });
+    }
+
+    for(auto& thread : threads){
+        thread.join();
+    }
+
+    int64_t prev_id = INT32_MAX;
+
+    for(auto coll: collectionManager.get_collections()) {
+        // collections are sorted by ID, in descending order
+        ASSERT_TRUE(coll->get_collection_id() < prev_id);
+        prev_id = coll->get_collection_id();
+    }
+}
+
 TEST_F(CollectionManagerTest, ShouldInitCollection) {
     nlohmann::json collection_meta1 =
             nlohmann::json::parse("{\"name\": \"foobar\", \"id\": 100, \"fields\": [{\"name\": \"org\", \"type\": "
