@@ -546,6 +546,9 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
     size_t num_queued = 0;
     size_t batch_index = 0;
 
+    // local is need to propogate the thread local inside threads launched below
+    auto local_write_log_index = write_log_index;
+
     for(size_t thread_id = 0; thread_id < num_threads && batch_index < iter_batch.size(); thread_id++) {
         size_t batch_len = window_size;
 
@@ -556,6 +559,7 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         num_queued++;
 
         index->thread_pool->enqueue([&, batch_index, batch_len]() {
+            write_log_index = local_write_log_index;
             validate_and_preprocess(index, iter_batch, batch_index, batch_len, default_sorting_field, search_schema,
                                     fallback_field_type, token_separators, symbols_to_index, do_validation);
 
@@ -604,6 +608,8 @@ size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_b
         num_queued++;
 
         index->thread_pool->enqueue([&]() {
+            write_log_index = local_write_log_index;
+
             const field& f = (field_name == "id") ?
                              field("id", field_types::STRING, false) : search_schema.at(field_name);
             try {
