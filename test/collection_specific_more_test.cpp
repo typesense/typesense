@@ -723,3 +723,28 @@ TEST_F(CollectionSpecificMoreTest, OrderWithThreeSortFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, LongString) {
+    std::vector<field> fields = {field("name", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::string name;
+    for(size_t i = 0; i < 100; i++) {
+        name += "foo" + std::to_string(i) + " ";
+    }
+
+    nlohmann::json doc1;
+    doc1["name"] = name;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search(name, {"name"},
+                                 "", {}, sort_fields, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    collectionManager.drop_collection("coll1");
+}

@@ -2776,7 +2776,8 @@ void Index::fuzzy_search_fields(const std::vector<search_field_t>& the_fields,
 
     auto product = []( long long a, std::vector<int>& b ) { return a*b.size(); };
     long long n = 0;
-    long long int N = std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
+    long long int N = token_to_costs.size() > 30 ? 1 :
+                      std::accumulate(token_to_costs.begin(), token_to_costs.end(), 1LL, product);
 
     const long long combination_limit = exhaustive_search ? Index::COMBINATION_MAX_LIMIT : Index::COMBINATION_MIN_LIMIT;
 
