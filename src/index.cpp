@@ -689,7 +689,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                     fhashvalues.hashes[i] = field_index_it->second.facet_hashes[i];
                 }
 
-                facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM]->emplace(seq_id, std::move(fhashvalues));
+                if(facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM] == nullptr) {
+                    LOG(ERROR) << "Error, facet index not initialized for field " << afield.name;
+                } else {
+                    facet_index_v3[afield.name][seq_id % ARRAY_FACET_DIM]->emplace(seq_id, std::move(fhashvalues));
+                }
             }
 
             if(record.points > max_score) {
