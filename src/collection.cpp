@@ -3095,6 +3095,12 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                         break;
                     }
 
+                    // to prevent confusion we also disallow dynamic field names that contain ".*"
+                    if((kv.key() != ".*" && kv.key().find(".*") != std::string::npos)) {
+                        skip_field = true;
+                        break;
+                    }
+
                     new_field = dynamic_field.second;
                     new_field.name = fname;
                     found_dynamic_field = true;
