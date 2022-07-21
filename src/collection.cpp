@@ -725,7 +725,8 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
     return Option<bool>(true);
 }
 
-Option<nlohmann::json> Collection::search(const std::string & raw_query, const std::vector<std::string>& search_fields,
+Option<nlohmann::json> Collection::search(const std::string & raw_query,
+                                  const std::vector<std::string>& raw_search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
@@ -771,11 +772,11 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     search_begin = std::chrono::high_resolution_clock::now();
     search_cutoff = false;
 
-    if(raw_query != "*" && search_fields.empty()) {
+    if(raw_query != "*" && raw_search_fields.empty()) {
         return Option<nlohmann::json>(400, "No search fields specified for the query.");
     }
 
-    if(!search_fields.empty() && !query_by_weights.empty() && search_fields.size() != query_by_weights.size()) {
+    if(!raw_search_fields.empty() && !query_by_weights.empty() && raw_search_fields.size() != query_by_weights.size()) {
         return Option<nlohmann::json>(400, "Number of weights in `query_by_weights` does not match "
                                            "number of `query_by` fields.");
     }
@@ -785,21 +786,21 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
                                       std::to_string(GROUP_LIMIT_MAX) + ".");
     }
 
-    if(!search_fields.empty() && search_fields.size() != num_typos.size()) {
+    if(!raw_search_fields.empty() && raw_search_fields.size() != num_typos.size()) {
         if(num_typos.size() != 1) {
             return Option<nlohmann::json>(400, "Number of weights in `num_typos` does not match "
                                                "number of `query_by` fields.");
         }
     }
 
-    if(!search_fields.empty() && search_fields.size() != prefixes.size()) {
+    if(!raw_search_fields.empty() && raw_search_fields.size() != prefixes.size()) {
         if(prefixes.size() != 1) {
             return Option<nlohmann::json>(400, "Number of prefix values in `prefix` does not match "
                                                "number of `query_by` fields.");
         }
     }
 
-    if(!search_fields.empty() && search_fields.size() != infixes.size()) {
+    if(!raw_search_fields.empty() && raw_search_fields.size() != infixes.size()) {
         if(infixes.size() != 1) {
             return Option<nlohmann::json>(400, "Number of infix values in `infix` does not match "
                                                "number of `query_by` fields.");
@@ -810,32 +811,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
         group_limit = 0;
     }
 
-    // process weights for search fields
-    std::vector<search_field_t> weighted_search_fields;
-    size_t max_weight = 20;
-
-    if(query_by_weights.empty()) {
-        max_weight = search_fields.size();
-        for(size_t i=1; i <= search_fields.size(); i++) {
-            query_by_weights.push_back((max_weight - i) + 1);
-        }
-    } else {
-        max_weight = *std::max_element(query_by_weights.begin(), query_by_weights.end());
-    }
-
-    for(size_t i=0; i < search_fields.size(); i++) {
-        const auto& search_field = search_fields[i];
-        // NOTE: we support zero-weight only for weighting and not priority since priority is used for typos, where
-        // relative ordering is still useful.
-        const auto weight = query_by_weights[i];
-        const auto priority = (max_weight - query_by_weights[i]) + 1;
-        weighted_search_fields.push_back({search_field, priority, weight});
-    }
-
-    std::vector<facet> facets;
-
     // validate search fields
-    for(const std::string & field_name: search_fields) {
+    for(const std::string & field_name: raw_search_fields) {
         if(search_schema.count(field_name) == 0) {
             std::string error = "Could not find a field named `" + field_name + "` in the schema.";
             return Option<nlohmann::json>(404, error);
@@ -869,6 +846,15 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
             return Option<nlohmann::json>(400, error);
         }
     }
+
+    // process weights for search fields
+    std::vector<std::string> reordered_search_fields;
+    std::vector<search_field_t> weighted_search_fields;
+    process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields, reordered_search_fields);
+
+    const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? raw_search_fields
+                                                                                    : reordered_search_fields;
+    std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
     std::vector<filter> filters;
@@ -1553,6 +1539,75 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query, const s
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return Option<nlohmann::json>(result);
+}
+
+void Collection::process_search_field_weights(const std::vector<std::string>& raw_search_fields,
+                                              std::vector<uint32_t>& query_by_weights,
+                                              std::vector<search_field_t>& weighted_search_fields,
+                                              std::vector<std::string>& reordered_search_fields) const {
+    const bool weights_given = !query_by_weights.empty();
+
+    // weights, if given, must be in desc order
+    bool weights_in_desc_order = true;
+    bool weights_undex_max = true;
+
+    for(size_t i=0; i < raw_search_fields.size(); i++) {
+        if(!weights_given) {
+            size_t weight = std::max<int>(0, (int(Index::FIELD_MAX_WEIGHT) - i));
+            query_by_weights.push_back(weight);
+            weighted_search_fields.push_back({raw_search_fields[i], weight});
+        } else {
+            // check if weights are already sorted
+            auto prev_weight = (i == 0) ? query_by_weights[0] : query_by_weights[i-1];
+            weights_in_desc_order = weights_in_desc_order && (query_by_weights[i] <= prev_weight);
+            weights_undex_max = weights_undex_max && (query_by_weights[i] <= Index::FIELD_MAX_WEIGHT);
+        }
+    }
+
+    if(weights_given && (!weights_in_desc_order || !weights_undex_max)) {
+        // ensure that search fields are sorted on their corresponding weight
+        std::vector<std::pair<size_t, size_t>> field_index_and_weights;
+
+        for(size_t i=0; i < raw_search_fields.size(); i++) {
+            field_index_and_weights.emplace_back(i, query_by_weights[i]);
+        }
+
+        std::sort(field_index_and_weights.begin(), field_index_and_weights.end(), [](const auto& a, const auto& b) {
+            return a.second > b.second;
+        });
+
+        for(size_t i = 0; i < field_index_and_weights.size(); i++) {
+            const auto& index_weight = field_index_and_weights[i];
+            reordered_search_fields.push_back(raw_search_fields[index_weight.first]);
+
+            // we have to also normalize weights to 0 to Index::FIELD_MAX_WEIGHT range.
+            if(i == 0) {
+                query_by_weights[i] = Index::FIELD_MAX_WEIGHT;
+            } else {
+                auto curr_weight = field_index_and_weights[i].second;
+                auto prev_weight = field_index_and_weights[i-1].second;
+
+                if(curr_weight == prev_weight) {
+                    query_by_weights[i] = query_by_weights[i-1];
+                } else {
+                    // bound to be lesser than prev_weight since weights have been sorted desc
+                    uint32_t bounded_weight = std::max(0, int(query_by_weights[i-1]) - 1);
+                    query_by_weights[i] = bounded_weight;
+                }
+            }
+        }
+    }
+
+    if(weighted_search_fields.empty()) {
+        const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? raw_search_fields
+                                                                                        : reordered_search_fields;
+
+        for(size_t i=0; i < search_fields.size(); i++) {
+            const auto& search_field = search_fields[i];
+            const auto weight = query_by_weights[i];
+            weighted_search_fields.push_back({search_field, weight});
+        }
+    }
 }
 
 void Collection::process_highlight_fields(const std::vector<std::string>& search_fields,

@@ -68,7 +68,6 @@ struct tok_candidates {
 
 struct search_field_t {
     std::string name;
-    size_t priority;
     size_t weight;
 };
 
@@ -701,6 +700,9 @@ public:
 
     // for limiting number of fields that can be searched on
     enum {FIELD_LIMIT_NUM = 100};
+
+    // Values 0 to 15 are allowed
+    enum {FIELD_MAX_WEIGHT = 15};
 
     enum {COMBINATION_MAX_LIMIT = 10000};
     enum {COMBINATION_MIN_LIMIT = 10};

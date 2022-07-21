@@ -1261,8 +1261,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringExactMatchBasics) {
                                  {}, sort_fields, {2, 2, 2}, 10).get();
 
     ASSERT_EQ(3, results["hits"].size());
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
     // with override, results will be different
@@ -1891,8 +1891,8 @@ TEST_F(CollectionOverrideTest, DynamicFilteringWithSynonyms) {
 
     ASSERT_EQ(2, results["hits"].size());
 
-    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
-    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
 
     // keyword has no override, but synonym's override is used
     results = coll1->search("exciting", {"name", "category", "brand"}, "",

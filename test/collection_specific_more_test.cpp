@@ -748,3 +748,195 @@ TEST_F(CollectionSpecificMoreTest, LongString) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
+    std::vector<field> fields = {field("f1", field_types::STRING, false),
+                                 field("f2", field_types::STRING, false),
+                                 field("f3", field_types::STRING, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "alpha";
+    doc1["f3"] = "alpha";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "alpha";
+    doc1["f3"] = "beta";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["f1"] = "alpha";
+    doc1["f2"] = "beta";
+    doc1["f3"] = "gamma";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("alpha", {"f1", "f2", "f3"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {3, 2, 1}).get();
+
+    ASSERT_EQ(3, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, CrossFieldWeightIsNotAugmentated) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("type", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    nlohmann::json doc1;
+    doc1["title"] = "Nike Shoerack";
+    doc1["type"] = "shoe_rack";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["title"] = "Nike Air Force 1";
+    doc1["type"] = "shoe";
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("nike shoe", {"type", "title"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true},
+                                 0, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {5, 1}).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    collectionManager.drop_collection("coll1");
+}
+
+TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("brand", field_types::STRING, false),
+                                 field("type", field_types::STRING, false)};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields).get();
+
+    std::vector<std::string> raw_search_fields = {"title", "brand", "type"};
+    std::vector<uint32_t> query_by_weights = {110, 25, 55};
+    std::vector<search_field_t> weighted_search_fields;
+    std::vector<std::string> reordered_search_fields;
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ(3, reordered_search_fields.size());
+    ASSERT_EQ(3, weighted_search_fields.size());
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("type", weighted_search_fields[1].name);
+    ASSERT_EQ("brand", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(14, weighted_search_fields[1].weight);
+    ASSERT_EQ(13, weighted_search_fields[2].weight);
+
+    // same weights
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {15, 15, 15};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(15, weighted_search_fields[1].weight);
+    ASSERT_EQ(15, weighted_search_fields[2].weight);
+
+    // same weights large
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {800, 800, 800};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(15, weighted_search_fields[1].weight);
+    ASSERT_EQ(15, weighted_search_fields[2].weight);
+
+    // weights desc ordered but exceed max weight
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights = {603, 602, 601};
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("title", weighted_search_fields[0].name);
+    ASSERT_EQ("brand", weighted_search_fields[1].name);
+    ASSERT_EQ("type", weighted_search_fields[2].name);
+
+    ASSERT_EQ(15, weighted_search_fields[0].weight);
+    ASSERT_EQ(14, weighted_search_fields[1].weight);
+    ASSERT_EQ(13, weighted_search_fields[2].weight);
+
+    // number of fields > 15 (must cap least important fields to weight 0)
+    raw_search_fields.clear();
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights.clear();
+
+    for(size_t i = 0; i < 17; i++) {
+        raw_search_fields.push_back("field" + std::to_string(17 - i));
+        query_by_weights.push_back(17 - i);
+    }
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("field3", weighted_search_fields[14].name);
+    ASSERT_EQ("field2", weighted_search_fields[15].name);
+    ASSERT_EQ("field1", weighted_search_fields[16].name);
+
+    ASSERT_EQ(1, weighted_search_fields[14].weight);
+    ASSERT_EQ(0, weighted_search_fields[15].weight);
+    ASSERT_EQ(0, weighted_search_fields[16].weight);
+
+    // when weights are not given
+    raw_search_fields.clear();
+    weighted_search_fields.clear();
+    reordered_search_fields.clear();
+    query_by_weights.clear();
+
+    for(size_t i = 0; i < 17; i++) {
+        raw_search_fields.push_back("field" + std::to_string(17 - i));
+    }
+
+    coll1->process_search_field_weights(raw_search_fields, query_by_weights, weighted_search_fields,
+                                        reordered_search_fields);
+
+    ASSERT_EQ("field3", weighted_search_fields[14].name);
+    ASSERT_EQ("field2", weighted_search_fields[15].name);
+    ASSERT_EQ("field1", weighted_search_fields[16].name);
+
+    ASSERT_EQ(1, weighted_search_fields[14].weight);
+    ASSERT_EQ(0, weighted_search_fields[15].weight);
+    ASSERT_EQ(0, weighted_search_fields[16].weight);
+
+    collectionManager.drop_collection("coll1");
+}
