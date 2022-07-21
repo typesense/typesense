@@ -243,7 +243,7 @@ It offers you a few thousand configuration parameters to get to your ideal confi
 who have the bandwidth to get it production-ready, regularly monitor it and scale it, especially when they have a need to store 
 billions of documents and petabytes of data (eg: logs).
 
-Typesense is built specifically for decreasing the "time to market" for a delightful search experience. It is a light-weight
+Typesense is built specifically for decreasing the "time to market" for a delightful search experience. It's a light-weight
 yet powerful & scaleable alternative that focuses on Developer Happiness and Experience with a clean well-documented API, clear semantics 
 and smart defaults so it just works well out-of-the-box, without you having to turn many knobs.
 
@@ -260,7 +260,7 @@ fast growing sites and apps quickly run into search & indexing limits, accompani
 Typesense on the other hand is an open-source product that you can run on your own infrastructure or
 use our managed SaaS offering - [Typesense Cloud](https://cloud.typesense.org). 
 The open source version is free to use (besides of course your own infra costs). 
-With Typesense Cloud we do not charge by records or search operations. Instead, you get a dedicated cluster
+With Typesense Cloud we don't charge by records or search operations. Instead, you get a dedicated cluster
 and you can throw as much data and traffic at it as it can handle. You only pay a fixed hourly cost & bandwidth charges 
 for it, depending on the configuration your choose, similar to most modern cloud platforms. 
 
