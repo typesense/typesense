@@ -1334,6 +1334,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 wrapper_doc["curated"] = true;
             } else {
                 wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
+
+                wrapper_doc["text_match_info"] = nlohmann::json::object();
+                populate_text_match_info(wrapper_doc["text_match_info"],
+                                         field_order_kv->scores[field_order_kv->match_score_index]);
             }
 
             nlohmann::json geo_distances;
@@ -1608,6 +1612,20 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
             weighted_search_fields.push_back({search_field, weight});
         }
     }
+}
+
+void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_score) const {
+    // [ sign | tokens_matched | best_field_score | best_field_weight | num_field_matches ]
+    // [  1   |       4        |        48       |       8            |         3         ]  (64 bits)
+
+    // 0 0001 000000000010000000111111111011001000000000100000 00000110 011
+
+    info["score"] = std::to_string(match_score);
+
+    info["tokens_matched"] = (match_score >> 59);
+    info["best_field_score"] = std::to_string((match_score << 5) >> (8 + 3 + 5));
+    info["best_field_weight"] = ((match_score << 53) >> (3 + 53));
+    info["fields_matched"] = ((match_score << 61) >> (61));
 }
 
 void Collection::process_highlight_fields(const std::vector<std::string>& search_fields,

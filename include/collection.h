@@ -56,7 +56,7 @@ private:
         uint64_t match_score;
         std::vector<std::vector<std::string>> matched_tokens;
 
-        highlight_t() {
+        highlight_t(): field_index(0), match_score(0)  {
 
         }
 
@@ -187,6 +187,8 @@ private:
                                   std::vector<filter>& filters,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids) const;
+
+    void populate_text_match_info(nlohmann::json& info, uint64_t match_score) const;
 
 public:
 

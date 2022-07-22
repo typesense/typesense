@@ -3181,22 +3181,23 @@ void Index::search_across_fields(const std::vector<token_t>& query_tokens,
         // NOTE: `query_len` is total tokens matched across fields.
         // Within a field, only a subset can match
 
-        // [ query_len | max_field_score | max_field_weight | num_matching_fields]
-        // [    4      |        48       |       8          |         3          ]  (63 bits)
+        // [ sign | tokens_matched | max_field_score | max_field_weight | num_matching_fields ]
+        // [   1  |        4       |        48       |       8          |         3           ]  (64 bits)
 
         auto max_field_weight = std::min<size_t>(FIELD_MAX_WEIGHT, the_fields[max_field_match_index].weight);
         num_matching_fields = std::min<size_t>(7, num_matching_fields);
 
         uint64_t aggregated_score = (int64_t(query_len) << 59) |
-                                    (int64_t(max_field_match_score) << 8) |
-                                    (int64_t(max_field_weight) << 4) |
+                                    (int64_t(max_field_match_score) << 11) |
+                                    (int64_t(max_field_weight) << 3) |
                                     (int64_t(num_matching_fields) << 0);
 
-        /*LOG(INFO) << "seq_id: " << seq_id << ", query_tokens.size(): " << query_tokens.size()
+        /*LOG(INFO) << "seq_id: " << seq_id << ", query_len: " << query_len
                   << ", syn_orig_num_tokens: " << syn_orig_num_tokens
                   << ", max_field_match_score: " << max_field_match_score
                   << ", max_field_match_index: " << max_field_match_index
                   << ", field_weight: " << max_field_weight
+                  << ", num_matching_fields: " << num_matching_fields
                   << ", aggregated_score: " << aggregated_score;*/
 
         KV kv(0, searched_queries.size(), 0, seq_id, distinct_id, match_score_index, scores);

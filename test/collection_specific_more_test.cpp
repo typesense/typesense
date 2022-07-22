@@ -787,6 +787,24 @@ TEST_F(CollectionSpecificMoreTest, RelevanceConsiderAllFields) {
     ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][2]["document"]["id"].get<std::string>());
 
+    // verify match score component values
+    ASSERT_EQ("578730123365711899", results["hits"][0]["text_match_info"]["score"].get<std::string>());
+    ASSERT_EQ(3, results["hits"][0]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(2, results["hits"][1]["text_match_info"]["fields_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][2]["text_match_info"]["fields_matched"].get<size_t>());
+
+    ASSERT_EQ(1, results["hits"][0]["text_match_info"]["tokens_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][1]["text_match_info"]["tokens_matched"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][2]["text_match_info"]["tokens_matched"].get<size_t>());
+
+    ASSERT_EQ("1108091339008", results["hits"][0]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091339008", results["hits"][1]["text_match_info"]["best_field_score"].get<std::string>());
+    ASSERT_EQ("1108091339008", results["hits"][2]["text_match_info"]["best_field_score"].get<std::string>());
+
+    ASSERT_EQ(3, results["hits"][0]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][1]["text_match_info"]["best_field_weight"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][2]["text_match_info"]["best_field_weight"].get<size_t>());
+
     collectionManager.drop_collection("coll1");
 }
 
