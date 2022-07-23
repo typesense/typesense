@@ -511,16 +511,16 @@ struct filter {
 };
 
 struct filter_node_t {
-    std::string token;
+    std::string expression;
     filter_node_t *left;
     filter_node_t *right;
-    filter filter;
+    filter filter_exp;
 
-    filter_node_t(std::string token) : token(std::move(token)), left(nullptr), right(nullptr) {}
-    filter_node_t(std::string token, filter_node_t *left, filter_node_t *right) : token(std::move(token)), left(left), right(right) {}
+    filter_node_t(std::string expression) : expression(std::move(expression)), left(nullptr), right(nullptr) {}
+    filter_node_t(std::string expression, filter_node_t *left, filter_node_t *right) : expression(std::move(expression)), left(left), right(right) {}
 
     bool isOperator() {
-        return token == "&&" || token == "||";
+        return expression == "&&" || expression == "||";
     }
 };
 
