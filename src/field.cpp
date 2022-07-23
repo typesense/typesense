@@ -88,7 +88,6 @@ Option<bool> filter::parse_geopoint_filter_value(std::string &raw_value,
     return Option<bool>(true);
 }
 
-// TODO:
 Option<bool> filter::parse_filter_query(const string &simple_filter_query,
                                         const tsl::htrie_map<char, field> &search_schema,
                                         const Store *store,
@@ -459,9 +458,9 @@ Option<bool> filter::parse_filter_query(const string &simple_filter_query,
 
     return Option<bool>(true);
 }
-bool isOperator(const std::string &token)
+bool isOperator(const std::string &expression)
 {
-    return token == "&&" || token == "||";
+    return expression == "&&" || expression == "||";
 }
 
 // https://en.wikipedia.org/wiki/Shunting_yard_algorithm
@@ -471,10 +470,10 @@ Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> 
 
     while (!tokens.empty())
     {
-        auto token = tokens.front();
+        auto expression = tokens.front();
         tokens.pop();
 
-        if (isOperator(token))
+        if (isOperator(expression))
         {
             // We only have two operators &&, || having the same precedence and both being left associative.
             while (!operatorStack.empty() && operatorStack.top() != "(")
@@ -483,13 +482,13 @@ Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> 
                 operatorStack.pop();
             }
 
-            operatorStack.push(token);
+            operatorStack.push(expression);
         }
-        else if (token == "(")
+        else if (expression == "(")
         {
-            operatorStack.push(token);
+            operatorStack.push(expression);
         }
-        else if (token == ")")
+        else if (expression == ")")
         {
             while (!operatorStack.empty() && operatorStack.top() != "(")
             {
@@ -499,13 +498,13 @@ Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> 
 
             if (operatorStack.empty() || operatorStack.top() != "(")
             {
-                return Option<bool>(400, "Could not parse the filter query.");
+                return Option<bool>(400, "Could not parse the filter query: unbalanced parentheses.");
             }
             operatorStack.pop();
         }
         else
         {
-            postfix.push(token);
+            postfix.push(expression);
         }
     }
 
@@ -513,7 +512,7 @@ Option<bool> toPostfix(std::queue<std::string> &tokens, std::queue<std::string> 
     {
         if (operatorStack.top() == "(")
         {
-            return Option<bool>(400, "Could not parse the filter query.");
+            return Option<bool>(400, "Could not parse the filter query: unbalanced parentheses.");
         }
         postfix.push(operatorStack.top());
         operatorStack.pop();
@@ -529,31 +528,33 @@ Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root)
 
     while (!postfix.empty())
     {
-        auto token = postfix.front();
+        auto expression = postfix.front();
         postfix.pop();
 
         filter_node_t *filter_node;
-        if (isOperator(token))
+        if (isOperator(expression))
         {
+            auto message = "Could not parse the filter query: unbalanced `" + expression + "` operands.";
+
             if (nodeStack.empty())
             {
-                return Option<bool>(400, "Could not parse the filter query.");
+                return Option<bool>(400, message);
             }
             auto operandB = nodeStack.top();
             nodeStack.pop();
 
             if (nodeStack.empty())
             {
-                return Option<bool>(400, "Could not parse the filter query.");
+                return Option<bool>(400, message);
             }
             auto operandA = nodeStack.top();
             nodeStack.pop();
 
-            filter_node = new filter_node_t(token, operandA, operandB);
+            filter_node = new filter_node_t(expression, operandA, operandB);
         }
         else
         {
-            filter_node = new filter_node_t(token);
+            filter_node = new filter_node_t(expression);
         }
 
         nodeStack.push(filter_node);
@@ -561,36 +562,36 @@ Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root)
 
     if (nodeStack.empty())
     {
-        return Option<bool>(400, "Could not parse the filter query.");
+        return Option<bool>(400, "Filter query cannot be empty.");
     }
 
     root = nodeStack.top();
     return Option<bool>(true);
 }
 
-Option<bool> initFilter(filter_node_t *&node,
+Option<bool> initFilter(filter_node_t *&b node,
                         const std::unordered_map<std::string, field> &search_schema,
                         const Store *store,
                         const std::string &doc_id_prefix)
 {
-    auto token = node->token;
-    if (!isOperator(token))
+    auto expression = node->expression;
+    if (!isOperator(expression))
     {
         // split into [field_name, value]
-        size_t found_index = token.find(':');
+        size_t found_index = expression.find(':');
 
         if (found_index == std::string::npos)
         {
             return Option<bool>(400, "Could not parse the filter query.");
         }
 
-        std::string &&field_name = token.substr(0, found_index);
+        std::string &&field_name = expression.substr(0, found_index);
         StringUtils::trim(field_name);
 
         if (field_name == "id")
         {
             filter id_filter;
-            std::string &&raw_value = token.substr(found_index + 1, std::string::npos);
+            std::string &&raw_value = expression.substr(found_index + 1, std::string::npos);
             StringUtils::trim(raw_value);
             std::string empty_filter_err = "Error with filter field `id`: Filter value cannot be empty.";
 
@@ -641,8 +642,8 @@ Option<bool> initFilter(filter_node_t *&node,
                         continue;
                     }
 
-                    node->filter.values.push_back(seq_id_str);
-                    node->filter.comparators.push_back(id_comparator);
+                    node->filter_exp.values.push_back(seq_id_str);
+                    node->filter_exp.comparators.push_back(id_comparator);
                 }
             }
             else
@@ -654,8 +655,8 @@ Option<bool> initFilter(filter_node_t *&node,
                 StoreStatus seq_id_status = store->get(doc_id_prefix + doc_ids[0], seq_id_str);
                 if (seq_id_status == StoreStatus::FOUND)
                 {
-                    node->filter.values.push_back(seq_id_str);
-                    node->filter.comparators.push_back(id_comparator);
+                    node->filter_exp.values.push_back(seq_id_str);
+                    node->filter_exp.comparators.push_back(id_comparator);
                 }
             }
 
@@ -668,7 +669,7 @@ Option<bool> initFilter(filter_node_t *&node,
         }
 
         field _field = search_schema.at(field_name);
-        std::string &&raw_value = token.substr(found_index + 1, std::string::npos);
+        std::string &&raw_value = expression.substr(found_index + 1, std::string::npos);
         StringUtils::trim(raw_value);
 
         // skip past optional `:=` operator, which has no meaning for non-string fields
@@ -688,7 +689,7 @@ Option<bool> initFilter(filter_node_t *&node,
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
 
-                node->filter = {field_name, {}, {}};
+                node->filter_exp = {field_name, {}, {}};
 
                 for (std::string &filter_value : filter_values)
                 {
@@ -711,8 +712,8 @@ Option<bool> initFilter(filter_node_t *&node,
                                 return validate_op;
                             }
 
-                            node->filter.values.push_back(range_value);
-                            node->filter.comparators.push_back(op_comparator.get());
+                            node->filter_exp.values.push_back(range_value);
+                            node->filter_exp.comparators.push_back(op_comparator.get());
                         }
                     }
                     else
@@ -723,8 +724,8 @@ Option<bool> initFilter(filter_node_t *&node,
                             return validate_op;
                         }
 
-                        node->filter.values.push_back(filter_value);
-                        node->filter.comparators.push_back(op_comparator.get());
+                        node->filter_exp.values.push_back(filter_value);
+                        node->filter_exp.comparators.push_back(op_comparator.get());
                     }
                 }
             }
@@ -742,7 +743,7 @@ Option<bool> initFilter(filter_node_t *&node,
                     std::vector<std::string> range_values;
                     StringUtils::split(raw_value, range_values, filter::RANGE_OPERATOR());
 
-                    node->filter.field_name = field_name;
+                    node->filter_exp.field_name = field_name;
                     for (const std::string &range_value : range_values)
                     {
                         auto validate_op = filter::validate_numerical_filter_value(_field, range_value);
@@ -751,8 +752,8 @@ Option<bool> initFilter(filter_node_t *&node,
                             return validate_op;
                         }
 
-                        node->filter.values.push_back(range_value);
-                        node->filter.comparators.push_back(op_comparator.get());
+                        node->filter_exp.values.push_back(range_value);
+                        node->filter_exp.comparators.push_back(op_comparator.get());
                     }
                 }
                 else
@@ -762,7 +763,7 @@ Option<bool> initFilter(filter_node_t *&node,
                     {
                         return validate_op;
                     }
-                    node->filter = {field_name, {raw_value}, {op_comparator.get()}};
+                    node->filter_exp = {field_name, {raw_value}, {op_comparator.get()}};
                 }
             }
         }
@@ -800,7 +801,7 @@ Option<bool> initFilter(filter_node_t *&node,
             {
                 std::vector<std::string> filter_values;
                 StringUtils::split(raw_value.substr(1, raw_value.size() - 2), filter_values, ",");
-                node->filter = {field_name, {}, {}};
+                node->filter_exp = {field_name, {}, {}};
 
                 for (std::string &filter_value : filter_values)
                 {
@@ -811,8 +812,8 @@ Option<bool> initFilter(filter_node_t *&node,
                     }
 
                     filter_value = (filter_value == "true") ? "1" : "0";
-                    node->filter.values.push_back(filter_value);
-                    node->filter.comparators.push_back(bool_comparator);
+                    node->filter_exp.values.push_back(filter_value);
+                    node->filter_exp.comparators.push_back(bool_comparator);
                 }
             }
             else
@@ -823,12 +824,12 @@ Option<bool> initFilter(filter_node_t *&node,
                 }
 
                 std::string bool_value = (raw_value == "true") ? "1" : "0";
-                node->filter = {field_name, {bool_value}, {bool_comparator}};
+                node->filter_exp = {field_name, {bool_value}, {bool_comparator}};
             }
         }
         else if (_field.is_geopoint())
         {
-            node->filter = {field_name, {}, {}};
+            node->filter_exp = {field_name, {}, {}};
 
             const std::string &format_err_msg = "Value of filter field `" + _field.name +
                                                 "`: must be in the `(-44.50, 170.29, 0.75 km)` or "
@@ -853,8 +854,8 @@ Option<bool> initFilter(filter_node_t *&node,
                         return parse_op;
                     }
 
-                    node->filter.values.push_back(processed_filter_val);
-                    node->filter.comparators.push_back(num_comparator);
+                    node->filter_exp.values.push_back(processed_filter_val);
+                    node->filter_exp.comparators.push_back(num_comparator);
                 }
             }
             else
@@ -868,8 +869,8 @@ Option<bool> initFilter(filter_node_t *&node,
                     return parse_op;
                 }
 
-                node->filter.values.push_back(processed_filter_val);
-                node->filter.comparators.push_back(num_comparator);
+                node->filter_exp.values.push_back(processed_filter_val);
+                node->filter_exp.comparators.push_back(num_comparator);
             }
         }
         else if (_field.is_string())
@@ -902,11 +903,11 @@ Option<bool> initFilter(filter_node_t *&node,
             {
                 std::vector<std::string> filter_values;
                 StringUtils::split_to_values(raw_value.substr(filter_value_index + 1, raw_value.size() - filter_value_index - 2), filter_values);
-                node->filter = {field_name, filter_values, {str_comparator}};
+                node->filter_exp = {field_name, filter_values, {str_comparator}};
             }
             else
             {
-                node->filter = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
+                node->filter_exp = {field_name, {raw_value.substr(filter_value_index)}, {str_comparator}};
             }
         }
         else
