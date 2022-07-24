@@ -1778,3 +1778,35 @@ TEST_F(CollectionSortingTest, IntegerFloatAndBoolShouldDefaultSortTrue) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSortingTest, DisallowSortingOnNonIndexedIntegerField) {
+    std::string coll_schema = R"(
+        {
+            "name": "coll1",
+            "fields": [
+              {"name": "title", "type": "string" },
+              {"name": "points", "type": "int32", "index": false, "optional": true }
+            ]
+        }
+    )";
+
+    nlohmann::json schema = nlohmann::json::parse(coll_schema);
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Right on";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto res_op = coll1->search("*", {"title"}, "", {}, {sort_by("points", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `points` in the schema for sorting.", res_op.error());
+
+    res_op = coll1->search("*", {"title"}, "", {}, {sort_by("points(missing_values: first)", "DESC")}, {2}, 10, 1, FREQUENCY, {true}, 10);
+    ASSERT_FALSE(res_op.ok());
+    ASSERT_EQ("Could not find a field named `points` in the schema for sorting.", res_op.error());
+
+    collectionManager.drop_collection("coll1");
+}

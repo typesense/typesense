@@ -552,7 +552,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
 
             } else {
-                if(field_it == search_schema.end() || !field_it->second.sort) {
+                if(field_it == search_schema.end()) {
                     std::string error = "Could not find a field named `" + actual_field_name + "` in the schema for sorting.";
                     return Option<bool>(404, error);
                 }
@@ -674,10 +674,13 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
-        if(sort_field_std.name != sort_field_const::text_match && (search_schema.count(sort_field_std.name) == 0 ||
-            !search_schema.at(sort_field_std.name).sort)) {
-            std::string error = "Could not find a field named `" + sort_field_std.name + "` in the schema for sorting.";
-            return Option<bool>(404, error);
+        if(sort_field_std.name != sort_field_const::text_match) {
+            const auto field_it = search_schema.find(sort_field_std.name);
+            if(field_it == search_schema.end() || !field_it->second.sort || !field_it->second.index) {
+                std::string error = "Could not find a field named `" + sort_field_std.name +
+                                    "` in the schema for sorting.";
+                return Option<bool>(404, error);
+            }
         }
 
         StringUtils::toupper(sort_field_std.order);
