@@ -65,6 +65,24 @@ private:
         }
     };
 
+    struct match_index_t {
+        Match match;
+        uint64_t match_score = 0;
+        size_t index;
+
+        match_index_t(Match match, uint64_t match_score, size_t index): match(match), match_score(match_score),
+                                                                        index(index) {
+
+        }
+
+        bool operator<(const match_index_t& a) const {
+            if(match_score != a.match_score) {
+                return match_score > a.match_score;
+            }
+            return index < a.index;
+        }
+    };
+
     const std::string name;
 
     const std::atomic<uint32_t> collection_id;
@@ -80,7 +98,7 @@ private:
 
     std::vector<field> fields;
 
-    std::unordered_map<std::string, field> search_schema;
+    tsl::htrie_map<char, field> search_schema;
 
     std::map<std::string, override_t> overrides;
 
@@ -112,6 +130,7 @@ private:
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                           const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
+                          nlohmann::json& highlight_doc,
                           StringUtils & string_utils,
                           const size_t snippet_threshold,
                           const size_t highlight_affix_num_tokens,
@@ -134,7 +153,7 @@ private:
 
     static Option<bool> detect_new_fields(nlohmann::json& document,
                                           const DIRTY_VALUES& dirty_values,
-                                          const std::unordered_map<std::string, field>& schema,
+                                          const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
                                           const std::string& fallback_field_type,
                                           std::vector<field>& new_fields);
@@ -167,15 +186,15 @@ private:
 
     Option<bool> persist_collection_meta();
 
-    Option<bool> batch_alter_data(const std::unordered_map<std::string, field>& schema_additions,
+    Option<bool> batch_alter_data(const tsl::htrie_map<char, field>& schema_additions,
                                   const std::unordered_map<std::string, field>& new_dynamic_fields,
                                   const std::vector<field>& del_fields,
                                   const std::string& this_fallback_field_type,
                                   const bool do_validation);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
-                                        std::unordered_map<std::string, field>& schema_additions,
-                                        std::unordered_map<std::string, field>& schema_reindex,
+                                        tsl::htrie_map<char, field>& schema_additions,
+                                        tsl::htrie_map<char, field>& schema_reindex,
                                         std::unordered_map<std::string, field>& addition_dynamic_fields,
                                         std::unordered_map<std::string, field>& reindex_dynamic_fields,
                                         std::vector<field>& del_fields,
@@ -189,6 +208,23 @@ private:
                                   std::vector<uint32_t>& excluded_ids) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score) const;
+
+    static void remove_flat_fields(nlohmann::json& document);
+
+    bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
+                               const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
+                               highlight_t& highlight, StringUtils & string_utils, bool is_cyrillic,
+                               const size_t highlight_affix_num_tokens,
+                               const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
+                               int last_valid_offset_index, const Match& match,
+                               const std::string& last_raw_q_token, bool highlight_fully, const size_t snippet_threshold,
+                               bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
+                               const std::string& highlight_start_tag, const std::string& highlight_end_tag,
+                               const uint8_t* index_symbols, const match_index_t& match_index) const;
+
+    static Option<bool> extract_field_name(const std::string& field_name,
+                                           const tsl::htrie_map<char, field>& search_schema,
+                                           std::vector<std::string>& processed_search_fields);
 
 public:
 
@@ -254,7 +290,7 @@ public:
 
     std::unordered_map<std::string, field> get_dynamic_fields();
 
-    std::unordered_map<std::string, field> get_schema();
+    tsl::htrie_map<char, field> get_schema();
 
     std::string get_default_sorting_field();
 
@@ -272,8 +308,8 @@ public:
     Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);
 
-    static void prune_document(nlohmann::json &document, const spp::sparse_hash_set<std::string> & include_fields,
-                               const spp::sparse_hash_set<std::string> & exclude_fields);
+    static void prune_doc(nlohmann::json& doc, const tsl::htrie_set<char>& include_names,
+                          const tsl::htrie_set<char>& exclude_names, std::string parent_name = "", size_t depth = 0);
 
     const Index* _get_index() const;
 
@@ -399,8 +435,8 @@ public:
                    size_t snippet_start_offset) ;
 
     void process_highlight_fields(const std::vector<std::string>& search_fields,
-                                  const spp::sparse_hash_set<std::string>& exclude_fields,
-                                  const spp::sparse_hash_set<std::string>& include_fields,
+                                  const tsl::htrie_set<char>& exclude_fields,
+                                  const tsl::htrie_set<char>& include_fields,
                                   const string& highlight_fields,
                                   const std::string& highlight_full_fields,
                                   const std::vector<enable_t>& infixes,
@@ -416,4 +452,34 @@ public:
                                  std::vector<search_field_t>& weighted_search_fields,
                                  std::vector<std::string>& reordered_search_fields) const;
 };
+
+template<class T>
+bool highlight_nested_field(const nlohmann::json& doc, nlohmann::json& obj,
+                            std::vector<std::string>& path_parts, size_t path_index, T func) {
+    if(path_index == path_parts.size()) {
+        // end of path: guaranteed to be a string
+        if(!obj.is_string()) {
+            return false;
+        }
+
+        func(obj);
+    }
+
+    const std::string& fragment = path_parts[path_index];
+    const auto& it = obj.find(fragment);
+
+    if(it != obj.end()) {
+        if(it.value().is_array()) {
+            bool resolved = false;
+            for(auto& ele: it.value()) {
+                resolved |= highlight_nested_field(doc, ele, path_parts, path_index + 1, func);
+            }
+            return resolved;
+        } else {
+            return highlight_nested_field(doc, it.value(), path_parts, path_index + 1, func);
+        }
+    } {
+        return false;
+    }
+}
 

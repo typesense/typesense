@@ -481,7 +481,7 @@ private:
 
     size_t num_documents;
 
-    std::unordered_map<std::string, field> search_schema;
+    tsl::htrie_map<char, field> search_schema;
 
     spp::sparse_hash_map<std::string, art_tree*> search_index;
 
@@ -719,7 +719,7 @@ public:
           const Store* store,
           SynonymIndex* synonym_index,
           ThreadPool* thread_pool,
-          const std::unordered_map<std::string, field>& search_schema,
+          const tsl::htrie_map<char, field>& search_schema,
           const std::vector<char>& symbols_to_index,
           const std::vector<char>& token_separators);
 
@@ -768,11 +768,11 @@ public:
     uint64_t get_distinct_id(const std::vector<std::string>& group_by_fields, const uint32_t seq_id) const;
 
     static void compute_token_offsets_facets(index_record& record,
-                                             const std::unordered_map<std::string, field>& search_schema,
+                                             const tsl::htrie_map<char, field>& search_schema,
                                              const std::vector<char>& local_token_separators,
                                              const std::vector<char>& local_symbols_to_index);
 
-    static void scrub_reindex_doc(const std::unordered_map<std::string, field>& search_schema,
+    static void scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                                   nlohmann::json& update_doc, nlohmann::json& del_doc, const nlohmann::json& old_doc);
 
     static void tokenize_string_field(const nlohmann::json& document,
@@ -814,7 +814,7 @@ public:
     static void validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
                                           const size_t batch_start_index, const size_t batch_size,
                                           const std::string & default_sorting_field,
-                                          const std::unordered_map<std::string, field> & search_schema,
+                                          const tsl::htrie_map<char, field> & search_schema,
                                           const std::string& fallback_field_type,
                                           const std::vector<char>& token_separators,
                                           const std::vector<char>& symbols_to_index,
@@ -823,7 +823,7 @@ public:
     static size_t batch_memory_index(Index *index,
                                      std::vector<index_record>& iter_batch,
                                      const std::string& default_sorting_field,
-                                     const std::unordered_map<std::string, field>& search_schema,
+                                     const tsl::htrie_map<char, field>& search_schema,
                                      const std::string& fallback_field_type,
                                      const std::vector<char>& token_separators,
                                      const std::vector<char>& symbols_to_index,
@@ -851,7 +851,7 @@ public:
 
     static Option<uint32_t> validate_index_in_memory(nlohmann::json &document, uint32_t seq_id,
                                                      const std::string & default_sorting_field,
-                                                     const std::unordered_map<std::string, field> & search_schema,
+                                                     const tsl::htrie_map<char, field> & search_schema,
                                                      const index_operation_t op,
                                                      const std::string& fallback_field_type,
                                                      const DIRTY_VALUES& dirty_values);

@@ -52,68 +52,68 @@ struct token_posting_t {
 
 Index::Index(const std::string& name, const uint32_t collection_id, const Store* store,
              SynonymIndex* synonym_index, ThreadPool* thread_pool,
-             const std::unordered_map<std::string, field> & search_schema,
+             const tsl::htrie_map<char, field> & search_schema,
              const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators):
         name(name), collection_id(collection_id), store(store), synonym_index(synonym_index), thread_pool(thread_pool),
         search_schema(search_schema),
         seq_ids(new id_list_t(256)), symbols_to_index(symbols_to_index), token_separators(token_separators) {
 
-    for(const auto & fname_field: search_schema) {
-        if(!fname_field.second.index) {
+    for(const auto& a_field: search_schema) {
+        if(!a_field.index) {
             continue;
         }
 
-        if(fname_field.second.is_string()) {
+        if(a_field.is_string()) {
             art_tree *t = new art_tree;
             art_tree_init(t);
-            search_index.emplace(fname_field.first, t);
-        } else if(fname_field.second.is_geopoint()) {
+            search_index.emplace(a_field.name, t);
+        } else if(a_field.is_geopoint()) {
             auto field_geo_index = new spp::sparse_hash_map<std::string, std::vector<uint32_t>>();
-            geopoint_index.emplace(fname_field.first, field_geo_index);
+            geopoint_index.emplace(a_field.name, field_geo_index);
 
-            if(!fname_field.second.is_single_geopoint()) {
+            if(!a_field.is_single_geopoint()) {
                 spp::sparse_hash_map<uint32_t, int64_t*> * doc_to_geos = new spp::sparse_hash_map<uint32_t, int64_t*>();
-                geo_array_index.emplace(fname_field.first, doc_to_geos);
+                geo_array_index.emplace(a_field.name, doc_to_geos);
             }
         } else {
             num_tree_t* num_tree = new num_tree_t;
-            numerical_index.emplace(fname_field.first, num_tree);
+            numerical_index.emplace(a_field.name, num_tree);
         }
 
-        if(fname_field.second.sort) {
-            if(fname_field.second.type == field_types::STRING) {
+        if(a_field.sort) {
+            if(a_field.type == field_types::STRING) {
                 adi_tree_t* tree = new adi_tree_t();
-                str_sort_index.emplace(fname_field.first, tree);
-            } else if(fname_field.second.type != field_types::GEOPOINT_ARRAY) {
+                str_sort_index.emplace(a_field.name, tree);
+            } else if(a_field.type != field_types::GEOPOINT_ARRAY) {
                 spp::sparse_hash_map<uint32_t, int64_t> * doc_to_score = new spp::sparse_hash_map<uint32_t, int64_t>();
-                sort_index.emplace(fname_field.first, doc_to_score);
+                sort_index.emplace(a_field.name, doc_to_score);
             }
         }
 
-        if(fname_field.second.facet) {
+        if(a_field.facet) {
             array_mapped_facet_t facet_array;
             for(size_t i = 0; i < ARRAY_FACET_DIM; i++) {
                 facet_array[i] = new facet_map_t();
             }
 
-            facet_index_v3.emplace(fname_field.first, facet_array);
+            facet_index_v3.emplace(a_field.name, facet_array);
         }
 
         // initialize for non-string facet fields
-        if(fname_field.second.facet && !fname_field.second.is_string()) {
+        if(a_field.facet && !a_field.is_string()) {
             art_tree *ft = new art_tree;
             art_tree_init(ft);
-            search_index.emplace(fname_field.second.faceted_name(), ft);
+            search_index.emplace(a_field.faceted_name(), ft);
         }
 
-        if(fname_field.second.infix) {
+        if(a_field.infix) {
             array_mapped_infix_t infix_sets(ARRAY_INFIX_DIM);
 
             for(auto& infix_set: infix_sets) {
                 infix_set = new tsl::htrie_set<char>();
             }
 
-            infix_index.emplace(fname_field.second.name, infix_sets);
+            infix_index.emplace(a_field.name, infix_sets);
         }
     }
 
@@ -221,15 +221,15 @@ int64_t Index::float_to_in64_t(float f) {
 }
 
 void Index::compute_token_offsets_facets(index_record& record,
-                                          const std::unordered_map<std::string, field>& search_schema,
+                                          const tsl::htrie_map<char, field>& search_schema,
                                           const std::vector<char>& local_token_separators,
                                           const std::vector<char>& local_symbols_to_index) {
 
     const auto& document = record.doc;
 
-    for(const auto& field_pair: search_schema) {
-        const std::string& field_name = field_pair.first;
-        if(document.count(field_name) == 0 || !field_pair.second.index) {
+    for(const auto& the_field: search_schema) {
+        const std::string& field_name = the_field.name;
+        if(document.count(field_name) == 0 || !the_field.index) {
             continue;
         }
 
@@ -238,58 +238,58 @@ void Index::compute_token_offsets_facets(index_record& record,
         bool is_facet = search_schema.at(field_name).facet;
 
         // non-string, non-geo faceted field should be indexed as faceted string field as well
-        if(field_pair.second.facet && !field_pair.second.is_string() && !field_pair.second.is_geopoint()) {
-            if(field_pair.second.is_array()) {
+        if(the_field.facet && !the_field.is_string() && !the_field.is_geopoint()) {
+            if(the_field.is_array()) {
                 std::vector<std::string> strings;
 
-                if(field_pair.second.type == field_types::INT32_ARRAY) {
+                if(the_field.type == field_types::INT32_ARRAY) {
                     for(int32_t value: document[field_name]){
                         strings.push_back(std::to_string(value));
                     }
-                } else if(field_pair.second.type == field_types::INT64_ARRAY) {
+                } else if(the_field.type == field_types::INT64_ARRAY) {
                     for(int64_t value: document[field_name]){
                         strings.push_back(std::to_string(value));
                     }
-                } else if(field_pair.second.type == field_types::FLOAT_ARRAY) {
+                } else if(the_field.type == field_types::FLOAT_ARRAY) {
                     for(float value: document[field_name]){
                         strings.push_back(StringUtils::float_to_str(value));
                     }
-                } else if(field_pair.second.type == field_types::BOOL_ARRAY) {
+                } else if(the_field.type == field_types::BOOL_ARRAY) {
                     for(bool value: document[field_name]){
                         strings.push_back(std::to_string(value));
                     }
                 }
 
-                tokenize_string_array_with_facets(strings, is_facet, field_pair.second,
+                tokenize_string_array_with_facets(strings, is_facet, the_field,
                                                   local_symbols_to_index, local_token_separators,
                                                   offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
             } else {
                 std::string text;
 
-                if(field_pair.second.type == field_types::INT32) {
+                if(the_field.type == field_types::INT32) {
                     text = std::to_string(document[field_name].get<int32_t>());
-                } else if(field_pair.second.type == field_types::INT64) {
+                } else if(the_field.type == field_types::INT64) {
                     text = std::to_string(document[field_name].get<int64_t>());
-                } else if(field_pair.second.type == field_types::FLOAT) {
+                } else if(the_field.type == field_types::FLOAT) {
                     text = StringUtils::float_to_str(document[field_name].get<float>());
-                } else if(field_pair.second.type == field_types::BOOL) {
+                } else if(the_field.type == field_types::BOOL) {
                     text = std::to_string(document[field_name].get<bool>());
                 }
 
-                tokenize_string_with_facets(text, is_facet, field_pair.second,
+                tokenize_string_with_facets(text, is_facet, the_field,
                                             local_symbols_to_index, local_token_separators,
                                             offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
             }
         }
 
-        if(field_pair.second.is_string()) {
+        if(the_field.is_string()) {
 
-            if(field_pair.second.type == field_types::STRING) {
-                tokenize_string_with_facets(document[field_name], is_facet, field_pair.second,
+            if(the_field.type == field_types::STRING) {
+                tokenize_string_with_facets(document[field_name], is_facet, the_field,
                                             local_symbols_to_index, local_token_separators,
                                             offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
             } else {
-                tokenize_string_array_with_facets(document[field_name], is_facet, field_pair.second,
+                tokenize_string_array_with_facets(document[field_name], is_facet, the_field,
                                                   local_symbols_to_index, local_token_separators,
                                                   offset_facet_hashes.offsets, offset_facet_hashes.facet_hashes);
             }
@@ -303,7 +303,7 @@ void Index::compute_token_offsets_facets(index_record& record,
 
 Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
-                                                 const std::unordered_map<std::string, field> & search_schema,
+                                                 const tsl::htrie_map<char, field> & search_schema,
                                                  const index_operation_t op,
                                                  const std::string& fallback_field_type,
                                                  const DIRTY_VALUES& dirty_values) {
@@ -315,9 +315,8 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
                 "but is not found in the document.");
     }
 
-    for(const auto& field_pair: search_schema) {
-        const std::string& field_name = field_pair.first;
-        const field& a_field = field_pair.second;
+    for(const auto& a_field: search_schema) {
+        const std::string& field_name = a_field.name;
 
         if(field_name == "id") {
             continue;
@@ -454,7 +453,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
 void Index::validate_and_preprocess(Index *index, std::vector<index_record>& iter_batch,
                                       const size_t batch_start_index, const size_t batch_size,
                                       const std::string& default_sorting_field,
-                                      const std::unordered_map<std::string, field>& search_schema,
+                                      const tsl::htrie_map<char, field>& search_schema,
                                       const std::string& fallback_field_type,
                                       const std::vector<char>& token_separators,
                                       const std::vector<char>& symbols_to_index,
@@ -527,7 +526,7 @@ void Index::validate_and_preprocess(Index *index, std::vector<index_record>& ite
 
 size_t Index::batch_memory_index(Index *index, std::vector<index_record>& iter_batch,
                                  const std::string & default_sorting_field,
-                                 const std::unordered_map<std::string, field> & search_schema,
+                                 const tsl::htrie_map<char, field> & search_schema,
                                  const std::string& fallback_field_type,
                                  const std::vector<char>& token_separators,
                                  const std::vector<char>& symbols_to_index,
@@ -2144,7 +2143,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                 continue;
             }
 
-            search_field(0, window_tokens, nullptr, 0, num_toks_dropped, field_it->second, field_name,
+            search_field(0, window_tokens, nullptr, 0, num_toks_dropped, field_it.value(), field_name,
                          nullptr, 0, {}, {}, -1, 0, searched_queries, topster, groups_processed,
                          &result_ids, result_ids_len, field_num_results, 0, group_by_fields,
                          false, 4, query_hashes, token_order, false, 0, 0, false, -1, 3, 7, 4);
@@ -2167,7 +2166,7 @@ bool Index::check_for_overrides(const token_ordering& token_order, const string&
                 uint32_t* exact_strt_ids = new uint32_t[result_ids_len];
                 size_t exact_strt_size = 0;
 
-                posting_t::get_exact_matches(posting_lists, field_it->second.is_array(), result_ids, result_ids_len,
+                posting_t::get_exact_matches(posting_lists, field_it.value().is_array(), result_ids, result_ids_len,
                                              exact_strt_ids, exact_strt_size);
 
                 delete [] result_ids;
@@ -4664,7 +4663,7 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         return;
     }
 
-    const auto& search_field = search_field_it->second;
+    const auto& search_field = search_field_it.value();
 
     if(!search_field.index) {
         return;
@@ -4828,7 +4827,6 @@ void Index::tokenize_string_field(const nlohmann::json& document, const field& s
     }
 }
 
-// FIXME: returning raw value is a problem!
 art_leaf* Index::get_token_leaf(const std::string & field_name, const unsigned char* token, uint32_t token_len) {
     std::shared_lock lock(mutex);
     const art_tree *t = search_index.at(field_name);
@@ -5376,7 +5374,7 @@ void Index::get_doc_changes(const index_operation_t op, nlohmann::json& update_d
     }
 }
 
-void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& search_schema,
+void Index::scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                               nlohmann::json& update_doc,
                               nlohmann::json& del_doc,
                               const nlohmann::json& old_doc) {
@@ -5393,7 +5391,7 @@ void Index::scrub_reindex_doc(const std::unordered_map<std::string, field>& sear
             continue;
         }
 
-        const auto search_field = search_field_it->second;  // copy, don't use reference!
+        const auto search_field = search_field_it.value();  // copy, don't use reference!
 
         // compare values between old and update docs:
         // if they match, we will remove them from both del and update docs

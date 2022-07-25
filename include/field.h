@@ -7,11 +7,14 @@
 #include "string_utils.h"
 #include "logger.h"
 #include <sparsepp.h>
+#include <tsl/htrie_map.h>
 #include "json.hpp"
 
 namespace field_types {
     // first field value indexed will determine the type
     static const std::string AUTO = "auto";
+    static const std::string OBJECT = "object";
+    static const std::string OBJECT_ARRAY = "object[]";
 
     static const std::string STRING = "string";
     static const std::string INT32 = "int32";
@@ -52,11 +55,15 @@ struct field {
     bool sort;
     bool infix;
 
+    bool nested;        // field inside an object
+    bool nested_array;  // field inside an array of objects that is forced to be an array
+
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1) :
-            name(name), type(type), facet(facet), optional(optional), index(index), locale(locale) {
+            name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
+            nested(false), nested_array(false) {
 
         if(sort != -1) {
             this->sort = bool(sort);
@@ -65,6 +72,14 @@ struct field {
         }
 
         this->infix = (infix != -1) ? bool(infix) : false;
+    }
+
+    bool operator<(const field& f) const {
+        return name < f.name;
+    }
+
+    bool operator==(const field& f) const {
+        return name == f.name;
     }
 
     bool is_auto() const {
@@ -112,6 +127,10 @@ struct field {
         return (type == field_types::GEOPOINT || type == field_types::GEOPOINT_ARRAY);
     }
 
+    bool is_object() const {
+        return (type == field_types::OBJECT || type == field_types::OBJECT_ARRAY);
+    }
+
     bool is_string() const {
         return (type == field_types::STRING || type == field_types::STRING_ARRAY);
     }
@@ -128,7 +147,7 @@ struct field {
         return (type == field_types::STRING_ARRAY || type == field_types::INT32_ARRAY ||
                 type == field_types::FLOAT_ARRAY ||
                 type == field_types::INT64_ARRAY || type == field_types::BOOL_ARRAY ||
-                type == field_types::GEOPOINT_ARRAY);
+                type == field_types::GEOPOINT_ARRAY || type == field_types::OBJECT_ARRAY);
     }
 
     bool is_singular() const {
@@ -169,7 +188,8 @@ struct field {
     }
 
     bool has_valid_type() const {
-        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() || is_auto();
+        bool is_basic_type = is_string() || is_integer() || is_float() || is_bool() || is_geopoint() ||
+                             is_object() || is_auto();
         if(!is_basic_type) {
             return field_types::is_string_or_array(type);
         }
@@ -195,10 +215,6 @@ struct field {
             return true;
         }
 
-        if(obj.is_object()) {
-            return false;
-        }
-
         return get_single_type(obj, field_type);
     }
 
@@ -220,6 +236,11 @@ struct field {
 
         if(obj.is_boolean()) {
             field_type = field_types::BOOL;
+            return true;
+        }
+
+        if(obj.is_object()) {
+            field_type = field_types::OBJECT;
             return true;
         }
 
@@ -353,6 +374,16 @@ struct field {
 
         return Option<bool>(true);
     }
+
+    static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
+                            const std::string& flat_name, std::vector<field>& flattened_fields);
+
+    static bool flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
+                              std::vector<std::string>& path_parts, size_t path_index, bool has_array,
+                              bool has_obj_array, std::vector<field>& flattened_fields);
+
+    static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
+                                    std::vector<field>& flattened_fields);
 };
 
 struct filter {
@@ -429,7 +460,7 @@ struct filter {
                                                     NUM_COMPARATOR& num_comparator);
 
     static Option<bool> parse_filter_query(const std::string& simple_filter_query,
-                                           const std::unordered_map<std::string, field>& search_schema,
+                                           const tsl::htrie_map<char, field>& search_schema,
                                            const Store* store,
                                            const std::string& doc_id_prefix,
                                            std::vector<filter>& filters);

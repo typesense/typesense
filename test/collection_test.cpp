@@ -2153,37 +2153,42 @@ TEST_F(CollectionTest, SearchLargeTextField) {
 
 TEST_F(CollectionTest, PruneFieldsFromDocument) {
     nlohmann::json document = get_prune_doc();
-    Collection::prune_document(document, {"one", "two"}, spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, {"one", "two"}, tsl::htrie_set<char>());
     ASSERT_EQ(2, document.size());
     ASSERT_EQ(1, document["one"]);
     ASSERT_EQ(2, document["two"]);
 
     // exclude takes precedence
     document = get_prune_doc();
-    Collection::prune_document(document, {"one"}, {"one"});
+    Collection::prune_doc(document, {"one"}, {"one"});
     ASSERT_EQ(0, document.size());
 
     // when no inclusion is specified, should return all fields not mentioned by exclusion list
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"three"});
+    Collection::prune_doc(document, tsl::htrie_set<char>(), tsl::htrie_set<char>({"three"}), "");
     ASSERT_EQ(3, document.size());
     ASSERT_EQ(1, document["one"]);
     ASSERT_EQ(2, document["two"]);
     ASSERT_EQ(4, document["four"]);
 
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, tsl::htrie_set<char>(), tsl::htrie_set<char>(), "");
     ASSERT_EQ(4, document.size());
 
     // when included field does not exist
     document = get_prune_doc();
-    Collection::prune_document(document, {"notfound"}, spp::sparse_hash_set<std::string>());
+    Collection::prune_doc(document, {"notfound"}, tsl::htrie_set<char>(), "");
     ASSERT_EQ(0, document.size());
 
     // when excluded field does not exist
     document = get_prune_doc();
-    Collection::prune_document(document, spp::sparse_hash_set<std::string>(), {"notfound"});
+    Collection::prune_doc(document, tsl::htrie_set<char>(), {"notfound"}, "");
     ASSERT_EQ(4, document.size());
+
+    // included set is prefix of allowed fields
+    document = get_prune_doc();
+    Collection::prune_doc(document, {"ones"}, tsl::htrie_set<char>(), "");
+    ASSERT_EQ(0, document.size());
 }
 
 TEST_F(CollectionTest, StringArrayFieldShouldNotAllowPlainString) {

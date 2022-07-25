@@ -73,7 +73,7 @@ Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
 }
 
 Option<bool> filter::parse_filter_query(const string& simple_filter_query,
-                                        const std::unordered_map<std::string, field>& search_schema,
+                                        const tsl::htrie_map<char, field>& search_schema,
                                         const Store* store,
                                         const std::string& doc_id_prefix,
                                         std::vector<filter>& filters) {
@@ -519,6 +519,149 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
                   field_json[fields::sort], field_json[fields::infix])
     );
+
+    return Option<bool>(true);
+}
+
+bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
+                        const std::string& flat_name, std::vector<field>& flattened_fields) {
+    if(value.is_object()) {
+        has_obj_array = has_array;
+        for(const auto& kv: value.items()) {
+            flatten_obj(doc, kv.value(), has_array, has_obj_array, flat_name + "." + kv.key(), flattened_fields);
+        }
+    } else if(value.is_array()) {
+        for(const auto& kv: value.items()) {
+            flatten_obj(doc, kv.value(), true, has_obj_array, flat_name, flattened_fields);
+        }
+    } else {
+        // must be a primitive
+        if(has_array) {
+            doc[flat_name].push_back(value);
+        } else {
+            doc[flat_name] = value;
+        }
+
+        std::string detected_type;
+        if(!field::get_type(value, detected_type)) {
+            return false;
+        }
+
+        if(std::isalnum(detected_type.back()) && has_array) {
+            // convert singular type to multi valued type
+            detected_type += "[]";
+        }
+
+        field flattened_field(flat_name, detected_type, false, true);
+        flattened_field.nested = true;
+        flattened_field.nested_array = has_obj_array;
+        flattened_fields.push_back(flattened_field);
+    }
+
+    return true;
+}
+
+bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
+                          std::vector<std::string>& path_parts, size_t path_index,
+                          bool has_array, bool has_obj_array, std::vector<field>& flattened_fields) {
+    if(path_index == path_parts.size()) {
+        // end of path: check if obj matches expected type
+        std::string detected_type;
+        if(!field::get_type(obj, detected_type)) {
+            return false;
+        }
+
+        if(std::isalnum(detected_type.back()) && has_array) {
+            // convert singular type to multi valued type
+            detected_type += "[]";
+        }
+
+        has_obj_array = has_obj_array || ((detected_type == field_types::OBJECT) && has_array);
+
+        if(detected_type == the_field.type) {
+            if(the_field.is_object()) {
+                flatten_obj(doc, obj, has_array, has_obj_array, the_field.name, flattened_fields);
+            } else {
+                if(has_array) {
+                    doc[the_field.name].push_back(obj);
+                } else {
+                    doc[the_field.name] = obj;
+                }
+
+                field flattened_field(the_field.name, detected_type, false, true);
+                flattened_field.nested = (path_index > 1);
+                flattened_field.nested_array = has_obj_array;
+                flattened_fields.push_back(flattened_field);
+            }
+
+            return true;
+        }
+
+        // handle differences in detection of numerical types
+        bool is_numericaly_valid = (detected_type == field_types::INT64 && (the_field.type == field_types::INT32 ||
+                                    the_field.type == field_types::FLOAT)) ||
+                                   (detected_type == field_types::INT64_ARRAY &&
+                                   (the_field.type == field_types::INT32_ARRAY ||
+                                   the_field.type == field_types::FLOAT_ARRAY));
+
+        if(is_numericaly_valid) {
+            if(has_array) {
+                doc[the_field.name].push_back(obj);
+            } else {
+                doc[the_field.name] = obj;
+            }
+
+            field flattened_field(the_field.name, the_field.type, false, true);
+            flattened_field.nested = (path_index > 1);
+            flattened_field.nested_array = has_obj_array;
+            flattened_fields.push_back(flattened_field);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    const std::string& fragment = path_parts[path_index];
+    const auto& it = obj.find(fragment);
+
+    if(it != obj.end()) {
+        if(it.value().is_array()) {
+            has_array = true;
+            bool resolved = false;
+            for(auto& ele: it.value()) {
+                has_obj_array = has_obj_array || ele.is_object();
+                resolved |= flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
+            }
+            return resolved;
+        } else {
+            return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
+        }
+    } {
+        return false;
+    }
+}
+
+Option<bool> field::flatten_doc(nlohmann::json& document,
+                                const std::vector<field>& nested_fields,
+                                std::vector<field>& flattened_fields) {
+
+    for(auto& nested_field: nested_fields) {
+        std::vector<std::string> field_parts;
+        StringUtils::split(nested_field.name, field_parts, ".");
+
+        bool resolved = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields);
+        if(!resolved) {
+            return Option<bool>(400, "Field `" + nested_field.name + "` was not found or has an incorrect type.");
+        }
+    }
+
+    std::sort(flattened_fields.begin(), flattened_fields.end());
+    flattened_fields.erase(std::unique(flattened_fields.begin(), flattened_fields.end()), flattened_fields.end());
+
+    document[".flat"] = nlohmann::json::array();
+    for(auto& f: flattened_fields) {
+        document[".flat"].push_back(f.name);
+    }
 
     return Option<bool>(true);
 }

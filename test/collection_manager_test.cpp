@@ -57,15 +57,15 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
     collection1 = collectionManager2.get_collection("collection1").get();
     ASSERT_NE(nullptr, collection1);
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
     std::vector<std::string> facet_fields_expected = {"cast"};
 
     ASSERT_EQ(0, collection1->get_collection_id());
     ASSERT_EQ(0, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(2, collection1->get_sort_fields().size());
-    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
     ASSERT_EQ(false, schema.at("not_stored").index);
@@ -287,7 +287,7 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     nlohmann::json results = collection1->search("thomas", search_fields, "", facets, sort_fields, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(4, results["hits"].size());
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
 
     // recreate collection manager to ensure that it restores the records from the disk backed store
     collectionManager.dispose();
@@ -312,8 +312,8 @@ TEST_F(CollectionManagerTest, RestoreRecordsOnRestart) {
     ASSERT_EQ(18, collection1->get_next_seq_id());
     ASSERT_EQ(facet_fields_expected, collection1->get_facet_fields());
     ASSERT_EQ(2, collection1->get_sort_fields().size());
-    ASSERT_EQ("points", collection1->get_sort_fields()[0].name);
-    ASSERT_EQ("location", collection1->get_sort_fields()[1].name);
+    ASSERT_EQ("location", collection1->get_sort_fields()[0].name);
+    ASSERT_EQ("points", collection1->get_sort_fields()[1].name);
     ASSERT_EQ(schema.size(), collection1->get_schema().size());
     ASSERT_EQ("points", collection1->get_default_sorting_field());
 
@@ -446,7 +446,7 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     Option<nlohmann::json> add_op = coll1->add(doc_json, CREATE, "", DIRTY_VALUES::COERCE_OR_DROP);
     ASSERT_TRUE(add_op.ok());
 
-    std::unordered_map<std::string, field> schema = collection1->get_schema();
+    tsl::htrie_map<char, field> schema = collection1->get_schema();
 
     // create a new collection manager to ensure that it restores the records from the disk backed store
     CollectionManager & collectionManager2 = CollectionManager::get_instance();
@@ -470,8 +470,8 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
     ASSERT_EQ(7, restored_coll->get_num_documents());
     ASSERT_EQ(facet_fields_expected, restored_coll->get_facet_fields());
     ASSERT_EQ(3, restored_coll->get_sort_fields().size());
-    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[0].name);
-    ASSERT_EQ("average", restored_coll->get_sort_fields()[1].name);
+    ASSERT_EQ("average", restored_coll->get_sort_fields()[0].name);
+    ASSERT_EQ("is_valid", restored_coll->get_sort_fields()[1].name);
     ASSERT_EQ("max", restored_coll->get_sort_fields()[2].name);
 
     // ensures that the "id" field is not added to the schema
@@ -488,11 +488,11 @@ TEST_F(CollectionManagerTest, RestoreAutoSchemaDocsOnRestart) {
 
     // all detected schema are optional fields, while defined schema is not
 
-    for(const auto& kv: restored_schema) {
-        if(kv.first == "max") {
-            ASSERT_FALSE(kv.second.optional);
+    for(const auto& a_field: restored_schema) {
+        if(a_field.name == "max") {
+            ASSERT_FALSE(a_field.optional);
         } else {
-            ASSERT_TRUE(kv.second.optional);
+            ASSERT_TRUE(a_field.optional);
         }
     }
 
