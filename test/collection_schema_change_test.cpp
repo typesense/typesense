@@ -984,7 +984,7 @@ TEST_F(CollectionSchemaChangeTest, ChangeFromStringStarToAutoField) {
     ASSERT_EQ(1, coll1->get_dynamic_fields().size());
 }
 
-TEST_F(CollectionSchemaChangeTest, ChangeFromGeoToIntField) {
+TEST_F(CollectionSchemaChangeTest, OrderOfDropShouldNotMatter) {
     nlohmann::json req_json = R"({
         "name": "coll1",
         "fields": [
@@ -1024,4 +1024,41 @@ TEST_F(CollectionSchemaChangeTest, ChangeFromGeoToIntField) {
 
     alter_op = coll1->alter(schema_changes);
     ASSERT_FALSE(alter_op.ok());
+}
+
+TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
+    nlohmann::json req_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "index": false, "facet": false, "optional": true}
+        ]
+    })"_json;
+
+    auto coll1_op = collectionManager.create_collection(req_json);
+    ASSERT_TRUE(coll1_op.ok());
+
+    auto coll1 = coll1_op.get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Typesense";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // make field indexable
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "title", "drop": true},
+            {"name": "title", "type": "string", "index": true, "facet": true, "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    auto res_op = coll1->search("type", {"title"}, "", {"title"}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
+    ASSERT_EQ(1, res_op.get()["facet_counts"].size());
 }

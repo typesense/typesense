@@ -4918,6 +4918,10 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
 
         search_schema.erase(del_field.name);
 
+        if(!del_field.index) {
+            continue;
+        }
+
         if(del_field.is_string() || field_types::is_string_or_array(del_field.type)) {
             art_tree_destroy(search_index[del_field.name]);
             delete search_index[del_field.name];
