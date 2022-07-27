@@ -326,45 +326,27 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
       "locations":[
         {
           "address":{
-            "city":"Beaverton",
-            "products":[
-              "shoes",
-              "tshirts"
-            ],
             "street":"One Bowerman Drive"
-          },
-          "country":"USA"
+          }
         },
         {
           "address":{
-            "city":"Thornhill",
-            "products":[
-              "sneakers",
-              "shoes"
-            ],
             "street":"175 <mark>Commerce</mark> Valley"
-          },
-          "country":"Canada"
+          }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
-    // search specific nested fields
+    // search specific nested fields, only matching field is highlighted by default
     results = coll1->search("one shoe", {"locations.address.street", "employees.tags"}, "", {}, sort_fields,
                             {0}, 10, 1, FREQUENCY, {true}).get();
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(doc, results["hits"][0]["document"]);
 
     highlight_doc = R"({
-      "employees":{
-        "tags":[
-          "senior plumber",
-          "electrician"
-        ]
-      },
       "locations":[
         {
           "address":{
@@ -373,13 +355,13 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
         },
         {
           "address":{
-            "street":"<mark>One</mark> Bowerman Drive"
+            "street":"175 Commerce Valley"
           }
         }
       ]
     })"_json;
 
-    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
     // try to search nested fields that don't exist
@@ -449,6 +431,301 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFields) {
     doc = nlohmann::json::parse(doc_str);
     Collection::prune_doc(doc, {"locations.address.city", "locations.address.products"}, {"locations.address.city"});
     ASSERT_EQ(R"({"locations":[{"address":{"products":["shoes","tshirts"]}},{"address":{"products":["sneakers","shoes"]}}]})", doc.dump());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
+
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "company_names": ["Space Corp. LLC", "Drive One Inc."],
+        "company": {"names": ["Space Corp. LLC", "Drive One Inc."]},
+        "locations": [
+            { "pincode": 100, "country": "USA",
+              "address": { "street": "One Bowerman Drive", "city": "Beaverton", "products": ["shoes", "tshirts"] }
+            },
+            { "pincode": 200, "country": "Canada",
+              "address": { "street": "175 Commerce Drive", "city": "Thornhill", "products": ["sneakers", "shoes"] }
+            }
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // search both simply nested and deeply nested array-of-objects
+    auto results = coll1->search("One", {"locations.address"}, "", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    auto highlight_doc = R"({
+      "locations":[
+        {
+          "address":{
+            "street":"<mark>One</mark> Bowerman Drive"
+          }
+        },
+        {
+          "address":{
+            "street":"175 Commerce Drive"
+          }
+        }
+      ]
+    })"_json;
+
+    auto highlight_full_doc = R"({
+        "locations":[
+          {
+            "address":{
+              "city":"Beaverton",
+              "products":[
+                "shoes",
+                "tshirts"
+              ],
+              "street":"<mark>One</mark> Bowerman Drive"
+            }
+          },
+          {
+            "address":{
+              "city":"Thornhill",
+              "products":[
+                "sneakers",
+                "shoes"
+              ],
+              "street":"175 Commerce Drive"
+            }
+          }
+        ]
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    // repeating token
+
+    results = coll1->search("drive", {"locations.address"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    highlight_doc = R"({
+      "locations":[
+        {
+          "address":{
+            "street":"One Bowerman <mark>Drive</mark>"
+          }
+        },
+        {
+          "address":{
+            "street":"175 Commerce <mark>Drive</mark>"
+          }
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(0, results["hits"][0]["highlights"].size());
+
+    // nested array of array, highlighting parent of searched nested field
+    results = coll1->search("shoes", {"locations.address.products"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address",
+                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                            "locations.address").get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    highlight_full_doc = R"({
+      "locations":[
+        {
+          "address":{
+            "city":"Beaverton",
+            "products":[
+              "<mark>shoes</mark>",
+              "tshirts"
+            ],
+            "street":"One Bowerman Drive"
+          }
+        },
+        {
+          "address":{
+            "city":"Thornhill",
+            "products":[
+              "sneakers",
+              "<mark>shoes</mark>"
+            ],
+            "street":"175 Commerce Drive"
+          }
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    // full highlighting only one of the 3 highlight fields
+    results = coll1->search("drive", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address",
+                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                            "company.names,company_names,locations.address").get();
+
+    highlight_full_doc = R"({
+        "locations":[
+          {
+            "address":{
+              "city":"Beaverton",
+              "products":[
+                "shoes",
+                "tshirts"
+              ],
+              "street":"One Bowerman <mark>Drive</mark>"
+            }
+          },
+          {
+            "address":{
+              "city":"Thornhill",
+              "products":[
+                "sneakers",
+                "shoes"
+              ],
+              "street":"175 Commerce <mark>Drive</mark>"
+            }
+          }
+        ]
+    })"_json;
+
+    highlight_doc = R"({
+        "company":{
+          "names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."]
+        },
+        "company_names": ["Space Corp. LLC", "<mark>Drive</mark> One Inc."],
+        "locations":[
+          {
+            "address":{
+              "city":"Beaverton",
+              "products":[
+                "shoes",
+                "tshirts"
+              ],
+              "street":"One Bowerman <mark>Drive</mark>"
+            }
+          },
+          {
+            "address":{
+              "city":"Thornhill",
+              "products":[
+                "sneakers",
+                "shoes"
+              ],
+              "street":"175 Commerce <mark>Drive</mark>"
+            }
+          }
+        ]
+    })"_json;
+
+    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    // if highlight fields not provided, only matching sub-fields should appear in highlight
+
+    results = coll1->search("space", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    highlight_doc = R"({
+        "company":{
+          "names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+        },
+        "company_names": ["<mark>Space</mark> Corp. LLC", "Drive One Inc."]
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+
+    // only a single highlight full field provided
+
+    results = coll1->search("space", {"company.names", "company_names", "locations.address"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "company.names").get();
+
+    highlight_full_doc = R"({
+      "company":{
+        "names":[
+          "<mark>Space</mark> Corp. LLC",
+          "Drive One Inc."
+        ]
+      }
+    })"_json;
+
+    highlight_doc = R"({
+      "company":{
+        "names":[
+          "<mark>Space</mark> Corp. LLC",
+          "Drive One Inc."
+        ]
+      },
+      "company_names":[
+        "<mark>Space</mark> Corp. LLC",
+        "Drive One Inc."
+      ]
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+    ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+}
+
+TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
+    std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
+
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
+        "details": {
+            "description": "Quick set, go.",
+            "names": ["Quick brown fox jumped.", "The red fox was not fast."]
+        },
+        "locations": [
+            {
+              "address": { "street": "Brown Shade Avenue" }
+            },
+            {
+                "address": { "street": "Graywolf Lane" }
+            }
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // search both simply nested and deeply nested array-of-objects
+    auto results = coll1->search("brown fox", {"company_names", "details", "locations"},
+                                 "", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address").get();
+
+    ASSERT_EQ(3, results["hits"][0]["highlight"]["meta"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"].size());
+
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].size());
+    ASSERT_EQ("brown", results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"][0]);
+    ASSERT_EQ("fox", results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"][1]);
+
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].size());
+    ASSERT_EQ("brown", results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"][0]);
+    ASSERT_EQ("fox", results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"][1]);
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].size());
+    ASSERT_EQ("Brown", results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"][0]);
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
