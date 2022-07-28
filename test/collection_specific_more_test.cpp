@@ -839,6 +839,49 @@ TEST_F(CollectionSpecificMoreTest, CrossFieldWeightIsNotAugmentated) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
+    std::vector<field> fields = {field(".*", field_types::AUTO, false)};
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO).get();
+
+    auto nested_doc = R"({
+      "title": "Rāpeti Early Learning Centre",
+      "companies": [
+        {"title": "Rāpeti Early Learning Centre"}
+      ]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(nested_doc.dump()).ok());
+
+    auto results = coll1->search("rap", {"title", "companies"},
+                                 "", {}, {}, {2}, 10,
+                                 1, FREQUENCY, {true}).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>Rāp</mark>eti Early Learning Centre", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
+
+    auto highlight_doc = R"({
+      "companies":[
+        {
+          "title":"<mark>Rāp</mark>eti Early Learning Centre"
+        }
+      ],
+      "title":"<mark>Rāp</mark>eti Early Learning Centre"
+    })"_json;
+
+    ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"].size());
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"].size());
+    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["title"]["matched_tokens"][0]);
+
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"].size());
+    ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"].size());
+    ASSERT_EQ("Rāp", results["hits"][0]["highlight"]["meta"]["companies.title"]["matched_tokens"][0]);
+}
+
 TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("brand", field_types::STRING, false),

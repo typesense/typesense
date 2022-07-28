@@ -1372,7 +1372,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                     bool found_highlight = false;
                     bool found_full_highlight = false;
 
-                    highlight_result(raw_query, search_field, i, highlight_item.qtoken_leaves, q_tokens, field_order_kv,
+                    highlight_result(raw_query, search_field, i, highlight_item.qtoken_leaves, field_order_kv,
                                      document, highlight_res["snippet"], highlight_res["full"], highlight_res["meta"],
                                      string_utils, snippet_threshold,
                                      highlight_affix_num_tokens, highlight_item.fully_highlighted, highlight_item.infix,
@@ -2096,7 +2096,6 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
 void Collection::highlight_result(const std::string& raw_query, const field &search_field,
                                   const size_t search_field_index,
                                   const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                                  const std::vector<std::string>& q_tokens,
                                   const KV* field_order_kv, const nlohmann::json & document,
                                   nlohmann::json& highlight_doc,
                                   nlohmann::json& highlight_full_doc,
@@ -2113,7 +2112,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                                   bool& found_highlight,
                                   bool& found_full_highlight) const {
 
-    if(q_tokens.size() == 1 && q_tokens[0] == "*") {
+    if(raw_query == "*") {
         return;
     }
 
@@ -2126,7 +2125,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
     Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
 
     const std::string& last_raw_q_token = raw_query_tokens.back();
-    const std::string& last_q_token = q_tokens.back();
+    size_t prefix_token_num_chars = StringUtils::get_num_chars(last_raw_q_token);
 
     std::set<std::string> last_full_q_tokens;
 
@@ -2195,7 +2194,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
                                                             token_separators, array_highlight, string_utils, is_cyrillic,
                                                             highlight_affix_num_tokens,
                                                             qtoken_leaves, last_valid_offset_index, match,
-                                                            last_raw_q_token,
+                                                            prefix_token_num_chars,
                                                             highlight_fully, snippet_threshold, is_infix_search,
                                                             raw_query_tokens,
                                                             last_valid_offset, highlight_start_tag, highlight_end_tag,
@@ -2303,7 +2302,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
         handle_highlight_text(text, normalise, search_field, symbols_to_index, token_separators,
                               highlight, string_utils, is_cyrillic, highlight_affix_num_tokens,
-                              qtoken_leaves, last_valid_offset_index, match, last_raw_q_token,
+                              qtoken_leaves, last_valid_offset_index, match, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
                               last_valid_offset, highlight_start_tag, highlight_end_tag,
                               index_symbols, match_index);
@@ -2391,7 +2390,7 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
                            const size_t highlight_affix_num_tokens,
                            const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                            int last_valid_offset_index, const Match& match,
-                           const std::string& last_raw_q_token, bool highlight_fully, const size_t snippet_threshold,
+                           const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
                            bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
                            const std::string& highlight_start_tag, const std::string& highlight_end_tag,
                            const uint8_t* index_symbols, const match_index_t& match_index) const {
@@ -2443,20 +2442,46 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         auto qtoken_it = qtoken_leaves.find(raw_token);
 
         // ensures that the `snippet_start_offset` is always from a matched token, and not from query suggestion
-        if ((found_first_match && token_already_found) ||
-            (match_offset_index <= last_valid_offset_index &&
-             match.offsets[match_offset_index].offset == raw_token_index)) {
+        bool match_offset_found = (found_first_match && token_already_found) ||
+                                  (match_offset_index <= last_valid_offset_index &&
+                                   match.offsets[match_offset_index].offset == raw_token_index);
 
-            // check if the matched token is a prefix of this found token
+        // Token might not appear in the best matched window, which is limited to a size of 10.
+        // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
+        // locate all tokens that appear in the query / query candidates
+        bool raw_token_found = !match_offset_found && (highlight_fully || text.size() < snippet_threshold * 6) &&
+                                                        qtoken_leaves.find(raw_token) != qtoken_leaves.end();
+
+        if (match_offset_found || raw_token_found) {
             if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
                qtoken_it.value().root_len < raw_token.size()) {
                 // need to ensure that only the prefix portion is highlighted
                 // if length diff is within 2, we still might not want to highlight partially in some cases
                 // e.g. "samsng" vs "samsung" -> full highlight is preferred, unless it's a full prefix match
-                //size_t char_diff = raw_token.size() - qtoken_it.value().root_len;
-                size_t char_diff = (tok_end - tok_start + 1) - last_raw_q_token.size();
-                auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ?
-                                   tok_end : (tok_end - char_diff);
+
+                size_t k = tok_start;
+                size_t num_letters = 0, prefix_letters = 0, prefix_end = tok_start;
+
+                // group unicode code points and calculate number of actual characters
+                while(k <= tok_end) {
+                    k++;
+                    if ((text[k] & 0xC0) == 0x80) k++;
+                    if ((text[k] & 0xC0) == 0x80) k++;
+                    if ((text[k] & 0xC0) == 0x80) k++;
+
+                    num_letters++;
+
+                    if(num_letters <= prefix_token_num_chars) {
+                        prefix_letters++;
+                    }
+
+                    if(num_letters == prefix_token_num_chars) {
+                        prefix_end = k - 1;
+                    }
+                }
+
+                size_t char_diff = num_letters - prefix_letters;
+                auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ? tok_end : prefix_end;
                 token_offsets.emplace(tok_start, new_tok_end);
             } else {
                 token_offsets.emplace(tok_start, tok_end);
@@ -2464,37 +2489,19 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
 
             token_hits.insert(raw_token);
 
-            // to skip over duplicate tokens in the query
-            do {
-                match_offset_index++;
-            } while(match_offset_index <= last_valid_offset_index &&
-                    match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
+            if(match_offset_found) {
+                // to skip over duplicate tokens in the query
+                do {
+                    match_offset_index++;
+                } while(match_offset_index <= last_valid_offset_index &&
+                        match.offsets[match_offset_index - 1].offset == match.offsets[match_offset_index].offset);
 
-            if(!found_first_match) {
-                snippet_start_offset = snippet_start_window.front();
+                if(!found_first_match) {
+                    snippet_start_offset = snippet_start_window.front();
+                }
+
+                found_first_match = true;
             }
-
-            found_first_match = true;
-
-        } else if((highlight_fully || text.size() < snippet_threshold * 6) &&
-                  qtoken_leaves.find(raw_token) != qtoken_leaves.end()) {
-
-            // Token might not appear in the best matched window, which is limited to a size of 10.
-            // If field is marked to be highlighted fully, or field length exceeds snippet_threshold, we will
-            // locate all tokens that appear in the query / query candidates
-
-            if(qtoken_it != qtoken_leaves.end() && qtoken_it.value().is_prefix &&
-               qtoken_it.value().root_len < raw_token.size()) {
-                // need to ensure that only the prefix portion is highlighted
-                size_t char_diff = (tok_end - tok_start + 1) - last_raw_q_token.size();
-                auto new_tok_end = (char_diff <= 2 && qtoken_it.value().num_typos != 0) ?
-                                   tok_end : (tok_end - char_diff);
-                token_offsets.emplace(tok_start, new_tok_end);
-            } else {
-                token_offsets.emplace(tok_start, tok_end);
-            }
-
-            token_hits.insert(raw_token);
         } else if(is_infix_search && text.size() < 100 &&
                   raw_token.find(raw_query_tokens.front()) != std::string::npos) {
             token_offsets.emplace(tok_start, tok_end);

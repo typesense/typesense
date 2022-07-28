@@ -333,6 +333,20 @@ char* StringUtils::get_ip_str(const struct sockaddr* sa, char* s, size_t maxlen)
     return s;
 }
 
+size_t StringUtils::get_num_chars(const std::string& s) {
+    // finds number of unicode points in given string
+    size_t i = 0, j = 0;
+    while (s[i]) {
+        if ((s[i] & 0xC0) != 0x80) {
+            j++;
+        }
+        i++;
+    }
+
+    return j;
+}
+
+
 /*size_t StringUtils::unicode_length(const std::string& bytes) {
     std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> utf8conv;
     return utf8conv.from_bytes(bytes).size();

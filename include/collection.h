@@ -128,7 +128,6 @@ private:
                           const field &search_field,
                           const size_t search_field_index,
                           const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
-                          const std::vector<std::string>& q_tokens,
                           const KV* field_order_kv, const nlohmann::json &document,
                           nlohmann::json& highlight_doc,
                           nlohmann::json& highlight_full_doc,
@@ -221,7 +220,7 @@ private:
                                const size_t highlight_affix_num_tokens,
                                const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                                int last_valid_offset_index, const Match& match,
-                               const std::string& last_raw_q_token, bool highlight_fully, const size_t snippet_threshold,
+                               const size_t prefix_token_num_chars, bool highlight_fully, const size_t snippet_threshold,
                                bool is_infix_search, std::vector<std::string>& raw_query_tokens, size_t last_valid_offset,
                                const std::string& highlight_start_tag, const std::string& highlight_end_tag,
                                const uint8_t* index_symbols, const match_index_t& match_index) const;
@@ -478,12 +477,13 @@ bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
             bool resolved = false;
             for(size_t i = 0; i < it.value().size(); i++) {
                 auto& h_ele = it.value().at(i);
-                auto& f_ele = fobj[fragment][i];
+                auto& f_ele = fobj.empty() ? fobj : fobj[fragment][i];
                 resolved |= highlight_nested_field(hdoc, h_ele, fdoc, f_ele, path_parts, path_index + 1, func);
             }
             return resolved;
         } else {
-            return highlight_nested_field(hdoc, it.value(), fdoc, fobj[fragment], path_parts, path_index + 1, func);
+            auto& f_ele = fobj.empty() ? fobj : fobj[fragment];
+            return highlight_nested_field(hdoc, it.value(), fdoc, f_ele, path_parts, path_index + 1, func);
         }
     } {
         return false;
