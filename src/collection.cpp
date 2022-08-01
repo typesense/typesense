@@ -2093,6 +2093,23 @@ bool Collection::facet_value_to_string(const facet &a_facet, const facet_count_t
     return true;
 }
 
+bool Collection::is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const {
+    auto child_it = obj.find(path_parts[part_i]);
+    if(child_it == obj.end()) {
+        return false;
+    }
+
+    if(child_it.value().is_array() && !child_it.value().empty() && child_it.value().at(0).is_object()) {
+        return true;
+    }
+
+    if(part_i+1 == path_parts.size()) {
+        return false;
+    }
+
+    return is_nested_array(child_it.value(), path_parts, part_i+1);
+}
+
 void Collection::highlight_result(const std::string& raw_query, const field &search_field,
                                   const size_t search_field_index,
                                   const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
@@ -2176,9 +2193,18 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
            indexed offsets.
         */
 
-        if(search_field.nested_array) {
-            std::vector<std::string> path_parts;
+        int nested_array = search_field.nested_array;
+        std::vector<std::string> path_parts;
+
+        if(nested_array == field::VAL_UNKNOWN) {
             StringUtils::split(search_field.name, path_parts, ".");
+            nested_array = Collection::is_nested_array(document, path_parts, 0);
+        }
+
+        if(nested_array) {
+            if(path_parts.empty()) {
+                StringUtils::split(search_field.name, path_parts, ".");
+            }
 
             highlight_nested_field(highlight_doc, highlight_doc, highlight_full_doc, highlight_full_doc,
                                    path_parts, 0, [&](nlohmann::json& h_obj, nlohmann::json& f_obj) {
@@ -3537,7 +3563,16 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
 
             // check against dynamic field definitions
             for(const auto& dynamic_field: dyn_fields) {
-                if(std::regex_match (kv.key(), std::regex(dynamic_field.first))) {
+                if (dynamic_field.second.nested && (kv.key() == dynamic_field.first ||
+                                                    (StringUtils::begins_with(dynamic_field.first, kv.key()) &&
+                                                     dynamic_field.first[kv.key().size()] == '.'))) {
+                    new_field = dynamic_field.second;
+                    new_field.name = dynamic_field.first;
+                    found_dynamic_field = true;
+                    break;
+                }
+
+                else if(std::regex_match (kv.key(), std::regex(dynamic_field.first))) {
                     // unless the field is auto or string*, ignore field name matching regexp pattern
                     if(kv.key() == dynamic_field.first && !dynamic_field.second.is_auto() &&
                        !dynamic_field.second.is_string_star()) {
@@ -3620,6 +3655,9 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
 
                 if(test_field_type == field_types::AUTO) {
                     new_field.type = field_type;
+                    if(new_field.is_object()) {
+                        new_field.nested = true;
+                    }
                 } else {
                     if (kv.value().is_array()) {
                         new_field.type = field_types::STRING_ARRAY;
@@ -3639,7 +3677,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                 new_field.sort = true;
             }
 
-            if(new_field.is_object()) {
+            if(new_field.nested) {
                 nested_fields.push_back(new_field);
             } else {
                 new_fields.emplace_back(new_field);
@@ -3649,8 +3687,18 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         kv++;
     }
 
+    return flatten_and_identify_new_fields(document, nested_fields, schema, new_fields);
+}
+
+Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields,
+                                                        const tsl::htrie_map<char, field>& schema,
+                                                        std::vector<field>& new_fields) {
+    if(nested_fields.empty()) {
+        return Option<bool>(true);
+    }
+
     std::vector<field> flattened_fields;
-    auto flatten_op = field::flatten_doc(document, nested_fields, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
     if(!flatten_op.ok()) {
         return flatten_op;
     }
@@ -3669,6 +3717,9 @@ Index* Collection::init_index() {
         if(field.is_dynamic()) {
             // regexp fields and fields with auto type are treated as dynamic fields
             dynamic_fields.emplace(field.name, field);
+            if(!field.is_dynamic_type()) {
+                search_schema.emplace(field.name, field);
+            }
             continue;
         }
 

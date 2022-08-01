@@ -717,15 +717,187 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
     ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["company_names"].size());
 
     ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].size());
-    ASSERT_EQ("brown", results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"][0]);
-    ASSERT_EQ("fox", results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"][1]);
+    std::vector<std::string> matched_tokens = results["hits"][0]["highlight"]["meta"]["company_names"]["matched_tokens"].get<std::vector<std::string>>();
+    std::sort(matched_tokens.begin(), matched_tokens.end());
+    ASSERT_EQ("brown", matched_tokens[0]);
+    ASSERT_EQ("fox", matched_tokens[1]);
 
     ASSERT_EQ(2, results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].size());
-    ASSERT_EQ("brown", results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"][0]);
-    ASSERT_EQ("fox", results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"][1]);
+    matched_tokens = results["hits"][0]["highlight"]["meta"]["details.names"]["matched_tokens"].get<std::vector<std::string>>();
+    std::sort(matched_tokens.begin(), matched_tokens.end());
+    ASSERT_EQ("brown", matched_tokens[0]);
+    ASSERT_EQ("fox", matched_tokens[1]);
 
     ASSERT_EQ(1, results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].size());
-    ASSERT_EQ("Brown", results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"][0]);
+    matched_tokens = results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].get<std::vector<std::string>>();
+    std::sort(matched_tokens.begin(), matched_tokens.end());
+    ASSERT_EQ("Brown", matched_tokens[0]);
+}
+
+TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false },
+          {"name": "company.name", "type": "string", "optional": false },
+          {"name": "locations", "type": "object[]", "optional": false }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc = R"({
+        "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
+        "details": {
+            "description": "Quick set, go.",
+            "names": ["Quick brown fox jumped.", "The red fox was not fast."]
+        },
+        "company": {"name": "Quick and easy fix."},
+        "locations": [
+            {
+                "address": { "street": "Brown Shade Avenue" }
+            },
+            {
+                "address": { "street": "Graywolf Lane" }
+            }
+        ]
+    })"_json;
+
+    auto add_op = coll1->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto sop = coll1->search("brown fox", {"details", "locations"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4);
+
+    // search both simply nested and deeply nested array-of-objects
+    auto results = coll1->search("brown fox", {"details", "locations"},
+                                 "", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    auto snippet_doc = R"({
+          "details":{
+            "names":[
+              "Quick <mark>brown</mark> <mark>fox</mark> jumped.",
+              "The red <mark>fox</mark> was not fast."
+            ]
+          },
+          "locations":[
+            {
+              "address":{
+                "street":"<mark>Brown</mark> Shade Avenue"
+              }
+            },
+            {
+              "address":{
+                "street":"Graywolf Lane"
+              }
+            }
+          ]
+    })"_json;
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    sop = coll1->search("fix", {"company.name"},
+                        "", {}, sort_fields, {0}, 10, 1,
+                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4);
+
+
+    results = coll1->search("fix", {"company.name"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    // explicit nested array field (locations.address.street)
+    schema = R"({
+        "name": "coll2",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false },
+          {"name": "company.name", "type": "string", "optional": false },
+          {"name": "locations.address.street", "type": "string[]", "optional": false }
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    add_op = coll2->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll2->search("brown", {"locations.address.street"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    snippet_doc = R"({
+      "locations":[
+        {
+          "address":{
+            "street":"<mark>Brown</mark> Shade Avenue"
+          }
+        },
+        {
+          "address":{
+            "street":"Graywolf Lane"
+          }
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    // explicit partial array object field in the schema
+    schema = R"({
+        "name": "coll3",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false },
+          {"name": "company.name", "type": "string", "optional": false },
+          {"name": "locations.address", "type": "object[]", "optional": false }
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll3 = op.get();
+
+    add_op = coll3->add(doc.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    results = coll3->search("brown", {"locations.address"},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    snippet_doc = R"({
+      "locations":[
+        {
+          "address":{
+            "street":"<mark>Brown</mark> Shade Avenue"
+          }
+        },
+        {
+          "address":{
+            "street":"Graywolf Lane"
+          }
+        }
+      ]
+    })"_json;
+
+    ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {

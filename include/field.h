@@ -43,6 +43,8 @@ namespace fields {
     static const std::string sort = "sort";
     static const std::string infix = "infix";
     static const std::string locale = "locale";
+    static const std::string nested = "nested";
+    static const std::string nested_array = "nested_array";
 }
 
 struct field {
@@ -56,14 +58,21 @@ struct field {
     bool infix;
 
     bool nested;        // field inside an object
-    bool nested_array;  // field inside an array of objects that is forced to be an array
+
+    // field inside an array of objects that is forced to be an array
+    // integer to handle tri-state: true (1), false (0), not known yet (2)
+    // third state is used to diff between array of object and array within object during write
+    int nested_array;
+
+    static constexpr int VAL_UNKNOWN = 2;
 
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
-          bool index = true, std::string locale = "", int sort = -1, int infix = -1) :
+          bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
+          int nested_array = 0) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(false), nested_array(false) {
+            nested(nested), nested_array(nested_array) {
 
         if(sort != -1) {
             this->sort = bool(sort);
@@ -155,11 +164,17 @@ struct field {
     }
 
     bool is_dynamic() const {
-         return is_dynamic(name, type);
+         return is_dynamic_type() || nested;
     }
 
-    static bool is_dynamic(const std::string& name, const std::string& type) {
-        return type == "string*" || (name != ".*" && type == field_types::AUTO) || (name != ".*" && name.find(".*") != std::string::npos);
+    static bool is_dynamic_type(const std::string& name, const std::string& type) {
+        return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
+               type == field_types::OBJECT || type == field_types::OBJECT_ARRAY ||
+                (name != ".*" && name.find(".*") != std::string::npos);
+    }
+
+    bool is_dynamic_type() const {
+        return is_dynamic_type(name, type);
     }
 
     bool has_numerical_index() const {
@@ -295,7 +310,7 @@ struct field {
                 found_default_sorting_field = true;
             }
 
-            if(field.is_dynamic() && !field.optional) {
+            if(field.is_dynamic() && !field.nested && !field.optional) {
                 return Option<bool>(400, "Field `" + field.name + "` must be an optional field.");
             }
 

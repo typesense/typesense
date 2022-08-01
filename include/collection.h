@@ -229,6 +229,17 @@ private:
                                            const tsl::htrie_map<char, field>& search_schema,
                                            std::vector<std::string>& processed_search_fields);
 
+    static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields,
+                                                         const tsl::htrie_map<char, field>& schema,
+                                                         std::vector<field>& new_fields);
+
+    bool is_nested_array(const nlohmann::json& obj, std::vector<std::string> path_parts, size_t part_i) const;
+
+    template<class T>
+    static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
+                                       const nlohmann::json& fdoc, nlohmann::json& fobj,
+                                       std::vector<std::string>& path_parts, size_t path_index, T func);
+
 public:
 
     enum {MAX_ARRAY_MATCHES = 5};
@@ -457,7 +468,7 @@ public:
 };
 
 template<class T>
-bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
+bool Collection::highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                             const nlohmann::json& fdoc, nlohmann::json& fobj,
                             std::vector<std::string>& path_parts, size_t path_index, T func) {
     if(path_index == path_parts.size()) {

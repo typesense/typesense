@@ -509,15 +509,27 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
     }
 
     if(field_json.count(fields::optional) == 0) {
-        // dynamic fields are always optional
-        bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
+        // dynamic type fields are always optional
+        bool is_dynamic = field::is_dynamic_type(field_json[fields::name], field_json[fields::type]);
         field_json[fields::optional] = is_dynamic;
+    }
+
+    bool is_obj = field_json[fields::type] == field_types::OBJECT || field_json[fields::type] == field_types::OBJECT_ARRAY;
+    bool is_regexp_name = field_json[fields::name].get<std::string>().find(".*") != std::string::npos;
+
+    if(is_obj || (!is_regexp_name && field_json[fields::name].get<std::string>().find('.') != std::string::npos)) {
+        field_json[fields::nested] = true;
+        field_json[fields::nested_array] = field::VAL_UNKNOWN;  // unknown, will be resolved during read
+    } else {
+        field_json[fields::nested] = false;
+        field_json[fields::nested_array] = 0;
     }
 
     the_fields.emplace_back(
             field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
-                  field_json[fields::sort], field_json[fields::infix])
+                  field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
+                  field_json[fields::nested_array])
     );
 
     return Option<bool>(true);
