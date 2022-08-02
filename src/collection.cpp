@@ -1784,12 +1784,15 @@ void Collection::parse_search_query(const std::string &query, std::vector<std::s
         bool phrase_search_op_prior = false;
         std::vector<std::string> phrase;
 
+        auto symbols_to_index_has_minus =
+                std::find(symbols_to_index.begin(), symbols_to_index.end(), '-') != symbols_to_index.end();
+
         for(auto& token: tokens) {
             bool end_of_phrase = false;
 
-            if(token == "-") {
+            if(token == "-" && !symbols_to_index_has_minus) {
                 continue;
-            } else if(token[0] == '-') {
+            } else if(token[0] == '-' && !symbols_to_index_has_minus) {
                 exclude_operator_prior = true;
                 token = token.substr(1);
             }
