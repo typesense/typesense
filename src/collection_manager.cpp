@@ -1163,7 +1163,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             document = nlohmann::json::parse(iter->value().ToString());
         } catch(const std::exception& e) {
             LOG(ERROR) << "JSON error: " << e.what();
-            return Option<bool>(false, "Bad JSON.");
+            return Option<bool>(400, "Bad JSON.");
         }
 
         auto dirty_values = DIRTY_VALUES::DROP;
@@ -1185,7 +1185,7 @@ Option<bool> CollectionManager::load_collection(const nlohmann::json &collection
             if(num_indexed != num_records) {
                 const Option<std::string> & index_error_op = get_first_index_error(index_records);
                 if(!index_error_op.ok()) {
-                    return Option<bool>(false, index_error_op.get());
+                    return Option<bool>(400, index_error_op.get());
                 }
             }
 
@@ -1260,4 +1260,63 @@ Option<bool> CollectionManager::delete_preset(const string& preset_name) {
 
     preset_configs.erase(preset_name);
     return Option<bool>(true);
+}
+
+Option<Collection*> CollectionManager::clone_collection(const string& existing_name, const nlohmann::json& req_json) {
+    std::shared_lock lock(mutex);
+
+    if(collections.count(existing_name) == 0) {
+        return Option<Collection*>(400, "Collection with name `" + existing_name + "` not found.");
+    }
+
+    if(req_json.count("name") == 0 || !req_json["name"].is_string()) {
+        return Option<Collection*>(400, "Collection name must be provided.");
+    }
+
+    const std::string& new_name = req_json["name"].get<std::string>();
+
+    if(collections.count(new_name) != 0) {
+        return Option<Collection*>(400, "Collection with name `" + new_name + "` already exists.");
+    }
+
+    Collection* existing_coll = collections[existing_name];
+
+    std::vector<std::string> symbols_to_index;
+    std::vector<std::string> token_separators;
+
+    for(auto c: existing_coll->get_symbols_to_index()) {
+        symbols_to_index.emplace_back(1, c);
+    }
+
+    for(auto c: existing_coll->get_token_separators()) {
+        token_separators.emplace_back(1, c);
+    }
+
+    lock.unlock();
+
+    auto coll_create_op = create_collection(new_name, DEFAULT_NUM_MEMORY_SHARDS, existing_coll->get_fields(),
+                              existing_coll->get_default_sorting_field(), static_cast<uint64_t>(std::time(nullptr)),
+                              existing_coll->get_fallback_field_type(), symbols_to_index, token_separators);
+
+    lock.lock();
+
+    if(!coll_create_op.ok()) {
+        return Option<Collection*>(coll_create_op.code(), coll_create_op.error());
+    }
+
+    Collection* new_coll = coll_create_op.get();
+
+    // copy synonyms
+    auto synonyms = existing_coll->get_synonyms();
+    for(const auto& synonym: synonyms) {
+        new_coll->get_synonym_index()->add_synonym(new_name, synonym.second);
+    }
+
+    // copy overrides
+    auto overrides = existing_coll->get_overrides();
+    for(const auto& override: overrides) {
+        new_coll->add_override(override.second);
+    }
+
+    return Option<Collection*>(new_coll);
 }

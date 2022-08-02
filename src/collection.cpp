@@ -2637,19 +2637,19 @@ Option<bool> Collection::parse_pinned_hits(const std::string& pinned_hits_str,
             }
 
             if(index == 0) {
-                return Option<bool>(false, "Pinned hits are not in expected format.");
+                return Option<bool>(400, "Pinned hits are not in expected format.");
             }
 
             std::string pinned_id = pinned_hits_part.substr(0, index);
             std::string pinned_pos = pinned_hits_part.substr(index+1);
 
             if(!StringUtils::is_positive_integer(pinned_pos)) {
-                return Option<bool>(false, "Pinned hits are not in expected format.");
+                return Option<bool>(400, "Pinned hits are not in expected format.");
             }
 
             int position = std::stoi(pinned_pos);
             if(position == 0) {
-                return Option<bool>(false, "Pinned hits must start from position 1.");
+                return Option<bool>(400, "Pinned hits must start from position 1.");
             }
 
             pinned_hits[position].emplace_back(pinned_id);
@@ -2690,6 +2690,10 @@ void Collection::synonym_reduction(const std::vector<std::string>& tokens,
 spp::sparse_hash_map<std::string, synonym_t> Collection::get_synonyms() {
     std::shared_lock lock(mutex);
     return synonym_index->get_synonyms();
+}
+
+SynonymIndex* Collection::get_synonym_index() {
+    return synonym_index;
 }
 
 Option<bool> Collection::persist_collection_meta() {
@@ -2777,7 +2781,7 @@ Option<bool> Collection::batch_alter_data(const std::unordered_map<std::string, 
         try {
             document = nlohmann::json::parse(iter->value().ToString());
         } catch(const std::exception& e) {
-            return Option<bool>(false, "Bad JSON in document: " + document.dump(-1, ' ', false,
+            return Option<bool>(400, "Bad JSON in document: " + document.dump(-1, ' ', false,
                                                                                 nlohmann::detail::error_handler_t::ignore));
         }
 
@@ -3070,7 +3074,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
         try {
             document = nlohmann::json::parse(iter->value().ToString());
         } catch(const std::exception& e) {
-            return Option<bool>(false, "Bad JSON in document: " + document.dump(-1, ' ', false,
+            return Option<bool>(400, "Bad JSON in document: " + document.dump(-1, ' ', false,
                                                                                 nlohmann::detail::error_handler_t::ignore));
         }
 

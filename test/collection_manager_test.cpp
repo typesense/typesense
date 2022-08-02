@@ -826,3 +826,60 @@ TEST_F(CollectionManagerTest, Presets) {
     preset_op = collectionManager.get_preset("preset1", preset);
     ASSERT_TRUE(preset_op.ok());
 }
+
+TEST_F(CollectionManagerTest, CloneCollection) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ],
+        "symbols_to_index":["+"],
+        "token_separators":["-", "?"]
+    })"_json;
+
+    auto create_op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(create_op.ok());
+    auto coll1 = create_op.get();
+
+    nlohmann::json synonym1 = R"({
+        "id": "ipod-synonyms",
+        "synonyms": ["ipod", "i pod", "pod"]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add_synonym(synonym1).ok());
+
+    nlohmann::json override_json = {
+            {"id",   "dynamic-cat-filter"},
+            {
+             "rule", {
+                             {"query", "{categories}"},
+                             {"match", override_t::MATCH_EXACT}
+                     }
+            },
+            {"remove_matched_tokens", true},
+            {"filter_by", "category: {categories}"}
+    };
+
+    override_t override;
+    auto op = override_t::parse(override_json, "dynamic-cat-filter", override);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override);
+
+    nlohmann::json req = R"({"name": "coll2"})"_json;
+    collectionManager.clone_collection("coll1", req);
+
+    auto coll2 = collectionManager.get_collection_unsafe("coll2");
+    ASSERT_FALSE(coll2 == nullptr);
+    ASSERT_EQ("coll2", coll2->get_name());
+    ASSERT_EQ(1, coll2->get_fields().size());
+    ASSERT_EQ(1, coll2->get_synonyms().size());
+    ASSERT_EQ(1, coll2->get_overrides().size());
+    ASSERT_EQ("", coll2->get_fallback_field_type());
+
+    ASSERT_EQ(1, coll2->get_symbols_to_index().size());
+    ASSERT_EQ(2, coll2->get_token_separators().size());
+
+    ASSERT_EQ('+', coll2->get_symbols_to_index().at(0));
+    ASSERT_EQ('-', coll2->get_token_separators().at(0));
+    ASSERT_EQ('?', coll2->get_token_separators().at(1));
+}

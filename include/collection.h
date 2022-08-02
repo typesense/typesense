@@ -388,6 +388,8 @@ public:
     void synonym_reduction(const std::vector<std::string>& tokens,
                            std::vector<std::vector<std::string>>& results) const;
 
+    SynonymIndex* get_synonym_index();
+
     // highlight ops
 
     static void highlight_text(const string& highlight_start_tag, const string& highlight_end_tag,

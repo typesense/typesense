@@ -118,6 +118,8 @@ public:
                                         const StoreStatus& next_coll_id_status,
                                         const std::atomic<bool>& quit);
 
+    Option<Collection*> clone_collection(const std::string& existing_name, const nlohmann::json& req_json);
+
     void add_to_collections(Collection* collection);
 
     std::vector<Collection*> get_collections() const;
