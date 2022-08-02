@@ -1001,3 +1001,36 @@ TEST_F(CollectionSpecificMoreTest, FieldWeightNormalization) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, SearchingForMinusCharacter) {
+    // when the minus character is part of symbols_to_index it should not be used as exclusion operator
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection(
+        "coll1", 1, fields, "points", 0, "", {"-"}, {}
+    ).get();
+
+    nlohmann::json doc1;
+    doc1["name"] = "y = -x + 3 + 2 * x";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    doc1["name"] = "foo bar";
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    auto results = coll1->search("-x + 3", {"name"},
+                                 "", {}, {}, {0}, 10,
+                                 1, FREQUENCY, {true},
+                                 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+
+    results = coll1->search("-", {"name"},
+                            "", {}, {}, {0}, 10,
+                            1, FREQUENCY, {true},
+                            0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+}

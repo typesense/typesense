@@ -165,8 +165,12 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
         return false;
     }
 
-    CollectionManager & collectionManager = CollectionManager::get_instance();
-    const Option<Collection*> & collection_op = collectionManager.create_collection(req_json);
+    const std::string SRC_COLL_NAME = "src_name";
+
+    CollectionManager& collectionManager = CollectionManager::get_instance();
+    const Option<Collection*> &collection_op = req->params.count(SRC_COLL_NAME) != 0 ?
+               collectionManager.clone_collection(req->params[SRC_COLL_NAME], req_json) :
+               CollectionManager::create_collection(req_json);
 
     if(collection_op.ok()) {
         nlohmann::json json_response = collection_op.get()->get_summary_json();
