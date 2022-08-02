@@ -897,7 +897,94 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     })"_json;
 
     ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+}
 
+TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false },
+          {"name": "company.num_employees", "type": "int32", "optional": false }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "details": {"count": 1000},
+        "company": {"num_employees": 2000}
+    })"_json;
+
+    auto doc2 = R"({
+        "details": {"count": 2000},
+        "company": {"num_employees": 1000}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("details.count", "ASC") };
+
+    auto results = coll1->search("*", {},
+                                 "", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    sort_fields = { sort_by("company.num_employees", "ASC") };
+    results = coll1->search("*", {},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+
+    // with auto schema
+    schema = R"({
+        "name": "coll2",
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    ASSERT_TRUE(coll2->add(doc1.dump(), CREATE).ok());
+    ASSERT_TRUE(coll2->add(doc2.dump(), CREATE).ok());
+
+    sort_fields = { sort_by("details.count", "ASC") };
+
+    results = coll2->search("*", {},
+                             "", {}, sort_fields, {0}, 10, 1,
+                             token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                             spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("1", results["hits"][1]["document"]["id"].get<std::string>());
+
+    sort_fields = { sort_by("company.num_employees", "ASC") };
+    results = coll2->search("*", {},
+                            "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {

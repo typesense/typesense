@@ -938,3 +938,43 @@ TEST_F(CollectionFacetingTest, FacetArrayValuesShouldBeNormalized) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": false },
+          {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "details": {"count": 1000},
+        "company": {"num_employees": 2000}
+    })"_json;
+
+    auto doc2 = R"({
+        "details": {"count": 2000},
+        "company": {"num_employees": 2000}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    ASSERT_TRUE(coll1->add(doc2.dump(), CREATE).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("details.count", "ASC") };
+
+    auto results = coll1->search("*", {}, "", {"company.num_employees"}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 4).get();
+
+    ASSERT_EQ(2, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["facet_counts"].size());
+    ASSERT_EQ("company.num_employees", results["facet_counts"][0]["field_name"]);
+    ASSERT_EQ(1, results["facet_counts"][0]["counts"].size());
+    ASSERT_EQ(2, results["facet_counts"][0]["counts"][0]["count"].get<size_t>());
+    ASSERT_EQ("2000", results["facet_counts"][0]["counts"][0]["value"].get<std::string>());
+}
