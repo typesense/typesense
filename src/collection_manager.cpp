@@ -69,6 +69,10 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                               collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE].get<std::string>() :
                               "";
 
+    bool nested_fields_enabled = collection_meta.count(Collection::COLLECTION_NESTED_FIELDS_ENABLED) != 0 ?
+                                 collection_meta[Collection::COLLECTION_NESTED_FIELDS_ENABLED].get<bool>() :
+                                 false;
+
     std::vector<std::string> symbols_to_index;
     std::vector<std::string> token_separators;
 
@@ -92,7 +96,8 @@ Collection* CollectionManager::init_collection(const nlohmann::json & collection
                                             max_memory_ratio,
                                             fallback_field_type,
                                             symbols_to_index,
-                                            token_separators);
+                                            token_separators,
+                                            nested_fields_enabled);
 
     return collection;
 }
@@ -291,7 +296,8 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
                                                          const uint64_t created_at,
                                                          const std::string& fallback_field_type,
                                                          const std::vector<std::string>& symbols_to_index,
-                                                         const std::vector<std::string>& token_separators) {
+                                                         const std::vector<std::string>& token_separators,
+                                                         const bool nested_fields_enabled) {
     std::unique_lock lock(mutex);
 
     if(store->contains(Collection::get_meta_key(name))) {
@@ -324,11 +330,13 @@ Option<Collection*> CollectionManager::create_collection(const std::string& name
     collection_meta[Collection::COLLECTION_FALLBACK_FIELD_TYPE] = fallback_field_type;
     collection_meta[Collection::COLLECTION_SYMBOLS_TO_INDEX] = symbols_to_index;
     collection_meta[Collection::COLLECTION_SEPARATORS] = token_separators;
+    collection_meta[Collection::COLLECTION_NESTED_FIELDS_ENABLED] = nested_fields_enabled;
 
     Collection* new_collection = new Collection(name, next_collection_id, created_at, 0, store, fields,
                                                 default_sorting_field,
                                                 this->max_memory_ratio, fallback_field_type,
-                                                symbols_to_index, token_separators);
+                                                symbols_to_index, token_separators,
+                                                nested_fields_enabled);
     next_collection_id++;
 
     rocksdb::WriteBatch batch;
@@ -970,6 +978,7 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
     const char* NUM_MEMORY_SHARDS = "num_memory_shards";
     const char* SYMBOLS_TO_INDEX = "symbols_to_index";
     const char* TOKEN_SEPARATORS = "token_separators";
+    const char* NESTED_FIELDS_ENABLED = "nested_fields_enabled";
     const char* DEFAULT_SORTING_FIELD = "default_sorting_field";
 
     // validate presence of mandatory fields
@@ -992,6 +1001,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(req_json.count(TOKEN_SEPARATORS) == 0) {
         req_json[TOKEN_SEPARATORS] = std::vector<std::string>();
+    }
+
+    if(req_json.count(NESTED_FIELDS_ENABLED) == 0) {
+        req_json[NESTED_FIELDS_ENABLED] = false;
     }
 
     if(req_json.count("fields") == 0) {
@@ -1017,6 +1030,10 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
 
     if(!req_json[TOKEN_SEPARATORS].is_array()) {
         return Option<Collection*>(400, std::string("`") + TOKEN_SEPARATORS + "` should be an array of character symbols.");
+    }
+
+    if(!req_json[NESTED_FIELDS_ENABLED].is_boolean()) {
+        return Option<Collection*>(400, std::string("`") + NESTED_FIELDS_ENABLED + "` should be a boolean.");
     }
 
     for (auto it = req_json[SYMBOLS_TO_INDEX].begin(); it != req_json[SYMBOLS_TO_INDEX].end(); ++it) {
@@ -1059,7 +1076,8 @@ Option<Collection*> CollectionManager::create_collection(nlohmann::json& req_jso
                                                                 fields, default_sorting_field, created_at,
                                                                 fallback_field_type,
                                                                 req_json[SYMBOLS_TO_INDEX],
-                                                                req_json[TOKEN_SEPARATORS]);
+                                                                req_json[TOKEN_SEPARATORS],
+                                                                req_json[NESTED_FIELDS_ENABLED]);
 }
 
 Option<bool> CollectionManager::load_collection(const nlohmann::json &collection_meta,

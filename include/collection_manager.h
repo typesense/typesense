@@ -152,7 +152,8 @@ public:
                                           const uint64_t created_at = static_cast<uint64_t>(std::time(nullptr)),
                                           const std::string& fallback_field_type = "",
                                           const std::vector<std::string>& symbols_to_index = {},
-                                          const std::vector<std::string>& token_separators = {});
+                                          const std::vector<std::string>& token_separators = {},
+                                          const bool nested_fields_enabled = false);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

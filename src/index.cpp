@@ -4849,7 +4849,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
     std::unique_lock lock(mutex);
 
     for(const auto & new_field: new_fields) {
-        if(!new_field.index || new_field.is_dynamic_type()) {
+        if(!new_field.index || new_field.is_dynamic()) {
             continue;
         }
 

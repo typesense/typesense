@@ -99,7 +99,7 @@ TEST_F(CollectionManagerTest, CollectionCreation) {
               "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"location\",\"optional\":true,\"sort\":true,\"type\":\"geopoint\"},"
               "{\"facet\":false,\"index\":false,\"infix\":false,\"locale\":\"\",\"name\":\"not_stored\",\"optional\":true,\"sort\":false,\"type\":\"string\"},"
               "{\"facet\":false,\"index\":true,\"infix\":false,\"locale\":\"\",\"name\":\"points\",\"optional\":false,\"sort\":true,\"type\":\"int32\"}],\"id\":0,"
-              "\"name\":\"collection1\",\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
+              "\"name\":\"collection1\",\"nested_fields_enabled\":false,\"num_memory_shards\":4,\"symbols_to_index\":[\"+\"],\"token_separators\":[\"-\"]}",
               collection_meta_json);
     ASSERT_EQ("1", next_collection_id);
 }

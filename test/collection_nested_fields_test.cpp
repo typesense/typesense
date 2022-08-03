@@ -768,11 +768,6 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     auto add_op = coll1->add(doc.dump(), CREATE);
     ASSERT_TRUE(add_op.ok());
 
-    auto sop = coll1->search("brown fox", {"details", "locations"},
-                            "", {}, sort_fields, {0}, 10, 1,
-                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4);
-
     // search both simply nested and deeply nested array-of-objects
     auto results = coll1->search("brown fox", {"details", "locations"},
                                  "", {}, sort_fields, {0}, 10, 1,
@@ -802,12 +797,6 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
 
     ASSERT_EQ(1, results["hits"].size());
     ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
-
-    sop = coll1->search("fix", {"company.name"},
-                        "", {}, sort_fields, {0}, 10, 1,
-                        token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
-                        spp::sparse_hash_set<std::string>(), 10, "", 30, 4);
-
 
     results = coll1->search("fix", {"company.name"},
                             "", {}, sort_fields, {0}, 10, 1,
@@ -985,6 +974,28 @@ TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("1", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", results["hits"][1]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionNestedFieldsTest, OnlyExplcitSchemaFieldMustBeIndexedInADoc) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "company.num_employees", "type": "int32", "optional": false },
+          {"name": "company.founded", "type": "int32", "optional": false }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "company": {"num_employees": 2000, "founded": 1976, "year": 2000}
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    auto fs = coll1->get_fields();
+    ASSERT_EQ(2, coll1->get_fields().size());
 }
 
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {

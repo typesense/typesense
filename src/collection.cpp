@@ -23,10 +23,12 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field,
                        const float max_memory_ratio, const std::string& fallback_field_type,
-                       const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators):
+                       const std::vector<std::string>& symbols_to_index,
+                       const std::vector<std::string>& token_separators,
+                       const bool nested_fields_enabled):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
-        fields(fields), default_sorting_field(default_sorting_field),
+        fields(fields), default_sorting_field(default_sorting_field), nested_fields_enabled(nested_fields_enabled),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
@@ -229,12 +231,13 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
             batch_doc_ids.insert(doc_id);
 
             // if `fallback_field_type` or `dynamic_fields` is enabled, update schema first before indexing
-            if(!fallback_field_type.empty() || !dynamic_fields.empty()) {
+            if(!fallback_field_type.empty() || !dynamic_fields.empty() || !nested_fields.empty()) {
                 std::vector<field> new_fields;
                 std::unique_lock lock(mutex);
 
                 Option<bool> new_fields_op = detect_new_fields(record.doc, dirty_values,
                                                                search_schema, dynamic_fields,
+                                                               nested_fields,
                                                                fallback_field_type,
                                                                new_fields);
                 if(!new_fields_op.ok()) {
@@ -3480,6 +3483,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
             std::vector<field> new_fields;
             Option<bool> new_fields_op = detect_new_fields(document, DIRTY_VALUES::DROP,
                                                            updated_search_schema, new_dynamic_fields,
+                                                           nested_fields,
                                                            fallback_field_type,
                                                            new_fields);
             if(!new_fields_op.ok()) {
@@ -3548,13 +3552,104 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     return Option<bool>(true);
 }
 
+Option<bool> resolve_field_type(field& new_field,
+                                nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
+                                nlohmann::json& document,
+                                const DIRTY_VALUES& dirty_values,
+                                const bool found_dynamic_field,
+                                const std::string& fallback_field_type,
+                                std::vector<field>& new_fields,
+                                std::vector<field>& nested_fields_found) {
+    if(!new_field.index) {
+        return Option<bool>(true);
+    }
+
+    // Type detection scenarios:
+    // a) Not a dynamic field + fallback type is explicit: use fallback type
+    // b) Dynamic field + type is explicit: use explicit type
+    // c) Not a dynamic field + fallback type is auto: detect and assign type
+    // d) Dynamic field + type is auto: detect and assign type
+    // e) Not a dynamic field + fallback type is string*: map to string/string[]
+    // f) Dynamic field + type is string*: map to string/string[]
+
+    const std::string& test_field_type = found_dynamic_field ? new_field.type : fallback_field_type;
+
+    if(test_field_type == field_types::AUTO || field_types::is_string_or_array(test_field_type)) {
+        if(kv.key() == ".*") {
+            return Option<bool>(true);
+        }
+
+        std::string field_type;
+        bool parseable = field::get_type(kv.value(), field_type);
+        if(!parseable) {
+
+            if(kv.value().is_null() && new_field.optional) {
+                // null values are allowed only if field is optional
+                kv = document.erase(kv);
+                return Option<bool>(false);
+            }
+
+            if(kv.value().is_object()) {
+                return Option<bool>(true);
+            }
+
+            if(kv.value().is_array() && kv.value().empty()) {
+                return Option<bool>(true);
+            }
+
+            if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
+                return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
+            } else {
+                // DROP or COERCE_OR_DROP
+                kv = document.erase(kv);
+                return Option<bool>(false);
+            }
+        }
+
+        if(test_field_type == field_types::AUTO) {
+            new_field.type = field_type;
+            if(new_field.is_object()) {
+                new_field.nested = true;
+            }
+        } else {
+            if (kv.value().is_array()) {
+                new_field.type = field_types::STRING_ARRAY;
+            } else {
+                new_field.type = field_types::STRING;
+            }
+        }
+    }
+
+    else {
+        new_field.type = test_field_type;
+    }
+
+    if (new_field.is_num_sort_field()) {
+        // only numerical fields are added to sort index in dynamic type detection
+        new_field.sort = true;
+    }
+
+    if(new_field.nested) {
+        nested_fields_found.emplace_back(new_field);
+    } else {
+        new_fields.emplace_back(new_field);
+    }
+
+    return Option<bool>(true);
+}
+
 Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const DIRTY_VALUES& dirty_values,
                                            const tsl::htrie_map<char, field>& schema,
                                            const std::unordered_map<std::string, field>& dyn_fields,
+                                           const tsl::htrie_map<char, field>& nested_fields,
                                            const std::string& fallback_field_type,
                                            std::vector<field>& new_fields) {
-    std::vector<field> nested_fields;
+
+    std::vector<field> nested_fields_found;
+    for(auto& nested_field: nested_fields) {
+        nested_fields_found.push_back(nested_field);
+    }
 
     auto kv = document.begin();
     while(kv != document.end()) {
@@ -3562,27 +3657,17 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         if (schema.count(kv.key()) == 0 && kv.key() != "id") {
             const std::string &fname = kv.key();
             field new_field(fname, field_types::STRING, false, true);
-            std::string field_type;
-            bool parseable;
-
             bool found_dynamic_field = false;
             bool skip_field = false;
 
             // check against dynamic field definitions
-            for(const auto& dynamic_field: dyn_fields) {
-                if (dynamic_field.second.nested && (kv.key() == dynamic_field.first ||
-                                                    (StringUtils::begins_with(dynamic_field.first, kv.key()) &&
-                                                     dynamic_field.first[kv.key().size()] == '.'))) {
-                    new_field = dynamic_field.second;
-                    new_field.name = dynamic_field.first;
-                    found_dynamic_field = true;
-                    break;
-                }
+            for(auto dyn_field_it = dyn_fields.begin(); dyn_field_it != dyn_fields.end(); dyn_field_it++) {
+                auto& dynamic_field = dyn_field_it->second;
 
-                else if(std::regex_match (kv.key(), std::regex(dynamic_field.first))) {
+                if(std::regex_match (kv.key(), std::regex(dynamic_field.name))) {
                     // unless the field is auto or string*, ignore field name matching regexp pattern
-                    if(kv.key() == dynamic_field.first && !dynamic_field.second.is_auto() &&
-                       !dynamic_field.second.is_string_star()) {
+                    if(kv.key() == dynamic_field.name && !dynamic_field.is_auto() &&
+                       !dynamic_field.is_string_star()) {
                         skip_field = true;
                         break;
                     }
@@ -3593,7 +3678,7 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                         break;
                     }
 
-                    new_field = dynamic_field.second;
+                    new_field = dynamic_field;
                     new_field.name = fname;
                     found_dynamic_field = true;
                     break;
@@ -3611,101 +3696,34 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                 continue;
             }
 
-            if(!new_field.index) {
-                kv++;
+            auto add_op = resolve_field_type(new_field, kv, document, dirty_values, found_dynamic_field,
+                                             fallback_field_type, new_fields, nested_fields_found);
+            if(!add_op.ok()) {
+                return add_op;
+            }
+
+            bool increment_iter = add_op.get();
+            if(!increment_iter) {
                 continue;
-            }
-
-            // Type detection scenarios:
-            // a) Not a dynamic field + fallback type is explicit: use fallback type
-            // b) Dynamic field + type is explicit: use explicit type
-            // c) Not a dynamic field + fallback type is auto: detect and assign type
-            // d) Dynamic field + type is auto: detect and assign type
-            // e) Not a dynamic field + fallback type is string*: map to string/string[]
-            // f) Dynamic field + type is string*: map to string/string[]
-
-            const std::string& test_field_type = found_dynamic_field ? new_field.type : fallback_field_type;
-
-            if(test_field_type == field_types::AUTO || field_types::is_string_or_array(test_field_type)) {
-                if(kv.key() == ".*") {
-                    kv++;
-                    continue;
-                }
-
-                parseable = field::get_type(kv.value(), field_type);
-                if(!parseable) {
-
-                    if(kv.value().is_null() && new_field.optional) {
-                        // null values are allowed only if field is optional
-                        kv = document.erase(kv);
-                        continue;
-                    }
-
-                    if(kv.value().is_object()) {
-                        kv++;
-                        continue;
-                    }
-
-                    if(kv.value().is_array() && kv.value().empty()) {
-                        kv++;
-                        continue;
-                    }
-
-                    if(dirty_values == DIRTY_VALUES::REJECT || dirty_values == DIRTY_VALUES::COERCE_OR_REJECT) {
-                        return Option<bool>(400, "Type of field `" + kv.key() + "` is invalid.");
-                    } else {
-                        // DROP or COERCE_OR_DROP
-                        kv = document.erase(kv);
-                        continue;
-                    }
-                }
-
-                if(test_field_type == field_types::AUTO) {
-                    new_field.type = field_type;
-                    if(new_field.is_object()) {
-                        new_field.nested = true;
-                    }
-                } else {
-                    if (kv.value().is_array()) {
-                        new_field.type = field_types::STRING_ARRAY;
-                    } else {
-                        new_field.type = field_types::STRING;
-                    }
-                }
-
-            }
-
-            else {
-                new_field.type = test_field_type;
-            }
-
-            if (new_field.is_num_sort_field()) {
-                // only numerical fields are added to sort index in dynamic type detection
-                new_field.sort = true;
-            }
-
-            if(new_field.nested) {
-                nested_fields.push_back(new_field);
-            } else {
-                new_fields.emplace_back(new_field);
             }
         }
 
         kv++;
     }
 
-    return flatten_and_identify_new_fields(document, nested_fields, schema, new_fields);
+    return flatten_and_identify_new_fields(document, nested_fields_found, schema, new_fields);
 }
 
-Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields,
-                                                        const tsl::htrie_map<char, field>& schema,
-                                                        std::vector<field>& new_fields) {
-    if(nested_fields.empty()) {
+Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc,
+                                                         const std::vector<field>& nested_fields_found,
+                                                         const tsl::htrie_map<char, field>& schema,
+                                                         std::vector<field>& new_fields) {
+    if(nested_fields_found.empty()) {
         return Option<bool>(true);
     }
 
     std::vector<field> flattened_fields;
-    auto flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
+    auto flatten_op = field::flatten_doc(doc, nested_fields_found, flattened_fields);
     if(!flatten_op.ok()) {
         return flatten_op;
     }
@@ -3724,7 +3742,12 @@ Index* Collection::init_index() {
         if(field.is_dynamic()) {
             // regexp fields and fields with auto type are treated as dynamic fields
             dynamic_fields.emplace(field.name, field);
-            if(!field.is_dynamic_type()) {
+            continue;
+        }
+
+        else if(field.nested) {
+            nested_fields.emplace(field.name, field);
+            if(!field.is_object()) {
                 search_schema.emplace(field.name, field);
             }
             continue;

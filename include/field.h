@@ -163,18 +163,13 @@ struct field {
         return !is_array();
     }
 
-    bool is_dynamic() const {
-         return is_dynamic_type() || nested;
-    }
-
-    static bool is_dynamic_type(const std::string& name, const std::string& type) {
+    static bool is_dynamic(const std::string& name, const std::string& type) {
         return type == "string*" || (name != ".*" && type == field_types::AUTO) ||
-               type == field_types::OBJECT || type == field_types::OBJECT_ARRAY ||
                 (name != ".*" && name.find(".*") != std::string::npos);
     }
 
-    bool is_dynamic_type() const {
-        return is_dynamic_type(name, type);
+    bool is_dynamic() const {
+        return is_dynamic(name, type);
     }
 
     bool has_numerical_index() const {

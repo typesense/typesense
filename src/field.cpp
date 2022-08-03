@@ -510,7 +510,7 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
 
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
-        bool is_dynamic = field::is_dynamic_type(field_json[fields::name], field_json[fields::type]);
+        bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
         field_json[fields::optional] = is_dynamic;
     }
 

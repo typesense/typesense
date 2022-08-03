@@ -110,6 +110,10 @@ private:
 
     std::unordered_map<std::string, field> dynamic_fields;
 
+    tsl::htrie_map<char, field> nested_fields;
+
+    bool nested_fields_enabled;
+
     std::vector<char> symbols_to_index;
 
     std::vector<char> token_separators;
@@ -158,6 +162,7 @@ private:
                                           const DIRTY_VALUES& dirty_values,
                                           const tsl::htrie_map<char, field>& schema,
                                           const std::unordered_map<std::string, field>& dyn_fields,
+                                          const tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
                                           std::vector<field>& new_fields);
 
@@ -229,7 +234,7 @@ private:
                                            const tsl::htrie_map<char, field>& search_schema,
                                            std::vector<std::string>& processed_search_fields);
 
-    static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields,
+    static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
                                                          std::vector<field>& new_fields);
 
@@ -262,6 +267,7 @@ public:
     static constexpr const char* COLLECTION_CREATED = "created_at";
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
+    static constexpr const char* COLLECTION_NESTED_FIELDS_ENABLED = "nested_fields_enabled";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -274,7 +280,8 @@ public:
                const uint32_t next_seq_id, Store *store, const std::vector<field>& fields,
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
-               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators);
+               const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
+               const bool nested_fields_enabled);
 
     ~Collection();
 
