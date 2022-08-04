@@ -112,6 +112,10 @@ struct override_t {
     std::string sort_by;
     std::string replace_query;
 
+    // epoch seconds
+    int64_t window_start_ts = -1;
+    int64_t window_end_ts = -1;
+
     override_t() = default;
 
     static Option<bool> parse(const nlohmann::json& override_json, const std::string& id, override_t& override) {
@@ -265,6 +269,14 @@ struct override_t {
             override.stop_processing = override_json["stop_processing"].get<bool>();
         }
 
+        if(override_json.count("window_start_ts") != 0) {
+            override.window_start_ts = override_json["window_start_ts"].get<int64_t>();
+        }
+
+        if(override_json.count("window_end_ts") != 0) {
+            override.window_end_ts = override_json["window_end_ts"].get<int64_t>();
+        }
+
         // we have to also detect if it is a dynamic query rule
         size_t i = 0;
         while(i < override.rule.query.size()) {
@@ -319,6 +331,14 @@ struct override_t {
 
         if(!replace_query.empty()) {
             override["replace_query"] = replace_query;
+        }
+
+        if(window_start_ts != -1) {
+            override["window_start_ts"] = window_start_ts;
+        }
+
+        if(window_end_ts != -1) {
+            override["window_end_ts"] = window_end_ts;
         }
 
         override["remove_matched_tokens"] = remove_matched_tokens;

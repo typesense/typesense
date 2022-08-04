@@ -271,7 +271,7 @@ TEST_F(CollectionOverrideTest, OverrideJSONValidation) {
 
     parse_op = override_t::parse(include_json2, "", override2);
     ASSERT_FALSE(parse_op.ok());
-    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `sort_by`, `remove_matched_tokens`.",
+    ASSERT_STREQ("Must contain one of: `includes`, `excludes`, `filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.",
                  parse_op.error().c_str());
 
     include_json2["includes"] = nlohmann::json::array();
@@ -839,6 +839,78 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Only one of `replace_query` or `remove_matched_tokens` can be specified.", op.error());
+}
+
+TEST_F(CollectionOverrideTest, WindowForRule) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("name", field_types::STRING, false),
+                                 field("points", field_types::INT32, false)};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+    }
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["name"] = "Amazing Shoes";
+    doc1["points"] = 30;
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    std::vector<sort_by> sort_fields = { sort_by("_text_match", "DESC"), sort_by("points", "DESC") };
+
+    nlohmann::json override_json = R"({
+       "id": "rule-1",
+       "rule": {
+            "query": "boots",
+            "match": "exact"
+        },
+        "replace_query": "shoes"
+    })"_json;
+
+    override_t override_rule;
+    auto op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    auto results = coll1->search("boots", {"name"}, "",
+                                 {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    // rule must not match when window_start is set into the future
+    override_json["window_start_ts"] = 35677971263;  // year 3100, here we come! ;)
+    op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    results = coll1->search("boots", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // rule must not match when window_end is set into the past
+    override_json["window_start_ts"] = -1;
+    override_json["window_end_ts"] = 965388863;
+    op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    results = coll1->search("boots", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(0, results["hits"].size());
+
+    // resetting both should bring the override back in action
+    override_json["window_start_ts"] = 965388863;
+    override_json["window_end_ts"] = 35677971263;
+    op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule);
+
+    results = coll1->search("boots", {"name"}, "",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+    ASSERT_EQ(1, results["hits"].size());
 }
 
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {

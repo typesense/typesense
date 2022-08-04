@@ -451,6 +451,15 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
         for(const auto& override_kv: overrides) {
             const auto& override = override_kv.second;
 
+            auto now_epoch = int64_t(std::time(0));
+            if(override.window_start_ts != -1 && now_epoch < override.window_start_ts) {
+                continue;
+            }
+
+            if(override.window_end_ts != -1 && now_epoch > override.window_end_ts) {
+                continue;
+            }
+
             // ID-based overrides are applied first as they take precedence over filter-based overrides
             if(!override.filter_by.empty()) {
                 filter_overrides.push_back(&override);
