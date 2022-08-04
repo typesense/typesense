@@ -110,6 +110,7 @@ struct override_t {
     bool stop_processing = true;
 
     std::string sort_by;
+    std::string replace_query;
 
     override_t() = default;
 
@@ -128,9 +129,10 @@ struct override_t {
 
         if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
            override_json.count("filter_by") == 0 && override_json.count("sort_by") == 0 &&
-           override_json.count("remove_matched_tokens") == 0) {
+           override_json.count("remove_matched_tokens") == 0 &&
+           override_json.count("replace_query") == 0) {
             return Option<bool>(400, "Must contain one of: `includes`, `excludes`, "
-                                     "`filter_by`, `sort_by`, `remove_matched_tokens`.");
+                                     "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
         }
 
         if(override_json.count("includes") != 0) {
@@ -242,6 +244,13 @@ struct override_t {
             override.sort_by = override_json["sort_by"].get<std::string>();
         }
 
+        if (override_json.count("replace_query") != 0) {
+            if(override_json.count("remove_matched_tokens") != 0) {
+                return Option<bool>(400, "Only one of `replace_query` or `remove_matched_tokens` can be specified.");
+            }
+            override.replace_query = override_json["replace_query"].get<std::string>();
+        }
+
         if(override_json.count("remove_matched_tokens") != 0) {
             override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
         } else {
@@ -306,6 +315,10 @@ struct override_t {
 
         if(!sort_by.empty()) {
             override["sort_by"] = sort_by;
+        }
+
+        if(!replace_query.empty()) {
+            override["replace_query"] = replace_query;
         }
 
         override["remove_matched_tokens"] = remove_matched_tokens;

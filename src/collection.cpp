@@ -481,7 +481,9 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                     }
                 }
 
-                if(override.remove_matched_tokens && override.filter_by.empty()) {
+                if(!override.replace_query.empty()) {
+                    actual_query = override.replace_query;
+                } else if(override.remove_matched_tokens && override.filter_by.empty()) {
                     // don't prematurely remove tokens from query because dynamic filtering will require them
                     StringUtils::replace_all(query, override.rule.query, "");
                     StringUtils::trim(query);
