@@ -241,7 +241,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
     ASSERT_EQ(4, tokens.size());
     ASSERT_EQ("จิ้งจอก", tokens[0]);
     ASSERT_EQ("สี", tokens[1]);
-    ASSERT_EQ("น้ำตาล", tokens[2]);
+    ASSERT_EQ("น้ําตาล", tokens[2]);
     ASSERT_EQ("ด่วน", tokens[3]);
 
     tokens.clear();
