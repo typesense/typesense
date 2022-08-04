@@ -442,6 +442,7 @@ namespace sort_field_const {
     static const std::string desc = "DESC";
 
     static const std::string text_match = "_text_match";
+    static const std::string eval = "_eval";
     static const std::string seq_id = "_seq_id";
 
     static const std::string exclude_radius = "exclude_radius";
@@ -457,6 +458,12 @@ struct sort_by {
         normal,
     };
 
+    struct eval_t {
+        std::vector<filter> filters;
+        uint32_t* ids = nullptr;
+        uint32_t  size = 0;
+    };
+
     std::string name;
     std::string order;
 
@@ -469,6 +476,7 @@ struct sort_by {
     uint32_t geo_precision;
 
     missing_values_t missing_values;
+    eval_t eval;
 
     sort_by(const std::string & name, const std::string & order):
         name(name), order(order), text_match_buckets(0), geopoint(0), exclude_radius(0), geo_precision(0),

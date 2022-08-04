@@ -749,6 +749,14 @@ TEST_F(CollectionManagerTest, ParseSortByClause) {
     ASSERT_EQ("ASC", sort_fields[0].order);
 
     sort_fields.clear();
+    sort_by_parsed = CollectionManager::parse_sort_by_str("_eval(brand:nike && foo:bar):DESC,points:desc ", sort_fields);
+    ASSERT_TRUE(sort_by_parsed);
+    ASSERT_EQ("_eval(brand:nike && foo:bar)", sort_fields[0].name);
+    ASSERT_EQ("DESC", sort_fields[0].order);
+    ASSERT_EQ("points", sort_fields[1].name);
+    ASSERT_EQ("DESC", sort_fields[1].order);
+
+    sort_fields.clear();
     sort_by_parsed = CollectionManager::parse_sort_by_str("", sort_fields);
     ASSERT_TRUE(sort_by_parsed);
     ASSERT_EQ(0, sort_fields.size());
