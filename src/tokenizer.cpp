@@ -16,7 +16,14 @@ Tokenizer::Tokenizer(const std::string& input, bool normalize, bool no_op, const
     }
 
     UErrorCode errcode = U_ZERO_ERROR;
-    nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+
+    if(locale == "ko") {
+        nfkd = icu::Normalizer2::getNFKDInstance(errcode);
+    }
+
+    if(locale == "th") {
+        nfkc = icu::Normalizer2::getNFKCInstance(errcode);
+    }
 
     cd = iconv_open("ASCII//TRANSLIT", "UTF-8");
 
@@ -119,6 +126,16 @@ bool Tokenizer::next(std::string &token, size_t& token_index, size_t& start_inde
                 auto raw_text = unicode_text.tempSubStringBetween(start_pos, end_pos);
                 transliterator->transliterate(raw_text);
                 token = raw_text.toUTF8String(word);
+            } else if(locale == "th") {
+                UErrorCode errcode = U_ZERO_ERROR;
+                icu::UnicodeString src = unicode_text.tempSubStringBetween(start_pos, end_pos);
+                icu::UnicodeString dst;
+                nfkc->normalize(src, dst, errcode);
+                if(!U_FAILURE(errcode)) {
+                    token = dst.toUTF8String(word);
+                } else {
+                    LOG(ERROR) << "Unicode error during parsing: " << errcode;
+                }
             } else {
                 token = unicode_text.tempSubStringBetween(start_pos, end_pos).toUTF8String(word);
             }

@@ -36,8 +36,9 @@ private:
     int32_t utf8_start_index = 0;
     char* normalized_text = nullptr;
 
-    // non-deletable singleton
-    const icu::Normalizer2* nfkd;
+    // non-deletable singletons
+    const icu::Normalizer2* nfkd = nullptr;
+    const icu::Normalizer2* nfkc = nullptr;
 
     icu::Transliterator* transliterator = nullptr;
 

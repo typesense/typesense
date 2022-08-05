@@ -110,6 +110,11 @@ struct override_t {
     bool stop_processing = true;
 
     std::string sort_by;
+    std::string replace_query;
+
+    // epoch seconds
+    int64_t effective_from_ts = -1;
+    int64_t effective_to_ts = -1;
 
     override_t() = default;
 
@@ -128,9 +133,10 @@ struct override_t {
 
         if(override_json.count("includes") == 0 && override_json.count("excludes") == 0 &&
            override_json.count("filter_by") == 0 && override_json.count("sort_by") == 0 &&
-           override_json.count("remove_matched_tokens") == 0) {
+           override_json.count("remove_matched_tokens") == 0 &&
+           override_json.count("replace_query") == 0) {
             return Option<bool>(400, "Must contain one of: `includes`, `excludes`, "
-                                     "`filter_by`, `sort_by`, `remove_matched_tokens`.");
+                                     "`filter_by`, `sort_by`, `remove_matched_tokens`, `replace_query`.");
         }
 
         if(override_json.count("includes") != 0) {
@@ -242,6 +248,13 @@ struct override_t {
             override.sort_by = override_json["sort_by"].get<std::string>();
         }
 
+        if (override_json.count("replace_query") != 0) {
+            if(override_json.count("remove_matched_tokens") != 0) {
+                return Option<bool>(400, "Only one of `replace_query` or `remove_matched_tokens` can be specified.");
+            }
+            override.replace_query = override_json["replace_query"].get<std::string>();
+        }
+
         if(override_json.count("remove_matched_tokens") != 0) {
             override.remove_matched_tokens = override_json["remove_matched_tokens"].get<bool>();
         } else {
@@ -254,6 +267,14 @@ struct override_t {
 
         if(override_json.count("stop_processing") != 0) {
             override.stop_processing = override_json["stop_processing"].get<bool>();
+        }
+
+        if(override_json.count("effective_from_ts") != 0) {
+            override.effective_from_ts = override_json["effective_from_ts"].get<int64_t>();
+        }
+
+        if(override_json.count("effective_to_ts") != 0) {
+            override.effective_to_ts = override_json["effective_to_ts"].get<int64_t>();
         }
 
         // we have to also detect if it is a dynamic query rule
@@ -306,6 +327,18 @@ struct override_t {
 
         if(!sort_by.empty()) {
             override["sort_by"] = sort_by;
+        }
+
+        if(!replace_query.empty()) {
+            override["replace_query"] = replace_query;
+        }
+
+        if(effective_from_ts != -1) {
+            override["effective_from_ts"] = effective_from_ts;
+        }
+
+        if(effective_to_ts != -1) {
+            override["effective_to_ts"] = effective_to_ts;
         }
 
         override["remove_matched_tokens"] = remove_matched_tokens;
@@ -517,6 +550,7 @@ private:
 
     static spp::sparse_hash_map<uint32_t, int64_t> text_match_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> seq_id_sentinel_value;
+    static spp::sparse_hash_map<uint32_t, int64_t> eval_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> geo_sentinel_value;
     static spp::sparse_hash_map<uint32_t, int64_t> str_sentinel_value;
 
@@ -565,7 +599,7 @@ private:
                       const field& the_field, const std::string& field_name,
                       const uint32_t *filter_ids, size_t filter_ids_length,
                       const std::vector<uint32_t>& curated_ids,
-                      const std::vector<sort_by> & sort_fields,
+                      std::vector<sort_by> & sort_fields,
                       int last_typo,
                       int max_typos,
                       std::vector<std::vector<art_leaf*>> & searched_queries,
@@ -619,7 +653,7 @@ private:
                            const uint32_t* filter_ids, size_t filter_ids_length,
                            const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                            const std::vector<uint32_t>& curated_ids,
-                           const std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
+                           std::vector<sort_by> & sort_fields, std::vector<token_candidates> & token_to_candidates,
                            std::vector<std::vector<art_leaf*>> & searched_queries,
                            Topster* topster, spp::sparse_hash_set<uint64_t>& groups_processed,
                            uint32_t** all_result_ids,
@@ -788,7 +822,7 @@ public:
     void search(std::vector<query_tokens_t>& field_query_tokens, const std::vector<search_field_t>& the_fields,
                 std::vector<filter>& filters, std::vector<facet>& facets, facet_query_t& facet_query,
                 const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
-                const std::vector<uint32_t>& excluded_ids, const std::vector<sort_by>& sort_fields_std,
+                const std::vector<uint32_t>& excluded_ids, std::vector<sort_by>& sort_fields_std,
                 const std::vector<uint32_t>& num_typos, Topster* topster, Topster* curated_topster,
                 const size_t per_page,
                 const size_t page, const token_ordering token_order, const std::vector<bool>& prefixes,
@@ -878,7 +912,7 @@ public:
                              uint32_t& filter_ids_length, const std::vector<uint32_t>& curated_ids_sorted) const;
 
     void populate_sort_mapping(int* sort_order, std::vector<size_t>& geopoint_indices,
-                               const std::vector<sort_by>& sort_fields_std,
+                               std::vector<sort_by>& sort_fields_std,
                                std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3>& field_values) const;
 
     static void remove_matched_tokens(std::vector<std::string>& tokens, const std::set<std::string>& rule_token_set) ;
@@ -1040,8 +1074,10 @@ public:
     void compute_sort_scores(const std::vector<sort_by>& sort_fields, const int* sort_order,
                              std::array<spp::sparse_hash_map<uint32_t, int64_t>*, 3> field_values,
                              const std::vector<size_t>& geopoint_indices, uint32_t seq_id,
+                             size_t filter_index,
                              int64_t max_field_match_score,
-                             int64_t* scores, int64_t& match_score_index) const;
+                             int64_t* scores,
+                             int64_t& match_score_index) const;
 
     void
     process_curated_ids(const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,

@@ -423,6 +423,15 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
         for(const auto& override_kv: overrides) {
             const auto& override = override_kv.second;
 
+            auto now_epoch = int64_t(std::time(0));
+            if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
+                continue;
+            }
+
+            if(override.effective_to_ts != -1 && now_epoch > override.effective_to_ts) {
+                continue;
+            }
+
             // ID-based overrides are applied first as they take precedence over filter-based overrides
             if(!override.filter_by.empty()) {
                 filter_overrides.push_back(&override);
@@ -453,7 +462,9 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
                     }
                 }
 
-                if(override.remove_matched_tokens && override.filter_by.empty()) {
+                if(!override.replace_query.empty()) {
+                    actual_query = override.replace_query;
+                } else if(override.remove_matched_tokens && override.filter_by.empty()) {
                     // don't prematurely remove tokens from query because dynamic filtering will require them
                     StringUtils::replace_all(query, override.rule.query, "");
                     StringUtils::trim(query);
@@ -495,7 +506,10 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
                                                               std::vector<sort_by>& sort_fields_std) const {
 
-    for(const sort_by& _sort_field: sort_fields) {
+    size_t num_sort_expressions = 0;
+
+    for(size_t i = 0; i < sort_fields.size(); i++) {
+        const sort_by& _sort_field = sort_fields[i];
         sort_by sort_field_std(_sort_field.name, _sort_field.order);
 
         if(sort_field_std.name.back() == ')') {
@@ -522,6 +536,19 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
                 sort_field_std.name = actual_field_name;
                 sort_field_std.text_match_buckets = std::stoll(match_parts[1]);
+
+            } else if(actual_field_name == sort_field_const::eval) {
+                const std::string& filter_exp = sort_field_std.name.substr(paran_start + 1,
+                                                                           sort_field_std.name.size() - paran_start -
+                                                                           2);
+                Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
+                                                                          store, "", sort_field_std.eval.filters);
+                if(!parse_filter_op.ok()) {
+                    return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
+                }
+
+                sort_field_std.name = actual_field_name;
+                num_sort_expressions++;
 
             } else {
                 if(field_it == search_schema.end()) {
@@ -646,7 +673,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
             }
         }
 
-        if(sort_field_std.name != sort_field_const::text_match) {
+        if (sort_field_std.name != sort_field_const::text_match && sort_field_std.name != sort_field_const::eval) {
             const auto field_it = search_schema.find(sort_field_std.name);
             if(field_it == search_schema.end() || !field_it.value().sort || !field_it.value().index) {
                 std::string error = "Could not find a field named `" + sort_field_std.name +
@@ -694,6 +721,11 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
     if(sort_fields_std.size() > 3) {
         std::string message = "Only upto 3 sort_by fields can be specified.";
+        return Option<bool>(422, message);
+    }
+
+    if(num_sort_expressions > 1) {
+        std::string message = "Only one sorting eval expression is allowed.";
         return Option<bool>(422, message);
     }
 
