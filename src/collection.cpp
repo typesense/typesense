@@ -452,11 +452,11 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
             const auto& override = override_kv.second;
 
             auto now_epoch = int64_t(std::time(0));
-            if(override.window_start_ts != -1 && now_epoch < override.window_start_ts) {
+            if(override.effective_from_ts != -1 && now_epoch < override.effective_from_ts) {
                 continue;
             }
 
-            if(override.window_end_ts != -1 && now_epoch > override.window_end_ts) {
+            if(override.effective_to_ts != -1 && now_epoch > override.effective_to_ts) {
                 continue;
             }
 

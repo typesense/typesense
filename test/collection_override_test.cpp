@@ -881,7 +881,7 @@ TEST_F(CollectionOverrideTest, WindowForRule) {
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
 
     // rule must not match when window_start is set into the future
-    override_json["window_start_ts"] = 35677971263;  // year 3100, here we come! ;)
+    override_json["effective_from_ts"] = 35677971263;  // year 3100, here we come! ;)
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_TRUE(op.ok());
     coll1->add_override(override_rule);
@@ -891,8 +891,8 @@ TEST_F(CollectionOverrideTest, WindowForRule) {
     ASSERT_EQ(0, results["hits"].size());
 
     // rule must not match when window_end is set into the past
-    override_json["window_start_ts"] = -1;
-    override_json["window_end_ts"] = 965388863;
+    override_json["effective_from_ts"] = -1;
+    override_json["effective_to_ts"] = 965388863;
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_TRUE(op.ok());
     coll1->add_override(override_rule);
@@ -902,8 +902,8 @@ TEST_F(CollectionOverrideTest, WindowForRule) {
     ASSERT_EQ(0, results["hits"].size());
 
     // resetting both should bring the override back in action
-    override_json["window_start_ts"] = 965388863;
-    override_json["window_end_ts"] = 35677971263;
+    override_json["effective_from_ts"] = 965388863;
+    override_json["effective_to_ts"] = 35677971263;
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_TRUE(op.ok());
     coll1->add_override(override_rule);

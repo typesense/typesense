@@ -113,8 +113,8 @@ struct override_t {
     std::string replace_query;
 
     // epoch seconds
-    int64_t window_start_ts = -1;
-    int64_t window_end_ts = -1;
+    int64_t effective_from_ts = -1;
+    int64_t effective_to_ts = -1;
 
     override_t() = default;
 
@@ -269,12 +269,12 @@ struct override_t {
             override.stop_processing = override_json["stop_processing"].get<bool>();
         }
 
-        if(override_json.count("window_start_ts") != 0) {
-            override.window_start_ts = override_json["window_start_ts"].get<int64_t>();
+        if(override_json.count("effective_from_ts") != 0) {
+            override.effective_from_ts = override_json["effective_from_ts"].get<int64_t>();
         }
 
-        if(override_json.count("window_end_ts") != 0) {
-            override.window_end_ts = override_json["window_end_ts"].get<int64_t>();
+        if(override_json.count("effective_to_ts") != 0) {
+            override.effective_to_ts = override_json["effective_to_ts"].get<int64_t>();
         }
 
         // we have to also detect if it is a dynamic query rule
@@ -333,12 +333,12 @@ struct override_t {
             override["replace_query"] = replace_query;
         }
 
-        if(window_start_ts != -1) {
-            override["window_start_ts"] = window_start_ts;
+        if(effective_from_ts != -1) {
+            override["effective_from_ts"] = effective_from_ts;
         }
 
-        if(window_end_ts != -1) {
-            override["window_end_ts"] = window_end_ts;
+        if(effective_to_ts != -1) {
+            override["effective_to_ts"] = effective_to_ts;
         }
 
         override["remove_matched_tokens"] = remove_matched_tokens;
