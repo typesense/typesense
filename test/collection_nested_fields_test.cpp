@@ -886,6 +886,78 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     })"_json;
 
     ASSERT_EQ(snippet_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
+
+    // non-optional object field validation (details)
+    auto doc2 = R"({
+        "company_names": ["Quick brown fox jumped.", "The red fox was not fast."],
+        "company": {"name": "Quick and easy fix."},
+        "locations": [
+            {
+                "address": { "street": "Foo bar street" }
+            }
+        ]
+    })"_json;
+
+    add_op = coll3->add(doc2.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `details` was not found or has an incorrect type.", add_op.error());
+
+    // check fields and their properties
+    auto coll_fields = coll1->get_fields();
+    ASSERT_EQ(6, coll_fields.size());
+
+    for(size_t i = 0; i < coll_fields.size(); i++) {
+        auto& coll_field = coll_fields[i];
+        if(i <= 2) {
+            // original 3 explicit fields will be non-optional, but the sub-properties will be optional
+            ASSERT_FALSE(coll_field.optional);
+        } else {
+            ASSERT_TRUE(coll_field.optional);
+        }
+    }
+}
+
+TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "details", "type": "object", "optional": true },
+          {"name": "company.name", "type": "string", "optional": true },
+          {"name": "locations", "type": "object[]", "optional": true }
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    // no optional field is present and that should be allowed
+    auto doc1 = R"({
+        "foo": "bar"
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // some parts of an optional field is present in a subsequent doc indexed
+    auto doc2 = R"({
+        "details": {"name": "foo"}
+    })"_json;
+    add_op = coll1->add(doc2.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    auto doc3 = R"({
+        "details": {"age": 30}
+    })"_json;
+    add_op = coll1->add(doc3.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
+
+    // check fields and their properties
+    auto coll_fields = coll1->get_fields();
+    ASSERT_EQ(5, coll_fields.size());
+    for(auto& coll_field : coll_fields) {
+        ASSERT_TRUE(coll_field.optional);
+    }
 }
 
 TEST_F(CollectionNestedFieldsTest, SortByNestedField) {

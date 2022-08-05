@@ -734,26 +734,33 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 
 Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             const tsl::htrie_map<char, field>& search_schema,
-                                            std::vector<std::string>& processed_search_fields) {
-    if(search_schema.count(field_name) == 0) {
-        // we should check if the field refers to an object, which won't be explicitly be present in the schema
-        auto prefix_it = search_schema.equal_prefix_range(field_name);
-        bool object_field_found = false;
-        for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
-            // field_name prefix must be followed by a "." to indicate an object search
-            if(kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.' &&
-               kv.value().is_string()) {
-                processed_search_fields.push_back(kv.key());
-                object_field_found = true;
+                                            std::vector<std::string>& processed_search_fields,
+                                            const bool extract_only_string_fields) {
+    auto prefix_it = search_schema.equal_prefix_range(field_name);
+    bool field_found = false;
+
+    for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
+        if(extract_only_string_fields && !kv.value().is_string()) {
+            if(kv.key().size() == field_name.size() && !kv.value().is_object()) {
+                // exact key, must be rejected because of type mismatch
+                std::string error = "Field `" + field_name + "` should be a string or a string array.";;
+                return Option<bool>(400, error);
             }
+            continue;
         }
 
-        if(!object_field_found) {
-            std::string error = "Could not find a field named `" + field_name + "` in the schema.";
-            return Option<bool>(404, error);
+        bool exact_non_obj_match = (kv.key().size() == field_name.size() && !kv.value().is_object());
+
+        // field_name prefix must be followed by a "." to indicate an object search
+        if(exact_non_obj_match || (kv.key().size() > field_name.size() && kv.key()[field_name.size()] == '.')) {
+            processed_search_fields.push_back(kv.key());
+            field_found = true;
         }
-    } else {
-        processed_search_fields.push_back(field_name);
+    }
+
+    if(!field_found) {
+        std::string error = "Could not find a field named `" + field_name + "` in the schema.";
+        return Option<bool>(404, error);
     }
 
     return Option<bool>(true);
@@ -849,9 +856,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> processed_search_fields;
 
     for(const std::string& field_name: raw_search_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields);
+        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true);
         if(!field_op.ok()) {
-            return Option<nlohmann::json>(404, field_op.error());
+            return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
     }
 
@@ -873,7 +880,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> group_by_fields;
 
     for(const std::string& field_name: raw_group_by_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, group_by_fields);
+        auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
@@ -900,14 +907,14 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     tsl::htrie_set<char> exclude_fields_full;
 
     for(auto& f_name: include_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec);
+        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
     }
 
     for(auto& f_name: exclude_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec);
+        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
@@ -1795,7 +1802,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     spp::sparse_hash_set<std::string> fields_highlighted_fully_set;
     std::vector<std::string> fields_highlighted_fully_expanded;
     for(const std::string& highlight_full_field: highlight_full_field_names) {
-        extract_field_name(highlight_full_field, search_schema, fields_highlighted_fully_expanded);
+        extract_field_name(highlight_full_field, search_schema, fields_highlighted_fully_expanded, true);
     }
 
     for(std::string & highlight_full_field: fields_highlighted_fully_expanded) {
@@ -1834,7 +1841,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     } else {
         std::vector<std::string> highlight_field_names_expanded;
         for(size_t i = 0; i < highlight_field_names.size(); i++) {
-            extract_field_name(highlight_field_names[i], search_schema, highlight_field_names_expanded);
+            extract_field_name(highlight_field_names[i], search_schema, highlight_field_names_expanded, true);
         }
 
         for(size_t i = 0; i < highlight_field_names_expanded.size(); i++) {
@@ -3584,14 +3591,14 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
     return Option<bool>(true);
 }
 
-Option<bool> resolve_field_type(field& new_field,
-                                nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
-                                nlohmann::json& document,
-                                const DIRTY_VALUES& dirty_values,
-                                const bool found_dynamic_field,
-                                const std::string& fallback_field_type,
-                                std::vector<field>& new_fields,
-                                std::vector<field>& nested_fields_found) {
+Option<bool> Collection::resolve_field_type(field& new_field,
+                                            nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
+                                            nlohmann::json& document,
+                                            const DIRTY_VALUES& dirty_values,
+                                            const bool found_dynamic_field,
+                                            const std::string& fallback_field_type,
+                                            std::vector<field>& new_fields,
+                                            std::vector<field>& nested_fields_found) {
     if(!new_field.index) {
         return Option<bool>(true);
     }
@@ -3777,19 +3784,15 @@ Index* Collection::init_index() {
             continue;
         }
 
-        else if(field.nested) {
-            nested_fields.emplace(field.name, field);
-            if(!field.is_object()) {
-                search_schema.emplace(field.name, field);
-            }
-            continue;
-        }
-
         if(field.name == ".*") {
             continue;
         }
 
         search_schema.emplace(field.name, field);
+
+        if(field.nested) {
+            nested_fields.emplace(field.name, field);
+        }
     }
 
     synonym_index = new SynonymIndex(store);

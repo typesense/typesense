@@ -302,6 +302,82 @@ void Index::compute_token_offsets_facets(index_record& record,
     }
 }
 
+bool doc_contains_field(const nlohmann::json& doc, const field& a_field,
+                        const tsl::htrie_map<char, field> & search_schema) {
+
+    if(doc.count(a_field.name)) {
+        return true;
+    }
+
+    // check for a nested field, e.g. `foo.bar.baz` indexed but `foo.bar` present in schema
+    if(a_field.is_object()) {
+        auto prefix_it = search_schema.equal_prefix_range(a_field.name);
+        std::string nested_field_name;
+        for(auto kv = prefix_it.first; kv != prefix_it.second; kv++) {
+            kv.key(nested_field_name);
+            bool is_child_field = (nested_field_name.size() > a_field.name.size() &&
+                                   nested_field_name[a_field.name.size()] == '.');
+            if(is_child_field && doc.count(nested_field_name) != 0) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool validate_object_field(nlohmann::json& doc, const field& a_field) {
+    auto field_it = doc.find(a_field.name);
+    if(field_it != doc.end()) {
+        if(a_field.type == field_types::OBJECT && doc[a_field.name].is_object()) {
+            return true;
+        } else if(a_field.type == field_types::OBJECT_ARRAY && doc[a_field.name].is_array()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    std::vector<std::string> field_parts;
+    StringUtils::split(a_field.name, field_parts, ".");
+
+    nlohmann::json* obj = &doc;
+    bool has_array = false;
+
+    for(auto& field_part: field_parts) {
+        if(obj->is_array()) {
+            has_array = true;
+
+            if(obj->empty()) {
+                return false;
+            }
+
+            obj = &obj->at(0);
+            if(!obj->is_object()) {
+                return false;
+            }
+        }
+
+        auto obj_it = obj->find(field_part);
+        if(obj_it == obj->end()) {
+            return false;
+        }
+
+        obj = &obj_it.value();
+    }
+
+    LOG(INFO) << "obj: " << *obj;
+    LOG(INFO) << "doc: " << doc;
+
+    if(a_field.type == field_types::OBJECT && obj->is_object()) {
+        return true;
+    } else if(a_field.type == field_types::OBJECT_ARRAY && (obj->is_array() || (has_array && obj->is_object()))) {
+        return true;
+    }
+
+    return false;
+}
+
 Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint32_t seq_id,
                                                  const std::string & default_sorting_field,
                                                  const tsl::htrie_map<char, field> & search_schema,
@@ -319,7 +395,7 @@ Option<uint32_t> Index::validate_index_in_memory(nlohmann::json& document, uint3
     for(const auto& a_field: search_schema) {
         const std::string& field_name = a_field.name;
 
-        if(field_name == "id") {
+        if(field_name == "id" || a_field.is_object()) {
             continue;
         }
 

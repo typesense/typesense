@@ -232,7 +232,8 @@ private:
 
     static Option<bool> extract_field_name(const std::string& field_name,
                                            const tsl::htrie_map<char, field>& search_schema,
-                                           std::vector<std::string>& processed_search_fields);
+                                           std::vector<std::string>& processed_search_fields,
+                                           bool extract_only_string_fields);
 
     static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
@@ -244,6 +245,15 @@ private:
     static bool highlight_nested_field(const nlohmann::json& hdoc, nlohmann::json& hobj,
                                        const nlohmann::json& fdoc, nlohmann::json& fobj,
                                        std::vector<std::string>& path_parts, size_t path_index, T func);
+
+    static Option<bool> resolve_field_type(field& new_field,
+                                           nlohmann::detail::iter_impl<nlohmann::basic_json<>>& kv,
+                                           nlohmann::json& document,
+                                           const DIRTY_VALUES& dirty_values,
+                                           const bool found_dynamic_field,
+                                           const std::string& fallback_field_type,
+                                           std::vector<field>& new_fields,
+                                           std::vector<field>& nested_fields_found);
 
 public:
 

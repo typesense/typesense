@@ -662,7 +662,7 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
         StringUtils::split(nested_field.name, field_parts, ".");
 
         bool resolved = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields);
-        if(!resolved) {
+        if(!resolved && !nested_field.optional) {
             return Option<bool>(400, "Field `" + nested_field.name + "` was not found or has an incorrect type.");
         }
     }
