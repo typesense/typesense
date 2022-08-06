@@ -511,17 +511,15 @@ struct filter {
 };
 
 struct filter_node_t {
-    std::string expression;
+    filter filter_exp;
+    FILTER_OPERATOR filter_operator;
+    bool isOperator;
     filter_node_t *left;
     filter_node_t *right;
-    filter filter_exp;
 
-    filter_node_t(std::string expression) : expression(std::move(expression)), left(nullptr), right(nullptr) {}
-    filter_node_t(std::string expression, filter_node_t *left, filter_node_t *right) : expression(std::move(expression)), left(left), right(right) {}
+    filter_node_t(filter filter_exp) : filter_exp(std::move(filter_exp)), isOperator(false) {}
 
-    bool isOperator() {
-        return expression == "&&" || expression == "||";
-    }
+    filter_node_t(FILTER_OPERATOR filter_operator, filter_node_t *left, filter_node_t *right) : filter_operator(filter_operator), isOperator(true), left(left), right(right) {}
 };
 
 namespace sort_field_const {

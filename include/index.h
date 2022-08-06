@@ -457,6 +457,10 @@ private:
     void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const std::vector<filter>& filters,
                       const bool enable_short_circuit) const;
 
+    void do_filtering2(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root) const;
+
+    void recurse(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root, const bool enable_short_circuit) const;
+
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;
 
@@ -669,6 +673,9 @@ public:
 
     void do_filtering_with_lock(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                 const std::vector<filter>& filters) const;
+
+    void do_filtering_with_lock2(uint32_t*& filter_ids, uint32_t& filter_ids_length,
+                                const filter_node_t* filter_tree_root) const;
 
     void refresh_schemas(const std::vector<field>& new_fields, const std::vector<field>& del_fields);
 
