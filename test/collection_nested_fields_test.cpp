@@ -284,7 +284,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
 TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
 
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
@@ -436,7 +436,7 @@ TEST_F(CollectionNestedFieldsTest, IncludeExcludeFields) {
 TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
 
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
@@ -684,7 +684,7 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
 TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
 
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
@@ -737,6 +737,7 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
           {"name": "company.name", "type": "string", "optional": false },
@@ -808,6 +809,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     // explicit nested array field (locations.address.street)
     schema = R"({
         "name": "coll2",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
           {"name": "company.name", "type": "string", "optional": false },
@@ -849,6 +851,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
     // explicit partial array object field in the schema
     schema = R"({
         "name": "coll3",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
           {"name": "company.name", "type": "string", "optional": false },
@@ -920,6 +923,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
 TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": true },
           {"name": "company.name", "type": "string", "optional": true },
@@ -963,6 +967,7 @@ TEST_F(CollectionNestedFieldsTest, ExplicitSchemaOptionalFieldValidation) {
 TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
           {"name": "company.num_employees", "type": "int32", "optional": false }
@@ -1012,6 +1017,7 @@ TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
     // with auto schema
     schema = R"({
         "name": "coll2",
+        "enable_nested_fields": true,
         "fields": [
           {"name": ".*", "type": "auto"}
         ]
@@ -1051,6 +1057,7 @@ TEST_F(CollectionNestedFieldsTest, SortByNestedField) {
 TEST_F(CollectionNestedFieldsTest, OnlyExplcitSchemaFieldMustBeIndexedInADoc) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "company.num_employees", "type": "int32", "optional": false },
           {"name": "company.founded", "type": "int32", "optional": false }
@@ -1070,12 +1077,53 @@ TEST_F(CollectionNestedFieldsTest, OnlyExplcitSchemaFieldMustBeIndexedInADoc) {
     ASSERT_EQ(2, coll1->get_fields().size());
 }
 
+TEST_F(CollectionNestedFieldsTest, VerifyDisableOfNestedFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "company": {"num_employees": 2000, "founded": 1976, "year": 2000},
+        "company_num_employees": 2000,
+        "company_founded": 1976
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    auto fs = coll1->get_fields();
+    ASSERT_EQ(3, coll1->get_fields().size());
+
+    // explicit schema
+    schema = R"({
+        "name": "coll2",
+        "fields": [
+          {"name": "company_num_employees", "type": "int32"},
+          {"name": "company_founded", "type": "int32"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    ASSERT_TRUE(coll2->add(doc1.dump(), CREATE).ok());
+    fs = coll2->get_fields();
+    ASSERT_EQ(2, coll2->get_fields().size());
+}
+
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true),
                                  field("education.name", field_types::STRING_ARRAY, true, true),
                                  field("employee.num", field_types::INT32, true, true)};
 
-    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+    auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {},
+                                                  true);
     ASSERT_TRUE(op.ok());
     Collection* coll1 = op.get();
 
@@ -1144,6 +1192,7 @@ TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
 TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": ".*", "type": "auto"}
         ]

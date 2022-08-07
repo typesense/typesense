@@ -153,7 +153,7 @@ public:
                                           const std::string& fallback_field_type = "",
                                           const std::vector<std::string>& symbols_to_index = {},
                                           const std::vector<std::string>& token_separators = {},
-                                          const bool nested_fields_enabled = false);
+                                          const bool enable_nested_fields = false);
 
     locked_resource_view_t<Collection> get_collection(const std::string & collection_name) const;
 

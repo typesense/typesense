@@ -942,6 +942,7 @@ TEST_F(CollectionFacetingTest, FacetArrayValuesShouldBeNormalized) {
 TEST_F(CollectionFacetingTest, FacetByNestedIntField) {
     nlohmann::json schema = R"({
         "name": "coll1",
+        "enable_nested_fields": true,
         "fields": [
           {"name": "details", "type": "object", "optional": false },
           {"name": "company.num_employees", "type": "int32", "optional": false, "facet": true }

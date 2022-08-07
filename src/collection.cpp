@@ -25,10 +25,10 @@ Collection::Collection(const std::string& name, const uint32_t collection_id, co
                        const float max_memory_ratio, const std::string& fallback_field_type,
                        const std::vector<std::string>& symbols_to_index,
                        const std::vector<std::string>& token_separators,
-                       const bool nested_fields_enabled):
+                       const bool enable_nested_fields):
         name(name), collection_id(collection_id), created_at(created_at),
         next_seq_id(next_seq_id), store(store),
-        fields(fields), default_sorting_field(default_sorting_field), nested_fields_enabled(nested_fields_enabled),
+        fields(fields), default_sorting_field(default_sorting_field), enable_nested_fields(enable_nested_fields),
         max_memory_ratio(max_memory_ratio),
         fallback_field_type(fallback_field_type), dynamic_fields({}),
         symbols_to_index(to_char_array(symbols_to_index)), token_separators(to_char_array(token_separators)),
@@ -239,7 +239,7 @@ nlohmann::json Collection::add_many(std::vector<std::string>& json_lines, nlohma
                                                                search_schema, dynamic_fields,
                                                                nested_fields,
                                                                fallback_field_type,
-                                                               new_fields);
+                                                               new_fields, enable_nested_fields);
                 if(!new_fields_op.ok()) {
                     record.index_failure(new_fields_op.code(), new_fields_op.error());
                 }
@@ -735,12 +735,17 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
 Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             const tsl::htrie_map<char, field>& search_schema,
                                             std::vector<std::string>& processed_search_fields,
-                                            const bool extract_only_string_fields) {
+                                            const bool extract_only_string_fields,
+                                            const bool enable_nested_fields) {
     auto prefix_it = search_schema.equal_prefix_range(field_name);
     bool field_found = false;
 
     for(auto kv = prefix_it.first; kv != prefix_it.second; ++kv) {
         if(extract_only_string_fields && !kv.value().is_string()) {
+            if(kv.value().nested && !enable_nested_fields) {
+                continue;
+            }
+
             if(kv.key().size() == field_name.size() && !kv.value().is_object()) {
                 // exact key, must be rejected because of type mismatch
                 std::string error = "Field `" + field_name + "` should be a string or a string array.";;
@@ -856,7 +861,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> processed_search_fields;
 
     for(const std::string& field_name: raw_search_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true);
+        auto field_op = extract_field_name(field_name, search_schema, processed_search_fields, true, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(field_op.code(), field_op.error());
         }
@@ -880,7 +885,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<std::string> group_by_fields;
 
     for(const std::string& field_name: raw_group_by_fields) {
-        auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false);
+        auto field_op = extract_field_name(field_name, search_schema, group_by_fields, false, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
@@ -907,14 +912,14 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     tsl::htrie_set<char> exclude_fields_full;
 
     for(auto& f_name: include_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false);
+        auto field_op = extract_field_name(f_name, search_schema, include_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
     }
 
     for(auto& f_name: exclude_fields) {
-        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false);
+        auto field_op = extract_field_name(f_name, search_schema, exclude_fields_vec, false, enable_nested_fields);
         if(!field_op.ok()) {
             return Option<nlohmann::json>(404, field_op.error());
         }
@@ -1802,7 +1807,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     spp::sparse_hash_set<std::string> fields_highlighted_fully_set;
     std::vector<std::string> fields_highlighted_fully_expanded;
     for(const std::string& highlight_full_field: highlight_full_field_names) {
-        extract_field_name(highlight_full_field, search_schema, fields_highlighted_fully_expanded, true);
+        extract_field_name(highlight_full_field, search_schema, fields_highlighted_fully_expanded, true, enable_nested_fields);
     }
 
     for(std::string & highlight_full_field: fields_highlighted_fully_expanded) {
@@ -1841,7 +1846,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     } else {
         std::vector<std::string> highlight_field_names_expanded;
         for(size_t i = 0; i < highlight_field_names.size(); i++) {
-            extract_field_name(highlight_field_names[i], search_schema, highlight_field_names_expanded, true);
+            extract_field_name(highlight_field_names[i], search_schema, highlight_field_names_expanded, true, enable_nested_fields);
         }
 
         for(size_t i = 0; i < highlight_field_names_expanded.size(); i++) {
@@ -3524,7 +3529,7 @@ Option<bool> Collection::validate_alter_payload(nlohmann::json& schema_changes,
                                                            updated_search_schema, new_dynamic_fields,
                                                            nested_fields,
                                                            fallback_field_type,
-                                                           new_fields);
+                                                           new_fields, enable_nested_fields);
             if(!new_fields_op.ok()) {
                 return new_fields_op;
             }
@@ -3683,11 +3688,15 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
                                            const std::unordered_map<std::string, field>& dyn_fields,
                                            const tsl::htrie_map<char, field>& nested_fields,
                                            const std::string& fallback_field_type,
-                                           std::vector<field>& new_fields) {
+                                           std::vector<field>& new_fields,
+                                           const bool enable_nested_fields) {
 
     std::vector<field> nested_fields_found;
-    for(auto& nested_field: nested_fields) {
-        nested_fields_found.push_back(nested_field);
+
+    if(enable_nested_fields) {
+        for(auto& nested_field: nested_fields) {
+            nested_fields_found.push_back(nested_field);
+        }
     }
 
     auto kv = document.begin();
@@ -3750,7 +3759,11 @@ Option<bool> Collection::detect_new_fields(nlohmann::json& document,
         kv++;
     }
 
-    return flatten_and_identify_new_fields(document, nested_fields_found, schema, new_fields);
+    if(enable_nested_fields) {
+        return flatten_and_identify_new_fields(document, nested_fields_found, schema, new_fields);
+    }
+
+    return Option<bool>(true);
 }
 
 Option<bool> Collection::flatten_and_identify_new_fields(nlohmann::json& doc,
@@ -3845,3 +3858,7 @@ std::vector<char> Collection::get_token_separators() {
 std::string Collection::get_fallback_field_type() {
     return fallback_field_type;
 }
+
+bool Collection::get_enable_nested_fields() {
+    return enable_nested_fields;
+};

@@ -112,7 +112,7 @@ private:
 
     tsl::htrie_map<char, field> nested_fields;
 
-    bool nested_fields_enabled;
+    bool enable_nested_fields;
 
     std::vector<char> symbols_to_index;
 
@@ -164,7 +164,8 @@ private:
                                           const std::unordered_map<std::string, field>& dyn_fields,
                                           const tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
-                                          std::vector<field>& new_fields);
+                                          std::vector<field>& new_fields,
+                                          bool enable_nested_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
                                     const std::pair<uint64_t, facet_count_t>& b) {
@@ -233,7 +234,8 @@ private:
     static Option<bool> extract_field_name(const std::string& field_name,
                                            const tsl::htrie_map<char, field>& search_schema,
                                            std::vector<std::string>& processed_search_fields,
-                                           bool extract_only_string_fields);
+                                           bool extract_only_string_fields,
+                                           bool enable_nested_fields);
 
     static Option<bool> flatten_and_identify_new_fields(nlohmann::json& doc, const std::vector<field>& nested_fields_found,
                                                          const tsl::htrie_map<char, field>& schema,
@@ -277,7 +279,7 @@ public:
     static constexpr const char* COLLECTION_CREATED = "created_at";
     static constexpr const char* COLLECTION_NUM_MEMORY_SHARDS = "num_memory_shards";
     static constexpr const char* COLLECTION_FALLBACK_FIELD_TYPE = "fallback_field_type";
-    static constexpr const char* COLLECTION_NESTED_FIELDS_ENABLED = "nested_fields_enabled";
+    static constexpr const char* COLLECTION_ENABLE_NESTED_FIELDS = "enable_nested_fields";
 
     static constexpr const char* COLLECTION_SYMBOLS_TO_INDEX = "symbols_to_index";
     static constexpr const char* COLLECTION_SEPARATORS = "token_separators";
@@ -291,7 +293,7 @@ public:
                const std::string& default_sorting_field,
                const float max_memory_ratio, const std::string& fallback_field_type,
                const std::vector<std::string>& symbols_to_index, const std::vector<std::string>& token_separators,
-               const bool nested_fields_enabled);
+               const bool enable_nested_fields);
 
     ~Collection();
 
@@ -430,6 +432,8 @@ public:
     std::vector<char> get_token_separators();
 
     std::string get_fallback_field_type();
+
+    bool get_enable_nested_fields();
 
     // Override operations
 

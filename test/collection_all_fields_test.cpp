@@ -1091,7 +1091,7 @@ TEST_F(CollectionAllFieldsTest, WildcardFieldAndDictionaryField) {
 
     coll1 = collectionManager.get_collection("coll1").get();
     if (coll1 == nullptr) {
-        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO);
+        auto op = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true);
         ASSERT_TRUE(op.ok());
         coll1 = op.get();
     }

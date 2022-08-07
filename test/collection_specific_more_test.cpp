@@ -841,7 +841,7 @@ TEST_F(CollectionSpecificMoreTest, CrossFieldWeightIsNotAugmentated) {
 
 TEST_F(CollectionSpecificMoreTest, HighlightWithAccentedChars) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false)};
-    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO).get();
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "", 0, field_types::AUTO, {}, {}, true).get();
 
     auto nested_doc = R"({
       "title": "Rāpeti Early Learning Centre",

@@ -167,6 +167,14 @@ bool post_create_collection(const std::shared_ptr<http_req>& req, const std::sha
 
     const std::string SRC_COLL_NAME = "src_name";
 
+    /*if(res->is_alive && req_json.is_object() && req_json.count("enable_nested_fields") == 0) {
+        // This patch ensures that nested fields are only enabled for collections created on Typesense versions
+        // which support nested fields. This ensures that ".*" schema does not end up duplicating fields on
+        // manually flattened collection schemas that also contain nested versions for convenience.
+        // TO BE ENABLED WHEN READY!
+        // req_json["enable_nested_fields"] = true;
+    }*/
+
     CollectionManager& collectionManager = CollectionManager::get_instance();
     const Option<Collection*> &collection_op = req->params.count(SRC_COLL_NAME) != 0 ?
                collectionManager.clone_collection(req->params[SRC_COLL_NAME], req_json) :
