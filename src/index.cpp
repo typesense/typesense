@@ -5519,6 +5519,11 @@ void Index::scrub_reindex_doc(const tsl::htrie_map<char, field>& search_schema,
                               nlohmann::json& update_doc,
                               nlohmann::json& del_doc,
                               const nlohmann::json& old_doc) {
+
+    /*LOG(INFO) << "update_doc: " << update_doc;
+    LOG(INFO) << "old_doc: " << old_doc;
+    LOG(INFO) << "del_doc: " << del_doc;*/
+
     // del_doc contains fields that exist in both update doc and old doc
     // But we will only remove fields that are different
 

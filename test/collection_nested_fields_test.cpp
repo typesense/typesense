@@ -1140,3 +1140,95 @@ TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
     ASSERT_EQ("0", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company": {"num_employees": 2000, "founded": 1976},
+        "studies": [{"name": "College 1"}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto doc_update = R"({
+        "id": "0",
+        "company": {"num_employees": 2000, "founded": 1976, "year": 2000},
+        "studies": [{"name": "College Alpha", "year": 1967},{"name": "College Beta", "year": 1978}]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    auto results = coll1->search("*", {}, "company.year: 2000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "studies.year: 1967", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "studies.year: 1978", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("alpha", {"studies.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("beta", {"studies.name"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // try removing fields via upsert
+    doc_update = R"({
+        "id": "0",
+        "company": {"num_employees": 2000, "founded": 1976},
+        "studies": [{"name": "College Alpha"}]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    results = coll1->search("*", {}, "company.year: 2000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "studies.year: 1967", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "studies.year: 1978", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+    ASSERT_EQ(2, results["hits"][0]["document"]["company"].size());
+    ASSERT_EQ(2000, results["hits"][0]["document"]["company"]["num_employees"].get<size_t>());
+    ASSERT_EQ(1976, results["hits"][0]["document"]["company"]["founded"].get<size_t>());
+    ASSERT_EQ(1, results["hits"][0]["document"]["studies"].size());
+    ASSERT_EQ(1, results["hits"][0]["document"]["studies"][0].size());
+    ASSERT_EQ("College Alpha", results["hits"][0]["document"]["studies"][0]["name"].get<std::string>());
+
+    // via update (should not remove, since document can be partial)
+    doc_update = R"({
+        "id": "0",
+        "company": {"num_employees": 2000},
+        "studies": [{"name": "College Alpha"}]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    results = coll1->search("*", {}, "company.founded: 1976", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // via emplace (should not remove, since document can be partial)
+    doc_update = R"({
+        "id": "0",
+        "company": {},
+        "studies": [{"name": "College Alpha", "year": 1977}]
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), EMPLACE).ok());
+
+    results = coll1->search("*", {}, "company.num_employees: 2000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}

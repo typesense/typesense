@@ -1034,3 +1034,65 @@ TEST_F(CollectionSpecificMoreTest, SearchingForMinusCharacter) {
 
     ASSERT_EQ(1, results["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, UpsertUpdateEmplaceShouldAllRemoveIndex) {
+   nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+          {"name": "title1", "type": "string", "optional": true},
+          {"name": "title2", "type": "string", "optional": true},
+          {"name": "title3", "type": "string", "optional": true}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "title1": "Foo",
+        "title2": "Bar",
+        "title3": "Baz",
+        "data": "abcdefghijk"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    // via upsert
+
+    auto doc_update = R"({
+        "id": "0",
+        "title2": "Bar",
+        "title3": "Baz"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPSERT).ok());
+
+    auto results = coll1->search("foo", {"title1"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    results = coll1->search("bar", {"title2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(3, results["hits"][0]["document"].size());
+
+    // via update, existing index should not be removed because update can send partial doc
+
+    doc_update = R"({
+        "id": "0",
+        "title3": "Baz"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), UPDATE).ok());
+
+    results = coll1->search("bar", {"title2"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // via emplace, existing index should not be removed because emplace could send partial doc
+
+    doc_update = R"({
+        "id": "0"
+    })"_json;
+    ASSERT_TRUE(coll1->add(doc_update.dump(), EMPLACE).ok());
+
+    results = coll1->search("baz", {"title3"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+}
