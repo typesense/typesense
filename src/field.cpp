@@ -536,7 +536,7 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
 }
 
 bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
-                        const std::string& flat_name, std::vector<field>& flattened_fields) {
+                        const std::string& flat_name, std::unordered_map<std::string, field>& flattened_fields) {
     if(value.is_object()) {
         has_obj_array = has_array;
         for(const auto& kv: value.items()) {
@@ -546,8 +546,11 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         for(const auto& kv: value.items()) {
             flatten_obj(doc, kv.value(), true, has_obj_array, flat_name, flattened_fields);
         }
-    } else {
-        // must be a primitive
+    } else { // must be a primitive
+        if(doc.count(flat_name) != 0 && flattened_fields.find(flat_name) == flattened_fields.end()) {
+            return true;
+        }
+
         if(has_array) {
             doc[flat_name].push_back(value);
         } else {
@@ -567,7 +570,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
         field flattened_field(flat_name, detected_type, false, true);
         flattened_field.nested = true;
         flattened_field.nested_array = has_obj_array;
-        flattened_fields.push_back(flattened_field);
+        flattened_fields[flat_name] = flattened_field;
     }
 
     return true;
@@ -575,7 +578,7 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
 
 bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                           std::vector<std::string>& path_parts, size_t path_index,
-                          bool has_array, bool has_obj_array, std::vector<field>& flattened_fields) {
+                          bool has_array, bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
         // end of path: check if obj matches expected type
         std::string detected_type;
@@ -590,10 +593,21 @@ bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field&
 
         has_obj_array = has_obj_array || ((detected_type == field_types::OBJECT) && has_array);
 
-        if(detected_type == the_field.type) {
+        // handle differences in detection of numerical types
+        bool is_numericaly_valid = (detected_type != the_field.type) &&
+                ((detected_type == field_types::INT64 &&
+                 (the_field.type == field_types::INT32 || the_field.type == field_types::FLOAT)) ||
+               (detected_type == field_types::INT64_ARRAY &&
+                (the_field.type == field_types::INT32_ARRAY || the_field.type == field_types::FLOAT_ARRAY)));
+
+        if(detected_type == the_field.type || is_numericaly_valid) {
             if(the_field.is_object()) {
                 flatten_obj(doc, obj, has_array, has_obj_array, the_field.name, flattened_fields);
             } else {
+                if(doc.count(the_field.name) != 0 && flattened_fields.find(the_field.name) == flattened_fields.end()) {
+                    return true;
+                }
+
                 if(has_array) {
                     doc[the_field.name].push_back(obj);
                 } else {
@@ -603,30 +617,9 @@ bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field&
                 field flattened_field(the_field.name, detected_type, false, true);
                 flattened_field.nested = (path_index > 1);
                 flattened_field.nested_array = has_obj_array;
-                flattened_fields.push_back(flattened_field);
+                flattened_fields[the_field.name] = flattened_field;
             }
 
-            return true;
-        }
-
-        // handle differences in detection of numerical types
-        bool is_numericaly_valid = (detected_type == field_types::INT64 && (the_field.type == field_types::INT32 ||
-                                    the_field.type == field_types::FLOAT)) ||
-                                   (detected_type == field_types::INT64_ARRAY &&
-                                   (the_field.type == field_types::INT32_ARRAY ||
-                                   the_field.type == field_types::FLOAT_ARRAY));
-
-        if(is_numericaly_valid) {
-            if(has_array) {
-                doc[the_field.name].push_back(obj);
-            } else {
-                doc[the_field.name] = obj;
-            }
-
-            field flattened_field(the_field.name, the_field.type, false, true);
-            flattened_field.nested = (path_index > 1);
-            flattened_field.nested_array = has_obj_array;
-            flattened_fields.push_back(flattened_field);
             return true;
         } else {
             return false;
@@ -657,22 +650,27 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
                                 const std::vector<field>& nested_fields,
                                 std::vector<field>& flattened_fields) {
 
+    std::unordered_map<std::string, field> flattened_fields_map;
+
     for(auto& nested_field: nested_fields) {
         std::vector<std::string> field_parts;
         StringUtils::split(nested_field.name, field_parts, ".");
 
-        bool resolved = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields);
+        if(field_parts.size() > 1 && document.count(nested_field.name) != 0) {
+            // skip explicitly present nested fields
+            continue;
+        }
+
+        bool resolved = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
         if(!resolved && !nested_field.optional) {
             return Option<bool>(400, "Field `" + nested_field.name + "` was not found or has an incorrect type.");
         }
     }
 
-    std::sort(flattened_fields.begin(), flattened_fields.end());
-    flattened_fields.erase(std::unique(flattened_fields.begin(), flattened_fields.end()), flattened_fields.end());
-
     document[".flat"] = nlohmann::json::array();
-    for(auto& f: flattened_fields) {
-        document[".flat"].push_back(f.name);
+    for(auto& kv: flattened_fields_map) {
+        document[".flat"].push_back(kv.second.name);
+        flattened_fields.push_back(kv.second);
     }
 
     return Option<bool>(true);

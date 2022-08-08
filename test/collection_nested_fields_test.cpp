@@ -65,8 +65,8 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
 
     auto expected_json = R"(
         {
-            ".flat": ["locations.address.city","locations.address.products","locations.address.street",
-                      "locations.country","locations.pincode"],
+            ".flat": ["locations.pincode","locations.country","locations.address.street","locations.address.products",
+                      "locations.address.city"],
             "company":{"name":"nike"},
             "employees":{"num":1200},
             "locations":[
@@ -132,7 +132,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
 
     expected_json = R"(
         {
-          ".flat": ["locations.address.city", "locations.address.products", "locations.address.street"],
+          ".flat": ["locations.address.street", "locations.address.products","locations.address.city"],
           "company":{"name":"nike"},
           "employees":{"num":1200},
           "locations":[
@@ -236,6 +236,7 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
 
     // test against deep paths
     flattened_fields.clear();
+    doc = nlohmann::json::parse(json_str);
     nested_fields = {
         field("employees.details.num_tags", field_types::INT32_ARRAY, false),
         field("employees.details.tags", field_types::STRING_ARRAY, false),
@@ -248,10 +249,10 @@ TEST_F(CollectionNestedFieldsTest, TestNestedArrayField) {
     ASSERT_EQ("employees.detail.tags",flattened_fields[0].name);
     ASSERT_FALSE(flattened_fields[0].nested_array);
 
-    ASSERT_EQ("employees.details.num_tags",flattened_fields[1].name);
+    ASSERT_EQ("employees.details.tags",flattened_fields[1].name);
     ASSERT_TRUE(flattened_fields[1].nested_array);
 
-    ASSERT_EQ("employees.details.tags",flattened_fields[2].name);
+    ASSERT_EQ("employees.details.num_tags",flattened_fields[2].name);
     ASSERT_TRUE(flattened_fields[2].nested_array);
 }
 
@@ -1117,6 +1118,113 @@ TEST_F(CollectionNestedFieldsTest, VerifyDisableOfNestedFields) {
     ASSERT_EQ(2, coll2->get_fields().size());
 }
 
+TEST_F(CollectionNestedFieldsTest, ExplicitDotSeparatedFieldsShouldHavePrecendence) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "company": {"num_employees": 1000, "ids": [1,2]},
+        "details": [{"name": "bar"}],
+        "company.num_employees": 2000,
+        "company.ids": [10],
+        "details.name": "foo"
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+    auto fs = coll1->get_fields();
+    ASSERT_EQ(4, coll1->get_fields().size());
+
+    // simple nested object
+    auto results = coll1->search("*", {}, "company.num_employees: 2000", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "company.num_employees: 1000", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // nested array object
+    results = coll1->search("foo", {"details.name"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("bar", {"details.name"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // nested simple array
+    results = coll1->search("*", {}, "company.ids: 10", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "company.ids: 1", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // WITH EXPLICIT SCHEMA
+
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "company.num_employees", "type": "int32"},
+          {"name": "company.ids", "type": "int32[]"},
+          {"name": "details.name", "type": "string[]"}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+
+    auto doc2 = R"({
+        "company": {"num_employees": 1000, "ids": [1,2]},
+        "details": [{"name": "bar"}],
+        "company.num_employees": 2000,
+        "company.ids": [10],
+        "details.name": ["foo"]
+    })"_json;
+
+    ASSERT_TRUE(coll2->add(doc2.dump(), CREATE).ok());
+
+    // simple nested object
+    results = coll2->search("*", {}, "company.num_employees: 2000", {}, sort_fields, {0}, 10, 1,
+                                 token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll2->search("*", {}, "company.num_employees: 1000", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // nested array object
+    results = coll2->search("foo", {"details.name"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll2->search("bar", {"details.name"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+    // nested simple array
+    results = coll2->search("*", {}, "company.ids: 10", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll2->search("*", {}, "company.ids: 1", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}).get();
+    ASSERT_EQ(0, results["found"].get<size_t>());
+
+}
+
 TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true),
                                  field("education.name", field_types::STRING_ARRAY, true, true),
@@ -1187,6 +1295,36 @@ TEST_F(CollectionNestedFieldsTest, GroupByOnNestedFieldsWithWildcardSchema) {
     ASSERT_EQ(5000, results["grouped_hits"][1]["group_key"][0].get<size_t>());
     ASSERT_EQ(1, results["grouped_hits"][1]["hits"].size());
     ASSERT_EQ("0", results["grouped_hits"][1]["hits"][0]["document"]["id"].get<std::string>());
+}
+
+TEST_F(CollectionNestedFieldsTest, WildcardWithExplicitSchema) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": ".*", "type": "auto"},
+          {"name": "company.id", "type": "int32"},
+          {"name": "studies.year", "type": "int32[]"}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "company": {"id": 1000, "name": "Foo"},
+        "studies": [{"name": "College 1", "year": 1997}]
+    })"_json;
+
+    ASSERT_TRUE(coll1->add(doc1.dump(), CREATE).ok());
+
+    auto results = coll1->search("*", {}, "company.id: 1000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll1->search("*", {}, "studies.year: 1997", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
 TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
