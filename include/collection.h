@@ -212,7 +212,7 @@ private:
     void process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                   std::vector<std::string>& q_include_tokens,
                                   token_ordering token_order,
-                                  std::vector<filter>& filters,
+                                  filter_node_t*& filter_tree_root,
                                   std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                   std::vector<uint32_t>& excluded_ids) const;
 

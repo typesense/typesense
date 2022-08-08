@@ -586,7 +586,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
                                                                            sort_field_std.name.size() - paran_start -
                                                                            2);
                 Option<bool> parse_filter_op = filter::parse_filter_query(filter_exp, search_schema,
-                                                                          store, "", sort_field_std.eval.filters);
+                                                                          store, "", sort_field_std.eval.filter_tree_root);
                 if(!parse_filter_op.ok()) {
                     return Option<bool>(parse_filter_op.code(), "Error parsing eval expression in sort_by clause.");
                 }
@@ -1018,9 +1018,9 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    std::vector<filter> filters;
+    filter_node_t* filter_tree_root;
     Option<bool> parse_filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
-                                                              store, doc_id_prefix, filters);
+                                                              store, doc_id_prefix, filter_tree_root);
     if(!parse_filter_op.ok()) {
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
     }
@@ -1231,7 +1231,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         // process filter overrides first, before synonyms (order is important)
 
         // included_ids, excluded_ids
-        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filters,
+        process_filter_overrides(filter_overrides, q_include_tokens, token_order, filter_tree_root,
                                  included_ids, excluded_ids);
 
         for(size_t i = 0; i < q_include_tokens.size(); i++) {
@@ -1257,7 +1257,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     size_t index_id = 0;
     search_args* search_params = new search_args(field_query_tokens, weighted_search_fields,
-                                                 filters, facets, included_ids, excluded_ids,
+                                                 filter_tree_root, facets, included_ids, excluded_ids,
                                                  sort_fields_std, facet_query, num_typos, max_facet_values, max_hits,
                                                  per_page, page, token_order, prefixes,
                                                  drop_tokens_threshold, typo_tokens_threshold,
@@ -2012,13 +2012,13 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
 void Collection::process_filter_overrides(std::vector<const override_t*>& filter_overrides,
                                           std::vector<std::string>& q_include_tokens,
                                           token_ordering token_order,
-                                          std::vector<filter>& filters,
+                                          filter_node_t*& filter_tree_root,
                                           std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
                                           std::vector<uint32_t>& excluded_ids) const {
 
     std::vector<const override_t*> matched_dynamic_overrides;
     index->process_filter_overrides(filter_overrides, q_include_tokens, token_order,
-                                    filters, matched_dynamic_overrides);
+                                    filter_tree_root, matched_dynamic_overrides);
 
     // we will check the dynamic overrides to see if they also have include/exclude
     std::set<uint32_t> excluded_set;
@@ -2182,9 +2182,9 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    std::vector<filter> filters;
+    filter_node_t* filter_tree_root;
     Option<bool> filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
-                                                        store, doc_id_prefix, filters);
+                                                        store, doc_id_prefix, filter_tree_root);
 
     if(!filter_op.ok()) {
         return filter_op;
@@ -2192,7 +2192,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
 
     uint32_t* filter_ids = nullptr;
     uint32_t filter_ids_len = 0;
-    index->do_filtering_with_lock(filter_ids, filter_ids_len, filters);
+    index->do_filtering_with_lock(filter_ids, filter_ids_len, filter_tree_root);
     index_ids.emplace_back(filter_ids_len, filter_ids);
 
     return Option<bool>(true);
