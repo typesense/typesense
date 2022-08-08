@@ -1454,8 +1454,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             // remove fields from highlight doc that were not highlighted
-            prune_doc(highlight_res["snippet"], hfield_names, tsl::htrie_set<char>(), "");
-            prune_doc(highlight_res["full"], h_full_field_names, tsl::htrie_set<char>(), "");
+            if(!highlight_items.empty()) {
+                prune_doc(highlight_res["snippet"], hfield_names, tsl::htrie_set<char>(), "");
+                prune_doc(highlight_res["full"], h_full_field_names, tsl::htrie_set<char>(), "");
+            }
 
             std::sort(highlights.begin(), highlights.end());
 

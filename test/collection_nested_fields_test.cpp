@@ -65,8 +65,8 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
 
     auto expected_json = R"(
         {
-            ".flat": ["locations.pincode","locations.country","locations.address.street","locations.address.products",
-                      "locations.address.city"],
+            ".flat": ["locations.address.city","locations.address.products","locations.address.street",
+                      "locations.country", "locations.pincode"],
             "company":{"name":"nike"},
             "employees":{"num":1200},
             "locations":[
@@ -84,6 +84,11 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
             "locations.pincode":[100,200]
         }
     )";
+
+    // handle order of generation differences between compilers (due to iteration of unordered map)
+    auto expected_flat_fields = doc[".flat"].get<std::vector<std::string>>();
+    std::sort(expected_flat_fields.begin(), expected_flat_fields.end());
+    doc[".flat"] = expected_flat_fields;
 
     ASSERT_EQ(doc.dump(), nlohmann::json::parse(expected_json).dump());
 
@@ -132,7 +137,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
 
     expected_json = R"(
         {
-          ".flat": ["locations.address.street", "locations.address.products","locations.address.city"],
+          ".flat": ["locations.address.city","locations.address.products","locations.address.street"],
           "company":{"name":"nike"},
           "employees":{"num":1200},
           "locations":[
@@ -147,6 +152,10 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObject) {
         }
     )";
 
+    // handle order of generation differences between compilers (due to iteration of unordered map)
+    expected_flat_fields = doc[".flat"].get<std::vector<std::string>>();
+    std::sort(expected_flat_fields.begin(), expected_flat_fields.end());
+    doc[".flat"] = expected_flat_fields;
     ASSERT_EQ(doc.dump(), nlohmann::json::parse(expected_json).dump());
 
     // primitive inside nested object
@@ -733,6 +742,15 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
     matched_tokens = results["hits"][0]["highlight"]["meta"]["locations.address.street"]["matched_tokens"].get<std::vector<std::string>>();
     std::sort(matched_tokens.begin(), matched_tokens.end());
     ASSERT_EQ("Brown", matched_tokens[0]);
+
+    // when no highlighting is enabled by setting unknown field for highlighting
+    results = coll1->search("brown fox", {"company_names", "details", "locations"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "x",
+                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                            "x").get();
+
+    ASSERT_EQ(0, results["hits"][0]["highlight"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
