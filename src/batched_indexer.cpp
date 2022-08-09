@@ -60,7 +60,7 @@ void BatchedIndexer::enqueue(const std::shared_ptr<http_req>& req, const std::sh
             }
 
             {
-                std::unique_lock lk1(qmutuxes[queue_id].mcv);
+                std::lock_guard lk1(qmutuxes[queue_id].mcv);
                 queues[queue_id].emplace_back(req->start_ts);
             }
 
@@ -155,10 +155,15 @@ void BatchedIndexer::run() {
                 // scan db for all logs associated with request
                 const std::string& req_key_prefix = get_req_prefix_key(req_id);
 
-                const std::string& req_key_start_prefix = get_req_prefix_key(req_id) +
-                                                    StringUtils::serialize_uint32_t(orig_req_res.next_chunk_index);
+                /*  Format of the key: $RL_reqId_chunkId
+                    NOTE: we use an explicit `next_chunk_index` so that the reads can resume from a partially request.
+                */
+                const std::string& req_key_start_prefix = req_key_prefix + StringUtils::serialize_uint32_t(
+                                                                  orig_req_res.next_chunk_index);
 
-                rocksdb::Iterator* iter = store->scan(req_key_start_prefix);
+                const std::string& req_key_upper_bound = get_req_suffix_key(req_id);
+                rocksdb::Slice upper_bound(req_key_upper_bound); // cannot inline req_key_upper_bound
+                rocksdb::Iterator* iter = store->scan(req_key_start_prefix, &upper_bound);
 
                 // used to handle partial JSON documents caused by chunking
                 std::string& prev_body = orig_req_res.prev_req_body;
@@ -293,9 +298,12 @@ void BatchedIndexer::run() {
 }
 
 std::string BatchedIndexer::get_req_prefix_key(uint64_t req_id) {
-    const std::string& req_key_prefix =
-            RAFT_REQ_LOG_PREFIX + StringUtils::serialize_uint64_t(req_id) + "_";
+    const std::string& req_key_prefix = RAFT_REQ_LOG_PREFIX + StringUtils::serialize_uint64_t(req_id) + "_";
+    return req_key_prefix;
+}
 
+std::string BatchedIndexer::get_req_suffix_key(uint64_t req_id) {
+    const std::string& req_key_prefix = RAFT_REQ_LOG_PREFIX + StringUtils::serialize_uint64_t(req_id) + "`";
     return req_key_prefix;
 }
 

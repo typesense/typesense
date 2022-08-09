@@ -72,6 +72,8 @@ private:
 
     static std::string get_req_prefix_key(uint64_t req_id);
 
+    static std::string get_req_suffix_key(uint64_t req_id);
+
 public:
 
     static const constexpr char* RAFT_REQ_LOG_PREFIX = "$RL_";

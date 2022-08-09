@@ -411,18 +411,14 @@ Option<nlohmann::json> CollectionManager::drop_collection(const std::string& col
 
     if(remove_from_store) {
         const std::string& del_key_prefix = std::to_string(collection->get_collection_id()) + "_";
-
-        rocksdb::Iterator* iter = store->scan(del_key_prefix);
-        while(iter->Valid() && iter->key().starts_with(del_key_prefix)) {
-            store->remove(iter->key().ToString());
-            iter->Next();
-        }
-        delete iter;
+        const std::string& del_end_prefix = std::to_string(collection->get_collection_id()) + "`";
+        store->delete_range(del_key_prefix, del_end_prefix);
+        store->flush();
 
         // delete overrides
         const std::string& del_override_prefix =
                 std::string(Collection::COLLECTION_OVERRIDE_PREFIX) + "_" + actual_coll_name + "_";
-        iter = store->scan(del_override_prefix);
+        rocksdb::Iterator* iter = store->scan(del_override_prefix);
         while(iter->Valid() && iter->key().starts_with(del_override_prefix)) {
             store->remove(iter->key().ToString());
             iter->Next();
