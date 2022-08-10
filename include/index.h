@@ -70,6 +70,7 @@ struct tok_candidates {
 struct search_field_t {
     std::string name;
     size_t weight;
+    size_t orig_index;
 };
 
 struct query_tokens_t {
