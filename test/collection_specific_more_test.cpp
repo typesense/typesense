@@ -1036,7 +1036,7 @@ TEST_F(CollectionSpecificMoreTest, SearchingForMinusCharacter) {
 }
 
 TEST_F(CollectionSpecificMoreTest, UpsertUpdateEmplaceShouldAllRemoveIndex) {
-   nlohmann::json schema = R"({
+    nlohmann::json schema = R"({
         "name": "coll1",
         "fields": [
           {"name": "title1", "type": "string", "optional": true},
@@ -1095,4 +1095,45 @@ TEST_F(CollectionSpecificMoreTest, UpsertUpdateEmplaceShouldAllRemoveIndex) {
 
     results = coll1->search("baz", {"title3"}, "", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionSpecificMoreTest, UnorderedWeightingOfFields) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string"},
+            {"name": "sku", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "42f05db9-373a-4372-9bd0-ff4b5aaba28d";
+    doc["brand"] = "brand";
+    doc["sku"] = "rgx761";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // with num_typos
+
+    auto res_op = coll1->search("rg0761", {"title","brand","sku"}, "", {}, {}, {2,2,0}, 10, 1,
+                                FREQUENCY, {true},
+                                0, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                                "<mark>", "</mark>", {10, 7, 10});
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(0, res_op.get()["hits"].size());
+
+    // with prefix
+    res_op = coll1->search("rgx", {"title","brand","sku"}, "", {}, {}, {2,2,0}, 10, 1,
+                           FREQUENCY, {true, true, false},
+                           0, spp::sparse_hash_set<std::string>(),
+                           spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                           "<mark>", "</mark>", {10, 7, 10});
+
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(0, res_op.get()["hits"].size());
 }

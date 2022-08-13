@@ -839,6 +839,11 @@ TEST_F(CollectionOverrideTest, ReplaceQuery) {
     op = override_t::parse(override_json, "rule-1", override_rule);
     ASSERT_FALSE(op.ok());
     ASSERT_EQ("Only one of `replace_query` or `remove_matched_tokens` can be specified.", op.error());
+
+    // it's okay when it's explicitly set to false
+    override_json["remove_matched_tokens"] = false;
+    op = override_t::parse(override_json, "rule-1", override_rule);
+    ASSERT_TRUE(op.ok());
 }
 
 TEST_F(CollectionOverrideTest, WindowForRule) {

@@ -471,7 +471,7 @@ public:
                    const uint8_t* index_symbols,
                    size_t snippet_start_offset) ;
 
-    void process_highlight_fields(const std::vector<std::string>& search_fields,
+    void process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                   const tsl::htrie_set<char>& exclude_fields,
                                   const tsl::htrie_set<char>& include_fields,
                                   const std::vector<std::string>& highlight_field_names,

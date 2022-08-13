@@ -1144,7 +1144,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
         }
     } else {
         field_query_tokens.emplace_back(query_tokens_t{});
-        const std::string & field_locale = search_schema.at(search_fields[0]).locale;
+        const std::string & field_locale = search_schema.at(weighted_search_fields[0].name).locale;
         parse_search_query(query, q_include_tokens,
                            field_query_tokens[0].q_exclude_tokens,
                            field_query_tokens[0].q_phrases,
@@ -1325,7 +1325,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     StringUtils::split(highlight_full_fields, highlight_full_field_names, ",");
 
     if(query != "*") {
-        process_highlight_fields(search_fields, include_fields_full, exclude_fields_full,
+        process_highlight_fields(weighted_search_fields, include_fields_full, exclude_fields_full,
                                  highlight_field_names, highlight_full_field_names, infixes, q_tokens,
                                  search_params->qtoken_set, highlight_items);
 
@@ -1726,7 +1726,7 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
         if(!weights_given) {
             size_t weight = std::max<int>(0, (int(Index::FIELD_MAX_WEIGHT) - i));
             query_by_weights.push_back(weight);
-            weighted_search_fields.push_back({raw_search_fields[i], weight});
+            weighted_search_fields.push_back({raw_search_fields[i], weight, i});
         } else {
             // check if weights are already sorted
             auto prev_weight = (i == 0) ? query_by_weights[0] : query_by_weights[i-1];
@@ -1766,17 +1766,19 @@ void Collection::process_search_field_weights(const std::vector<std::string>& ra
                     query_by_weights[i] = bounded_weight;
                 }
             }
+
+            const auto& search_field = raw_search_fields[index_weight.first];
+            const auto weight = query_by_weights[i];
+            const size_t orig_index = index_weight.first;
+            weighted_search_fields.push_back({search_field, weight, orig_index});
         }
     }
 
     if(weighted_search_fields.empty()) {
-        const std::vector<std::string>& search_fields = reordered_search_fields.empty() ? raw_search_fields
-                                                                                        : reordered_search_fields;
-
-        for(size_t i=0; i < search_fields.size(); i++) {
-            const auto& search_field = search_fields[i];
+        for(size_t i=0; i < raw_search_fields.size(); i++) {
+            const auto& search_field = raw_search_fields[i];
             const auto weight = query_by_weights[i];
-            weighted_search_fields.push_back({search_field, weight});
+            weighted_search_fields.push_back({search_field, weight, i});
         }
     }
 }
@@ -1795,7 +1797,7 @@ void Collection::populate_text_match_info(nlohmann::json& info, uint64_t match_s
     info["fields_matched"] = ((match_score << 61) >> (61));
 }
 
-void Collection::process_highlight_fields(const std::vector<std::string>& search_fields,
+void Collection::process_highlight_fields(const std::vector<search_field_t>& search_fields,
                                           const tsl::htrie_set<char>& include_fields,
                                           const tsl::htrie_set<char>& exclude_fields,
                                           const std::vector<std::string>& highlight_field_names,
@@ -1820,9 +1822,9 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
     spp::sparse_hash_set<std::string> fields_infixed_set;
 
     for(size_t i = 0; i < search_fields.size(); i++) {
-        const auto& field_name = search_fields[i];
+        const auto& field_name = search_fields[i].name;
 
-        enable_t field_infix = (i < infixes.size()) ? infixes[i] : infixes[0];
+        enable_t field_infix = (i < infixes.size()) ? infixes[search_fields[i].orig_index] : infixes[0];
         if(field_infix != off) {
             fields_infixed_set.insert(field_name);
         }
@@ -1830,7 +1832,7 @@ void Collection::process_highlight_fields(const std::vector<std::string>& search
 
     if(highlight_field_names.empty()) {
         for(size_t i = 0; i < search_fields.size(); i++) {
-            const auto& field_name = search_fields[i];
+            const auto& field_name = search_fields[i].name;
             if(exclude_fields.count(field_name) != 0) {
                 // should not pick excluded field for highlighting (only for implicit highlighting)
                 continue;
