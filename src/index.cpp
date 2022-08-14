@@ -2571,6 +2571,10 @@ void Index::recurse(uint32_t*& filter_ids,
                     uint32_t& filter_ids_length,
                     const filter_node_t* root,
                     const bool enable_short_circuit) const {
+    if (root == nullptr) {
+        return;
+    }
+
     uint32_t* l_filter_ids = nullptr;
     uint32_t l_filter_ids_length = 0;
     if (root->left != nullptr) {
@@ -3100,7 +3104,7 @@ void Index::search_infix(const std::string& query,
 void Index::search(
     std::vector<query_tokens_t>& field_query_tokens,
     const std::vector<search_field_t>& the_fields,
-    const filter_node_t* filter_tree_root,
+    const filter_node_t*& filter_tree_root,
     std::vector<facet>& facets,
     facet_query_t& facet_query,
     const std::vector<std::pair<uint32_t, uint32_t>>& included_ids,

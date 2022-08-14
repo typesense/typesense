@@ -825,7 +825,7 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
 
 Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const std::vector<std::string>& raw_search_fields,
-                                  const std::string & simple_filter_query, const std::vector<std::string>& facet_fields,
+                                  const std::string & filter_query, const std::vector<std::string>& facet_fields,
                                   const std::vector<sort_by> & sort_fields, const std::vector<uint32_t>& num_typos,
                                   const size_t per_page, const size_t page,
                                   token_ordering token_order, const std::vector<bool>& prefixes,
@@ -1029,8 +1029,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::vector<facet> facets;
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root;
-    Option<bool> parse_filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
+    filter_node_t* filter_tree_root = nullptr;
+    Option<bool> parse_filter_op = filter::parse_filter_query(filter_query, search_schema,
                                                               store, doc_id_prefix, filter_tree_root);
     if(!parse_filter_op.ok()) {
         return Option<nlohmann::json>(parse_filter_op.code(), parse_filter_op.error());
@@ -2192,7 +2192,7 @@ Option<bool> Collection::get_filter_ids(const std::string & simple_filter_query,
     std::shared_lock lock(mutex);
 
     const std::string doc_id_prefix = std::to_string(collection_id) + "_" + DOC_ID_PREFIX + "_";
-    filter_node_t* filter_tree_root;
+    filter_node_t* filter_tree_root = nullptr;
     Option<bool> filter_op = filter::parse_filter_query(simple_filter_query, search_schema,
                                                         store, doc_id_prefix, filter_tree_root);
 
