@@ -463,7 +463,6 @@ Option<bool> toFilter(const std::string expression,
     StringUtils::trim(field_name);
     if (field_name == "id")
     {
-        filter id_filter;
         std::string &&raw_value = expression.substr(found_index + 1, std::string::npos);
         StringUtils::trim(raw_value);
         std::string empty_filter_err = "Error with filter field `id`: Filter value cannot be empty.";
@@ -471,7 +470,7 @@ Option<bool> toFilter(const std::string expression,
         {
             return Option<bool>(400, empty_filter_err);
         }
-        id_filter = {field_name, {}, {}};
+        filter_exp = {field_name, {}, {}};
         NUM_COMPARATOR id_comparator = EQUALS;
         size_t filter_value_index = 0;
         if (raw_value[0] == '=')
@@ -808,13 +807,20 @@ Option<bool> toParseTree(std::queue<std::string> &postfix, filter_node_t *&root,
     return Option<bool>(true);
 }
 
-Option<bool> parse_filter_query(const std::string &filter_query,
-                                const std::unordered_map<std::string, field> &search_schema,
-                                const Store *store,
-                                const std::string &doc_id_prefix,
-                                filter_node_t *root)
+Option<bool> filter::parse_filter_query(const std::string &filter_query,
+                                        const std::unordered_map<std::string, field> &search_schema,
+                                        const Store *store,
+                                        const std::string &doc_id_prefix,
+                                        filter_node_t *&root)
 {
-    091q std::queue<std::string> tokens;
+    auto _filter_query = filter_query;
+    StringUtils::trim(_filter_query);
+    if (_filter_query.empty())
+    {
+        return Option<bool>(true);
+    }
+
+    std::queue<std::string> tokens;
     Option<bool> tokenize_op = StringUtils::tokenize(filter_query, tokens);
     if (!tokenize_op.ok())
     {
