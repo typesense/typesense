@@ -415,48 +415,6 @@ size_t StringUtils::get_num_chars(const std::string &s)
     return j;
 }
 
-bool specialCharacterInValue(const std::string &filter_query, int currentIndex)
-{
-    // last closing parentheses is assumed to be not part of the value
-    if (filter_query[currentIndex] == ')' && (currentIndex == filter_query.size() - 1 || filter_query[currentIndex + 1] == ' '))
-    {
-        return false;
-    }
-    if ((filter_query[currentIndex] == '&' || filter_query[currentIndex] == '|') && filter_query[currentIndex - 1] == ' ')
-    {
-        return false;
-    }
-
-    return true;
-}
-
-bool isSpecialCharacter(const char character)
-{
-    return character == '(' || character == ')' || character == '&' || character == '|';
-}
-
-bool isGeopoint(const std::string &filter_query, int currentIndex)
-{
-    while (currentIndex > 0)
-    {
-        if (filter_query[--currentIndex] == ' ')
-        {
-            continue;
-        }
-
-        if (filter_query[currentIndex] == ':')
-        {
-            return true;
-        }
-        else
-        {
-            return false;
-        }
-    }
-
-    return false;
-}
-
 Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::string> &tokens)
 {
     auto size = filter_query.size();
@@ -501,37 +459,39 @@ Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::str
         {
             std::stringstream ss;
             bool inBacktick = false;
-            bool _isGeopoint = false;
-            bool _specialCharacterInValue = false;
+            bool preceding_colon = false;
+            bool is_geo_value = false;
+            bool preceding_space = false;
 
             do
             {
+                if (c == ':')
+                {
+                    preceding_colon = true;
+                }
+                preceding_space = (c == ' ');
+                if (c == ')' && is_geo_value)
+                {
+                    is_geo_value = false;
+                }
+
                 ss << c;
-
-                if (c == ')' && _isGeopoint)
-                {
-                    _isGeopoint = false;
-                }
-                if (_specialCharacterInValue)
-                {
-                    _specialCharacterInValue = false;
-                }
-
                 c = filter_query[++i];
 
                 if (c == '`')
                 {
                     inBacktick = !inBacktick;
                 }
-                if (!inBacktick && c == '(' && isGeopoint(filter_query, i))
+                if (preceding_colon && c == '(')
                 {
-                    _isGeopoint = true;
+                    is_geo_value = true;
+                    preceding_colon = false;
                 }
-                if (!inBacktick && !_isGeopoint && isSpecialCharacter(c) && specialCharacterInValue(filter_query, i))
+                else if (preceding_colon && c != ' ')
                 {
-                    _specialCharacterInValue = true;
+                    preceding_colon = false;
                 }
-            } while (i < size && (inBacktick || _isGeopoint || _specialCharacterInValue || !isSpecialCharacter(c)));
+            } while (i < size && (inBacktick || is_geo_value || (c != '(' && c != ')' && !(preceding_space && (c == '&' || c == '|')))));
             tokens.push(ss.str());
         }
     }
