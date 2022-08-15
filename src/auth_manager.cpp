@@ -391,7 +391,7 @@ bool AuthManager::add_item_to_params(std::map<std::string, std::string>& req_par
     if(req_params.count(item.key()) == 0) {
         req_params[item.key()] = str_value;
     } else if(item.key() == "filter_by") {
-        req_params[item.key()] = req_params[item.key()] + "&&" + str_value;
+        req_params[item.key()] = req_params[item.key()] + " && " + str_value;
     } else if(overwrite) {
         req_params[item.key()] = str_value;
     }
