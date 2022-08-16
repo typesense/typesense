@@ -500,6 +500,7 @@ struct sort_by {
         exclude_radius = other.exclude_radius;
         geo_precision = other.geo_precision;
         missing_values = other.missing_values;
+        eval = other.eval;
         return *this;
     }
 };

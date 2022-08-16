@@ -93,7 +93,7 @@ struct search_args {
     std::vector<facet>& facets;
     std::vector<std::pair<uint32_t, uint32_t>>& included_ids;
     std::vector<uint32_t> excluded_ids;
-    std::vector<sort_by> sort_fields_std;
+    std::vector<sort_by>& sort_fields_std;
     facet_query_t facet_query;
     std::vector<uint32_t> num_typos;
     size_t max_facet_values;
@@ -133,7 +133,7 @@ struct search_args {
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 std::vector<filter> filters, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
-                std::vector<sort_by> sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
+                std::vector<sort_by>& sort_fields_std, facet_query_t facet_query, const std::vector<uint32_t>& num_typos,
                 size_t max_facet_values, size_t max_hits, size_t per_page, size_t page, token_ordering token_order,
                 const std::vector<bool>& prefixes, size_t drop_tokens_threshold, size_t typo_tokens_threshold,
                 const std::vector<std::string>& group_by_fields, size_t group_limit,
