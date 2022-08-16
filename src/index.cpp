@@ -3446,7 +3446,7 @@ void Index::compute_sort_scores(const std::vector<sort_by>& sort_fields, const i
                 filter_index = found_index;
             }
 
-            scores[0] = int64_t(found);
+            scores[2] = int64_t(found);
         } else {
             auto it = field_values[2]->find(seq_id);
             scores[2] = (it == field_values[2]->end()) ? default_score : it->second;
@@ -3664,7 +3664,7 @@ void Index::do_infix_search(const size_t num_search_fields, const std::vector<se
                                    0, match_score, seq_id, sort_order, false, false, false, 1, -1, {});
 
                     int64_t scores[3] = {0};
-                    int64_t match_score_index = 0;
+                    int64_t match_score_index = -1;
 
                     compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices, seq_id, filter_index,
                                         100, scores, match_score_index);
@@ -3995,7 +3995,7 @@ void Index::search_wildcard(const std::vector<filter>& filters,
                                match_score, seq_id, sort_order, false, false, false, 1, -1, plists);
 
                 int64_t scores[3] = {0};
-                int64_t match_score_index = 0;
+                int64_t match_score_index = -1;
 
                 compute_sort_scores(sort_fields, sort_order, field_values, geopoint_indices, seq_id, filter_index,
                                     100, scores, match_score_index);

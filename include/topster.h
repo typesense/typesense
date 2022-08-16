@@ -8,7 +8,7 @@
 
 struct KV {
     uint8_t field_id{};
-    uint8_t match_score_index{};
+    int8_t match_score_index{};
     uint16_t query_index{};
     uint16_t array_index{};
     uint32_t token_bits{};

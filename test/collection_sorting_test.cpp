@@ -1737,6 +1737,37 @@ TEST_F(CollectionSortingTest, RepeatingTokenRanking) {
     collectionManager.drop_collection("coll1");
 }
 
+TEST_F(CollectionSortingTest, SortingDoesNotHaveTextMatchComponent) {
+    // text_match_score field should not be present in response
+    std::vector<field> fields = {field("title", field_types::STRING, false),
+                                 field("points", field_types::INT32, false),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
+
+    nlohmann::json doc1;
+    doc1["id"] = "0";
+    doc1["title"] = "Test Title";
+    doc1["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc1.dump()).ok());
+
+    sort_fields = {
+        sort_by("points", "DESC"),
+        sort_by("points", "DESC"),
+        sort_by("points", "DESC"),
+    };
+
+    auto results = coll1->search("test", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0].count("text_match"));
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ(0, results["hits"][0].count("text_match"));
+
+    collectionManager.drop_collection("coll1");
+}
+
 TEST_F(CollectionSortingTest, IntegerFloatAndBoolShouldDefaultSortTrue) {
     std::string coll_schema = R"(
         {

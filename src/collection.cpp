@@ -1382,7 +1382,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
             if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
-            } else {
+            } else if(field_order_kv->match_score_index >= 0) {
                 wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
 
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
