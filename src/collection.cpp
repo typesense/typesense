@@ -19,6 +19,20 @@
 const std::string override_t::MATCH_EXACT = "exact";
 const std::string override_t::MATCH_CONTAINS = "contains";
 
+struct sort_fields_guard_t {
+    std::vector<sort_by> sort_fields_std;
+
+    ~sort_fields_guard_t() {
+        for(auto& sort_by_clause: sort_fields_std) {
+            if(sort_by_clause.eval.ids) {
+                delete [] sort_by_clause.eval.ids;
+                sort_by_clause.eval.ids = nullptr;
+                sort_by_clause.eval.size = 0;
+            }
+        }
+    }
+};
+
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field,
@@ -1091,7 +1105,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     // validate sort fields and standardize
 
-    std::vector<sort_by> sort_fields_std;
+    sort_fields_guard_t sort_fields_guard;
+    std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
     if(curated_sort_by.empty()) {
         auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std);

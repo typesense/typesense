@@ -1835,7 +1835,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto sort_fields = {
+    std::vector<sort_by> sort_fields = {
         sort_by("_eval(brand:nike)", "DESC"),
         sort_by("points", "DESC"),
     };
@@ -1844,7 +1844,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     ASSERT_EQ(5, results["hits"].size());
     std::vector<std::string> expected_ids = {"3", "0", "4", "2", "1"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -1858,7 +1858,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
     ASSERT_EQ(5, results["hits"].size());
 
     expected_ids = {"0", "4", "3", "2", "1"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -1872,7 +1872,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingWildcard) {
 
     ASSERT_EQ(5, results["hits"].size());
     expected_ids = {"4", "3", "2", "1", "0"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -1933,7 +1933,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto sort_fields = {
+    std::vector<sort_by> sort_fields = {
         sort_by("_eval(brand:nike)", "DESC"),
         sort_by("points", "DESC"),
     };
@@ -1942,7 +1942,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     ASSERT_EQ(5, results["hits"].size());
     std::vector<std::string> expected_ids = {"3", "0", "4", "2", "1"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -1956,7 +1956,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
     ASSERT_EQ(5, results["hits"].size());
 
     expected_ids = {"0", "4", "3", "2", "1"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -1970,7 +1970,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSearch) {
 
     ASSERT_EQ(5, results["hits"].size());
     expected_ids = {"4", "3", "2", "1", "0"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -2022,7 +2022,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
         ASSERT_TRUE(coll1->add(doc.dump()).ok());
     }
 
-    auto sort_fields = {
+    std::vector<sort_by> sort_fields = {
         sort_by("val", "DESC"),
         sort_by("_eval(brand:nike)", "DESC"),
         sort_by("points", "DESC"),
@@ -2032,7 +2032,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
 
     ASSERT_EQ(5, results["hits"].size());
     std::vector<std::string> expected_ids = {"3", "0", "4", "2", "1"};
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 
@@ -2045,7 +2045,7 @@ TEST_F(CollectionSortingTest, OptionalFilteringViaSortingSecondThirdParams) {
 
     results = coll1->search("title", {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 10).get();
     ASSERT_EQ(5, results["hits"].size());
-    for(size_t i = 0; i > expected_ids.size(); i++) {
+    for(size_t i = 0; i < expected_ids.size(); i++) {
         ASSERT_EQ(expected_ids[i], results["hits"][i]["document"]["id"].get<std::string>());
     }
 }
