@@ -33,20 +33,6 @@ struct sort_fields_guard_t {
     }
 };
 
-struct sort_fields_guard_t {
-    std::vector<sort_by> sort_fields_std;
-
-    ~sort_fields_guard_t() {
-        for(auto& sort_by_clause: sort_fields_std) {
-            if(sort_by_clause.eval.ids) {
-                delete [] sort_by_clause.eval.ids;
-                sort_by_clause.eval.ids = nullptr;
-                sort_by_clause.eval.size = 0;
-            }
-        }
-    }
-};
-
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field,
