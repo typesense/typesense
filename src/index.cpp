@@ -2567,10 +2567,10 @@ void Index::do_filtering2(uint32_t*& filter_ids,
     LOG(INFO) << "Time taken for filtering: " << timeMillis << "ms";*/
 }
 
-void Index::recurse(uint32_t*& filter_ids,
-                    uint32_t& filter_ids_length,
-                    const filter_node_t* root,
-                    const bool enable_short_circuit) const {
+void Index::recursive_filter(uint32_t*& filter_ids,
+                             uint32_t& filter_ids_length,
+                             const filter_node_t* root,
+                             const bool enable_short_circuit) const {
     if (root == nullptr) {
         return;
     }
@@ -2578,15 +2578,15 @@ void Index::recurse(uint32_t*& filter_ids,
     uint32_t* l_filter_ids = nullptr;
     uint32_t l_filter_ids_length = 0;
     if (root->left != nullptr) {
-        recurse(l_filter_ids, l_filter_ids_length, root->left,
-                enable_short_circuit);
+        recursive_filter(l_filter_ids, l_filter_ids_length, root->left,
+                         enable_short_circuit);
     }
 
     uint32_t* r_filter_ids = nullptr;
     uint32_t r_filter_ids_length = 0;
     if (root->right != nullptr) {
-        recurse(r_filter_ids, r_filter_ids_length, root->right,
-                enable_short_circuit);
+        recursive_filter(r_filter_ids, r_filter_ids_length, root->right,
+                         enable_short_circuit);
     }
 
     if (root->isOperator) {
@@ -2620,7 +2620,7 @@ void Index::do_filtering_with_lock(
     uint32_t& filter_ids_length,
     const filter_node_t* filter_tree_root) const {
     std::shared_lock lock(mutex);
-    recurse(filter_ids, filter_ids_length, filter_tree_root, false);
+    recursive_filter(filter_ids, filter_ids_length, filter_tree_root, false);
 }
 
 void Index::run_search(search_args* search_params) {
@@ -3150,7 +3150,7 @@ void Index::search(
 
     std::shared_lock lock(mutex);
 
-    recurse(filter_ids, filter_ids_length, filter_tree_root, true);
+    recursive_filter(filter_ids, filter_ids_length, filter_tree_root, true);
 
     if (filter_tree_root != nullptr && filter_ids_length == 0) {
         return;
@@ -5444,9 +5444,9 @@ void Index::populate_sort_mapping(
             field_values[i] = &seq_id_sentinel_value;
         } else if (sort_fields_std[i].name == sort_field_const::eval) {
             field_values[i] = &eval_sentinel_value;
-            do_filtering(sort_fields_std[i].eval.ids,
-                         sort_fields_std[i].eval.size,
-                         sort_fields_std[i].eval.filter_tree_root);
+            recursive_filter(sort_fields_std[i].eval.ids,
+                             sort_fields_std[i].eval.size,
+                             sort_fields_std[i].eval.filter_tree_root, false);
         } else if (search_schema.count(sort_fields_std[i].name) != 0 &&
                    search_schema.at(sort_fields_std[i].name).sort) {
             if (search_schema.at(sort_fields_std[i].name).type ==

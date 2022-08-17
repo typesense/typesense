@@ -465,7 +465,7 @@ private:
 
     void do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root) const;
 
-    void recurse(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root, const bool enable_short_circuit) const;
+    void recursive_filter(uint32_t*& filter_ids, uint32_t& filter_ids_length, const filter_node_t* root, const bool enable_short_circuit) const;
 
     void insert_doc(const int64_t score, art_tree *t, uint32_t seq_id,
                     const std::unordered_map<std::string, std::vector<uint32_t>> &token_to_offsets) const;

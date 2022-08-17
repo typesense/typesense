@@ -590,17 +590,11 @@ struct filter
                                                     std::string &processed_filter_val,
                                                     NUM_COMPARATOR &num_comparator);
 
-    //    static Option<bool> parse_filter_query(const std::string& simple_filter_query,
-    //                                           const std::unordered_map<std::string, field>& search_schema,
-    //                                           const Store* store,
-    //                                           const std::string& doc_id_prefix,
-    //                                           std::vector<filter>& filters);
-
     static Option<bool> parse_filter_query(const std::string &filter_query,
                                            const tsl::htrie_map<char, field> &search_schema,
                                            const Store *store,
                                            const std::string &doc_id_prefix,
-                                           filter_node_t *root);
+                                           filter_node_t *&root);
 };
 
 struct filter_node_t
@@ -614,6 +608,12 @@ struct filter_node_t
     filter_node_t(filter filter_exp) : filter_exp(std::move(filter_exp)), isOperator(false), left(nullptr), right(nullptr) {}
 
     filter_node_t(FILTER_OPERATOR filter_operator, filter_node_t *left, filter_node_t *right) : filter_operator(filter_operator), isOperator(true), left(left), right(right) {}
+
+    ~filter_node_t()
+    {
+        left = nullptr;
+        right = nullptr;
+    }
 };
 
 namespace sort_field_const
