@@ -33,6 +33,20 @@ struct sort_fields_guard_t {
     }
 };
 
+struct sort_fields_guard_t {
+    std::vector<sort_by> sort_fields_std;
+
+    ~sort_fields_guard_t() {
+        for(auto& sort_by_clause: sort_fields_std) {
+            if(sort_by_clause.eval.ids) {
+                delete [] sort_by_clause.eval.ids;
+                sort_by_clause.eval.ids = nullptr;
+                sort_by_clause.eval.size = 0;
+            }
+        }
+    }
+};
+
 Collection::Collection(const std::string& name, const uint32_t collection_id, const uint64_t created_at,
                        const uint32_t next_seq_id, Store *store, const std::vector<field> &fields,
                        const std::string& default_sorting_field,
@@ -1522,7 +1536,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
             if(field_order_kv->match_score_index == CURATED_RECORD_IDENTIFIER) {
                 wrapper_doc["curated"] = true;
-            } else {
+            } else if(field_order_kv->match_score_index >= 0) {
                 wrapper_doc["text_match"] = field_order_kv->scores[field_order_kv->match_score_index];
 
                 wrapper_doc["text_match_info"] = nlohmann::json::object();
