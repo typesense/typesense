@@ -220,6 +220,48 @@ TEST_F(CollectionLocaleTest, ThaiTextShouldBeNormalizedToNFKC) {
     ASSERT_EQ(1, results["found"].get<size_t>());
 }
 
+TEST_F(CollectionLocaleTest, ThaiTextShouldRespectSeparators) {
+    nlohmann::json coll_json = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto coll1 = collectionManager.create_collection(coll_json).get();
+
+    nlohmann::json doc;
+    doc["title"] = "alpha-beta-gamma";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto results = coll1->search("*",{}, "title:=alpha-beta-gamma", {}, {},
+                                 {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    // now with `symbols_to_index`
+    coll_json = R"({
+        "name": "coll2",
+        "symbols_to_index": ["-"],
+        "fields": [
+            {"name": "title", "type": "string", "locale": "th"}
+        ]
+    })"_json;
+
+    auto coll2 = collectionManager.create_collection(coll_json).get();
+    ASSERT_TRUE(coll2->add(doc.dump()).ok());
+
+    results = coll2->search("*",{}, "title:=alpha-beta-gamma", {}, {},
+                            {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+
+    results = coll2->search("*",{}, "title:=alphabetagamma", {}, {},
+                            {0}, 10, 1, FREQUENCY).get();
+
+    ASSERT_EQ(0, results["found"].get<size_t>());
+}
+
 TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
     Collection *coll1;
 

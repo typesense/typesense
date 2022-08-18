@@ -2521,6 +2521,7 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
         if(is_cyrillic) {
             bool found_token = word_tokenizer.tokenize(raw_token);
             if(!found_token) {
+                tokenizer.decr_token_counter();
                 continue;
             }
         }
