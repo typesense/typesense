@@ -525,6 +525,11 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
         field_json[fields::nested_array] = 0;
     }
 
+    if(field_json[fields::type] == field_types::GEOPOINT && field_json[fields::sort] == false) {
+        LOG(WARNING) << "Forcing geopoint field `" << field_json[fields::name].get<std::string>() << "` to be sortable.";
+        field_json[fields::sort] = true;
+    }
+
     the_fields.emplace_back(
             field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
                   field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
