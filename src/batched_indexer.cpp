@@ -2,9 +2,11 @@
 #include "core_api.h"
 #include "thread_local_vars.h"
 
-BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads):
+BatchedIndexer::BatchedIndexer(HttpServer* server, Store* store, Store* meta_store, const size_t num_threads,
+                               const std::atomic<bool>& skip_writes):
                                server(server), store(store), meta_store(meta_store), num_threads(num_threads),
-                               last_gc_run(std::chrono::high_resolution_clock::now()), quit(false) {
+                               last_gc_run(std::chrono::high_resolution_clock::now()), quit(false),
+                               skip_writes(skip_writes) {
     queues.resize(num_threads);
     qmutuxes = new await_t[num_threads];
 }
@@ -194,6 +196,13 @@ void BatchedIndexer::run() {
                         //LOG(INFO) << "index req " << req_id << ", chunk index: " << orig_req_res.next_chunk_index;
 
                         if(route_found) {
+                            if(skip_writes && found_rpath->handler != post_config) {
+                                orig_res->set(422, "Skipping write.");
+                                async_req_res_t* async_req_res = new async_req_res_t(orig_req, orig_res, true);
+                                server->get_message_dispatcher()->send_message(HttpServer::STREAM_RESPONSE_MESSAGE, async_req_res);
+                                break;
+                            }
+
                             async_res = found_rpath->async_res;
                             try {
                                 found_rpath->handler(orig_req, orig_res);

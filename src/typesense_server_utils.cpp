@@ -101,6 +101,7 @@ void init_cmdline_options(cmdline::parser & options, int argc, char **argv) {
 
     options.add<bool>("enable-access-logging", '\0', "Enable access logging.", false, false);
     options.add<int>("disk-used-max-percentage", '\0', "Reject writes when used disk space exceeds this percentage. Default: 100 (never reject).", false, 100);
+    options.add<bool>("skip-writes", '\0', "Skip all writes except config changes. Default: false.", false, false);
 
     // DEPRECATED
     options.add<std::string>("listen-address", 'h', "[DEPRECATED: use `api-address`] Address to which Typesense API service binds.", false, "0.0.0.0");
@@ -435,7 +436,8 @@ int run_server(const Config & config, const std::string & version, void (*master
 
     bool ssl_enabled = (!config.get_ssl_cert().empty() && !config.get_ssl_cert_key().empty());
 
-    BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, &meta_store, num_threads);
+    BatchedIndexer* batch_indexer = new BatchedIndexer(server, &store, &meta_store, num_threads,
+                                                       config.get_skip_writes());
 
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),

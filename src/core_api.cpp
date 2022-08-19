@@ -1449,52 +1449,10 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
-    bool found_config = false;
+    auto config_update_op = Config::get_instance().update_config(req_json);
 
-    if(req_json.count("log-slow-requests-time-ms") != 0) {
-        if(!req_json["log-slow-requests-time-ms"].is_number_integer()) {
-            res->set_400("Configuration `log-slow-requests-time-ms` must be an integer.");
-            return false;
-        }
-
-        Config::get_instance().set_log_slow_requests_time_ms(req_json["log-slow-requests-time-ms"].get<int>());
-        found_config = true;
-    }
-
-    if(req_json.count("healthy-read-lag") != 0) {
-        if(!req_json["healthy-read-lag"].is_number_integer()) {
-            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
-            return false;
-        }
-
-        size_t read_lag = req_json["healthy-read-lag"].get<int>();
-        if(read_lag <= 0) {
-            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
-            return false;
-        }
-
-        Config::get_instance().set_healthy_read_lag(read_lag);
-        found_config = true;
-    }
-
-    if(req_json.count("healthy-write-lag") != 0) {
-        if(!req_json["healthy-write-lag"].is_number_integer()) {
-            res->set_400("Configuration `healthy-write-lag` must be an integer.");
-            return false;
-        }
-
-        size_t write_lag = req_json["healthy-write-lag"].get<int>();
-        if(write_lag <= 0) {
-            res->set_400("Configuration `healthy-write-lag` must be a positive integer.");
-            return false;
-        }
-
-        Config::get_instance().set_healthy_write_lag(req_json["healthy-write-lag"].get<int>());
-        found_config = true;
-    }
-
-    if(!found_config) {
-        res->set_400("Invalid configuration.");
+    if(!config_update_op.ok()) {
+        res->set(config_update_op.code(), config_update_op.error());
     } else {
         nlohmann::json response;
         response["success"] = true;
