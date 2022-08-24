@@ -278,6 +278,7 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
         {"ความเหลื่อมล้ำ", "Compound Word"},  // ความ, เหลื่อม, ล้ำ
         {"การกระจายรายได้", "Doc A"},
         {"จารีย์", "Doc B"},
+        {"Meiji", "Doc C"},
     };
 
     for(size_t i=0; i<records.size(); i++) {
@@ -296,6 +297,24 @@ TEST_F(CollectionLocaleTest, SearchThaiTextPreSegmentedQuery) {
                                  10, spp::sparse_hash_set<std::string>(),
                                  spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
                                  "<mark>", "</mark>", {1}, 1000, true, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("meji",
+                            {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 1000, true, true).get();
+
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ("3", results["hits"][0]["document"]["id"].get<std::string>());
+
+    results = coll1->search("ควม",
+                            {"title"}, "", {}, {}, {2}, 10, 1, FREQUENCY, {true},
+                            10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "", 40, {}, {}, {}, 0,
+                            "<mark>", "</mark>", {1}, 1000, true, true).get();
 
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
