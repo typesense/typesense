@@ -1,7 +1,7 @@
 .idea
 *.iml
 external*
-build*
+bazel-*
 test-build*
 cmake-build*
 cmake-build-debug
