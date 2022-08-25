@@ -750,7 +750,9 @@ TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
                             20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
                             "x").get();
 
-    ASSERT_EQ(0, results["hits"][0]["highlight"].size());
+    ASSERT_EQ(2, results["hits"][0]["highlight"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["snippet"].size());
+    ASSERT_EQ(0, results["hits"][0]["highlight"]["full"].size());
 }
 
 TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {

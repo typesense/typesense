@@ -1390,17 +1390,19 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                 continue;
             }
 
-            nlohmann::json highlight_res;
+            nlohmann::json highlight_res = nlohmann::json::object();
 
             if(!highlight_items.empty()) {
                 highlight_res["meta"] = nlohmann::json::object();
 
+                highlight_res["snippet"] = nlohmann::json::object();
+                copy_highlight_doc(highlight_items, document, highlight_res["snippet"]);
                 highlight_res["snippet"] = document;
                 remove_flat_fields(highlight_res["snippet"]);
                 highlight_res["snippet"].erase("id");
 
                 if(has_atleast_one_fully_highlighted_field) {
-                    highlight_res["full"] = document;
+                    copy_highlight_doc(highlight_items, document, highlight_res["full"]);
                     remove_flat_fields(highlight_res["full"]);
                     highlight_res["full"].erase("id");
                 } else {
@@ -1469,9 +1471,12 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             }
 
             // remove fields from highlight doc that were not highlighted
-            if(!highlight_items.empty()) {
+            if(!hfield_names.empty()) {
                 prune_doc(highlight_res["snippet"], hfield_names, tsl::htrie_set<char>(), "");
                 prune_doc(highlight_res["full"], h_full_field_names, tsl::htrie_set<char>(), "");
+            } else {
+                highlight_res["snippet"] = nlohmann::json::object();
+                highlight_res["full"] = nlohmann::json::object();
             }
 
             std::sort(highlights.begin(), highlights.end());
@@ -1725,6 +1730,32 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     //!LOG(INFO) << "Time taken for result calc: " << timeMillis << "us";
     //!store->print_memory_usage();
     return Option<nlohmann::json>(result);
+}
+
+void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_items, const nlohmann::json& src, nlohmann::json& dst) {
+    for(const auto& hightlight_item: hightlight_items) {
+        std::string root_field_name;
+        for(size_t i = 0; i < hightlight_item.name.size(); i++) {
+            if(hightlight_item.name[i] == '.') {
+                break;
+            }
+
+            root_field_name += hightlight_item.name[i];
+        }
+
+        if(dst.count(root_field_name) != 0) {
+            // skip if parent "foo" has already has been copied over in e.g. foo.bar, foo.baz
+            continue;
+        }
+
+        // root field name might not exist if object has primitive field values with "."s in the name
+        if(src.count(root_field_name) == 0) {
+            // copy the full field
+            dst[hightlight_item.name] = src[hightlight_item.name];
+        } else {
+            dst[root_field_name] = src[root_field_name];
+        }
+    }
 }
 
 void Collection::process_search_field_weights(const std::vector<std::string>& raw_search_fields,

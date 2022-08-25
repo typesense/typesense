@@ -1137,3 +1137,37 @@ TEST_F(CollectionSpecificMoreTest, UnorderedWeightingOfFields) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(0, res_op.get()["hits"].size());
 }
+
+TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "brand", "type": "string"},
+            {"name": "sku", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "42f05db9-373a-4372-9bd0-ff4b5aaba28d";
+    doc["brand"] = "brand";
+    doc["sku"] = "rgx761";
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("brand", {"title", "brand", "sku"}, "", {}, {}, {2, 2, 0}, 10, 1,
+                                FREQUENCY, {true},
+                                10, spp::sparse_hash_set<std::string>(),
+                                spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "locations.address",
+                                20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                                "title");
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+    ASSERT_EQ(1, res["hits"].size());
+
+    ASSERT_TRUE(res["hits"][0]["highlight"]["snippet"].empty());
+    LOG(INFO) << res;
+}
