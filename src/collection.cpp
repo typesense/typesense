@@ -2726,7 +2726,7 @@ void Collection::highlight_text(const string& highlight_start_tag, const string&
                 const std::string& text_token = text.substr(snippet_start_offset, token_len);
                 matched_tokens.push_back(text_token);
 
-                for(size_t j = 0; j < token_len; j++) {
+                for(size_t j = 0; j < token_len && snippet_start_offset + j < text.size(); j++) {
                     highlighted_text << text[snippet_start_offset + j];
                 }
 
