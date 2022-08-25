@@ -1,0 +1,24 @@
+
+
+--- lib/picotls.c
++++ lib/picotls.c
+@@ -1282,7 +1282,7 @@ static int commission_handshake_secret(ptls_t *tls)
+ static void log_client_random(ptls_t *tls)
+ {
+     PTLS_PROBE(CLIENT_RANDOM, tls,
+-               ptls_hexdump(alloca(sizeof(tls->client_random) * 2 + 1), tls->client_random, sizeof(tls->client_random)));
++               ptls_hexdump(__builtin_alloca(sizeof(tls->client_random) * 2 + 1), tls->client_random, sizeof(tls->client_random)));
+ }
+ 
+ #define SESSION_IDENTIFIER_MAGIC "ptls0001" /* the number should be changed upon incompatible format change */
+@@ -3894,7 +3894,7 @@ static int server_handle_hello(ptls_t *tls, ptls_message_emitter_t *emitter, ptl
+ 
+             /* use cookie to check the integrity of the handshake, and update the context */
+             size_t sigsize = tls->ctx->cipher_suites[0]->hash->digest_size;
+-            uint8_t *sig = alloca(sigsize);
++            uint8_t *sig = __builtin_alloca(sigsize);
+             if ((ret = calc_cookie_signature(tls, properties, key_share.algorithm, ch->cookie.tbs, sig)) != 0)
+                 goto Exit;
+             if (!(ch->cookie.signature.len == sigsize && ptls_mem_equal(ch->cookie.signature.base, sig, sigsize))) {
+
+

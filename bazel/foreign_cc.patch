@@ -1,0 +1,13 @@
+--- foreign_cc/private/configure_script.bzl
++++ foreign_cc/private/configure_script.bzl
+@@ -70,7 +70,7 @@
+         ).lstrip())
+ 
+     script.append("##mkdirs## $$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$")
+-    script.append("{env_vars} {prefix}\"{configure}\" --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$ {user_options}".format(
++    script.append("{env_vars} {prefix}\"{configure}\" {user_options} --prefix=$$BUILD_TMPDIR$$/$$INSTALL_PREFIX$$".format(
+         env_vars = get_make_env_vars(workspace_name, tools, flags, env_vars, deps, inputs),
+         prefix = configure_prefix,
+         configure = configure_path,
+
+

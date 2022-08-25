@@ -38,7 +38,7 @@ protected:
 TEST_F(CollectionAllFieldsTest, IndexDocsWithoutSchema) {
     Collection *coll1;
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/multi_field_documents.jsonl");
+    std::ifstream infile("test/multi_field_documents.jsonl");
     std::vector<field> fields = {};
 
     std::vector<sort_by> sort_fields = { sort_by("points", "DESC") };

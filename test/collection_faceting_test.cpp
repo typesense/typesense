@@ -38,7 +38,7 @@ protected:
 TEST_F(CollectionFacetingTest, FacetCounts) {
     Collection *coll_array_fields;
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/numeric_array_documents.jsonl");
+    std::ifstream infile("test/numeric_array_documents.jsonl");
     std::vector<field> fields = {field("name", field_types::STRING, false),
                                  field("name_facet", field_types::STRING, true),
                                  field("age", field_types::INT32, true),
@@ -585,7 +585,7 @@ TEST_F(CollectionFacetingTest, FacetCountsHighlighting) {
 TEST_F(CollectionFacetingTest, FacetStatOnFloatFields) {
     Collection *coll_float_fields;
 
-    std::ifstream infile(std::string(ROOT_DIR)+"test/float_documents.jsonl");
+    std::ifstream infile("test/float_documents.jsonl");
     std::vector<field> fields = {
             field("title", field_types::STRING, false),
             field("score", field_types::FLOAT, false),

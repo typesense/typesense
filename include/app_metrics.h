@@ -4,6 +4,7 @@
 #include "json.hpp"
 #include "logger.h"
 #include "config.h"
+#include <mutex>
 #include <string>
 #include <shared_mutex>
 #include <fstream>

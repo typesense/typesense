@@ -1,0 +1,4 @@
+build --action_env=BAZEL_CXXOPTS="-std=c++17"
+build --experimental_strict_action_env
+
+build --cxxopt="-std=c++17"
