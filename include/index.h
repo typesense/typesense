@@ -27,6 +27,7 @@
 #include "id_list.h"
 #include "synonym_index.h"
 #include "override.h"
+#include "hnswlib/hnswlib.h"
 
 static constexpr size_t ARRAY_FACET_DIM = 4;
 using facet_map_t = spp::sparse_hash_map<uint32_t, facet_hash_values_t>;
@@ -130,6 +131,8 @@ struct search_args {
     std::vector<std::vector<KV*>> raw_result_kvs;
     std::vector<std::vector<KV*>> override_result_kvs;
 
+    vector_query_t& vector_query;
+
     search_args(std::vector<query_tokens_t> field_query_tokens, std::vector<search_field_t> search_fields,
                 std::vector<filter> filters, std::vector<facet>& facets,
                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids, std::vector<uint32_t> excluded_ids,
@@ -142,7 +145,7 @@ struct search_args {
                 size_t concurrency, size_t search_cutoff_ms,
                 size_t min_len_1typo, size_t min_len_2typo, size_t max_candidates, const std::vector<enable_t>& infixes,
                 const size_t max_extra_prefix, const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, const enable_t split_join_tokens) :
+                const bool filter_curated_hits, const enable_t split_join_tokens, vector_query_t& vector_query) :
             field_query_tokens(field_query_tokens),
             search_fields(search_fields), filters(filters), facets(facets),
             included_ids(included_ids), excluded_ids(excluded_ids), sort_fields_std(sort_fields_std),
@@ -156,7 +159,7 @@ struct search_args {
             min_len_1typo(min_len_1typo), min_len_2typo(min_len_2typo), max_candidates(max_candidates),
             infixes(infixes), max_extra_prefix(max_extra_prefix), max_extra_suffix(max_extra_suffix),
             facet_query_num_typos(facet_query_num_typos), filter_curated_hits(filter_curated_hits),
-            split_join_tokens(split_join_tokens) {
+            split_join_tokens(split_join_tokens), vector_query(vector_query) {
 
         const size_t topster_size = std::max((size_t)1, max_hits);  // needs to be atleast 1 since scoring is mandatory
         topster = new Topster(topster_size, group_limit);
@@ -229,6 +232,62 @@ struct index_record {
     }
 };
 
+class VectorFilterFunctor: public hnswlib::FilterFunctor {
+    const uint32_t* filter_ids = nullptr;
+    const uint32_t filter_ids_length = 0;
+    uint32 filter_ids_index = 0;
+
+public:
+    explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length) :
+            filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
+
+    bool operator()(unsigned int id) {
+        if(filter_ids_length != 0) {
+            if(filter_ids_index >= filter_ids_length) {
+                return false;
+            }
+
+            // Returns iterator to the first element that is >= to value or last if no such element is found.
+            size_t found_index = std::lower_bound(filter_ids + filter_ids_index,
+                                                  filter_ids + filter_ids_length, id) - filter_ids;
+
+            if(found_index == filter_ids_length) {
+                // all elements are lesser than lowest value (id), so we can stop looking
+                filter_ids_index = found_index + 1;
+                return false;
+            } else {
+                if(filter_ids[found_index] == id) {
+                    filter_ids_index = found_index + 1;
+                    return true;
+                }
+
+                filter_ids_index = found_index;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+};
+
+struct hnsw_index_t {
+    hnswlib::L2Space* space;
+    hnswlib::HierarchicalNSW<float, VectorFilterFunctor>* vecdex;
+    size_t num_dim;
+
+    hnsw_index_t(size_t num_dim, size_t init_size): space(new hnswlib::L2Space(num_dim)),
+                                                    vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size)),
+                                                    num_dim(num_dim) {
+
+    }
+
+    ~hnsw_index_t() {
+        delete vecdex;
+        delete space;
+    }
+};
+
 class Index {
 private:
     mutable std::shared_mutex mutex;
@@ -267,6 +326,9 @@ private:
 
     // infix field => value
     spp::sparse_hash_map<std::string, array_mapped_infix_t> infix_index;
+
+    // vector field => vector index
+    spp::sparse_hash_map<std::string, hnsw_index_t*> vector_index;
 
     // this is used for wildcard queries
     id_list_t* seq_ids;
@@ -569,7 +631,8 @@ public:
                 size_t concurrency, size_t search_cutoff_ms, size_t min_len_1typo, size_t min_len_2typo,
                 size_t max_candidates, const std::vector<enable_t>& infixes, const size_t max_extra_prefix,
                 const size_t max_extra_suffix, const size_t facet_query_num_typos,
-                const bool filter_curated_hits, enable_t split_join_tokens) const;
+                const bool filter_curated_hits, enable_t split_join_tokens,
+                const vector_query_t& vector_query) const;
 
     void remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name);
 

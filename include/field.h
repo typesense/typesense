@@ -45,6 +45,7 @@ namespace fields {
     static const std::string locale = "locale";
     static const std::string nested = "nested";
     static const std::string nested_array = "nested_array";
+    static const std::string num_dim = "num_dim";
 }
 
 struct field {
@@ -64,15 +65,17 @@ struct field {
     // third state is used to diff between array of object and array within object during write
     int nested_array;
 
+    size_t num_dim;
+
     static constexpr int VAL_UNKNOWN = 2;
 
     field() {}
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0) :
+          int nested_array = 0, size_t num_dim = 0) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim) {
 
         if(sort != -1) {
             this->sort = bool(sort);
@@ -543,6 +546,21 @@ struct sort_by {
         missing_values = other.missing_values;
         eval = other.eval;
         return *this;
+    }
+};
+
+struct vector_query_t {
+    std::string field_name;
+    size_t k = 0;
+    bool exact = false;
+    std::vector<float> values;
+
+    void _reset() {
+        // used for testing only
+        field_name.clear();
+        k = 0;
+        exact = false;
+        values.clear();
     }
 };
 

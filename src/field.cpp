@@ -508,6 +508,18 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
         field_json[fields::infix] = false;
     }
 
+    if(field_json.count(fields::num_dim) == 0) {
+        field_json[fields::num_dim] = 0;
+    } else {
+        if(!field_json[fields::num_dim].is_number_unsigned() || field_json[fields::num_dim] == 0) {
+            return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
+        }
+
+        if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
+            return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array field.");
+        }
+    }
+
     if(field_json.count(fields::optional) == 0) {
         // dynamic type fields are always optional
         bool is_dynamic = field::is_dynamic(field_json[fields::name], field_json[fields::type]);
@@ -531,10 +543,10 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
     }
 
     the_fields.emplace_back(
-            field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
-                  field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
-                  field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
-                  field_json[fields::nested_array])
+        field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
+              field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
+              field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
+              field_json[fields::nested_array], field_json[fields::num_dim])
     );
 
     return Option<bool>(true);

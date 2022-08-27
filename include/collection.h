@@ -412,7 +412,8 @@ public:
                                   const size_t max_extra_suffix = INT16_MAX,
                                   const size_t facet_query_num_typos = 2,
                                   const size_t filter_curated_hits_option = 2,
-                                  const bool prioritize_token_position = false) const;
+                                  const bool prioritize_token_position = false,
+                                  const std::string& vector_query_str = "") const;
 
     Option<bool> get_filter_ids(const std::string & simple_filter_query,
                                 std::vector<std::pair<size_t, uint32_t*>>& index_ids);

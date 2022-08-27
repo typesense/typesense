@@ -823,7 +823,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                   const size_t max_extra_suffix,
                                   const size_t facet_query_num_typos,
                                   const size_t filter_curated_hits_option,
-                                  const bool prioritize_token_position) const {
+                                  const bool prioritize_token_position,
+                                  const std::string& vector_query_str) const {
 
     std::shared_lock lock(mutex);
 
@@ -869,6 +870,27 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
 
     if(raw_group_by_fields.empty()) {
         group_limit = 0;
+    }
+
+    vector_query_t vector_query;
+    if(!vector_query_str.empty()) {
+        if(raw_query != "*") {
+            return Option<nlohmann::json>(400, "Vector query is supported only on wildcard (q=*) searches.");
+        }
+
+        if(!CollectionManager::parse_vector_query_str(vector_query_str, vector_query)) {
+            return Option<nlohmann::json>(400, "The `vector_query` parameter is malformed.");
+        }
+
+        auto vector_field_it = search_schema.find(vector_query.field_name);
+        if(vector_field_it == search_schema.end() || vector_field_it.value().num_dim == 0) {
+            return Option<nlohmann::json>(400, "Field `" + vector_query.field_name + "` does not have a vector query index.");
+        }
+
+        if(vector_field_it.value().num_dim != vector_query.values.size()) {
+            return Option<nlohmann::json>(400, "Query field `" + vector_query.field_name + "` must have " +
+                                               std::to_string(vector_field_it.value().num_dim) + " dimensions.");
+        }
     }
 
     // validate search fields
@@ -1204,7 +1226,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
                                                  search_stop_millis,
                                                  min_len_1typo, min_len_2typo, max_candidates, infixes,
                                                  max_extra_prefix, max_extra_suffix, facet_query_num_typos,
-                                                 filter_curated_hits, split_join_tokens);
+                                                 filter_curated_hits, split_join_tokens, vector_query);
 
     index->run_search(search_params);
 

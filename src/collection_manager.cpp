@@ -608,6 +608,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     const char *FACET_QUERY_NUM_TYPOS = "facet_query_num_typos";
     const char *MAX_FACET_VALUES = "max_facet_values";
 
+    const char *VECTOR_QUERY = "vector_query";
+
     const char *GROUP_BY = "group_by";
     const char *GROUP_LIMIT = "group_limit";
 
@@ -692,6 +694,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
     size_t page = 1;
     token_ordering token_order = NOT_SET;
 
+    std::string vector_query;
+
     std::vector<std::string> include_fields_vec;
     std::vector<std::string> exclude_fields_vec;
     spp::sparse_hash_set<std::string> include_fields;
@@ -747,6 +751,7 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
 
     std::unordered_map<std::string, std::string*> str_values = {
         {FILTER, &simple_filter_query},
+        {VECTOR_QUERY, &vector_query},
         {FACET_QUERY, &simple_facet_query},
         {HIGHLIGHT_FIELDS, &highlight_fields},
         {HIGHLIGHT_FULL_FIELDS, &highlight_full_fields},
@@ -925,7 +930,8 @@ Option<bool> CollectionManager::do_search(std::map<std::string, std::string>& re
                                                           max_extra_suffix,
                                                           facet_query_num_typos,
                                                           filter_curated_hits_option,
-                                                          prioritize_token_position
+                                                          prioritize_token_position,
+                                                          vector_query
                                                         );
 
     uint64_t timeMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1334,4 +1340,111 @@ Option<Collection*> CollectionManager::clone_collection(const string& existing_n
     }
 
     return Option<Collection*>(new_coll);
+}
+
+bool CollectionManager::parse_vector_query_str(std::string vector_query_str, vector_query_t& vector_query) {
+    // FORMAT:
+    // field_name([0.34, 0.66, 0.12, 0.68], exact: false, k: 10)
+    size_t i = 0;
+    while(i < vector_query_str.size()) {
+        if(vector_query_str[i] != ':') {
+            vector_query.field_name += vector_query_str[i];
+            i++;
+        } else {
+            if(vector_query_str[i] != ':') {
+                // missing ":"
+                return false;
+            }
+
+            // field name is done
+            i++;
+
+            while(i < vector_query_str.size() && vector_query_str[i] != '(') {
+                i++;
+            }
+
+            if(vector_query_str[i] != '(') {
+                // missing "("
+                return false;
+            }
+
+            i++;
+
+            while(i < vector_query_str.size() && vector_query_str[i] != '[') {
+                i++;
+            }
+
+            if(vector_query_str[i] != '[') {
+                // missing opening "["
+                return false;
+            }
+
+            i++;
+
+            std::string values_str;
+            while(i < vector_query_str.size() && vector_query_str[i] != ']') {
+                values_str += vector_query_str[i];
+                i++;
+            }
+
+            if(vector_query_str[i] != ']') {
+                // missing closing "]"
+                return false;
+            }
+
+            i++;
+
+            std::vector<std::string> svalues;
+            StringUtils::split(values_str, svalues, ",");
+
+            for(auto& svalue: svalues) {
+                if(!StringUtils::is_float(svalue)) {
+                    return false;
+                }
+
+                vector_query.values.push_back(std::stof(svalue));
+            }
+
+            if(i == vector_query_str.size()-1) {
+                // missing params
+                return true;
+            }
+
+            std::string param_str = vector_query_str.substr(i, (vector_query_str.size() - i));
+            std::vector<std::string> param_kvs;
+            StringUtils::split(param_str, param_kvs, ",");
+
+            for(auto& param_kv_str: param_kvs) {
+                if(param_kv_str.back() == ')') {
+                    param_kv_str.pop_back();
+                }
+
+                std::vector<std::string> param_kv;
+                StringUtils::split(param_kv_str, param_kv, ":");
+                if(param_kv.size() != 2) {
+                    return false;
+                }
+
+                if(param_kv[0] == "k") {
+                    if(!StringUtils::is_uint32_t(param_kv[1])) {
+                        return false;
+                    }
+
+                    vector_query.k = std::stoul(param_kv[1]);
+                }
+
+                if(param_kv[0] == "exact") {
+                    if(!StringUtils::is_bool(param_kv[1])) {
+                        return false;
+                    }
+
+                    vector_query.exact = (param_kv[1] == "true") ;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    return false;
 }
