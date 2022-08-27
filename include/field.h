@@ -611,8 +611,14 @@ struct filter_node_t
 
     ~filter_node_t()
     {
-        left = nullptr;
-        right = nullptr;
+        if (left != nullptr)
+        {
+            delete left;
+        }
+        if (right != nullptr)
+        {
+            delete right;
+        }
     }
 };
 
