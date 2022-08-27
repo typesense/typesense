@@ -1,6 +1,6 @@
 # Download hnsw (header-only)
 
-set(HNSW_VERSION b87f6230dbe59e874b3099cfcab689b42e887a20)
+set(HNSW_VERSION cc69672b90ff7150016ceeba7d547d8a9608db41)
 set(HNSW_NAME hnswlib-${HNSW_VERSION})
 set(HNSW_TAR_PATH ${DEP_ROOT_DIR}/${HNSW_NAME}.tar.gz)
 

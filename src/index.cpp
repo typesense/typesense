@@ -932,6 +932,11 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
 
                 if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
                     const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
+                    auto vec_index = vector_index[afield.name]->vecdex;
+                    size_t curr_ele_count = vec_index->getCurrentElementCount();
+                    if(curr_ele_count == vec_index->getMaxElements()) {
+                        vec_index->resizeIndex(curr_ele_count * 1.3);
+                    }
                     vector_index[afield.name]->vecdex->addPoint(float_vals.data(), (size_t)seq_id);
                 }
             });

@@ -154,3 +154,49 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionVectorTest, Index10KVectors) {
+    // tests the dynamic resizing of graph
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"},
+            {"name": "points", "type": "int32"},
+            {"name": "vec", "type": "float[]", "num_dim": 4}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    size_t d = 4;
+    size_t n = 10 * 1000;
+
+    std::mt19937 rng;
+    rng.seed(47);
+    std::uniform_real_distribution<> distrib;
+
+    for (size_t i = 0; i < n; i++) {
+        nlohmann::json doc;
+        doc["id"] = std::to_string(i);
+        doc["title"] = std::to_string(i) + " title";
+        doc["points"] = i;
+
+        std::vector<float> values;
+        for (size_t j = 0; j < d; j++) {
+            values.push_back(distrib(rng));
+        }
+        doc["vec"] = values;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    auto results = coll1->search("*", {}, "", {}, {}, {0}, 10, 1, FREQUENCY, {true}, Index::DROP_TOKENS_THRESHOLD,
+                                 spp::sparse_hash_set<std::string>(),
+                                 spp::sparse_hash_set<std::string>(), 10, "", 30, 5,
+                                 "", 10, {}, {}, {}, 0,
+                                 "<mark>", "</mark>", {}, 1000, true, false, true, "", false, 6000 * 1000, 4, 7, fallback,
+                                 4, {off}, 32767, 32767, 2,
+                                 false, true, "").get();
+
+    ASSERT_EQ(10000, results["found"].get<size_t>());
+}
