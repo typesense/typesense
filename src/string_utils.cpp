@@ -461,7 +461,6 @@ Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::str
             bool inBacktick = false;
             bool preceding_colon = false;
             bool is_geo_value = false;
-            bool preceding_space = false;
 
             do
             {
@@ -469,7 +468,6 @@ Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::str
                 {
                     preceding_colon = true;
                 }
-                preceding_space = (c == ' ');
                 if (c == ')' && is_geo_value)
                 {
                     is_geo_value = false;
@@ -491,7 +489,7 @@ Option<bool> StringUtils::tokenize(std::string filter_query, std::queue<std::str
                 {
                     preceding_colon = false;
                 }
-            } while (i < size && (inBacktick || is_geo_value || (c != '(' && c != ')' && !(preceding_space && (c == '&' || c == '|')))));
+            } while (i < size && (inBacktick || is_geo_value || (c != '(' && c != ')' && !(c == '&' && filter_query[i + 1] == '&') && !(c == '|' && filter_query[i + 1] == '|'))));
             tokens.push(ss.str());
         }
     }
