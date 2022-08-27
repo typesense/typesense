@@ -1796,9 +1796,14 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     // free search params
     delete search_params;
 
+    if(filter_tree_root != nullptr) {
+        delete filter_tree_root;
+        filter_tree_root = nullptr;
+    }
+
     result["search_cutoff"] = search_cutoff;
 
-    result["request_params"] = nlohmann::json::object();;
+    result["request_params"] = nlohmann::json::object();
     result["request_params"]["collection_name"] = name;
     result["request_params"]["per_page"] = per_page;
     result["request_params"]["q"] = query;

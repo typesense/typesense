@@ -2714,6 +2714,11 @@ bool Index::static_filter_query_eval(const override_t* override,
          override->rule.query == query) ||
         (override->rule.match == override_t::MATCH_CONTAINS &&
          StringUtils::contains_word(query, override->rule.query))) {
+        if (filter_tree_root != nullptr) {
+            delete filter_tree_root;
+            filter_tree_root = nullptr;
+        }
+
         Option<bool> filter_op = filter::parse_filter_query(
             override->filter_by, search_schema, store, "", filter_tree_root);
         return filter_op.ok();
@@ -2877,6 +2882,11 @@ void Index::process_filter_overrides(
                 absorbed_tokens, filter_by_clause);
 
             if (resolved_override) {
+                if (filter_tree_root != nullptr) {
+                    delete filter_tree_root;
+                    filter_tree_root = nullptr;
+                }
+
                 Option<bool> filter_parse_op =
                     filter::parse_filter_query(filter_by_clause, search_schema,
                                                store, "", filter_tree_root);
