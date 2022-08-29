@@ -155,7 +155,7 @@ TEST_F(CollectionVectorTest, BasicVectorQuerying) {
     collectionManager.drop_collection("coll1");
 }
 
-TEST_F(CollectionVectorTest, Index10KVectors) {
+TEST_F(CollectionVectorTest, IndexGreaterThan1KVectors) {
     // tests the dynamic resizing of graph
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -169,7 +169,7 @@ TEST_F(CollectionVectorTest, Index10KVectors) {
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
     size_t d = 4;
-    size_t n = 10 * 1000;
+    size_t n = 1500;
 
     std::mt19937 rng;
     rng.seed(47);
@@ -198,5 +198,5 @@ TEST_F(CollectionVectorTest, Index10KVectors) {
                                  4, {off}, 32767, 32767, 2,
                                  false, true, "").get();
 
-    ASSERT_EQ(10000, results["found"].get<size_t>());
+    ASSERT_EQ(1500, results["found"].get<size_t>());
 }
