@@ -1138,6 +1138,30 @@ TEST_F(CollectionSpecificMoreTest, UnorderedWeightingOfFields) {
     ASSERT_EQ(0, res_op.get()["hits"].size());
 }
 
+TEST_F(CollectionSpecificMoreTest, IncludeFieldsOnlyId) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true}, 0, {"id"});
+
+    ASSERT_TRUE(res_op.ok());
+    auto res = res_op.get();
+
+    ASSERT_EQ(1, res["hits"][0]["document"].size());
+    ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
     nlohmann::json schema = R"({
         "name": "coll1",

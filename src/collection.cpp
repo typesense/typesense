@@ -751,6 +751,11 @@ Option<bool> Collection::extract_field_name(const std::string& field_name,
                                             std::vector<std::string>& processed_search_fields,
                                             const bool extract_only_string_fields,
                                             const bool enable_nested_fields) {
+    if(field_name == "id") {
+        processed_search_fields.push_back(field_name);
+        return Option<bool>(true);
+    }
+
     auto prefix_it = search_schema.equal_prefix_range(field_name);
     bool field_found = false;
 

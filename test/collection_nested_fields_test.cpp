@@ -689,6 +689,16 @@ TEST_F(CollectionNestedFieldsTest, HighlightNestedFieldFully) {
 
     ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
     ASSERT_EQ(highlight_full_doc.dump(), results["hits"][0]["highlight"]["full"].dump());
+
+    // try to highlight `id` field
+    results = coll1->search("shoes", {"locations.address.products"}, "", {}, sort_fields, {0}, 10, 1,
+                            token_ordering::FREQUENCY, {true}, 10, spp::sparse_hash_set<std::string>(),
+                            spp::sparse_hash_set<std::string>(), 10, "", 30, 4, "id",
+                            20, {}, {}, {}, 0, "<mark>", "</mark>", {}, 1000, true, false, true,
+                            "id").get();
+
+    ASSERT_TRUE(results["hits"][0]["highlight"]["snippet"].empty());
+    ASSERT_TRUE(results["hits"][0]["highlight"]["full"].empty());
 }
 
 TEST_F(CollectionNestedFieldsTest, HighlightShouldHaveMeta) {
