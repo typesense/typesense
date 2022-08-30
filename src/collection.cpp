@@ -2268,6 +2268,10 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
     std::vector<std::string> raw_query_tokens;
     Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
 
+    if(raw_query_tokens.empty()) {
+        return ;
+    }
+
     const std::string& last_raw_q_token = raw_query_tokens.back();
     size_t prefix_token_num_chars = StringUtils::get_num_chars(last_raw_q_token);
 
@@ -2753,7 +2757,12 @@ void Collection::highlight_text(const string& highlight_start_tag, const string&
                 const std::string& text_token = text.substr(snippet_start_offset, token_len);
                 matched_tokens.push_back(text_token);
 
-                for(size_t j = 0; j < token_len && snippet_start_offset + j < text.size(); j++) {
+                for(size_t j = 0; j < token_len; j++) {
+                    if((snippet_start_offset + j) >= text.size()) {
+                        LOG(ERROR) << "??? snippet_start_offset: " << snippet_start_offset
+                                   << ", j: " << j << ", token_len: " << token_len << ", text: " << text;
+                        break;
+                    }
                     highlighted_text << text[snippet_start_offset + j];
                 }
 
