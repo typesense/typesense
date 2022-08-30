@@ -2760,7 +2760,10 @@ void Collection::highlight_text(const string& highlight_start_tag, const string&
                 for(size_t j = 0; j < token_len; j++) {
                     if((snippet_start_offset + j) >= text.size()) {
                         LOG(ERROR) << "??? snippet_start_offset: " << snippet_start_offset
-                                   << ", j: " << j << ", token_len: " << token_len << ", text: " << text;
+                                  << ", offset_it->first: " << offset_it->first
+                                  << ", offset_it->second: " << offset_it->second
+                                  << ", end_offset: " << end_offset
+                                  << ", j: " << j << ", token_len: " << token_len << ", text: " << text;
                         break;
                     }
                     highlighted_text << text[snippet_start_offset + j];
