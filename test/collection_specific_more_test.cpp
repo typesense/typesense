@@ -1185,6 +1185,26 @@ TEST_F(CollectionSpecificMoreTest, QueryWithOnlySpecialChars) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
+    std::vector<highlight_field_t> hightlight_items = {
+        highlight_field_t("foo.bar", false, false),
+        highlight_field_t("baz", false, false),
+        highlight_field_t("not-found", false, false),
+    };
+
+    nlohmann::json src = R"({
+        "baz": {"name": "John"},
+        "foo.bar": 12345
+    })"_json;
+
+    nlohmann::json dst;
+    Collection::copy_highlight_doc(hightlight_items, src, dst);
+
+    ASSERT_EQ(2, dst.size());
+    ASSERT_EQ(1, dst.count("baz"));
+    ASSERT_EQ(1, dst.count("foo.bar"));
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1216,5 +1236,4 @@ TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFi
     ASSERT_EQ(1, res["hits"].size());
 
     ASSERT_TRUE(res["hits"][0]["highlight"]["snippet"].empty());
-    LOG(INFO) << res;
 }
