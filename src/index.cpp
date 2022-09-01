@@ -4858,6 +4858,12 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         return;
     }
 
+    if(document[field_name].is_object() && !search_field.is_object()) {
+        // Handle an edge case with auto schema detection:
+        // Value as object field (ignored), but later as string field will cause documents with incorrect on-disk type
+        return ;
+    }
+
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;

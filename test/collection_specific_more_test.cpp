@@ -1185,6 +1185,38 @@ TEST_F(CollectionSpecificMoreTest, QueryWithOnlySpecialChars) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // index a "bad" document with title as an object field
+
+    nlohmann::json doc;
+    doc["id"] = "12345";
+    doc["title"] = R"({"id": 12345})"_json;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // now add another document where `title` is a string
+    doc["id"] = "12346";
+    doc["title"] = "Title 2";
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // try to update the former document
+    doc["id"] = "12345";
+    doc["title"] = "Title 1";
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+}
+
 TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
     std::vector<highlight_field_t> hightlight_items = {
         highlight_field_t("foo.bar", false, false),
