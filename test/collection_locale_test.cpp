@@ -332,9 +332,13 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
         coll1 = collectionManager.create_collection("coll1", 1, fields, "points").get();
     }
 
+    std::string word_9bytes = "น้ำ";
+    std::string word_12bytes = "น้ํา";
+
     std::vector<std::vector<std::string>> records = {
         {"ติดกับดักรายได้ปานกลาง", "Expected Result"},
         {"ข้อมูลรายคนหรือรายบริษัทในการเชื่อมโยงส่วนได้ส่วนเสีย", "Another Result"},
+        {word_9bytes, "Another Result"},  // NKC normalization
     };
 
     for (size_t i = 0; i < records.size(); i++) {
@@ -361,6 +365,12 @@ TEST_F(CollectionLocaleTest, SearchAgainstThaiTextExactMatch) {
     ASSERT_EQ("ข้อมูล<mark>ราย</mark>คนหรือ<mark>ราย</mark>บริษัทในการเชื่อมโยงส่วน<mark>ได้</mark>ส่วนเสีย",
               results["hits"][1]["highlights"][0]["snippet"].get<std::string>());
 
+    // check text index overflow regression with NFC normalization + highlighting
+
+    results = coll1->search(word_12bytes, {"title"}, "", {}, sort_fields, {2}, 10, 1, FREQUENCY).get();
+    ASSERT_EQ(1, results["found"].get<size_t>());
+    ASSERT_EQ(1, results["hits"].size());
+    ASSERT_EQ("<mark>น้ำ</mark>", results["hits"][0]["highlights"][0]["snippet"].get<std::string>());
 }
 
 TEST_F(CollectionLocaleTest, SearchAgainstKoreanText) {

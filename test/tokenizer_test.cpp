@@ -237,7 +237,7 @@ TEST(TokenizerTest, ShouldTokenizeLocaleText) {
 
     tokens.clear();
     str = "จิ้งจอกสีน้ำตาลด่วน";
-    Tokenizer(str, false, false, "th").tokenize(tokens);
+    Tokenizer(str, true, false, "th").tokenize(tokens);
     ASSERT_EQ(4, tokens.size());
     ASSERT_EQ("จิ้งจอก", tokens[0]);
     ASSERT_EQ("สี", tokens[1]);

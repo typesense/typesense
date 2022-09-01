@@ -1776,11 +1776,11 @@ void Collection::copy_highlight_doc(std::vector<highlight_field_t>& hightlight_i
         }
 
         // root field name might not exist if object has primitive field values with "."s in the name
-        if(src.count(root_field_name) == 0) {
-            // copy the full field
-            dst[hightlight_item.name] = src[hightlight_item.name];
-        } else {
+        if(src.count(root_field_name) != 0) {
+            // copy whole sub-object
             dst[root_field_name] = src[root_field_name];
+        } else if(src.count(hightlight_item.name) != 0) {
+            dst[hightlight_item.name] = src[hightlight_item.name];
         }
     }
 }
@@ -2262,8 +2262,8 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
     tsl::htrie_set<char> matched_tokens;
 
-    bool is_cyrillic = Tokenizer::is_cyrillic(search_field.locale);
-    bool normalise = is_cyrillic ? false : true;
+    bool use_word_tokenizer = search_field.locale == "th" || Tokenizer::is_cyrillic(search_field.locale);
+    bool normalise = !use_word_tokenizer;
 
     std::vector<std::string> raw_query_tokens;
     Tokenizer(raw_query, normalise, false, search_field.locale, symbols_to_index, token_separators).tokenize(raw_query_tokens);
@@ -2348,14 +2348,14 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
                 std::string text = h_obj.get<std::string>();
                 handle_highlight_text(text, normalise, search_field, symbols_to_index,
-                                                            token_separators, array_highlight, string_utils, is_cyrillic,
-                                                            highlight_affix_num_tokens,
-                                                            qtoken_leaves, last_valid_offset_index, match,
-                                                            prefix_token_num_chars,
-                                                            highlight_fully, snippet_threshold, is_infix_search,
-                                                            raw_query_tokens,
-                                                            last_valid_offset, highlight_start_tag, highlight_end_tag,
-                                                            index_symbols, match_index);
+                                      token_separators, array_highlight, string_utils, use_word_tokenizer,
+                                      highlight_affix_num_tokens,
+                                      qtoken_leaves, last_valid_offset_index, match,
+                                      prefix_token_num_chars,
+                                      highlight_fully, snippet_threshold, is_infix_search,
+                                      raw_query_tokens,
+                                      last_valid_offset, highlight_start_tag, highlight_end_tag,
+                                      index_symbols, match_index);
 
                 if(!array_highlight.snippets.empty()) {
                     h_obj = array_highlight.snippets[0];
@@ -2458,7 +2458,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
         }
 
         handle_highlight_text(text, normalise, search_field, symbols_to_index, token_separators,
-                              highlight, string_utils, is_cyrillic, highlight_affix_num_tokens,
+                              highlight, string_utils, use_word_tokenizer, highlight_affix_num_tokens,
                               qtoken_leaves, last_valid_offset_index, match, prefix_token_num_chars,
                               highlight_fully, snippet_threshold, is_infix_search, raw_query_tokens,
                               last_valid_offset, highlight_start_tag, highlight_end_tag,
@@ -2543,7 +2543,7 @@ void Collection::highlight_result(const std::string& raw_query, const field &sea
 
 bool Collection::handle_highlight_text(std::string& text, bool normalise, const field &search_field,
                            const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                           highlight_t& highlight, StringUtils & string_utils, bool is_cyrillic,
+                           highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                            const size_t highlight_affix_num_tokens,
                            const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                            int last_valid_offset_index, const Match& match,
@@ -2580,7 +2580,7 @@ bool Collection::handle_highlight_text(std::string& text, bool normalise, const 
     bool found_first_match = false;
 
     while(tokenizer.next(raw_token, raw_token_index, tok_start, tok_end)) {
-        if(is_cyrillic) {
+        if(use_word_tokenizer) {
             bool found_token = word_tokenizer.tokenize(raw_token);
             if(!found_token) {
                 tokenizer.decr_token_counter();
@@ -2744,7 +2744,12 @@ void Collection::highlight_text(const string& highlight_start_tag, const string&
                 auto end_offset = offset_it->second;
 
                 // if a token ends with one or more puncutation chars, we should not highlight them
-                for(int j = end_offset; j > 0; j--) {
+                for(int j = end_offset; j >= 0; j--) {
+                    if(end_offset >= text.size()) {
+                        // this should not happen unless we mess up unicode normalization
+                        break;
+                    }
+
                     if(!std::isalnum(text[j]) && Tokenizer::is_ascii_char(text[j]) &&
                         index_symbols[uint8_t(text[j])] != 1) {
                         end_offset--;

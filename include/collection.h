@@ -222,7 +222,7 @@ private:
 
     bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
                                const std::vector<char>& symbols_to_index, const std::vector<char>& token_separators,
-                               highlight_t& highlight, StringUtils & string_utils, bool is_cyrillic,
+                               highlight_t& highlight, StringUtils & string_utils, bool use_word_tokenizer,
                                const size_t highlight_affix_num_tokens,
                                const tsl::htrie_map<char, token_leaf>& qtoken_leaves,
                                int last_valid_offset_index, const Match& match,

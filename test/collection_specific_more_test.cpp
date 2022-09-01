@@ -1185,6 +1185,58 @@ TEST_F(CollectionSpecificMoreTest, QueryWithOnlySpecialChars) {
     ASSERT_EQ("0", res["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSpecificMoreTest, HandleStringFieldWithObjectValueEarlier) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // index a "bad" document with title as an object field
+
+    nlohmann::json doc;
+    doc["id"] = "12345";
+    doc["title"] = R"({"id": 12345})"_json;
+
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // now add another document where `title` is a string
+    doc["id"] = "12346";
+    doc["title"] = "Title 2";
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // try to update the former document
+    doc["id"] = "12345";
+    doc["title"] = "Title 1";
+    add_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+}
+
+TEST_F(CollectionSpecificMoreTest, CopyDocHelper) {
+    std::vector<highlight_field_t> hightlight_items = {
+        highlight_field_t("foo.bar", false, false),
+        highlight_field_t("baz", false, false),
+        highlight_field_t("not-found", false, false),
+    };
+
+    nlohmann::json src = R"({
+        "baz": {"name": "John"},
+        "foo.bar": 12345
+    })"_json;
+
+    nlohmann::json dst;
+    Collection::copy_highlight_doc(hightlight_items, src, dst);
+
+    ASSERT_EQ(2, dst.size());
+    ASSERT_EQ(1, dst.count("baz"));
+    ASSERT_EQ(1, dst.count("foo.bar"));
+}
+
 TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFieldFound) {
     nlohmann::json schema = R"({
         "name": "coll1",
@@ -1216,5 +1268,4 @@ TEST_F(CollectionSpecificMoreTest, HighlightObjectShouldBeEmptyWhenNoHighlightFi
     ASSERT_EQ(1, res["hits"].size());
 
     ASSERT_TRUE(res["hits"][0]["highlight"]["snippet"].empty());
-    LOG(INFO) << res;
 }
