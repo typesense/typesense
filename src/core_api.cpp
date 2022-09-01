@@ -1,5 +1,6 @@
 #include <chrono>
 #include <thread>
+#include <cstdlib> 
 #include <app_metrics.h>
 #include "typesense_server_utils.h"
 #include "core_api.h"
@@ -10,6 +11,7 @@
 #include "logger.h"
 #include "core_api_utils.h"
 #include "lru/lru.hpp"
+#include "ratelimit_manager.h"
 
 using namespace std::chrono_literals;
 
@@ -703,7 +705,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
     const char *DIRTY_VALUES = "dirty_values";
-    const char *RETURN_DOC = "return_doc";
+    const char *RETURN_RES = "return_res";
     const char *RETURN_ID = "return_id";
 
     if(req->params.count(BATCH_SIZE) == 0) {
@@ -718,8 +720,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         req->params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
-    if(req->params.count(RETURN_DOC) == 0) {
-        req->params[RETURN_DOC] = "false";
+    if(req->params.count(RETURN_RES) == 0) {
+        req->params[RETURN_RES] = "false";
     }
 
     if(req->params.count(RETURN_ID) == 0) {
@@ -741,9 +743,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    if(req->params[RETURN_DOC] != "true" && req->params[RETURN_DOC] != "false") {
+    if(req->params[RETURN_RES] != "true" && req->params[RETURN_RES] != "false") {
         res->final = true;
-        res->set_400("Parameter `" + std::string(RETURN_DOC) + "` must be a true|false.");
+        res->set_400("Parameter `" + std::string(RETURN_RES) + "` must be a true|false.");
         stream_response(req, res);
         return false;
     }
@@ -830,10 +832,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         nlohmann::json document;
 
         const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES]);
-        const bool& return_doc = req->params[RETURN_DOC] == "true";
+        const bool& return_res = req->params[RETURN_RES] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_doc, return_id);
+                                                       dirty_values, return_res, return_id);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
@@ -1449,10 +1451,52 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
-    auto config_update_op = Config::get_instance().update_config(req_json);
+    bool found_config = false;
 
-    if(!config_update_op.ok()) {
-        res->set(config_update_op.code(), config_update_op.error());
+    if(req_json.count("log-slow-requests-time-ms") != 0) {
+        if(!req_json["log-slow-requests-time-ms"].is_number_integer()) {
+            res->set_400("Configuration `log-slow-requests-time-ms` must be an integer.");
+            return false;
+        }
+
+        Config::get_instance().set_log_slow_requests_time_ms(req_json["log-slow-requests-time-ms"].get<int>());
+        found_config = true;
+    }
+
+    if(req_json.count("healthy-read-lag") != 0) {
+        if(!req_json["healthy-read-lag"].is_number_integer()) {
+            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
+            return false;
+        }
+
+        size_t read_lag = req_json["healthy-read-lag"].get<int>();
+        if(read_lag <= 0) {
+            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
+            return false;
+        }
+
+        Config::get_instance().set_healthy_read_lag(read_lag);
+        found_config = true;
+    }
+
+    if(req_json.count("healthy-write-lag") != 0) {
+        if(!req_json["healthy-write-lag"].is_number_integer()) {
+            res->set_400("Configuration `healthy-write-lag` must be an integer.");
+            return false;
+        }
+
+        size_t write_lag = req_json["healthy-write-lag"].get<int>();
+        if(write_lag <= 0) {
+            res->set_400("Configuration `healthy-write-lag` must be a positive integer.");
+            return false;
+        }
+
+        Config::get_instance().set_healthy_write_lag(req_json["healthy-write-lag"].get<int>());
+        found_config = true;
+    }
+
+    if(!found_config) {
+        res->set_400("Invalid configuration.");
     } else {
         nlohmann::json response;
         response["success"] = true;
@@ -1548,7 +1592,16 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     }
 
     syn_json["id"] = synonym_id;
-    Option<bool> upsert_op = collection->add_synonym(syn_json);
+
+    synonym_t synonym;
+    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
+
+    if(!syn_op.ok()) {
+        res->set(syn_op.code(), syn_op.error());
+        return false;
+    }
+
+    Option<bool> upsert_op = collection->add_synonym(synonym.to_view_json());
 
     if(!upsert_op.ok()) {
         res->set(upsert_op.code(), upsert_op.error());
@@ -1691,5 +1744,271 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res_json["name"] = preset_name;
     res_json["value"] = preset;
     res->set_200(res_json.dump());
+    return true;
+}
+
+
+bool get_rate_limits(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res)
+{
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+
+    nlohmann::json res_json;
+
+    auto rules = rateLimitManager->get_all_rules();
+
+    res_json["limits"] = nlohmann::json::array();
+
+    for(const ratelimit_tracker_t& rule: rules) {
+        nlohmann::json rule_json;
+
+        rule_json["id"] = rule.id;
+        if(rule.is_allowed)
+        {
+            rule_json["action"] = "allow";
+        }
+        else if(rule.is_banned_permanently)
+        {
+            rule_json["action"] = "block";
+        }
+        else
+        {
+            rule_json["action"] = "throttle";
+            rule_json["max_requests_60s"] = rule.minute_rate_limit;
+            rule_json["max_requests_1h"] = rule.hour_rate_limit;
+        }
+
+        if(rule.ip != "")
+        {
+            rule_json["ip"] = rule.ip;
+        }
+
+        if(rule.api_key != "")
+        {
+            rule_json["api_key"] = rule.api_key;
+        }
+
+        res_json["limits"].push_back(rule_json);
+    }
+
+
+    res->set_200(res_json.dump());
+
+    return true;
+}
+
+bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res)
+{
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    const std::string& id = req->params["id"];
+    auto rule = rateLimitManager->find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
+    if(rule.id < 0)
+    {
+        res->set_404();
+        return false;
+    }
+    nlohmann::json rule_json;
+
+    rule_json["id"] = rule.id;
+    if(rule.is_allowed)
+    {
+        rule_json["action"] = "allow";
+    }
+    else if(rule.is_banned_permanently)
+    {
+        rule_json["action"] = "block";
+    }
+    else
+    {
+        rule_json["action"] = "throttle";
+        rule_json["max_requests_60s"] = rule.minute_rate_limit;
+        rule_json["max_requests_1h"] = rule.hour_rate_limit;
+    }
+
+    if(rule.ip != "")
+    {
+        rule_json["ip"] = rule.ip;
+    }
+
+    if(rule.api_key != "")
+    {
+        rule_json["api_key"] = rule.api_key;
+    }
+    res->set_200(rule_json.dump());
+    return true;
+}
+
+bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res)
+{
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    const std::string& id = req->params["id"];
+    auto rule = rateLimitManager->find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
+    if(rule.id < 0)
+    {
+        res->set_404();
+        return false;
+    }
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(req_json.count("action") == 0)
+    {
+        res->set_400("Parameter `action` is required.");
+        return false;
+    }
+    if(req_json["action"] == "allow")
+    {
+        rule.is_allowed = true;
+    }
+    else if(req_json["action"] == "block")
+    {
+        rule.is_banned_permanently = true;
+    }
+    else if(req_json["action"] == "throttle")
+    {
+        if(req_json.count("max_requests_60s") == 0)
+        {
+            res->set_400("Parameter `max_requests_60s` is required.");
+            return false;
+        }
+        if(req_json.count("max_requests_1h") == 0)
+        {
+            res->set_400("Parameter `max_requests_1h` is required.");
+            return false;
+        }
+        rule.minute_rate_limit = req_json["max_requests_60s"];
+        rule.hour_rate_limit = req_json["max_requests_1h"];
+    }
+    else
+    {
+        res->set_400("Invalid action.");
+        return false;
+    }
+    if(req_json.count("ip") == 0 && req_json.count("api_key") == 0 || req_json.count("ip") > 0 && req_json.count("api_key") > 0)
+    {
+        res->set_400("Either `ip` or `api_key` is required.");
+        return false;
+    }
+
+    if(req_json.count("ip") != 0)
+    {
+        rule.ip = req_json["ip"];
+    }
+    if(req_json.count("api_key") != 0)
+    {
+        rule.api_key = req_json["api_key"];
+    }
+
+    rateLimitManager->edit_rule_by_id(rule.id, rule);
+    res->set_200("OK");
+    return true;
+}
+
+bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res)
+{
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    const std::string& id = req->params["id"];
+    auto rule = rateLimitManager->find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
+    if(rule.id < 0)
+    {
+        res->set_404();
+        return false;
+    }
+    rateLimitManager->delete_rule_by_id(rule.id);
+    res->set_200("OK");
+    return true;
+}
+
+bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res)
+{
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    nlohmann::json req_json;
+
+    try {
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const std::exception& e) {
+        LOG(ERROR) << "JSON error: " << e.what();
+        res->set_400("Bad JSON.");
+        return false;
+    }
+    if(req_json.count("action") == 0)
+    {
+        res->set_400("Parameter `action` is required.");
+        return false;
+    }
+    if(req_json["action"] == "allow")
+    {
+        if(req_json.count("ip") == 0 && req_json.count("api_key") == 0 || req_json.count("ip") > 0 && req_json.count("api_key") > 0)
+        {
+            res->set_400("Either `ip` or `api_key` is required.");
+            return false;
+        }
+        if(req_json.count("ip") != 0)
+        {
+            rateLimitManager->allow_ip(req_json["ip"]);
+        }
+        else if(req_json.count("api_key") != 0)
+        {
+            rateLimitManager->allow_api_key(req_json["api_key"]);
+        }
+        res->set_200("OK");
+        return true;
+    }
+    else if(req_json["action"] == "block")
+    {
+        if(req_json.count("ip") == 0 && req_json.count("api_key") == 0 || req_json.count("ip") > 0 && req_json.count("api_key") > 0)
+        {
+            res->set_400("Either `ip` or `api_key` is required.");
+            return false;
+        }
+        if(req_json.count("ip") != 0)
+        {
+            rateLimitManager->ban_ip_permanently(req_json["ip"]);
+        }
+        else if(req_json.count("api_key") != 0)
+        {
+            rateLimitManager->ban_api_key_permanently(req_json["api_key"]);
+        }
+        res->set_200("OK");
+        return true;
+    }
+    else if(req_json["action"] == "throttle")
+    {
+        if(req_json.count("max_requests_60s") == 0)
+        {
+            res->set_400("Parameter `max_requests_60s` is required.");
+            return false;
+        }
+        if(req_json.count("max_requests_1h") == 0)
+        {
+            res->set_400("Parameter `max_requests_1h` is required.");
+            return false;
+        }
+        if(req_json.count("ip") == 0 && req_json.count("api_key") == 0 || req_json.count("ip") > 0 && req_json.count("api_key") > 0)
+        {
+            res->set_400("Either `ip` or `api_key` is required.");
+            return false;
+        }
+        if(req_json.count("ip") != 0)
+        {
+            rateLimitManager->add_rate_limit_ip(req_json["ip"], req_json["max_requests_60s"], req_json["max_requests_1h"]);
+        }
+        else if(req_json.count("api_key") != 0)
+        {
+            rateLimitManager->add_rate_limit_api_key(req_json["api_key"], req_json["max_requests_60s"], req_json["max_requests_1h"]);
+        }
+    }
+    else
+    {
+        res->set_400("Invalid action.");
+        return false;
+    }
+
+    res->set_200("OK");
     return true;
 }
