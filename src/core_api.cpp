@@ -1695,8 +1695,7 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(res_json.dump());
     return true;
 }
-bool get_rate_limits(const std::shared_ptr < http_req > & req,
-    const std::shared_ptr < http_res > & res) {
+bool get_rate_limits(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
     RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
 
     nlohmann::json res_json;
@@ -1735,8 +1734,7 @@ bool get_rate_limits(const std::shared_ptr < http_req > & req,
     return true;
 }
 
-bool get_rate_limit(const std::shared_ptr < http_req > & req,
-    const std::shared_ptr < http_res > & res) {
+bool get_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
     RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
     const std::string & id = req -> params["id"];
     auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
@@ -1768,8 +1766,7 @@ bool get_rate_limit(const std::shared_ptr < http_req > & req,
     return true;
 }
 
-bool put_rate_limit(const std::shared_ptr < http_req > & req,
-    const std::shared_ptr < http_res > & res) {
+bool put_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
     RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
     const std::string & id = req -> params["id"];
     auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
@@ -1826,8 +1823,7 @@ bool put_rate_limit(const std::shared_ptr < http_req > & req,
     return true;
 }
 
-bool del_rate_limit(const std::shared_ptr < http_req > & req,
-    const std::shared_ptr < http_res > & res) {
+bool del_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
     RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
     const std::string & id = req -> params["id"];
     auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
@@ -1840,8 +1836,7 @@ bool del_rate_limit(const std::shared_ptr < http_req > & req,
     return true;
 }
 
-bool post_rate_limit(const std::shared_ptr < http_req > & req,
-    const std::shared_ptr < http_res > & res) {
+bool post_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
     RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
     nlohmann::json req_json;
 
