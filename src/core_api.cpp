@@ -701,7 +701,7 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
     const char *BATCH_SIZE = "batch_size";
     const char *ACTION = "action";
     const char *DIRTY_VALUES = "dirty_values";
-    const char *RETURN_RES = "return_res";
+    const char *RETURN_DOC = "return_doc";
     const char *RETURN_ID = "return_id";
 
     if(req->params.count(BATCH_SIZE) == 0) {
@@ -716,8 +716,8 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         req->params[DIRTY_VALUES] = "";  // set it empty as default will depend on `index_all_fields`
     }
 
-    if(req->params.count(RETURN_RES) == 0) {
-        req->params[RETURN_RES] = "false";
+    if(req->params.count(RETURN_DOC) == 0) {
+        req->params[RETURN_DOC] = "false";
     }
 
     if(req->params.count(RETURN_ID) == 0) {
@@ -739,9 +739,9 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         return false;
     }
 
-    if(req->params[RETURN_RES] != "true" && req->params[RETURN_RES] != "false") {
+    if(req->params[RETURN_DOC] != "true" && req->params[RETURN_DOC] != "false") {
         res->final = true;
-        res->set_400("Parameter `" + std::string(RETURN_RES) + "` must be a true|false.");
+        res->set_400("Parameter `" + std::string(RETURN_DOC) + "` must be a true|false.");
         stream_response(req, res);
         return false;
     }
@@ -828,10 +828,10 @@ bool post_import_documents(const std::shared_ptr<http_req>& req, const std::shar
         nlohmann::json document;
 
         const auto& dirty_values = collection->parse_dirty_values_option(req->params[DIRTY_VALUES]);
-        const bool& return_res = req->params[RETURN_RES] == "true";
+        const bool& return_doc = req->params[RETURN_DOC] == "true";
         const bool& return_id = req->params[RETURN_ID] == "true";
         nlohmann::json json_res = collection->add_many(json_lines, document, operation, "",
-                                                       dirty_values, return_res, return_id);
+                                                       dirty_values, return_doc, return_id);
         //const std::string& import_summary_json = json_res->dump();
         //response_stream << import_summary_json << "\n";
 
@@ -1446,52 +1446,10 @@ bool post_config(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
         return false;
     }
 
-    bool found_config = false;
+    auto config_update_op = Config::get_instance().update_config(req_json);
 
-    if(req_json.count("log-slow-requests-time-ms") != 0) {
-        if(!req_json["log-slow-requests-time-ms"].is_number_integer()) {
-            res->set_400("Configuration `log-slow-requests-time-ms` must be an integer.");
-            return false;
-        }
-
-        Config::get_instance().set_log_slow_requests_time_ms(req_json["log-slow-requests-time-ms"].get<int>());
-        found_config = true;
-    }
-
-    if(req_json.count("healthy-read-lag") != 0) {
-        if(!req_json["healthy-read-lag"].is_number_integer()) {
-            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
-            return false;
-        }
-
-        size_t read_lag = req_json["healthy-read-lag"].get<int>();
-        if(read_lag <= 0) {
-            res->set_400("Configuration `healthy-read-lag` must be a positive integer.");
-            return false;
-        }
-
-        Config::get_instance().set_healthy_read_lag(read_lag);
-        found_config = true;
-    }
-
-    if(req_json.count("healthy-write-lag") != 0) {
-        if(!req_json["healthy-write-lag"].is_number_integer()) {
-            res->set_400("Configuration `healthy-write-lag` must be an integer.");
-            return false;
-        }
-
-        size_t write_lag = req_json["healthy-write-lag"].get<int>();
-        if(write_lag <= 0) {
-            res->set_400("Configuration `healthy-write-lag` must be a positive integer.");
-            return false;
-        }
-
-        Config::get_instance().set_healthy_write_lag(req_json["healthy-write-lag"].get<int>());
-        found_config = true;
-    }
-
-    if(!found_config) {
-        res->set_400("Invalid configuration.");
+    if(!config_update_op.ok()) {
+        res->set(config_update_op.code(), config_update_op.error());
     } else {
         nlohmann::json response;
         response["success"] = true;
@@ -1587,16 +1545,7 @@ bool put_synonym(const std::shared_ptr<http_req>& req, const std::shared_ptr<htt
     }
 
     syn_json["id"] = synonym_id;
-
-    synonym_t synonym;
-    Option<bool> syn_op = synonym_t::parse(syn_json, synonym);
-
-    if(!syn_op.ok()) {
-        res->set(syn_op.code(), syn_op.error());
-        return false;
-    }
-
-    Option<bool> upsert_op = collection->add_synonym(synonym.to_view_json());
+    Option<bool> upsert_op = collection->add_synonym(syn_json);
 
     if(!upsert_op.ok()) {
         res->set(upsert_op.code(), upsert_op.error());
