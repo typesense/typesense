@@ -801,6 +801,33 @@ TEST_F(CollectionSchemaChangeTest, DropFieldNotExistingInDocuments) {
     ASSERT_TRUE(alter_op.ok());
 }
 
+TEST_F(CollectionSchemaChangeTest, ChangeFieldToCoercableTypeIsNotAllowed) {
+    // optional title field
+    std::vector<field> fields = {field("title", field_types::STRING, false, true, true, "", 1, 1),
+                                 field("points", field_types::INT32, true),};
+
+    Collection* coll1 = collectionManager.create_collection("coll1", 1, fields, "points", 0, "").get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["points"] = 100;
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // coerce field from int to string
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "points", "drop": true},
+            {"name": "points", "type": "string"}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `points` cannot be coerced into a string.", alter_op.error());
+}
+
 TEST_F(CollectionSchemaChangeTest, ChangeFromPrimitiveToDynamicField) {
     nlohmann::json req_json = R"({
         "name": "coll1",
@@ -1061,4 +1088,76 @@ TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
     ASSERT_TRUE(res_op.ok());
     ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
     ASSERT_EQ(1, res_op.get()["facet_counts"].size());
+}
+
+TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    // index a label field as integer
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["label"] = 1000;
+    doc["title"] = "Foo";
+    auto add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // drop this field from schema
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "label", "drop": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // add new document with a string label
+    doc["id"] = "1";
+    doc["label"] = "abcdef";
+    doc["title"] = "Bar";
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // now we have documents which have both string and integer for the same field :BOOM:
+    // schema change operation should not be allowed at this point
+    schema_changes = R"({
+        "fields": [
+            {"name": "year", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_FALSE(alter_op.ok());
+    ASSERT_EQ("Schema change is incompatible with the type of documents already stored in this collection. "
+              "Existing data for field `label` cannot be coerced into a string.", alter_op.error());
+
+    // but should allow the problematic field to be dropped
+    schema_changes = R"({
+        "fields": [
+            {"name": "label", "drop": true}
+        ]
+    })"_json;
+
+    alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // add document with another field
+    doc["id"] = "2";
+    doc["label"] = "xyz";
+    doc["year"] = 1947;
+    add_op = coll1->add(doc.dump());
+    ASSERT_TRUE(add_op.ok());
+
+    // try searching for string label
+    auto res_op = coll1->search("xyz", {"label"}, "", {}, {}, {0}, 3, 1, FREQUENCY, {true}, 5);
+    ASSERT_TRUE(res_op.ok());
+    ASSERT_EQ(1, res_op.get()["found"].get<size_t>());
 }

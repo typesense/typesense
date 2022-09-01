@@ -4858,12 +4858,6 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         return;
     }
 
-    if(document[field_name].is_object() && !search_field.is_object()) {
-        // Handle an edge case with auto schema detection:
-        // Value as object field (ignored), but later as string field will cause documents with incorrect on-disk type
-        return ;
-    }
-
     // Go through all the field names and find the keys+values so that they can be removed from in-memory index
     if(search_field.type == field_types::STRING_ARRAY || search_field.type == field_types::STRING) {
         std::vector<std::string> tokens;
@@ -4987,18 +4981,34 @@ Option<uint32_t> Index::remove(const uint32_t seq_id, const nlohmann::json & doc
                                const std::vector<field>& del_fields, const bool is_update) {
     std::unique_lock lock(mutex);
 
+    // The exception during removal is mostly because of an edge case with auto schema detection:
+    // Value indexed as Type T but later if field is dropped and reindexed in another type X,
+    // the on-disk data will differ from the newly detected type on schema. We've to log the error,
+    // but have to ignore the field and proceed because there's no leak caused here.
+
     if(!del_fields.empty()) {
         for(auto& the_field: del_fields) {
             if(!document.contains(the_field.name)) {
                 // could be an optional field
                 continue;
             }
-            remove_field(seq_id, document, the_field.name);
+
+            try {
+                remove_field(seq_id, document, the_field.name);
+            } catch(const std::exception& e) {
+                LOG(WARNING) << "Error while removing field `" << the_field.name << "` from document, message: "
+                             << e.what();
+            }
         }
     } else {
         for(auto it = document.begin(); it != document.end(); ++it) {
             const std::string& field_name = it.key();
-            remove_field(seq_id, document, field_name);
+            try {
+                remove_field(seq_id, document, field_name);
+            } catch(const std::exception& e) {
+                LOG(WARNING) << "Error while removing field `" << field_name << "` from document, message: "
+                             << e.what();
+            }
         }
     }
 
