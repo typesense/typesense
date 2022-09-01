@@ -43,14 +43,12 @@ struct ratelimit_tracker_t {
         inline static int64_t last_id;
     public:
 
-    ratelimit_tracker_t() 
-    {
+    ratelimit_tracker_t() {
         id =  ratelimit_tracker_t::last_id++;
     }
 
     ratelimit_tracker_t(bool is_tracked, bool is_allowed, bool is_banned_permanently, int64_t minute_rate_limit, int64_t hour_rate_limit) :
-        is_tracked(is_tracked), is_allowed(is_allowed), is_banned_permanently(is_banned_permanently), minute_rate_limit(minute_rate_limit), hour_rate_limit(hour_rate_limit)
-    {
+        is_tracked(is_tracked), is_allowed(is_allowed), is_banned_permanently(is_banned_permanently), minute_rate_limit(minute_rate_limit), hour_rate_limit(hour_rate_limit){
         id = ratelimit_tracker_t::last_id++;
     }
     int64_t id;
@@ -78,8 +76,7 @@ struct request_counter_t {
 
 
     // not-equal operator overload
-    bool operator!=(const request_counter_t& other) const
-    {
+    bool operator!=(const request_counter_t& other) const{
         return minute_rate_limit != other.minute_rate_limit || hour_rate_limit != other.hour_rate_limit || current_requests_count_minute != other.current_requests_count_minute || current_requests_count_hour != other.current_requests_count_hour || previous_requests_count_minute != other.previous_requests_count_minute || previous_requests_count_hour != other.previous_requests_count_hour || last_reset_time_minute != other.last_reset_time_minute || last_reset_time_hour != other.last_reset_time_hour;
     }
 };
