@@ -150,7 +150,7 @@ private:
 
     void remove_document(const nlohmann::json & document, const uint32_t seq_id, bool remove_from_store);
 
-    void curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
+    void curate_results(string& actual_query, const string& filter_query, bool enable_overrides, bool already_segmented,
                         const std::map<size_t, std::vector<std::string>>& pinned_hits,
                         const std::vector<std::string>& hidden_hits,
                         std::vector<std::pair<uint32_t, uint32_t>>& included_ids,

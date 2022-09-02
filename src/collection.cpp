@@ -405,7 +405,8 @@ size_t Collection::batch_index_in_memory(std::vector<index_record>& index_record
     return num_indexed;
 }
 
-void Collection::curate_results(string& actual_query, bool enable_overrides, bool already_segmented,
+void Collection::curate_results(string& actual_query, const string& filter_query,
+                                bool enable_overrides, bool already_segmented,
                                 const std::map<size_t, std::vector<std::string>>& pinned_hits,
                                 const std::vector<std::string>& hidden_hits,
                                 std::vector<std::pair<uint32_t, uint32_t>>& included_ids,
@@ -454,6 +455,10 @@ void Collection::curate_results(string& actual_query, bool enable_overrides, boo
             if ((override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
                 (override.rule.match == override_t::MATCH_CONTAINS &&
                  StringUtils::contains_word(query, override.rule.query))) {
+
+                if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
+                    continue;
+                }
 
                 // have to ensure that dropped hits take precedence over added hits
                 for(const auto & hit: override.drop_hits) {
@@ -1099,7 +1104,7 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     std::string query = raw_query;
     bool filter_curated_hits = false;
     std::string curated_sort_by;
-    curate_results(query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
+    curate_results(query, simple_filter_query, enable_overrides, pre_segmented_query, pinned_hits, hidden_hits,
                    included_ids, excluded_ids, filter_overrides, filter_curated_hits, curated_sort_by);
 
     if(filter_curated_hits_option == 0 || filter_curated_hits_option == 1) {

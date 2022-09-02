@@ -106,6 +106,14 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
     override.rule.query = override_json["rule"]["query"].get<std::string>();
     override.rule.match = override_json["rule"]["match"].get<std::string>();
 
+    if(override_json["rule"].count("filter_by") != 0) {
+        if(!override_json["rule"]["filter_by"].is_string()) {
+            return Option<bool>(400, "Override `rule.filter_by` must be a string.");
+        }
+
+        override.rule.filter_by = override_json["rule"]["filter_by"].get<std::string>();
+    }
+
     if (override_json.count("includes") != 0) {
         for(const auto & include: override_json["includes"]) {
             add_hit_t add_hit;
@@ -187,6 +195,9 @@ nlohmann::json override_t::to_json() const {
     override["id"] = id;
     override["rule"]["query"] = rule.query;
     override["rule"]["match"] = rule.match;
+    if(!rule.filter_by.empty()) {
+        override["rule"]["filter_by"] = rule.filter_by;
+    }
 
     override["includes"] = nlohmann::json::array();
 

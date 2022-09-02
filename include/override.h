@@ -11,6 +11,7 @@ struct override_t {
         std::string query;
         std::string match;
         bool dynamic_query = false;
+        std::string filter_by;
     };
 
     struct add_hit_t {
