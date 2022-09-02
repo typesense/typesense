@@ -1,5 +1,6 @@
 #include <store.h>
 #include "field.h"
+#include "magic_enum.hpp"
 
 Option<bool> filter::parse_geopoint_filter_value(std::string& raw_value,
                                                  const std::string& format_err_msg,
@@ -508,8 +509,11 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
         field_json[fields::infix] = false;
     }
 
+    auto DEFAULT_VEC_DIST_METRIC = magic_enum::enum_name(vector_distance_type_t::cosine);
+
     if(field_json.count(fields::num_dim) == 0) {
         field_json[fields::num_dim] = 0;
+        field_json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
     } else {
         if(!field_json[fields::num_dim].is_number_unsigned() || field_json[fields::num_dim] == 0) {
             return Option<bool>(400, "Property `" + fields::num_dim + "` must be a positive integer.");
@@ -517,6 +521,19 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
 
         if(field_json[fields::type] != field_types::FLOAT_ARRAY) {
             return Option<bool>(400, "Property `" + fields::num_dim + "` is only allowed on a float array field.");
+        }
+
+        if(field_json.count(fields::vec_dist) == 0) {
+            field_json[fields::vec_dist] = DEFAULT_VEC_DIST_METRIC;
+        } else {
+            if(!field_json[fields::vec_dist].is_string()) {
+                return Option<bool>(400, "Property `" + fields::vec_dist + "` must be a string.");
+            }
+
+            auto vec_dist_op = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>());
+            if(!vec_dist_op.has_value()) {
+                return Option<bool>(400, "Property `" + fields::vec_dist + "` is invalid.");
+            }
         }
     }
 
@@ -542,11 +559,13 @@ Option<bool> field::json_field_to_field(nlohmann::json& field_json, std::vector<
         field_json[fields::sort] = true;
     }
 
+    auto vec_dist = magic_enum::enum_cast<vector_distance_type_t>(field_json[fields::vec_dist].get<std::string>()).value();
+
     the_fields.emplace_back(
         field(field_json[fields::name], field_json[fields::type], field_json[fields::facet],
               field_json[fields::optional], field_json[fields::index], field_json[fields::locale],
               field_json[fields::sort], field_json[fields::infix], field_json[fields::nested],
-              field_json[fields::nested_array], field_json[fields::num_dim])
+              field_json[fields::nested_array], field_json[fields::num_dim], vec_dist)
     );
 
     return Option<bool>(true);

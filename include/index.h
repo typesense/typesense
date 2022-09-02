@@ -275,16 +275,30 @@ struct hnsw_index_t {
     hnswlib::L2Space* space;
     hnswlib::HierarchicalNSW<float, VectorFilterFunctor>* vecdex;
     size_t num_dim;
+    vector_distance_type_t distance_type;
 
-    hnsw_index_t(size_t num_dim, size_t init_size): space(new hnswlib::L2Space(num_dim)),
-                                                    vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size)),
-                                                    num_dim(num_dim) {
+    hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
+        space(new hnswlib::L2Space(num_dim)),
+        vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size)),
+        num_dim(num_dim), distance_type(distance_type) {
 
     }
 
     ~hnsw_index_t() {
         delete vecdex;
         delete space;
+    }
+
+    // needed for cosine similarity
+    static void normalize_vector(const std::vector<float>& src, std::vector<float>& norm_dest) {
+        float norm = 0.0f;
+        for (float i : src) {
+            norm += i * i;
+        }
+        norm = 1.0f / (sqrtf(norm) + 1e-30f);
+        for (size_t i = 0; i < src.size(); i++) {
+            norm_dest[i] = src[i] * norm;
+        }
     }
 };
 

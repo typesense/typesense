@@ -118,7 +118,7 @@ Index::Index(const std::string& name, const uint32_t collection_id, const Store*
         }
 
         if(a_field.num_dim) {
-            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024);
+            auto hnsw_index = new hnsw_index_t(a_field.num_dim, 1024, a_field.vec_dist);
             vector_index.emplace(a_field.name, hnsw_index);
         }
     }
@@ -931,13 +931,20 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
                 }
 
                 if(afield.type == field_types::FLOAT_ARRAY && afield.num_dim > 0) {
-                    const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
                     auto vec_index = vector_index[afield.name]->vecdex;
                     size_t curr_ele_count = vec_index->getCurrentElementCount();
                     if(curr_ele_count == vec_index->getMaxElements()) {
                         vec_index->resizeIndex(curr_ele_count * 1.3);
                     }
-                    vector_index[afield.name]->vecdex->addPoint(float_vals.data(), (size_t)seq_id);
+
+                    const std::vector<float>& float_vals = record.doc[afield.name].get<std::vector<float>>();
+                    if(afield.vec_dist == cosine) {
+                        std::vector<float> normalized_vals(afield.num_dim);
+                        hnsw_index_t::normalize_vector(float_vals, normalized_vals);
+                        vector_index[afield.name]->vecdex->addPoint(normalized_vals.data(), (size_t)seq_id);
+                    } else {
+                        vector_index[afield.name]->vecdex->addPoint(float_vals.data(), (size_t)seq_id);
+                    }
                 }
             });
         }
@@ -2460,7 +2467,17 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
             auto k = per_page * page;
             VectorFilterFunctor filterFunctor(filter_ids, filter_ids_length);
             auto& field_vector_index = vector_index.at(vector_query.field_name);
-            auto dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+
+            std::vector<std::pair<float, size_t>> dist_labels;
+
+            if(field_vector_index->distance_type == cosine) {
+                std::vector<float> normalized_q(vector_query.values.size());
+                hnsw_index_t::normalize_vector(vector_query.values, normalized_q);
+                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(normalized_q.data(), k, filterFunctor);
+            } else {
+                dist_labels = field_vector_index->vecdex->searchKnnCloserFirst(vector_query.values.data(), k, filterFunctor);
+            }
+
             std::vector<uint32_t> nearest_ids;
 
             for(const auto& dist_label: dist_labels) {
@@ -5117,7 +5134,7 @@ void Index::refresh_schemas(const std::vector<field>& new_fields, const std::vec
         }
 
         if(new_field.type == field_types::FLOAT_ARRAY && new_field.num_dim) {
-            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024);
+            auto hnsw_index = new hnsw_index_t(new_field.num_dim, 1024, new_field.vec_dist);
             vector_index.emplace(new_field.name, hnsw_index);
         }
     }

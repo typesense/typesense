@@ -46,7 +46,13 @@ namespace fields {
     static const std::string nested = "nested";
     static const std::string nested_array = "nested_array";
     static const std::string num_dim = "num_dim";
+    static const std::string vec_dist = "vec_dist";
 }
+
+enum vector_distance_type_t {
+    squared_l2,
+    cosine
+};
 
 struct field {
     std::string name;
@@ -66,6 +72,7 @@ struct field {
     int nested_array;
 
     size_t num_dim;
+    vector_distance_type_t vec_dist;
 
     static constexpr int VAL_UNKNOWN = 2;
 
@@ -73,9 +80,9 @@ struct field {
 
     field(const std::string &name, const std::string &type, const bool facet, const bool optional = false,
           bool index = true, std::string locale = "", int sort = -1, int infix = -1, bool nested = false,
-          int nested_array = 0, size_t num_dim = 0) :
+          int nested_array = 0, size_t num_dim = 0, vector_distance_type_t vec_dist = cosine) :
             name(name), type(type), facet(facet), optional(optional), index(index), locale(locale),
-            nested(nested), nested_array(nested_array), num_dim(num_dim) {
+            nested(nested), nested_array(nested_array), num_dim(num_dim), vec_dist(vec_dist) {
 
         if(sort != -1) {
             this->sort = bool(sort);
