@@ -1909,7 +1909,8 @@ void Collection::process_highlight_fields(const std::vector<search_field_t>& sea
     for(size_t i = 0; i < search_fields.size(); i++) {
         const auto& field_name = search_fields[i].name;
 
-        enable_t field_infix = (i < infixes.size()) ? infixes[search_fields[i].orig_index] : infixes[0];
+        enable_t field_infix = (search_fields[i].orig_index < infixes.size()) ? infixes[search_fields[i].orig_index]
+                                                                              : infixes[0];
         if(field_infix != off) {
             fields_infixed_set.insert(field_name);
         }
