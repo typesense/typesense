@@ -115,7 +115,7 @@ class RateLimitManager
 
         static RateLimitManager* getInstance();
         
-        // Add rate limit for entries, returns false if any rule for the API key is already set
+        // Add rate limit for entries, returns false if there is a rule for any of the entries is already set
         bool throttle_entries(const RateLimitedResourceType resource_type, const std::vector<std::string> &entries, const int64_t minute_rate_limit, const int64_t hour_rate_limit);
         
         // Remove rate limit for entry
@@ -127,10 +127,10 @@ class RateLimitManager
         // Check if request is rate limited for given entries
         bool is_rate_limited(const std::vector<rate_limit_rule_entry_t> &entries);
 
-        // Permanently ban IP
+        // Permanently ban entries
         bool ban_entries_permanently(const RateLimitedResourceType resource_type, const std::vector<std::string> &entries);
 
-        // Allow API key
+        // Allow entries
         bool allow_entries(RateLimitedResourceType resource_type, const std::vector<std::string> &entries);
 
         // Find rule by ID
