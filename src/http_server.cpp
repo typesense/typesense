@@ -456,9 +456,9 @@ int HttpServer::catch_all_handler(h2o_handler_t *_h2o_handler, h2o_req_t *req) {
     std::vector<nlohmann::json> embedded_params_vec;
 
 
-    if(RateLimitManager::getInstance()->is_rate_limited(api_auth_key_sent,client_ip))
-    {
-        return send_response(req, 429, "{ \"message\": \"Blocked\"}");
+    if(RateLimitManager::getInstance()->is_rate_limited({{RateLimitedResourceType::API_KEY, api_auth_key_sent}, {RateLimitedResourceType::IP, client_ip}})) {
+        std::string message = "{ \"message\": \"Rate limit exceeded or blocked\"}";
+        return send_response(req, 429, message);
     }
 
 

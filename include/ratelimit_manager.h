@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <tuple>
 #include <unordered_map>
 #include <mutex>
 #include <shared_mutex>
@@ -21,47 +22,42 @@ enum class RateLimitBanDuration {
     PERMANENT
 };
 
-
-// Rate limit banned IP  structure with throttling_from and throttling_to fields.
-struct ratelimit_banned_ip_t {
-    std::string ip;
-    std::string api_key;
-    int64_t throttling_from;
-    int64_t throttling_to;
+// Action enum for rate limit rules
+enum class RateLimitAction {
+    ALLOW,
+    BLOCK,
+    THROTTLE
 };
 
+enum class RateLimitedResourceType {
+    IP,
+    API_KEY
+};
 
-
-
-// Rate limit struct which stores if IP or api_keey isTracked and rate limits for one minute and one hour.
-struct ratelimit_tracker_t {
-
-    private:
-
-        friend class RateLimitManager;
-
-        inline static int64_t last_id;
-    public:
-
-    ratelimit_tracker_t() {
-        id =  ratelimit_tracker_t::last_id++;
-    }
-
-    ratelimit_tracker_t(bool is_tracked, bool is_allowed, bool is_banned_permanently, int64_t minute_rate_limit, int64_t hour_rate_limit) :
-        is_tracked(is_tracked), is_allowed(is_allowed), is_banned_permanently(is_banned_permanently), minute_rate_limit(minute_rate_limit), hour_rate_limit(hour_rate_limit){
-        id = ratelimit_tracker_t::last_id++;
-    }
-    int64_t id;
-    bool is_tracked = false;
-    bool is_allowed = false;
-    bool is_banned_permanently = false;
+struct rate_limit_throttle_t {
     int64_t minute_rate_limit;
     int64_t hour_rate_limit;
-    std::string ip;
-    std::string api_key;
+
 };
 
+struct rate_limit_rule_t {
+        uint64_t id;
+        RateLimitAction action;
+        RateLimitedResourceType resource_type;
+        std::vector<std::string> values;
+        rate_limit_throttle_t throttle;
+};
 
+// Entry struct for rate limit rule pointer hash map as key
+struct rate_limit_rule_entry_t {
+    RateLimitedResourceType resource_type;
+    std::string value;
+
+    // Equality operator for rate_limit_rule_entry_t
+    bool operator==(const rate_limit_rule_entry_t& other) const {
+        return std::tie(resource_type, value) == std::tie(other.resource_type, other.value);
+    }
+};
 
 // Request counter struct for IP addresses to keep track of requests for current and previous sampling period
 struct request_counter_t {
@@ -77,25 +73,37 @@ struct request_counter_t {
 
     // not-equal operator overload
     bool operator!=(const request_counter_t& other) const{
-        return minute_rate_limit != other.minute_rate_limit || hour_rate_limit != other.hour_rate_limit || current_requests_count_minute != other.current_requests_count_minute || current_requests_count_hour != other.current_requests_count_hour || previous_requests_count_minute != other.previous_requests_count_minute || previous_requests_count_hour != other.previous_requests_count_hour || last_reset_time_minute != other.last_reset_time_minute || last_reset_time_hour != other.last_reset_time_hour;
+        return std::tie(minute_rate_limit, hour_rate_limit, current_requests_count_minute, current_requests_count_hour, previous_requests_count_minute, previous_requests_count_hour, last_reset_time_minute, last_reset_time_hour) !=
+               std::tie(other.minute_rate_limit, other.hour_rate_limit, other.current_requests_count_minute, other.current_requests_count_hour, other.previous_requests_count_minute, other.previous_requests_count_hour, other.last_reset_time_minute, other.last_reset_time_hour);
     }
 };
 
 // Struct to store ban information for IP addresses
-struct ratelimit_ban_t {
+struct rate_limit_ban_t {
     bool is_banned = false;
     int64_t throttling_from;
     int64_t throttling_to;
-    std::string api_key;
-    std::string ip;
+    std::string value;
+    RateLimitedResourceType resource_type;
     RateLimitBanDuration banDuration = RateLimitBanDuration::NO_BAN_BEFORE;
 };
+
+
+// Hash function for rate_limit_rule_entry_t
+namespace std
+{
+template <>
+struct hash<rate_limit_rule_entry_t> {
+    std::size_t operator()(const rate_limit_rule_entry_t& c) const{
+        return std::hash<std::string>()(c.value);
+    }
+};
+}
 
 
 class RateLimitManager 
 {
     public:
-
 
         RateLimitManager(const RateLimitManager&) = delete;
 
@@ -107,92 +115,65 @@ class RateLimitManager
 
         static RateLimitManager* getInstance();
         
-        // Add rate limit for API key
-        void add_rate_limit_api_key(const std::string &api_key, const int64_t minute_rate_limit, const int64_t hour_rate_limit);
-        // Add rate limit for IP
-        void add_rate_limit_ip(const std::string &ip, const int64_t minute_rate_limit, const int64_t hour_rate_limit);
-        // Remove rate limit for API key
-        void remove_rate_limit_api_key(const std::string &api_key);
-        // Remove rate limit for IP
-        void remove_rate_limit_ip(const std::string &ip);
+        // Add rate limit for entries, returns false if any rule for the API key is already set
+        bool throttle_entries(const RateLimitedResourceType resource_type, const std::vector<std::string> &entries, const int64_t minute_rate_limit, const int64_t hour_rate_limit);
+        
+        // Remove rate limit for entry
+        bool remove_rule_entry(const RateLimitedResourceType resource_type, const std::string &entry);
 
-        // Get vector of banned IPs
-        const std::vector<ratelimit_ban_t> get_banned_ips();
+        // Get vector of banned entries
+        const std::vector<rate_limit_ban_t> get_banned_entries(const RateLimitedResourceType resource_type);
 
-        // Get vector of banned API keys
-        const std::vector<ratelimit_ban_t> get_banned_api_keys();
-
-        // Get vector of tracked IPs
-        const std::vector<std::string> get_tracked_ips();
-
-        // Get vector of tracked API keys
-        const std::vector<std::string> get_tracked_api_keys();
-
-        // Check if request is rate limited for API key and IP
-        bool is_rate_limited(const std::string &api_key, const std::string &ip);
+        // Check if request is rate limited for given entries
+        bool is_rate_limited(const std::vector<rate_limit_rule_entry_t> &entries);
 
         // Permanently ban IP
-        void ban_ip_permanently(const std::string &ip);
-
-        // Permanently ban API key
-        void ban_api_key_permanently(const std::string &api_key);
-
-        // Allow IP
-        void allow_ip(const std::string &ip);
+        bool ban_entries_permanently(const RateLimitedResourceType resource_type, const std::vector<std::string> &entries);
 
         // Allow API key
-        void allow_api_key(const std::string &api_key);
+        bool allow_entries(RateLimitedResourceType resource_type, const std::vector<std::string> &entries);
 
         // Find rule by ID
-        ratelimit_tracker_t find_rule_by_id(const int64_t id);
+        const rate_limit_rule_t* find_rule_by_id(const uint64_t id);
 
         // Delete rule by ID
-        void delete_rule_by_id(const int64_t id);
+        bool delete_rule_by_id(const uint64_t id);
 
         // Edit rule by ID
-        void edit_rule_by_id(const int64_t id, const ratelimit_tracker_t& rule);
+        bool edit_rule_by_id(const uint64_t id, const rate_limit_rule_t& rule);
 
-        // Get All rules for IP addresess
-        const std::vector<ratelimit_tracker_t> get_all_rules();
+        // Get All rules 
+        const std::vector<rate_limit_rule_t>& get_all_rules();
 
-        // Clear all rules, bans and tracked IPs and API keys
+        // Clear all rules
         void clear_all();
 
     private:    
 
         RateLimitManager() {
-            ip_request_counts.capacity(10000);
-            api_key_request_counts.capacity(10000);
-            ratelimit_tracker_t::last_id = 0;
+            rate_limit_request_counts.capacity(10000);
         }
 
+        // ID of latest added rule 
+        inline static uint64_t last_rule_id = 0;
 
-        // Unordered map to store rate limit and request counts for IP addresses
-        LRU::Cache<std::string, request_counter_t> ip_request_counts;
-        // Unordered map to store rate limit and request counts for api_key
-        LRU::Cache<std::string, request_counter_t> api_key_request_counts;
-        // Unordered map to store if api_key is tracked
-        std::unordered_map<std::string, ratelimit_tracker_t> api_key_rate_limits;
-        // Unordered map to store if IP is tracked
-        std::unordered_map<std::string, ratelimit_tracker_t> ip_rate_limits;
-        // Unordered map to store banned IPs
-        std::unordered_map<std::string, std::vector<ratelimit_ban_t>> banned_ips;
-        // Unordered map to store banned API keys
-        std::unordered_map<std::string, ratelimit_ban_t> banned_api_keys;
+        // Store for rate_limit_rule_t
+        std::vector<rate_limit_rule_t> rule_store;
+
+        // LRU Cache to store rate limit and request counts for entries
+        LRU::Cache<rate_limit_rule_entry_t, request_counter_t> rate_limit_request_counts;
+        // Unordered map to point rules from rule store for entries
+        std::unordered_map<rate_limit_rule_entry_t, rate_limit_rule_t*> rate_limit_rule_pointer;
+        // Unordered map to store banned entries
+        std::unordered_map<rate_limit_rule_entry_t, rate_limit_ban_t> throttled_entries;
 
         // Mutex to protect access to ip_rate_limits and api_key_rate_limits
         std::shared_mutex rate_limit_mutex;
 
-        // Helper function to ban API key
-        void ban_api_key(const std::string &api_key);
-        // Helper function to ban IP
-        void ban_ip(const std::string &ip, const std::string& api_key);
-        // Helper function to ban API key without mutex lock
-        void ban_api_key_wrapped(const std::string &api_key);
-        // Helper function to ban IP without mutex lock
-        void ban_ip_wrapped(const std::string &ip, const std::string& api_key);
-
-
+        // Helper function to ban an entry temporarily
+        void temp_ban_entry(const rate_limit_rule_entry_t& entry);
+        // Helper function to ban an entry temporarily without locking mutex
+        void temp_ban_entry_wrapped(const rate_limit_rule_entry_t& entry);
 
         // Singleton instance
         inline static RateLimitManager *instance;

@@ -1695,149 +1695,191 @@ bool del_preset(const std::shared_ptr<http_req>& req, const std::shared_ptr<http
     res->set_200(res_json.dump());
     return true;
 }
-bool get_rate_limits(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
-    RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
+bool get_rate_limits(const std::shared_ptr <http_req> & req, const std::shared_ptr <http_res> & res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
 
-    nlohmann::json res_json;
-
-    auto rules = rateLimitManager -> get_all_rules();
+    nlohmann::json res_json = nlohmann::json::object();
 
     res_json["limits"] = nlohmann::json::array();
 
-    for (const ratelimit_tracker_t & rule: rules) {
+    const auto& all_rules = rateLimitManager->get_all_rules();
+
+    for(const auto& rule: all_rules) {
         nlohmann::json rule_json;
 
         rule_json["id"] = rule.id;
-        if (rule.is_allowed) {
+
+        if(rule.action == RateLimitAction::ALLOW) {
             rule_json["action"] = "allow";
-        } else if (rule.is_banned_permanently) {
+        } 
+        else if(rule.action == RateLimitAction::BLOCK) {
             rule_json["action"] = "block";
-        } else {
+        }
+        else if(rule.action == RateLimitAction::THROTTLE) {
             rule_json["action"] = "throttle";
-            rule_json["max_requests_60s"] = rule.minute_rate_limit;
-            rule_json["max_requests_1h"] = rule.hour_rate_limit;
+            rule_json["max_requests_60s"] = rule.throttle.minute_rate_limit;
+            rule_json["max_requests_1h"] = rule.throttle.hour_rate_limit;
         }
 
-        if (rule.ip != "") {
-            rule_json["ip"] = rule.ip;
+        if(rule.resource_type == RateLimitedResourceType::IP) {
+            rule_json["ip_addresess"] = nlohmann::json::array();
+            for(const auto& ip: rule.values) {
+                rule_json["ip_addresess"].push_back(ip);
+            }
+        }
+        
+        if(rule.resource_type == RateLimitedResourceType::API_KEY) {
+            rule_json["api_keys"] = nlohmann::json::array();
+            for(const auto& api_key: rule.values) {
+                rule_json["api_keys"].push_back(api_key);
+            }
         }
 
-        if (rule.api_key != "") {
-            rule_json["api_key"] = rule.api_key;
-        }
-
-        res_json["limits"].push_back(rule_json);
+        res_json["rate_limits"].push_back(rule_json);
     }
 
-    res -> set_200(res_json.dump());
-
+    res->set_200(res_json.dump());
     return true;
 }
 
-bool get_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
-    RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
-    const std::string & id = req -> params["id"];
-    auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
-    if (rule.id < 0) {
-        res -> set_404();
+bool get_rate_limit(const std::shared_ptr<http_req> & req, const std::shared_ptr <http_res> & res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    // Convert param id to uint64_t
+    uint64_t id = std::stoull(req->params["id"]);
+    const auto& rule = rateLimitManager->find_rule_by_id(id);
+
+    if(!rule) {
+        res->set_404();
         return false;
     }
-    nlohmann::json rule_json;
 
-    rule_json["id"] = rule.id;
-    if (rule.is_allowed) {
+    nlohmann::json rule_json = nlohmann::json::object();
+
+    rule_json["id"] = rule->id;
+
+    if(rule->action == RateLimitAction::ALLOW) {
         rule_json["action"] = "allow";
-    } else if (rule.is_banned_permanently) {
+    } 
+    else if(rule->action == RateLimitAction::BLOCK) {
         rule_json["action"] = "block";
-    } else {
+    }
+    else if(rule->action == RateLimitAction::THROTTLE) {
         rule_json["action"] = "throttle";
-        rule_json["max_requests_60s"] = rule.minute_rate_limit;
-        rule_json["max_requests_1h"] = rule.hour_rate_limit;
+        rule_json["max_requests_60s"] = rule->throttle.minute_rate_limit;
+        rule_json["max_requests_1h"] = rule->throttle.hour_rate_limit;
     }
 
-    if (rule.ip != "") {
-        rule_json["ip"] = rule.ip;
+    if(rule->resource_type == RateLimitedResourceType::IP) {
+        rule_json["ip_addresess"] = nlohmann::json::array();
+        for(const auto& ip: rule->values) {
+            rule_json["ip_addresess"].push_back(ip);
+        }
+    }
+    
+    if(rule->resource_type == RateLimitedResourceType::API_KEY) {
+        rule_json["api_keys"] = nlohmann::json::array();
+        for(const auto& api_key: rule->values) {
+            rule_json["api_keys"].push_back(api_key);
+        }
     }
 
-    if (rule.api_key != "") {
-        rule_json["api_key"] = rule.api_key;
-    }
     res -> set_200(rule_json.dump());
     return true;
 }
 
-bool put_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
-    RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
-    const std::string & id = req -> params["id"];
-    auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
-    if (rule.id < 0) {
-        res -> set_404();
+bool put_rate_limit(const std::shared_ptr <http_req> & req, const std::shared_ptr <http_res> & res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
+    nlohmann::json req_json;
+    const auto rule = rateLimitManager->find_rule_by_id(std::stoull(req->params["id"]));
+
+    if(!rule) {
+        res->set_404();
         return false;
     }
-    nlohmann::json req_json;
+
+    rate_limit_rule_t new_rule = *rule;
 
     try {
-        req_json = nlohmann::json::parse(req -> body);
-    } catch (const std::exception & e) {
-        LOG(ERROR) << "JSON error: " << e.what();
-        res -> set_400("Bad JSON.");
+        req_json = nlohmann::json::parse(req->body);
+    } catch(const nlohmann::json::parse_error& e) {
+        res->set_400("Invalid JSON");
         return false;
     }
-    if (req_json.count("action") == 0) {
-        res -> set_400("Parameter `action` is required.");
+
+    if(req_json.find("action") != req_json.end()) {
+        if(req_json["action"] == "allow") {
+            new_rule.action = RateLimitAction::ALLOW;
+        } 
+        else if(req_json["action"] == "block") {
+            new_rule.action = RateLimitAction::BLOCK;
+        }
+        else if(req_json["action"] == "throttle") {
+            new_rule.action = RateLimitAction::THROTTLE;
+        }
+        else {
+            res->set_400("Invalid action");
+            return false;
+        }
+    }
+
+    if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
+        res -> set_400("Either `ip_addresses` or `api_keys` is required.");
         return false;
     }
-    if (req_json["action"] == "allow") {
-        rule.is_allowed = true;
-    } else if (req_json["action"] == "block") {
-        rule.is_banned_permanently = true;
-    } else if (req_json["action"] == "throttle") {
-        if (req_json.count("max_requests_60s") == 0) {
-            res -> set_400("Parameter `max_requests_60s` is required.");
+
+    if(req_json.count("ip_addresses") > 0) {
+        new_rule.resource_type = RateLimitedResourceType::IP;
+        new_rule.values.clear();
+        for(const auto& ip: req_json["ip_addresses"]) {
+            new_rule.values.push_back(ip);
+        }
+    }
+
+    if(req_json.count("api_keys") > 0) {
+        new_rule.resource_type = RateLimitedResourceType::API_KEY;
+        new_rule.values.clear();
+        for(const auto& api_key: req_json["api_keys"]) {
+            new_rule.values.push_back(api_key);
+        }
+    }
+
+    if(new_rule.action == RateLimitAction::THROTTLE)
+    {
+        if(req_json.count("max_requests_60s") == 0 || req_json.count("max_requests_1h") == 0) {
+            res->set_400("Both `max_requests_60s` and `max_requests_1h` are required for throttling");
             return false;
         }
-        if (req_json.count("max_requests_1h") == 0) {
-            res -> set_400("Parameter `max_requests_1h` is required.");
-            return false;
-        }
-        rule.minute_rate_limit = req_json["max_requests_60s"];
-        rule.hour_rate_limit = req_json["max_requests_1h"];
+
+        new_rule.throttle.minute_rate_limit = req_json["max_requests_60s"];
+        new_rule.throttle.hour_rate_limit = req_json["max_requests_1h"];
+    }
+
+    if(rateLimitManager->edit_rule_by_id(std::stoull(req->params["id"]), new_rule)) {
+        res->set_200("OK");
+        return true;
     } else {
-        res -> set_400("Invalid action.");
-        return false;
-    }
-    if ((req_json.count("ip") == 0 && req_json.count("api_key") == 0) || (req_json.count("ip") > 0 && req_json.count("api_key") > 0)) {
-        res -> set_400("Either `ip` or `api_key` is required.");
+        res->set_400("Rule for one or more entities already exist");
         return false;
     }
 
-    if (req_json.count("ip") != 0) {
-        rule.ip = req_json["ip"];
-    }
-    if (req_json.count("api_key") != 0) {
-        rule.api_key = req_json["api_key"];
-    }
-
-    rateLimitManager -> edit_rule_by_id(rule.id, rule);
-    res -> set_200("OK");
     return true;
 }
 
-bool del_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
-    RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
+bool del_rate_limit(const std::shared_ptr <http_req> & req, const std::shared_ptr <http_res> & res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     const std::string & id = req -> params["id"];
     auto rule = rateLimitManager -> find_rule_by_id(strtoll(id.c_str(), nullptr, 10));
-    if (rule.id < 0) {
+    if(!rule) {
         res -> set_404();
         return false;
     }
-    rateLimitManager -> delete_rule_by_id(rule.id);
+    rateLimitManager->delete_rule_by_id(rule->id);
     res -> set_200("OK");
     return true;
 }
 
-bool post_rate_limit(const std::shared_ptr < http_req > & req, const std::shared_ptr < http_res > & res) {
-    RateLimitManager * rateLimitManager = RateLimitManager::getInstance();
+bool post_rate_limit(const std::shared_ptr <http_req> & req, const std::shared_ptr <http_res> & res) {
+    RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     nlohmann::json req_json;
 
     try {
@@ -1852,26 +1894,42 @@ bool post_rate_limit(const std::shared_ptr < http_req > & req, const std::shared
         return false;
     }
     if (req_json["action"] == "allow") {
-        if ((req_json.count("ip") == 0 && req_json.count("api_key") == 0) || (req_json.count("ip") > 0 && req_json.count("api_key") > 0)) {
-            res -> set_400("Either `ip` or `api_key` is required.");
+        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
+            res -> set_400("Either `ip_addresses` or `api_keys` is required.");
             return false;
         }
-        if (req_json.count("ip") != 0) {
-            rateLimitManager -> allow_ip(req_json["ip"]);
-        } else if (req_json.count("api_key") != 0) {
-            rateLimitManager -> allow_api_key(req_json["api_key"]);
+        if (req_json.count("ip_addresses") != 0) {
+            bool rate_res = rateLimitManager -> allow_entries(RateLimitedResourceType::IP,req_json["ip_addresses"].get<std::vector<std::string>>());
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
+        } else if (req_json.count("api_keys") != 0) {
+            bool rate_res = rateLimitManager -> allow_entries(RateLimitedResourceType::API_KEY,req_json["api_keys"].get<std::vector<std::string>>());
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
         }
         res -> set_200("OK");
         return true;
     } else if (req_json["action"] == "block") {
-        if ((req_json.count("ip") == 0 && req_json.count("api_key") == 0) || (req_json.count("ip") > 0 && req_json.count("api_key") > 0)) {
-            res -> set_400("Either `ip` or `api_key` is required.");
+        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
+            res -> set_400("Either `ip_addresses` or `api_keys` is required.");
             return false;
         }
-        if (req_json.count("ip") != 0) {
-            rateLimitManager -> ban_ip_permanently(req_json["ip"]);
-        } else if (req_json.count("api_key") != 0) {
-            rateLimitManager -> ban_api_key_permanently(req_json["api_key"]);
+        if (req_json.count("ip_addresses") != 0) {
+            bool rate_res = rateLimitManager -> ban_entries_permanently(RateLimitedResourceType::IP,req_json["ip_addresses"].get<std::vector<std::string>>());
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
+        } else if (req_json.count("api_keys") != 0) {
+            bool rate_res = rateLimitManager -> ban_entries_permanently(RateLimitedResourceType::API_KEY,req_json["api_keys"].get<std::vector<std::string>>());
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
         }
         res -> set_200("OK");
         return true;
@@ -1884,14 +1942,22 @@ bool post_rate_limit(const std::shared_ptr < http_req > & req, const std::shared
             res -> set_400("Parameter `max_requests_1h` is required.");
             return false;
         }
-        if ((req_json.count("ip") == 0 && req_json.count("api_key") == 0) || (req_json.count("ip") > 0 && req_json.count("api_key") > 0)) {
-            res -> set_400("Either `ip` or `api_key` is required.");
+        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
+            res -> set_400("Either `ip_addresses` or `api_keys` is required.");
             return false;
         }
-        if (req_json.count("ip") != 0) {
-            rateLimitManager -> add_rate_limit_ip(req_json["ip"], req_json["max_requests_60s"], req_json["max_requests_1h"]);
-        } else if (req_json.count("api_key") != 0) {
-            rateLimitManager -> add_rate_limit_api_key(req_json["api_key"], req_json["max_requests_60s"], req_json["max_requests_1h"]);
+        if (req_json.count("ip_addresses") != 0) {
+            bool rate_res = rateLimitManager->throttle_entries(RateLimitedResourceType::IP, req_json["ip_addresses"].get<std::vector<std::string>>(), req_json["max_requests_60s"], req_json["max_requests_1h"]);
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
+        } else if (req_json.count("api_keys") != 0) {
+            bool rate_res = rateLimitManager->throttle_entries(RateLimitedResourceType::API_KEY, req_json["api_keys"].get<std::vector<std::string>>(), req_json["max_requests_60s"], req_json["max_requests_1h"]); 
+            if(!rate_res){
+                // Return object already exists
+                res->set_400("Rule for one or many of the entries already exists.");
+            }
         }
     } else {
         res -> set_400("Invalid action.");
