@@ -1843,6 +1843,10 @@ TEST_F(CollectionFilteringTest, NegationOperatorBasics) {
     ASSERT_EQ(1, results["found"].get<size_t>());
     ASSERT_STREQ("3", results["hits"][0]["document"]["id"].get<std::string>().c_str());
 
+    // when no such value exists: should return all results
+    results = coll1->search("*", {"artist"}, "artist:!=Foobar", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10).get();
+    ASSERT_EQ(4, results["found"].get<size_t>());
+
     // empty value (bad filtering)
     auto res_op = coll1->search("*", {"artist"}, "artist:!=", {}, {}, {0}, 10, 1, FREQUENCY, {true}, 10);
     ASSERT_FALSE(res_op.ok());

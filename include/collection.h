@@ -191,7 +191,8 @@ private:
     static std::vector<char> to_char_array(const std::vector<std::string>& strs);
 
     Option<bool> validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
-                                                      std::vector<sort_by>& sort_fields_std) const;
+                                                      std::vector<sort_by>& sort_fields_std,
+                                                      bool is_wildcard_query) const;
 
     Option<bool> persist_collection_meta();
 

@@ -523,7 +523,8 @@ void Collection::curate_results(string& actual_query, const string& filter_query
 }
 
 Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<sort_by> & sort_fields,
-                                                              std::vector<sort_by>& sort_fields_std) const {
+                                                              std::vector<sort_by>& sort_fields_std,
+                                                              const bool is_wildcard_query) const {
 
     size_t num_sort_expressions = 0;
 
@@ -718,7 +719,10 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
       4. THREE: do nothing
     */
     if(sort_fields_std.empty()) {
-        sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+        if(!is_wildcard_query) {
+            sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
+        }
+
         if(!default_sorting_field.empty()) {
             sort_fields_std.emplace_back(default_sorting_field, sort_field_const::desc);
         } else {
@@ -1140,8 +1144,10 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
     sort_fields_guard_t sort_fields_guard;
     std::vector<sort_by>& sort_fields_std = sort_fields_guard.sort_fields_std;
 
+    bool is_wildcard_query = (query == "*");
+
     if(curated_sort_by.empty()) {
-        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std);
+        auto sort_validation_op = validate_and_standardize_sort_fields(sort_fields, sort_fields_std, is_wildcard_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }
@@ -1152,7 +1158,8 @@ Option<nlohmann::json> Collection::search(const std::string & raw_query,
             return Option<nlohmann::json>(400, "Parameter `sort_by` is malformed.");
         }
 
-        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std);
+        auto sort_validation_op = validate_and_standardize_sort_fields(curated_sort_fields, sort_fields_std,
+                                                                       is_wildcard_query);
         if(!sort_validation_op.ok()) {
             return Option<nlohmann::json>(sort_validation_op.code(), sort_validation_op.error());
         }

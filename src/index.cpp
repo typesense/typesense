@@ -1808,18 +1808,17 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
         } else if(f.is_string()) {
             art_tree* t = search_index.at(a_filter.field_name);
 
-            uint32_t* ids = nullptr;
-            size_t ids_size = 0;
+            uint32_t* or_ids = nullptr;
+            size_t or_ids_size = 0;
+
+            // aggregates IDs across array of filter values and reduces excessive ORing
+            std::vector<uint32_t> f_id_buff;
 
             for(const std::string & filter_value: a_filter.values) {
-                uint32_t* strt_ids = nullptr;
-                size_t strt_ids_size = 0;
-
                 std::vector<void*> posting_lists;
 
                 // there could be multiple tokens in a filter value, which we have to treat as ANDs
                 // e.g. country: South Africa
-
                 Tokenizer tokenizer(filter_value, true, false, f.locale, symbols_to_index, token_separators);
 
                 std::string str_token;
@@ -1838,72 +1837,97 @@ void Index::do_filtering(uint32_t*& filter_ids, uint32_t& filter_ids_length,
                     posting_lists.push_back(leaf->values);
                 }
 
-                // For NOT_EQUALS alone, it is okay for none of the results to match prior to negation
-                // e.g. field:!= [RANDOM_NON_EXISTING_STRING]
-                if(a_filter.comparators[0] != NOT_EQUALS && posting_lists.size() != str_tokens.size()) {
+                if(posting_lists.size() != str_tokens.size()) {
                     continue;
                 }
 
-                std::vector<uint32_t> result_id_vec;
-                posting_t::intersect(posting_lists, result_id_vec);
-                if(!result_id_vec.empty()) {
-                    strt_ids = new uint32_t [result_id_vec.size()];
-                    std::copy(result_id_vec.begin(), result_id_vec.end(), strt_ids);
-                    strt_ids_size = result_id_vec.size();
-                }
-
                 if(a_filter.comparators[0] == EQUALS || a_filter.comparators[0] == NOT_EQUALS) {
-                    // need to do exact match (unlike CONTAINS)
-                    uint32_t* exact_strt_ids = new uint32_t[strt_ids_size];
-                    size_t exact_strt_size = 0;
+                    // needs intersection + exact matching (unlike CONTAINS)
+                    std::vector<uint32_t> result_id_vec;
+                    posting_t::intersect(posting_lists, result_id_vec);
 
-                    posting_t::get_exact_matches(posting_lists, f.is_array(), strt_ids, strt_ids_size,
-                                                 exact_strt_ids, exact_strt_size);
+                    if(result_id_vec.empty()) {
+                        continue;
+                    }
 
-                    delete[] strt_ids;
-                    strt_ids = exact_strt_ids;
-                    strt_ids_size = exact_strt_size;
+                    // need to do exact match
+                    uint32_t* exact_str_ids = new uint32_t[result_id_vec.size()];
+                    size_t exact_str_ids_size = 0;
+                    std::unique_ptr<uint32_t[]> exact_str_ids_guard(exact_str_ids);
+
+                    posting_t::get_exact_matches(posting_lists, f.is_array(), result_id_vec.data(), result_id_vec.size(),
+                                                 exact_str_ids, exact_str_ids_size);
+
+                    if(exact_str_ids_size == 0) {
+                        continue;
+                    }
+
+                    for(size_t ei = 0; ei < exact_str_ids_size; ei++) {
+                        f_id_buff.push_back(exact_str_ids[ei]);
+                    }
+
+                } else {
+                    // CONTAINS
+                    size_t before_size = f_id_buff.size();
+                    posting_t::intersect(posting_lists, f_id_buff);
+                    if(f_id_buff.size() == before_size) {
+                        continue;
+                    }
                 }
 
-                if(a_filter.comparators[0] == NOT_EQUALS) {
-                    // exclude records from existing IDs (from previous filters or ALL records)
-                    // upstream will guarantee that NOT_EQUALS is placed right at the end of filters list
-                    uint32_t* excluded_strt_ids = nullptr;
-                    size_t excluded_strt_size = 0;
+                if(f_id_buff.size() > 100000 || a_filter.values.size() == 1) {
+                    gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+                    f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
 
-                    if(ids == nullptr) {
-                        if(filter_ids == nullptr) {
-                            ids = seq_ids->uncompress();
-                            ids_size = seq_ids->num_ids();
-                        } else {
-                            ids = filter_ids;
-                            ids_size = filter_ids_length;
-                        }
-                    }
-
-                    excluded_strt_size = ArrayUtils::exclude_scalar(ids, ids_size, strt_ids,
-                                                                    strt_ids_size, &excluded_strt_ids);
-
-                    if(filter_ids == nullptr) {
-                        // means we had to uncompress `seq_ids` so need to free that
-                        delete [] ids;
-                    }
-
-                    ids = excluded_strt_ids;
-                    ids_size = excluded_strt_size;
-                    delete[] strt_ids;
-                } else {
-                    // Otherwise, we just ensure that given record contains tokens in the filter query
                     uint32_t* out = nullptr;
-                    ids_size = ArrayUtils::or_scalar(ids, ids_size, strt_ids, strt_ids_size, &out);
-                    delete[] strt_ids;
-                    delete[] ids;
-                    ids = out;
+                    or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
+                    delete[] or_ids;
+                    or_ids = out;
+                    std::vector<uint32_t>().swap(f_id_buff); // clears out memory
                 }
             }
 
-            result_ids = ids;
-            result_ids_len = ids_size;
+            if(!f_id_buff.empty()) {
+                gfx::timsort(f_id_buff.begin(), f_id_buff.end());
+                f_id_buff.erase(std::unique( f_id_buff.begin(), f_id_buff.end() ), f_id_buff.end());
+
+                uint32_t* out = nullptr;
+                or_ids_size = ArrayUtils::or_scalar(or_ids, or_ids_size, f_id_buff.data(), f_id_buff.size(), &out);
+                delete[] or_ids;
+                or_ids = out;
+                std::vector<uint32_t>().swap(f_id_buff); // clears out memory
+            }
+
+            if(a_filter.comparators[0] == NOT_EQUALS) {
+                // exclude records from existing IDs (from previous filters or ALL records)
+                // "not equals" can only be applied to the entire array so we can do the exclusion operations once here
+                uint32_t* excluded_strt_ids = nullptr;
+                size_t excluded_strt_size = 0;
+
+                if(result_ids == nullptr) {
+                    if(filter_ids == nullptr) {
+                        result_ids = seq_ids->uncompress();
+                        result_ids_len = seq_ids->num_ids();
+                    } else {
+                        result_ids = filter_ids;
+                        result_ids_len = filter_ids_length;
+                    }
+                }
+
+                excluded_strt_size = ArrayUtils::exclude_scalar(result_ids, result_ids_len, or_ids,
+                                                                or_ids_size, &excluded_strt_ids);
+
+                if(filter_ids == nullptr) {
+                    // means we had to uncompress `seq_ids` so need to free that
+                    delete [] result_ids;
+                }
+
+                or_ids = excluded_strt_ids;
+                or_ids_size = excluded_strt_size;
+            }
+
+            result_ids = or_ids;
+            result_ids_len = or_ids_size;
         }
 
         if(i == 0) {
@@ -2458,6 +2482,12 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     if (is_wildcard_query) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string& field = the_fields[0].name;
+
+        // if filters were not provided, use the seq_ids index to generate the list of all document ids
+        if(filters.empty() && filter_ids_length == 0) {
+            filter_ids_length = seq_ids->num_ids();
+            filter_ids = seq_ids->uncompress();
+        }
 
         curate_filtered_ids(filters, curated_ids, excluded_result_ids,
                             excluded_result_ids_size, filter_ids, filter_ids_length, curated_ids_sorted);
@@ -4040,13 +4070,6 @@ void Index::curate_filtered_ids(const std::vector<filter>& filters, const std::s
                                 const uint32_t* exclude_token_ids, size_t exclude_token_ids_size,
                                 uint32_t*& filter_ids, uint32_t& filter_ids_length,
                                 const std::vector<uint32_t>& curated_ids_sorted) const {
-    // if filtered results are not available, use the seq_ids index to generate the list of all document ids
-
-    if(filters.empty() && filter_ids_length == 0) {
-        filter_ids_length = seq_ids->num_ids();
-        filter_ids = seq_ids->uncompress();
-    }
-
     if(!curated_ids.empty()) {
         uint32_t *excluded_result_ids = nullptr;
         filter_ids_length = ArrayUtils::exclude_scalar(filter_ids, filter_ids_length, &curated_ids_sorted[0],
