@@ -10,7 +10,8 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         return Option<bool>(400, "Missing `rule` definition.");
     }
 
-    if(override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0) {
+    if (override_json["rule"].count("filter_by") == 0 &&
+        (override_json["rule"].count("query") == 0 || override_json["rule"].count("match") == 0)) {
         return Option<bool>(400, "The `rule` definition must contain a `query` and `match`.");
     }
 
@@ -103,10 +104,11 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
         return Option<bool>(400, "Override `id` not provided.");
     }
 
-    override.rule.query = override_json["rule"]["query"].get<std::string>();
-    override.rule.match = override_json["rule"]["match"].get<std::string>();
+    const auto& json_rule = override_json["rule"];
+    override.rule.query = json_rule.count("query") == 0 ? "" : json_rule["query"].get<std::string>();
+    override.rule.match = json_rule.count("match") == 0 ? "" : json_rule["match"].get<std::string>();
 
-    if(override_json["rule"].count("filter_by") != 0) {
+    if(json_rule.count("filter_by") != 0) {
         if(!override_json["rule"]["filter_by"].is_string()) {
             return Option<bool>(400, "Override `rule.filter_by` must be a string.");
         }

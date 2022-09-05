@@ -978,6 +978,30 @@ TEST_F(CollectionOverrideTest, FilterRule) {
     // check to_json
     nlohmann::json override_json_ser = override_rule.to_json();
     ASSERT_EQ("points: 50", override_json_ser["rule"]["filter_by"]);
+
+    // without q/match
+    override_json = R"({
+       "id": "rule-2",
+       "rule": {
+            "filter_by": "points: 1"
+        },
+        "includes": [{
+            "id": "0",
+            "position": 1
+        }]
+    })"_json;
+
+    override_t override_rule2;
+    op = override_t::parse(override_json, "rule-2", override_rule2);
+    ASSERT_TRUE(op.ok());
+    coll1->add_override(override_rule2);
+
+    results = coll1->search("socks", {"name"}, "points: 1",
+                            {}, sort_fields, {2}, 10, 1, FREQUENCY, {true}, 0).get();
+
+    ASSERT_EQ(2, results["hits"].size());
+    ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
 }
 
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {

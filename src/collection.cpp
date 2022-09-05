@@ -452,10 +452,14 @@ void Collection::curate_results(string& actual_query, const string& filter_query
                 filter_overrides.push_back(&override);
             }
 
-            if ((override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
-                (override.rule.match == override_t::MATCH_CONTAINS &&
-                 StringUtils::contains_word(query, override.rule.query))) {
+            bool filter_by_match = (override.rule.query.empty() && override.rule.match.empty() &&
+                                   !override.rule.filter_by.empty() && override.rule.filter_by == filter_query);
 
+            bool query_match = (override.rule.match == override_t::MATCH_EXACT && override.rule.query == query) ||
+                   (override.rule.match == override_t::MATCH_CONTAINS &&
+                    StringUtils::contains_word(query, override.rule.query));
+
+            if (filter_by_match || query_match) {
                 if(!override.rule.filter_by.empty() && override.rule.filter_by != filter_query) {
                     continue;
                 }
