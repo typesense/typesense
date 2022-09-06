@@ -592,6 +592,9 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
     if(req->data == nullptr) {
         export_state = new export_state_t();
 
+        // destruction of data is managed by req destructor
+        req->data = export_state;
+
         std::string simple_filter_query;
 
         if(req->params.count(FILTER_BY) != 0) {
@@ -620,7 +623,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
                 req->last_chunk_aggregate = true;
                 res->final = true;
                 stream_response(req, res);
-                delete export_state;
                 return false;
             }
 
@@ -631,10 +633,8 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             export_state->collection = collection.get();
         }
     } else {
-        export_state = static_cast<export_state_t*>(req->data);
+        export_state = dynamic_cast<export_state_t*>(req->data);
     }
-
-    req->data = export_state;
 
     if(export_state->it != nullptr) {
         rocksdb::Iterator* it = export_state->it;
@@ -670,8 +670,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
             } else {
                 req->last_chunk_aggregate = true;
                 res->final = true;
-                delete export_state;
-                req->data = nullptr;
             }
         }
     } else {
@@ -684,8 +682,6 @@ bool get_export_documents(const std::shared_ptr<http_req>& req, const std::share
         } else {
             req->last_chunk_aggregate = true;
             res->final = true;
-            delete export_state;
-            req->data = nullptr;
         }
     }
 
@@ -1038,6 +1034,9 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
 
     if(req->data == nullptr) {
         deletion_state = new deletion_state_t{};
+        // destruction of data is managed by req destructor
+        req->data = deletion_state;
+
         auto filter_ids_op = collection->get_filter_ids(simple_filter_query, deletion_state->index_ids);
 
         if(!filter_ids_op.ok()) {
@@ -1045,7 +1044,6 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             req->last_chunk_aggregate = true;
             res->final = true;
             stream_response(req, res);
-            delete deletion_state;
             return false;
         }
 
@@ -1054,9 +1052,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
         }
         deletion_state->collection = collection.get();
         deletion_state->num_removed = 0;
-        req->data = deletion_state;
     } else {
-        deletion_state = static_cast<deletion_state_t*>(req->data);
+        deletion_state = dynamic_cast<deletion_state_t*>(req->data);
     }
 
     bool done = true;
@@ -1077,10 +1074,8 @@ bool del_remove_documents(const std::shared_ptr<http_req>& req, const std::share
             response["num_deleted"] = deletion_state->num_removed;
 
             req->last_chunk_aggregate = true;
-            req->data = nullptr;
             res->body = response.dump();
             res->final = true;
-            delete deletion_state;
         }
     }
 
