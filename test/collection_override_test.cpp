@@ -1002,6 +1002,11 @@ TEST_F(CollectionOverrideTest, FilterRule) {
     ASSERT_EQ(2, results["hits"].size());
     ASSERT_EQ("0", results["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("2", results["hits"][1]["document"]["id"].get<std::string>());
+
+    override_json_ser = override_rule2.to_json();
+    ASSERT_EQ("points: 1", override_json_ser["rule"]["filter_by"]);
+    ASSERT_EQ(0, override_json_ser["rule"].count("query"));
+    ASSERT_EQ(0, override_json_ser["rule"].count("match"));
 }
 
 TEST_F(CollectionOverrideTest, PinnedAndHiddenHits) {

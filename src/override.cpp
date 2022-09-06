@@ -195,8 +195,15 @@ Option<bool> override_t::parse(const nlohmann::json& override_json, const std::s
 nlohmann::json override_t::to_json() const {
     nlohmann::json override;
     override["id"] = id;
-    override["rule"]["query"] = rule.query;
-    override["rule"]["match"] = rule.match;
+
+    if(!rule.query.empty()) {
+        override["rule"]["query"] = rule.query;
+    }
+
+    if(!rule.match.empty()) {
+        override["rule"]["match"] = rule.match;
+    }
+
     if(!rule.filter_by.empty()) {
         override["rule"]["filter_by"] = rule.filter_by;
     }
