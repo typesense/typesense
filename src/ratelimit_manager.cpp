@@ -158,30 +158,36 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_resource_t> 
                 request_counts.last_reset_time_hour = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
             }
 
-            // Increment request counts
-            request_counts.current_requests_count_minute++;
-            request_counts.current_requests_count_hour++;
+
 
             // Check if request count is over the limit
             auto current_rate_for_minute = (60 - (std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - request_counts.last_reset_time_minute)) / 60  * request_counts.previous_requests_count_minute;
             current_rate_for_minute += request_counts.current_requests_count_minute;
 
-            if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute > rule.max_requests.minute_threshold) {
+            if(rule.max_requests.minute_threshold >= 0 && current_rate_for_minute >= rule.max_requests.minute_threshold) {
                 if(rule.auto_ban_threshold_num >= 0 && rule.auto_ban_num_days >= 0) {
-                    if(++request_counts.threshold_exceed_count_minute >= rule.auto_ban_threshold_num) {
+                    if(++request_counts.threshold_exceed_count_minute > rule.auto_ban_threshold_num) {
                         temp_ban_entity_wrapped(entity, rule.auto_ban_num_days);
                         request_counts.threshold_exceed_count_minute = 0;
                         return true;
                     }
                 } 
+                else {
+                    return true;
+                }
             }
+
 
             auto current_rate_for_hour = (3600 - (std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()) - request_counts.last_reset_time_hour)) / 3600  * request_counts.previous_requests_count_hour;
             current_rate_for_hour += request_counts.current_requests_count_hour;
 
-            if(rule.max_requests.hour_threshold >= 0 && current_rate_for_hour > rule.max_requests.hour_threshold) {
+            if(rule.max_requests.hour_threshold >= 0 && current_rate_for_hour >= rule.max_requests.hour_threshold) {
                 return true;
             }
+
+            // Increment request counts
+            request_counts.current_requests_count_minute++;
+            request_counts.current_requests_count_hour++;
         }
     }
 

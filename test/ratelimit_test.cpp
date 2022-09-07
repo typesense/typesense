@@ -39,117 +39,117 @@ protected:
 };
 
 TEST_F(RateLimitManagerTest, TestAddRateLimitApiKey) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_EQ(manager->get_all_rules().size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestAddRateLimitIp) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_EQ(manager->get_all_rules().size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestRemoveRateLimitApiKey) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_EQ(manager->get_all_rules().size(), 1);
-    manager->remove_rule_entry(RateLimitedResourceType::API_KEY, "test_api_key");
+    manager->remove_rule_entity(RateLimitedEntityType::API_KEY, "test_api_key");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestRemoveRateLimitIp) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_EQ(manager->get_all_rules().size(), 1);
-    manager->remove_rule_entry(RateLimitedResourceType::IP, "test_api_key");
+    manager->remove_rule_entity(RateLimitedEntityType::IP, "test_api_key");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestGetBannedIps) {
-    manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.0"});
-    EXPECT_EQ(manager->get_banned_entries(RateLimitedResourceType::IP).size(), 1);
+    manager->ban_entities_permanently(RateLimitedEntityType::IP, {"0.0.0.0"});
+    EXPECT_EQ(manager->get_banned_entities(RateLimitedEntityType::IP).size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.0"}, 1, 1, -1, -1);
-    auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].max_requests.minute_rate_limit == 1 && entries[0].max_requests.hour_rate_limit == 1;
-    found = found && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.0";
+    manager->throttle_entities(RateLimitedEntityType::IP, {"0.0.0.0"}, 1, 1, -1, -1);
+    auto entities = manager->get_all_rules();
+    bool found = entities[0].action == RateLimitAction::THROTTLE && entities[0].max_requests.minute_threshold == 1 && entities[0].max_requests.hour_threshold == 1;
+    found = found && entities[0].entity_type == RateLimitedEntityType::IP && entities[0].entity_ids[0] == "0.0.0.0";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
-    auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].max_requests.minute_rate_limit == 1 && entries[0].max_requests.hour_rate_limit == 1;
-    found = found && entries[0].entity_type == RateLimitedResourceType::API_KEY && entries[0].entity_ids[0] == "test_api_key";
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
+    auto entities = manager->get_all_rules();
+    bool found = entities[0].action == RateLimitAction::THROTTLE && entities[0].max_requests.minute_threshold == 1 && entities[0].max_requests.hour_threshold == 1;
+    found = found && entities[0].entity_type == RateLimitedEntityType::API_KEY && entities[0].entity_ids[0] == "test_api_key";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestBanIpPermanently) {
-    manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
-    auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.1";
+    manager->ban_entities_permanently(RateLimitedEntityType::IP, {"0.0.0.1"});
+    auto entities = manager->get_all_rules();
+    bool found = entities[0].action == RateLimitAction::BLOCK && entities[0].entity_type == RateLimitedEntityType::IP && entities[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestUnbanIp) {
-    manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
-    auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.1";
+    manager->ban_entities_permanently(RateLimitedEntityType::IP, {"0.0.0.1"});
+    auto entities = manager->get_all_rules();
+    bool found = entities[0].action == RateLimitAction::BLOCK && entities[0].entity_type == RateLimitedEntityType::IP && entities[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
-    manager->remove_rule_entry(RateLimitedResourceType::IP, "0.0.0.1");
+    manager->remove_rule_entity(RateLimitedEntityType::IP, "0.0.0.1");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedIp) {
-    manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
-    EXPECT_TRUE(manager->get_banned_entries(RateLimitedResourceType::IP).size() == 1);
-    auto entries = manager->get_banned_entries(RateLimitedResourceType::IP);
-    bool found = entries[0].is_banned && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].value == "0.0.0.1";
+    manager->ban_entities_permanently(RateLimitedEntityType::IP, {"0.0.0.1"});
+    EXPECT_TRUE(manager->get_banned_entities(RateLimitedEntityType::IP).size() == 1);
+    auto entities = manager->get_banned_entities(RateLimitedEntityType::IP);
+    bool found = entities[0].is_banned && entities[0].entity_type == RateLimitedEntityType::IP && entities[0].value == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedIpTemp) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.1"}, 1, 1, 1, 1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"0.0.0.1"}, 1, 1, 1, 1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyPermanently) {
-    manager->ban_entries_permanently(RateLimitedResourceType::API_KEY, {"test_api_key"});
-    EXPECT_TRUE(manager->get_banned_entries(RateLimitedResourceType::API_KEY).size() == 1);
-    auto entries = manager->get_banned_entries(RateLimitedResourceType::API_KEY);
-    bool found = entries[0].is_banned && entries[0].entity_type == RateLimitedResourceType::API_KEY && entries[0].value == "test_api_key";
+    manager->ban_entities_permanently(RateLimitedEntityType::API_KEY, {"test_api_key"});
+    EXPECT_TRUE(manager->get_banned_entities(RateLimitedEntityType::API_KEY).size() == 1);
+    auto entities = manager->get_banned_entities(RateLimitedEntityType::API_KEY);
+    bool found = entities[0].is_banned && entities[0].entity_type == RateLimitedEntityType::API_KEY && entities[0].value == "test_api_key";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyTemp) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, 1, 1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, 1, 1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestAllowAPIKey) {
-    manager->allow_entries(RateLimitedResourceType::API_KEY, {{"test_api_key"}});
+    manager->allow_entities(RateLimitedEntityType::API_KEY, {{"test_api_key"}});
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestAllowIp) {
-    manager->allow_entries(RateLimitedResourceType::IP, {{"0.0.0.1"}});
+    manager->allow_entities(RateLimitedEntityType::IP, {{"0.0.0.1"}});
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestThrottleAPIKey) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestDeleteRuleByID) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     auto rules = manager->get_all_rules();
     manager->delete_rule_by_id(rules[0].id);
@@ -157,52 +157,52 @@ TEST_F(RateLimitManagerTest, TestDeleteRuleByID) {
 }
 
 TEST_F(RateLimitManagerTest, TestMinuteRateLimitAPIKey) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 5, -1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 5, -1, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestHourRateLimitAPIKey) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, -1, 5, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, -1, 5, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::API_KEY, "test_api_key"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestMinuteRateLimitIp) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.1"}, 5, -1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"0.0.0.1"}, 5, -1, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestHourRateLimitIp) {
-    manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.1"}, -1, 5, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"0.0.0.1"}, -1, 5, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedResourceType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::IP, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestGetAllRules) {
-    manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 5, -1, -1, -1);
-    manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.1"}, 5, -1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::API_KEY, {"test_api_key"}, 5, -1, -1, -1);
+    manager->throttle_entities(RateLimitedEntityType::IP, {"0.0.0.1"}, 5, -1, -1, -1);
     EXPECT_TRUE(manager->get_all_rules().size() == 2);
 }
 
