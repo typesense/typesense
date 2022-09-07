@@ -214,6 +214,7 @@ void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity
         rate_limit_request_counts.lookup(entity).current_requests_count_minute = 0;
         rate_limit_request_counts.lookup(entity).current_requests_count_hour = 0;
     }
+
 }
 
 const nlohmann::json RateLimitManager::get_all_rules_json() {
