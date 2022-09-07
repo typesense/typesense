@@ -195,6 +195,10 @@ Index::~Index() {
     facet_index_v3.clear();
 
     delete seq_ids;
+
+    for(auto& vec_index_kv: vector_index) {
+        delete vec_index_kv.second;
+    }
 }
 
 int64_t Index::get_points_from_doc(const nlohmann::json &document, const std::string & default_sorting_field) {
@@ -1371,13 +1375,13 @@ void Index::search_all_candidates(const size_t num_search_fields,
         uint64 qhash;
         uint32_t total_cost = next_suggestion2(token_candidates_vec, n, query_suggestion, qhash);
 
-        /*LOG(INFO) << "n: " << n;
+        LOG(INFO) << "n: " << n;
         std::stringstream fullq;
         for(const auto& qtok : query_suggestion) {
             fullq << qtok.value << " ";
         }
         LOG(INFO) << "query: " << fullq.str() << ", total_cost: " << total_cost
-                  << ", all_result_ids_len: " << all_result_ids_len << ", bufsiz: " << id_buff.size();*/
+                  << ", all_result_ids_len: " << all_result_ids_len << ", bufsiz: " << id_buff.size();
 
         if(query_hashes.find(qhash) != query_hashes.end()) {
             // skip this query since it has already been processed before
@@ -1395,6 +1399,8 @@ void Index::search_all_candidates(const size_t num_search_fields,
                              exclude_token_ids, exclude_token_ids_size,
                              sort_order, field_values, geopoint_indices,
                              id_buff, all_result_ids, all_result_ids_len);
+
+        LOG(INFO) << "> all_result_ids_len: " << all_result_ids_len;
 
         query_hashes.insert(qhash);
     }
@@ -2649,6 +2655,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
                 while(exhaustive_search || all_result_ids_len < drop_tokens_threshold) {
                     // When atleast two tokens from the query are available we can drop one
                     std::vector<token_t> truncated_tokens;
+
+                    LOG(INFO) << "num_tokens_dropped: " << num_tokens_dropped;
 
                     if(orig_tokens.size() > 1 && num_tokens_dropped < 2*(orig_tokens.size()-1)) {
                         bool prefix_search = false;
