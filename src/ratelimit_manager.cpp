@@ -108,7 +108,6 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
                         temp_ban_entity_wrapped(entity, rule.auto_ban_num_days);
                     }
                 } 
-                return true;
             }
             auto current_rate_for_hour = (3600 - (get_current_time() - request_counts.last_reset_time_hour)) / 3600  * request_counts.previous_requests_count_hour;
             current_rate_for_hour += request_counts.current_requests_count_hour;
