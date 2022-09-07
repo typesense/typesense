@@ -70,30 +70,30 @@ TEST_F(RateLimitManagerTest, TestGetBannedIps) {
 TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
     manager->throttle_entries(RateLimitedResourceType::IP, {"0.0.0.0"}, 1, 1, -1, -1);
     auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].throttle.minute_rate_limit == 1 && entries[0].throttle.hour_rate_limit == 1;
-    found = found && entries[0].resource_type == RateLimitedResourceType::IP && entries[0].values[0] == "0.0.0.0";
+    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].max_requests.minute_rate_limit == 1 && entries[0].max_requests.hour_rate_limit == 1;
+    found = found && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.0";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
     manager->throttle_entries(RateLimitedResourceType::API_KEY, {"test_api_key"}, 1, 1, -1, -1);
     auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].throttle.minute_rate_limit == 1 && entries[0].throttle.hour_rate_limit == 1;
-    found = found && entries[0].resource_type == RateLimitedResourceType::API_KEY && entries[0].values[0] == "test_api_key";
+    bool found = entries[0].action == RateLimitAction::THROTTLE && entries[0].max_requests.minute_rate_limit == 1 && entries[0].max_requests.hour_rate_limit == 1;
+    found = found && entries[0].entity_type == RateLimitedResourceType::API_KEY && entries[0].entity_ids[0] == "test_api_key";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestBanIpPermanently) {
     manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
     auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].resource_type == RateLimitedResourceType::IP && entries[0].values[0] == "0.0.0.1";
+    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestUnbanIp) {
     manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
     auto entries = manager->get_all_rules();
-    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].resource_type == RateLimitedResourceType::IP && entries[0].values[0] == "0.0.0.1";
+    bool found = entries[0].action == RateLimitAction::BLOCK && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
     manager->remove_rule_entry(RateLimitedResourceType::IP, "0.0.0.1");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
@@ -103,7 +103,7 @@ TEST_F(RateLimitManagerTest, TestIsBannedIp) {
     manager->ban_entries_permanently(RateLimitedResourceType::IP, {"0.0.0.1"});
     EXPECT_TRUE(manager->get_banned_entries(RateLimitedResourceType::IP).size() == 1);
     auto entries = manager->get_banned_entries(RateLimitedResourceType::IP);
-    bool found = entries[0].is_banned && entries[0].resource_type == RateLimitedResourceType::IP && entries[0].value == "0.0.0.1";
+    bool found = entries[0].is_banned && entries[0].entity_type == RateLimitedResourceType::IP && entries[0].value == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
@@ -118,7 +118,7 @@ TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyPermanently) {
     manager->ban_entries_permanently(RateLimitedResourceType::API_KEY, {"test_api_key"});
     EXPECT_TRUE(manager->get_banned_entries(RateLimitedResourceType::API_KEY).size() == 1);
     auto entries = manager->get_banned_entries(RateLimitedResourceType::API_KEY);
-    bool found = entries[0].is_banned && entries[0].resource_type == RateLimitedResourceType::API_KEY && entries[0].value == "test_api_key";
+    bool found = entries[0].is_banned && entries[0].entity_type == RateLimitedResourceType::API_KEY && entries[0].value == "test_api_key";
     EXPECT_TRUE(found);
 }
 
