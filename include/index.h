@@ -235,50 +235,28 @@ struct index_record {
 class VectorFilterFunctor: public hnswlib::FilterFunctor {
     const uint32_t* filter_ids = nullptr;
     const uint32_t filter_ids_length = 0;
-    uint32 filter_ids_index = 0;
 
 public:
     explicit VectorFilterFunctor(const uint32_t* filter_ids, const uint32_t filter_ids_length) :
             filter_ids(filter_ids), filter_ids_length(filter_ids_length) {}
 
     bool operator()(unsigned int id) {
-        if(filter_ids_length != 0) {
-            if(filter_ids_index >= filter_ids_length) {
-                return false;
-            }
-
-            // Returns iterator to the first element that is >= to value or last if no such element is found.
-            size_t found_index = std::lower_bound(filter_ids + filter_ids_index,
-                                                  filter_ids + filter_ids_length, id) - filter_ids;
-
-            if(found_index == filter_ids_length) {
-                // all elements are lesser than lowest value (id), so we can stop looking
-                filter_ids_index = found_index + 1;
-                return false;
-            } else {
-                if(filter_ids[found_index] == id) {
-                    filter_ids_index = found_index + 1;
-                    return true;
-                }
-
-                filter_ids_index = found_index;
-            }
-
-            return false;
+        if(filter_ids_length == 0) {
+            return true;
         }
 
-        return true;
+        return std::binary_search(filter_ids, filter_ids + filter_ids_length, id);
     }
 };
 
 struct hnsw_index_t {
-    hnswlib::L2Space* space;
+    hnswlib::InnerProductSpace* space;
     hnswlib::HierarchicalNSW<float, VectorFilterFunctor>* vecdex;
     size_t num_dim;
     vector_distance_type_t distance_type;
 
     hnsw_index_t(size_t num_dim, size_t init_size, vector_distance_type_t distance_type):
-        space(new hnswlib::L2Space(num_dim)),
+        space(new hnswlib::InnerProductSpace(num_dim)),
         vecdex(new hnswlib::HierarchicalNSW<float, VectorFilterFunctor>(space, init_size)),
         num_dim(num_dim), distance_type(distance_type) {
 
