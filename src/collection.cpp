@@ -144,6 +144,7 @@ nlohmann::json Collection::get_summary_json() const {
     json_response["name"] = name;
     json_response["num_documents"] = num_documents.load();
     json_response["created_at"] = created_at.load();
+    json_response["enable_nested_fields"] = enable_nested_fields;
     json_response["token_separators"] = nlohmann::json::array();
     json_response["symbols_to_index"] = nlohmann::json::array();
 
