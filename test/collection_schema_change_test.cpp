@@ -124,8 +124,8 @@ TEST_F(CollectionSchemaChangeTest, AddNewFieldsToCollection) {
 
     auto coll_fields = coll1->get_fields();
     ASSERT_EQ(7, coll_fields.size());
-    ASSERT_EQ("age", coll_fields[5].name);
-    ASSERT_EQ(".*_bool", coll_fields[6].name);
+    ASSERT_EQ(".*_bool", coll_fields[5].name);
+    ASSERT_EQ("age", coll_fields[6].name);
 
     doc["id"] = "1";
     doc["title"] = "The one";
