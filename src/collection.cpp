@@ -743,7 +743,7 @@ Option<bool> Collection::validate_and_standardize_sort_fields(const std::vector<
         }
     }
 
-    if(!found_match_score && sort_fields.size() < 3) {
+    if(!found_match_score && !is_wildcard_query && sort_fields.size() < 3) {
         sort_fields_std.emplace_back(sort_field_const::text_match, sort_field_const::desc);
     }
 

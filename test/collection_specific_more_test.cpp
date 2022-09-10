@@ -1280,14 +1280,30 @@ TEST_F(CollectionSpecificMoreTest, WildcardSearchWithNoSortingField) {
 
     Collection* coll1 = collectionManager.create_collection(schema).get();
 
-    nlohmann::json doc;
-    doc["title"] = "Sample Title";
-    ASSERT_TRUE(coll1->add(doc.dump()).ok());
-
+    // search on empty collection
     auto res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
                                 FREQUENCY, {true});
 
     ASSERT_TRUE(res_op.ok());
     auto res = res_op.get();
-    ASSERT_EQ(1, res["hits"].size());
+    ASSERT_EQ(0, res["hits"].size());
+    ASSERT_EQ(0, res["found"].get<size_t>());
+
+    nlohmann::json doc;
+    doc["title"] = "Sample Title 1";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["title"] = "Sample Title 2";
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    res_op = coll1->search("*", {}, "", {}, {}, {2}, 10, 1,
+                                FREQUENCY, {true});
+
+    ASSERT_TRUE(res_op.ok());
+    res = res_op.get();
+    ASSERT_EQ(2, res["hits"].size());
+    ASSERT_EQ(2, res["found"].get<size_t>());
+
+    ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
+    ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }

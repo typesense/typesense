@@ -34,19 +34,23 @@ public:
     class iterator_t {
     private:
         block_t* curr_block;
-        uint32_t curr_index;
+        int64_t curr_index;
 
         block_t* end_block;
+        std::map<last_id_t, block_t*>* id_block_map;
+
+        bool reverse;
 
     public:
         // uncompressed data structure for performance
         uint32_t* ids = nullptr;
 
-        explicit iterator_t(block_t* start, block_t* end);
+        explicit iterator_t(block_t* start, block_t* end, std::map<last_id_t, block_t*>* id_block_map, bool reverse);
         iterator_t(iterator_t&& rhs) noexcept;
         ~iterator_t();
         [[nodiscard]] bool valid() const;
         void next();
+        void previous();
         void skip_to(uint32_t id);
         [[nodiscard]] uint32_t id() const;
         [[nodiscard]] inline uint32_t index() const;
@@ -129,6 +133,8 @@ public:
     bool contains_atleast_one(const uint32_t* target_ids, size_t target_ids_size);
 
     iterator_t new_iterator(block_t* start_block = nullptr, block_t* end_block = nullptr);
+
+    iterator_t new_rev_iterator();
 
     static void merge(const std::vector<id_list_t*>& id_lists, std::vector<uint32_t>& result_ids);
 

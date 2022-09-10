@@ -2487,9 +2487,43 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     if (is_wildcard_query) {
         const uint8_t field_id = (uint8_t)(FIELD_LIMIT_NUM - 0);
         const std::string& field = the_fields[0].name;
+        bool no_filters_provided = (filters.empty() && filter_ids_length == 0);
+
+        if(no_filters_provided && facets.empty() && curated_ids.empty() && vector_query.field_name.empty() &&
+           sort_fields_std.size() == 1 && sort_fields_std[0].name == sort_field_const::seq_id &&
+           sort_fields_std[0].order == sort_field_const::desc) {
+            // optimize for this path specifically
+            std::vector<uint32_t> result_ids;
+            auto it = seq_ids->new_rev_iterator();
+            while(it.valid()) {
+                uint32_t seq_id = it.id();
+                uint64_t distinct_id = seq_id;
+                if(group_limit != 0) {
+                    distinct_id = get_distinct_id(group_by_fields, seq_id);
+                    groups_processed.emplace(distinct_id);
+                }
+
+                int64_t scores[3] = {0};
+                scores[0] = seq_id;
+                int64_t match_score_index = -1;
+
+                result_ids.push_back(seq_id);
+                KV kv(field_id, searched_queries.size(), 0, seq_id, distinct_id, match_score_index, scores);
+                topster->add(&kv);
+
+                if(result_ids.size() == page * per_page) {
+                    break;
+                }
+
+                it.previous();
+            }
+
+            all_result_ids_len = seq_ids->num_ids();
+            goto process_search_results;
+        }
 
         // if filters were not provided, use the seq_ids index to generate the list of all document ids
-        if(filters.empty() && filter_ids_length == 0) {
+        if(no_filters_provided) {
             filter_ids_length = seq_ids->num_ids();
             filter_ids = seq_ids->uncompress();
         }
@@ -2709,6 +2743,8 @@ void Index::search(std::vector<query_tokens_t>& field_query_tokens, const std::v
     }
 
     //LOG(INFO) << "topster size: " << topster->size;
+
+    process_search_results:
 
     delete [] exclude_token_ids;
     delete [] excluded_result_ids;
