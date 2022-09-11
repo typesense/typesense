@@ -398,9 +398,9 @@ struct field {
     static bool flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_array, bool has_obj_array,
                             const std::string& flat_name, std::unordered_map<std::string, field>& flattened_fields);
 
-    static bool flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
-                              std::vector<std::string>& path_parts, size_t path_index, bool has_array,
-                              bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
+    static Option<bool> flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
+                                      std::vector<std::string>& path_parts, size_t path_index, bool has_array,
+                                      bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields);
 
     static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
                                     std::vector<field>& flattened_fields);

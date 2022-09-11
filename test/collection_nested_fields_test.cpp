@@ -279,7 +279,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     nlohmann::json doc = nlohmann::json::parse(json_str);
     auto flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
-    ASSERT_EQ("Field `locations` was not found or has an incorrect type.", flatten_op.error());
+    ASSERT_EQ("Field `locations` not found.", flatten_op.error());
 
     nested_fields = {
         field("company", field_types::INT32, false)
@@ -288,7 +288,7 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     flattened_fields.clear();
     flatten_op = field::flatten_doc(doc, nested_fields, flattened_fields);
     ASSERT_FALSE(flatten_op.ok());
-    ASSERT_EQ("Field `company` was not found or has an incorrect type.", flatten_op.error());
+    ASSERT_EQ("Field `company` has an incorrect type.", flatten_op.error());
 }
 
 TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
@@ -937,7 +937,7 @@ TEST_F(CollectionNestedFieldsTest, FieldsWithExplicitSchema) {
 
     add_op = coll3->add(doc2.dump(), CREATE);
     ASSERT_FALSE(add_op.ok());
-    ASSERT_EQ("Field `details` was not found or has an incorrect type.", add_op.error());
+    ASSERT_EQ("Field `details` not found.", add_op.error());
 
     // check fields and their properties
     auto coll_fields = coll1->get_fields();
@@ -1451,4 +1451,54 @@ TEST_F(CollectionNestedFieldsTest, UpdateOfNestFields) {
 
     results = coll1->search("*", {}, "company.num_employees: 2000", {}, {}, {0}, 10, 1, FREQUENCY, {false}).get();
     ASSERT_EQ(1, results["found"].get<size_t>());
+}
+
+TEST_F(CollectionNestedFieldsTest, NestedSchemaWithSingularType) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "studies.year", "type": "int32", "optional": false}
+        ]
+    })"_json;
+
+    auto op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll1 = op.get();
+
+    auto doc1 = R"({
+        "id": "0",
+        "studies": [{"name": "College 1", "year": 1997}]
+    })"_json;
+
+    auto add_op = coll1->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `studies.year` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    // even when field is optional, there should be an error
+    schema = R"({
+        "name": "coll2",
+        "enable_nested_fields": true,
+        "fields": [
+          {"name": "studies.year", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    op = collectionManager.create_collection(schema);
+    ASSERT_TRUE(op.ok());
+    Collection* coll2 = op.get();
+    add_op = coll2->add(doc1.dump(), CREATE);
+    ASSERT_FALSE(add_op.ok());
+    ASSERT_EQ("Field `studies.year` has an incorrect type. "
+              "Hint: field inside an array of objects must be an array type as well.", add_op.error());
+
+    // allow optional field to be missing when value is singular
+    doc1 = R"({
+        "id": "0",
+        "studies": {"name": "College 1"}
+    })"_json;
+
+    add_op = coll2->add(doc1.dump(), CREATE);
+    ASSERT_TRUE(add_op.ok());
 }

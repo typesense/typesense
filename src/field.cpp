@@ -612,14 +612,14 @@ bool field::flatten_obj(nlohmann::json& doc, nlohmann::json& value, bool has_arr
     return true;
 }
 
-bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
+Option<bool> field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field& the_field,
                           std::vector<std::string>& path_parts, size_t path_index,
                           bool has_array, bool has_obj_array, std::unordered_map<std::string, field>& flattened_fields) {
     if(path_index == path_parts.size()) {
         // end of path: check if obj matches expected type
         std::string detected_type;
         if(!field::get_type(obj, detected_type)) {
-            return false;
+            return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
         }
 
         if(std::isalnum(detected_type.back()) && has_array) {
@@ -641,7 +641,7 @@ bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field&
                 flatten_obj(doc, obj, has_array, has_obj_array, the_field.name, flattened_fields);
             } else {
                 if(doc.count(the_field.name) != 0 && flattened_fields.find(the_field.name) == flattened_fields.end()) {
-                    return true;
+                    return Option<bool>(true);
                 }
 
                 if(has_array) {
@@ -656,9 +656,14 @@ bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field&
                 flattened_fields[the_field.name] = flattened_field;
             }
 
-            return true;
+            return Option<bool>(true);
         } else {
-            return false;
+            if(has_obj_array && !the_field.is_array()) {
+                return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type. "
+                                    "Hint: field inside an array of objects must be an array type as well.");
+            }
+
+            return Option<bool>(400, "Field `" + the_field.name + "` has an incorrect type.");
         }
     }
 
@@ -667,18 +672,25 @@ bool field::flatten_field(nlohmann::json& doc, nlohmann::json& obj, const field&
 
     if(it != obj.end()) {
         if(it.value().is_array()) {
+            if(it.value().empty()) {
+                return Option<bool>(404, "Field `" + the_field.name + "` not found.");
+            }
+
             has_array = true;
-            bool resolved = false;
             for(auto& ele: it.value()) {
                 has_obj_array = has_obj_array || ele.is_object();
-                resolved |= flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
+                Option<bool> op = flatten_field(doc, ele, the_field, path_parts, path_index + 1, has_array,
+                                                has_obj_array, flattened_fields);
+                if(!op.ok()) {
+                    return op;
+                }
             }
-            return resolved;
+            return Option<bool>(true);
         } else {
             return flatten_field(doc, it.value(), the_field, path_parts, path_index + 1, has_array, has_obj_array, flattened_fields);
         }
     } {
-        return false;
+        return Option<bool>(404, "Field `" + the_field.name + "` not found.");
     }
 }
 
@@ -697,9 +709,15 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
             continue;
         }
 
-        bool resolved = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
-        if(!resolved && !nested_field.optional) {
-            return Option<bool>(400, "Field `" + nested_field.name + "` was not found or has an incorrect type.");
+        auto op = flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
+        if(op.ok()) {
+            continue;
+        }
+
+        if(op.code() == 404 && nested_field.optional) {
+            continue;
+        } else {
+            return op;
         }
     }
 
