@@ -1517,6 +1517,73 @@ TEST_F(CollectionSortingTest, SortByStringEmptyValuesConfigThirdField) {
     ASSERT_EQ("2", results["hits"][0]["document"]["id"].get<std::string>());
 }
 
+TEST_F(CollectionSortingTest, SortByStringAccentedChars) {
+    Collection *coll1;
+
+    std::vector<field> fields = {field("title", field_types::STRING, false, false, true, "", true),
+                                 field("artist", field_types::STRING, true),
+                                 field("points", field_types::INT32, false),};
+
+    coll1 = collectionManager.get_collection("coll1").get();
+    if(coll1 == nullptr) {
+        auto create_op = collectionManager.create_collection("coll1", 2, fields, "title");
+        ASSERT_TRUE(create_op.ok());
+        coll1 = create_op.get();
+    }
+
+    std::vector<std::vector<std::string>> records = {
+        {"The unbearable lightness of being", "ABCD"},
+        {"A brief history of time", "ABCD"},
+        {"Über den Wolken", "ABCD"},
+        {"Ändere deine Coding Gewohnheiten", "ABCD"},
+        {"Zodiac", "ABCD"},
+    };
+
+    for(size_t i=0; i<records.size(); i++) {
+        nlohmann::json doc;
+
+        doc["id"] = std::to_string(i);
+        doc["title"] = records[i][0];
+        doc["artist"] = records[i][1];
+        doc["points"] = i;
+
+        ASSERT_TRUE(coll1->add(doc.dump()).ok());
+    }
+
+    std::vector<sort_by> sort_fields = {
+        sort_by("title", "ASC")
+    };
+
+    std::vector<std::string> expected_order = {
+        "A brief history of time",
+        "Ändere deine Coding Gewohnheiten",
+        "The unbearable lightness of being",
+        "Über den Wolken",
+        "Zodiac",
+    };
+
+    auto results = coll1->search("*", {}, "", {}, sort_fields, {0}, 20, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(5, results["found"].get<size_t>());
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_order[i], results["hits"][i]["document"]["title"].get<std::string>());
+    }
+
+    // descending order
+    sort_fields = {
+        sort_by("title", "DESC")
+    };
+
+    results = coll1->search("*", {}, "", {}, sort_fields, {0}, 20, 1, FREQUENCY, {true}, 10).get();
+
+    ASSERT_EQ(5, results["found"].get<size_t>());
+
+    for(size_t i = 0; i < results["hits"].size(); i++) {
+        ASSERT_EQ(expected_order[expected_order.size() - i - 1], results["hits"][i]["document"]["title"].get<std::string>());
+    }
+}
+
 TEST_F(CollectionSortingTest, TextMatchBucketRanking) {
     std::vector<field> fields = {field("title", field_types::STRING, false),
                                  field("description", field_types::STRING, false),

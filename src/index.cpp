@@ -1004,7 +1004,10 @@ void Index::index_field_in_memory(const field& afield, std::vector<index_record>
             }
 
             std::string raw_str = document[afield.name].get<std::string>();
-            StringUtils::tolowercase(raw_str);
+            Tokenizer str_tokenizer("", true, false, "", {' '});
+            std::string processed_str;
+            str_tokenizer.tokenize(raw_str);
+
             str_tree->index(seq_id, raw_str);
         }
     }
