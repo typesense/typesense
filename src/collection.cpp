@@ -3349,17 +3349,14 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
         LOG(INFO) << "Processing field additions and deletions first...";
     }
 
-    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type, false);
+    auto batch_alter_op = batch_alter_data(addition_fields, del_fields, fallback_field_type, true);
     if(!batch_alter_op.ok()) {
         return batch_alter_op;
     }
 
     if(!reindex_fields.empty()) {
         LOG(INFO) << "Processing field modifications now...";
-        // we've to run revaliation because during schema change, some coercion might be needed
-        // e.g. "123" -> 123 (string to integer)
-        bool do_validation = true;
-        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type, do_validation);
+        batch_alter_op = batch_alter_data(reindex_fields, {}, fallback_field_type, true);
         if(!batch_alter_op.ok()) {
             return batch_alter_op;
         }

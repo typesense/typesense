@@ -1090,6 +1090,42 @@ TEST_F(CollectionSchemaChangeTest, IndexFalseToTrue) {
     ASSERT_EQ(1, res_op.get()["facet_counts"].size());
 }
 
+TEST_F(CollectionSchemaChangeTest, AddingFieldWithExistingNullValue) {
+    // when a value is `null` initially, and is altered, subsequent updates should not fail
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = nullptr;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto schema_changes = R"({
+        "fields": [
+            {"name": "num", "type": "int32", "optional": true}
+        ]
+    })"_json;
+
+    auto alter_op = coll1->alter(schema_changes);
+    ASSERT_TRUE(alter_op.ok());
+
+    // now try updating the doc
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res = coll1->search("*", {}, "num:100", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, res["hits"].size());
+}
+
 TEST_F(CollectionSchemaChangeTest, DropIntegerFieldAndAddStringValues) {
     nlohmann::json schema = R"({
         "name": "coll1",

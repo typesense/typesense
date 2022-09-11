@@ -1307,3 +1307,35 @@ TEST_F(CollectionSpecificMoreTest, WildcardSearchWithNoSortingField) {
     ASSERT_EQ("1", res["hits"][0]["document"]["id"].get<std::string>());
     ASSERT_EQ("0", res["hits"][1]["document"]["id"].get<std::string>());
 }
+
+TEST_F(CollectionSpecificMoreTest, AutoSchemaWithObjectValueAsFirstDoc) {
+    // when a value is `object` initially and then is integer, updating that object should not cause errors
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": ".*", "type": "auto"}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = nlohmann::json::object();
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    doc["id"] = "1";
+    doc["title"] = "Sample Title 2";
+    doc["num"] = 42;
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    // now try updating first doc
+    doc["id"] = "0";
+    doc["title"] = "Sample Title 1";
+    doc["num"] = 100;
+    ASSERT_TRUE(coll1->add(doc.dump(), UPSERT).ok());
+
+    auto res = coll1->search("*", {}, "num:100", {}, {}, {2}, 10, 1, FREQUENCY, {true}).get();
+    ASSERT_EQ(1, res["hits"].size());
+}
