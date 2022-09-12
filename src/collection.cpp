@@ -330,6 +330,9 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
                 }
 
             } else {
+                // remove flattened field values before storing on disk (.flat meta will be kept)
+                remove_flat_field_values(index_record.doc);
+
                 const std::string& seq_id_str = std::to_string(index_record.seq_id);
                 const std::string& serialized_json = index_record.doc.dump(-1, ' ', false,
                                                                            nlohmann::detail::error_handler_t::ignore);
@@ -3054,24 +3057,13 @@ std::string Collection::get_default_sorting_field() {
     return default_sorting_field;
 }
 
-Option<bool> Collection::get_document_from_store(const uint32_t& seq_id, nlohmann::json& document) const {
-    std::string json_doc_str;
-    StoreStatus json_doc_status = store->get(get_seq_id_key(seq_id), json_doc_str);
-
-    if(json_doc_status != StoreStatus::FOUND) {
-        return Option<bool>(500, "Could not locate the JSON document for sequence ID: " + std::to_string(seq_id));
-    }
-
-    try {
-        document = nlohmann::json::parse(json_doc_str);
-    } catch(...) {
-        return Option<bool>(500, "Error while parsing stored document with sequence ID: " + std::to_string(seq_id));
-    }
-
-    return Option<bool>(true);
+Option<bool> Collection::get_document_from_store(const uint32_t& seq_id,
+                                                 nlohmann::json& document, bool raw_doc) const {
+    return get_document_from_store(get_seq_id_key(seq_id), document, raw_doc);
 }
 
-Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, nlohmann::json & document) const {
+Option<bool> Collection::get_document_from_store(const std::string &seq_id_key,
+                                                 nlohmann::json& document, bool raw_doc) const {
     std::string json_doc_str;
     StoreStatus json_doc_status = store->get(seq_id_key, json_doc_str);
 
@@ -3086,6 +3078,9 @@ Option<bool> Collection::get_document_from_store(const std::string &seq_id_key, 
         return Option<bool>(500, "Error while parsing stored document with sequence ID: " + seq_id_key);
     }
 
+    if(!raw_doc) {
+        field::flatten_stored_doc(document, search_schema);
+    }
     return Option<bool>(true);
 }
 
@@ -3365,11 +3360,17 @@ Option<bool> Collection::alter(nlohmann::json& alter_payload) {
     return Option<bool>(true);
 }
 
-void Collection::remove_flat_fields(nlohmann::json& document) {
+void Collection::remove_flat_field_values(nlohmann::json& document) {
     if(document.contains(".flat")) {
         for(const auto& flat_key: document[".flat"].get<std::vector<std::string>>()) {
             document.erase(flat_key);
         }
+    }
+}
+
+void Collection::remove_flat_fields(nlohmann::json& document) {
+    remove_flat_field_values(document);
+    if(document.contains(".flat")) {
         document.erase(".flat");
     }
 }

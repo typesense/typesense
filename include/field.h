@@ -404,6 +404,8 @@ struct field {
 
     static Option<bool> flatten_doc(nlohmann::json& document, const std::vector<field>& nested_fields,
                                     std::vector<field>& flattened_fields);
+
+    static Option<bool> flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& schema);
 };
 
 struct filter {

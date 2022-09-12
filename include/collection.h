@@ -216,6 +216,8 @@ private:
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score) const;
 
+    static void remove_flat_field_values(nlohmann::json& document);
+
     static void remove_flat_fields(nlohmann::json& document);
 
     bool handle_highlight_text(std::string& text, bool normalise, const field &search_field,
@@ -332,9 +334,9 @@ public:
 
     static uint32_t get_seq_id_from_key(const std::string & key);
 
-    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document) const;
+    Option<bool> get_document_from_store(const std::string & seq_id_key, nlohmann::json & document, bool raw_doc = false) const;
 
-    Option<bool> get_document_from_store(const uint32_t& seq_id, nlohmann::json & document) const;
+    Option<bool> get_document_from_store(const uint32_t& seq_id, nlohmann::json & document, bool raw_doc = false) const;
 
     Option<uint32_t> index_in_memory(nlohmann::json & document, uint32_t seq_id,
                                      const index_operation_t op, const DIRTY_VALUES& dirty_values);

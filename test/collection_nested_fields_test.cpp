@@ -291,6 +291,39 @@ TEST_F(CollectionNestedFieldsTest, FlattenJSONObjectHandleErrors) {
     ASSERT_EQ("Field `company` has an incorrect type.", flatten_op.error());
 }
 
+TEST_F(CollectionNestedFieldsTest, FlattenStoredDoc) {
+    auto stored_doc = R"({
+        ".flat": ["employees.num", "details.name", "details.year"],
+        "employees": { "num": 1200 },
+        "foo": "bar",
+        "details": [{"name": "foo", "year": 2000}]
+    })"_json;
+
+    tsl::htrie_map<char, field> schema;
+    schema.emplace("employees.num", field("employees.num", field_types::INT32, false));
+    schema.emplace("details.name", field("details.name", field_types::STRING_ARRAY, false));
+    schema.emplace("details.year", field("details.year", field_types::INT32_ARRAY, false));
+
+    field::flatten_stored_doc(stored_doc, schema);
+
+    ASSERT_EQ(3, stored_doc[".flat"].size());
+    ASSERT_EQ(7, stored_doc.size());
+
+    ASSERT_EQ(1, stored_doc.count("employees.num"));
+    ASSERT_EQ(1, stored_doc.count("details.name"));
+    ASSERT_EQ(1, stored_doc.count("details.year"));
+
+    // stored doc without any .flat
+    stored_doc = R"({
+        "employees": { "num": 1200 },
+        "foo": "bar",
+        "details": [{"name": "foo", "year": 2000}]
+    })"_json;
+
+    field::flatten_stored_doc(stored_doc, schema);
+    ASSERT_EQ(3, stored_doc.size());
+}
+
 TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     std::vector<field> fields = {field(".*", field_types::AUTO, false, true)};
 
@@ -346,6 +379,17 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
         }
       ]
     })"_json;
+
+    // ensure that flat fields are not returned in response
+    ASSERT_EQ(0, results["hits"][0].count(".flat"));
+    ASSERT_EQ(0, results["hits"][0].count("employees.tags"));
+
+    // raw document in the store will have only the .flat meta key but not actual flat fields
+    nlohmann::json raw_doc;
+    coll1->get_document_from_store(0, raw_doc, true);
+    ASSERT_EQ(1, raw_doc.count(".flat"));
+    ASSERT_EQ(0, raw_doc.count("employees.tags"));
+    ASSERT_EQ(5, raw_doc.size());
 
     ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
