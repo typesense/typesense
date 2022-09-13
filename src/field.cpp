@@ -730,19 +730,9 @@ Option<bool> field::flatten_doc(nlohmann::json& document,
     return Option<bool>(true);
 }
 
-Option<bool> field::flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& schema) {
-    if(document.count(".flat") == 0) {
-        return Option<bool>(true);
-    }
-
+Option<bool> field::flatten_stored_doc(nlohmann::json& document, const tsl::htrie_map<char, field>& nested_fields) {
     std::unordered_map<std::string, field> flattened_fields_map;
-    for(const auto& flat_key: document[".flat"].get<std::vector<std::string>>()) {
-        auto field_it = schema.find(flat_key);
-        if(field_it == schema.end()) {
-            continue;
-        }
-
-        const field& nested_field = field_it.value();
+    for(const auto& nested_field: nested_fields) {
         std::vector<std::string> field_parts;
         StringUtils::split(nested_field.name, field_parts, ".");
 
@@ -752,6 +742,14 @@ Option<bool> field::flatten_stored_doc(nlohmann::json& document, const tsl::htri
         }
 
         flatten_field(document, document, nested_field, field_parts, 0, false, false, flattened_fields_map);
+    }
+
+    if(document.count(".flat") == 0) {
+        document[".flat"] = nlohmann::json::array();
+    }
+
+    for(auto& kv: flattened_fields_map) {
+        document[".flat"].push_back(kv.second.name);
     }
 
     return Option<bool>(true);

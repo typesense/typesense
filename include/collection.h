@@ -165,6 +165,7 @@ private:
                                           const tsl::htrie_map<char, field>& nested_fields,
                                           const std::string& fallback_field_type,
                                           std::vector<field>& new_fields,
+                                          std::vector<field>& nested_fields_found,
                                           bool enable_nested_fields);
 
     static bool facet_count_compare(const std::pair<uint64_t, facet_count_t>& a,
@@ -199,11 +200,12 @@ private:
     Option<bool> batch_alter_data(const std::vector<field>& alter_fields,
                                   const std::vector<field>& del_fields,
                                   const std::string& this_fallback_field_type,
-                                  const bool do_validation);
+                                  const tsl::htrie_map<char, field>& alter_nested_fields);
 
     Option<bool> validate_alter_payload(nlohmann::json& schema_changes,
                                         std::vector<field>& addition_fields,
                                         std::vector<field>& reindex_fields,
+                                        tsl::htrie_map<char, field>& new_nested_fields,
                                         std::vector<field>& del_fields,
                                         std::string& fallback_field_type);
 
@@ -215,8 +217,6 @@ private:
                                   std::vector<uint32_t>& excluded_ids) const;
 
     void populate_text_match_info(nlohmann::json& info, uint64_t match_score) const;
-
-    static void remove_flat_field_values(nlohmann::json& document);
 
     static void remove_flat_fields(nlohmann::json& document);
 
@@ -325,6 +325,8 @@ public:
 
     tsl::htrie_map<char, field> get_schema();
 
+    tsl::htrie_map<char, field> get_nested_fields();
+
     std::string get_default_sorting_field();
 
     Option<doc_seq_id_t> to_doc(const std::string& json_str, nlohmann::json& document,
@@ -351,7 +353,8 @@ public:
 
     static void populate_result_kvs(Topster *topster, std::vector<std::vector<KV *>> &result_kvs);
 
-    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed, const bool& write_docs, const bool& write_id);
+    void batch_index(std::vector<index_record>& index_records, std::vector<std::string>& json_out, size_t &num_indexed,
+                     const bool& return_doc, const bool& return_id);
 
     bool is_exceeding_memory_threshold() const;
 
@@ -373,7 +376,7 @@ public:
     nlohmann::json add_many(std::vector<std::string>& json_lines, nlohmann::json& document,
                             const index_operation_t& operation=CREATE, const std::string& id="",
                             const DIRTY_VALUES& dirty_values=DIRTY_VALUES::COERCE_OR_REJECT,
-                            const bool& write_docs=false, const bool& write_id=false);
+                            const bool& return_doc=false, const bool& return_id=false);
 
     Option<nlohmann::json> search(const std::string & query, const std::vector<std::string> & search_fields,
                                   const std::string & simple_filter_query, const std::vector<std::string> & facet_fields,
