@@ -4627,6 +4627,22 @@ inline uint32_t Index::next_suggestion(const std::vector<token_candidates> &toke
     return total_cost;
 }
 
+void Index::remove_facet_token(const field& search_field, spp::sparse_hash_map<std::string, art_tree*>& search_index,
+                        const std::string& token, uint32_t seq_id) {
+    const unsigned char *key = (const unsigned char *) token.c_str();
+    int key_len = (int) (token.length() + 1);
+    const std::string& field_name = search_field.faceted_name();
+
+    art_leaf* leaf = (art_leaf *) art_search(search_index.at(field_name), key, key_len);
+    if(leaf != nullptr) {
+        posting_t::erase(leaf->values, seq_id);
+        if (posting_t::num_ids(leaf->values) == 0) {
+            void* values = art_delete(search_index.at(field_name), key, key_len);
+            posting_t::destroy_list(values);
+        }
+    }
+}
+
 void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const std::string& field_name) {
     const auto& search_field_it = search_schema.find(field_name);
     if(search_field_it == search_schema.end()) {
@@ -4671,6 +4687,9 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         for(int32_t value: values) {
             num_tree_t* num_tree = numerical_index.at(field_name);
             num_tree->remove(value, seq_id);
+            if(search_field.facet) {
+                remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
+            }
         }
     } else if(search_field.is_int64()) {
         const std::vector<int64_t>& values = search_field.is_single_integer() ?
@@ -4679,6 +4698,9 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
         for(int64_t value: values) {
             num_tree_t* num_tree = numerical_index.at(field_name);
             num_tree->remove(value, seq_id);
+            if(search_field.facet) {
+                remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
+            }
         }
     } else if(search_field.is_float()) {
         const std::vector<float>& values = search_field.is_single_float() ?
@@ -4688,6 +4710,9 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             num_tree_t* num_tree = numerical_index.at(field_name);
             int64_t fintval = float_to_in64_t(value);
             num_tree->remove(fintval, seq_id);
+            if(search_field.facet) {
+                remove_facet_token(search_field, search_index, StringUtils::float_to_str(value), seq_id);
+            }
         }
     } else if(search_field.is_bool()) {
 
@@ -4698,6 +4723,9 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
             num_tree_t* num_tree = numerical_index.at(field_name);
             int64_t bool_int64 = value ? 1 : 0;
             num_tree->remove(bool_int64, seq_id);
+            if(search_field.facet) {
+                remove_facet_token(search_field, search_index, std::to_string(value), seq_id);
+            }
         }
     } else if(search_field.is_geopoint()) {
         auto geo_index = geopoint_index[field_name];
@@ -4736,7 +4764,6 @@ void Index::remove_field(uint32_t seq_id, const nlohmann::json& document, const 
 
     // remove facets
     const auto& field_facets_it = facet_index_v3.find(field_name);
-
     if(field_facets_it != facet_index_v3.end()) {
         const auto& fvalues_it = field_facets_it->second[seq_id % ARRAY_FACET_DIM]->find(seq_id);
         if(fvalues_it != field_facets_it->second[seq_id % ARRAY_FACET_DIM]->end()) {

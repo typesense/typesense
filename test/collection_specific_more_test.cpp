@@ -723,3 +723,45 @@ TEST_F(CollectionSpecificMoreTest, OrderWithThreeSortFields) {
 
     collectionManager.drop_collection("coll1");
 }
+
+TEST_F(CollectionSpecificMoreTest, VerifyDeletionOfFacetStringIndex) {
+    nlohmann::json schema = R"({
+        "name": "coll1",
+        "fields": [
+            {"name": "title", "type": "string", "facet": true},
+            {"name": "i32", "type": "int32", "facet": true},
+            {"name": "float", "type": "float", "facet": true},
+            {"name": "i64", "type": "int64", "facet": true},
+            {"name": "i32arr", "type": "int32[]", "facet": true},
+            {"name": "floatarr", "type": "float[]", "facet": true},
+            {"name": "i64arr", "type": "int64[]", "facet": true}
+        ]
+    })"_json;
+
+    Collection* coll1 = collectionManager.create_collection(schema).get();
+
+    nlohmann::json doc;
+    doc["id"] = "0";
+    doc["title"] = "Title";
+    doc["i32"] = 100;
+    doc["float"] = 2.40;
+    doc["i64"] = 10000;
+    doc["i32arr"] = {100};
+    doc["floatarr"] = {2.50};
+    doc["i64arr"] = {10000};
+
+    ASSERT_TRUE(coll1->add(doc.dump()).ok());
+
+    auto search_index = coll1->_get_index()->_get_search_index();
+    ASSERT_EQ(7, search_index.size());
+    for(const auto& kv: search_index) {
+        ASSERT_EQ(1, kv.second->size);
+    }
+
+    coll1->remove("0");
+    ASSERT_EQ(7, search_index.size());
+
+    for(const auto& kv: search_index) {
+        ASSERT_EQ(0, kv.second->size);
+    }
+}
