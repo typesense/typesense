@@ -27,8 +27,8 @@ enum class RateLimitedEntityType {
 };
 
 struct rate_limit_max_requests_t {
-    int64_t minute_threshold;
-    int64_t hour_threshold;
+    int64_t minute_threshold = -1;
+    int64_t hour_threshold = -1;
 
 };
 
@@ -118,9 +118,6 @@ class RateLimitManager
 
         static RateLimitManager* getInstance();
         
-        // Add rate limit for entities, returns false if there is a rule for any of the entities is already set
-        bool throttle_entities(const RateLimitedEntityType entity_type, const std::vector<std::string> &entities, const int64_t minute_threshold, const int64_t hour_th, const int64_t auto_ban_threshold_num, const int64_t auto_ban_num_days);
-        
         // Remove rate limit for entity
         bool remove_rule_entity(const RateLimitedEntityType entity_type, const std::string &entity);
 
@@ -130,20 +127,17 @@ class RateLimitManager
         // Check if request is rate limited for given entities
         bool is_rate_limited(const std::vector<rate_limit_entity_t> &entities);
 
-        // Permanently ban entities
-        bool ban_entities_permanently(const RateLimitedEntityType entity_type, const std::vector<std::string> &entities);
+        // Add rule by JSON
+        Option<nlohmann::json> add_rule(const nlohmann::json &rule_json);
 
-        // Allow entities
-        bool allow_entities(RateLimitedEntityType entity_type, const std::vector<std::string> &entities);
+        // Edit rule by JSON
+        Option<nlohmann::json> edit_rule(const uint64_t id, const nlohmann::json &rule_json);
 
         // Find rule by ID
         Option<nlohmann::json> find_rule_by_id(const uint64_t id);
 
         // Delete rule by ID
         bool delete_rule_by_id(const uint64_t id);
-
-        // Edit rule by ID
-        bool edit_rule_by_id(const uint64_t id, const rate_limit_rule_t& rule);
 
         // Get All rules as vector
         const std::vector<rate_limit_rule_t> get_all_rules();
@@ -182,6 +176,9 @@ class RateLimitManager
         void temp_ban_entity(const rate_limit_entity_t& entity, const int64_t number_of_days);
         // Helper function to ban an entity temporarily without locking mutex
         void temp_ban_entity_wrapped(const rate_limit_entity_t& entity, const int64_t number_of_days);
+
+        // Helper function to check if JSON rule is valid
+        Option<bool> is_valid_rule(const nlohmann::json &rule_json);
 
         // Singleton instance
         inline static RateLimitManager *instance;

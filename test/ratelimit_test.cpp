@@ -2,6 +2,7 @@
 #include <string>
 #include <thread>
 #include "ratelimit_manager.h"
+#include "logger.h"
 
 // Google test for RateLimitManager
 class RateLimitManagerTest : public ::testing::Test
@@ -9,13 +10,11 @@ class RateLimitManagerTest : public ::testing::Test
 protected:
     RateLimitManager *manager = RateLimitManager::getInstance();
 
-    RateLimitManagerTest()
-    {
+    RateLimitManagerTest() {
         // You can do set-up work for each test here.
     }
 
-    virtual ~RateLimitManagerTest()
-    {
+    virtual ~RateLimitManagerTest() {
         // You can do clean-up work that doesn't throw exceptions here.
         manager->clear_all();
     }
@@ -23,14 +22,12 @@ protected:
     // If the constructor and destructor are not enough for setting up
     // and cleaning up each test, you can define the following methods:
 
-    virtual void SetUp()
-    {
+    virtual void SetUp() {
         // Code here will be called immediately after the constructor (right
         // before each test).
     }
 
-    virtual void TearDown()
-    {
+    virtual void TearDown() {
         // Code here will be called immediately after each test (right
         // before the destructor).
     }
@@ -39,59 +36,113 @@ protected:
 };
 
 TEST_F(RateLimitManagerTest, TestAddRateLimitApiKey) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, -1, -1);
+    auto res = manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
+
+
     EXPECT_EQ(manager->get_all_rules().size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestAddRateLimitIp) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"test_api_key"}, 1, 1, -1, -1);
+    auto res = manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
+
     EXPECT_EQ(manager->get_all_rules().size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestRemoveRateLimitApiKey) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
     EXPECT_EQ(manager->get_all_rules().size(), 1);
-    manager->remove_rule_entity(RateLimitedEntityType::api_key, "test_api_key");
+    manager->remove_rule_entity(RateLimitedEntityType::api_key, "test");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestRemoveRateLimitIp) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"test_api_key"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
     EXPECT_EQ(manager->get_all_rules().size(), 1);
-    manager->remove_rule_entity(RateLimitedEntityType::ip, "test_api_key");
+    manager->remove_rule_entity(RateLimitedEntityType::ip, "0.0.0.1");
     EXPECT_EQ(manager->get_all_rules().size(), 0);
 }
 
 TEST_F(RateLimitManagerTest, TestGetBannedIps) {
-    manager->ban_entities_permanently(RateLimitedEntityType::ip, {"0.0.0.0"});
+    manager->add_rule({
+        {"action", "block"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})}
+    });
     EXPECT_EQ(manager->get_banned_entities(RateLimitedEntityType::ip).size(), 1);
 }
 
 TEST_F(RateLimitManagerTest, TestGetTrackedIps) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"0.0.0.0"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
     auto entities = manager->get_all_rules();
-    bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 1 && entities[0].max_requests.hour_threshold == 1;
-    found = found && entities[0].entity_type == RateLimitedEntityType::ip && entities[0].entity_ids[0] == "0.0.0.0";
+    bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 10 && entities[0].max_requests.hour_threshold == 100;
+    found = found && entities[0].entity_type == RateLimitedEntityType::ip && entities[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestGetTrackedApiKeys) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 10},
+        {"max_requests_1h", 100},
+        {"auto_ban_threshold_num", 10},
+        {"auto_ban_num_days", 1}
+    });
     auto entities = manager->get_all_rules();
-    bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 1 && entities[0].max_requests.hour_threshold == 1;
-    found = found && entities[0].entity_type == RateLimitedEntityType::api_key && entities[0].entity_ids[0] == "test_api_key";
+    bool found = entities[0].action == RateLimitAction::throttle && entities[0].max_requests.minute_threshold == 10 && entities[0].max_requests.hour_threshold == 100;
+    found = found && entities[0].entity_type == RateLimitedEntityType::api_key && entities[0].entity_ids[0] == "test";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestBanIpPermanently) {
-    manager->ban_entities_permanently(RateLimitedEntityType::ip, {"0.0.0.1"});
+    manager->add_rule({
+        {"action", "block"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})}
+    });
     auto entities = manager->get_all_rules();
     bool found = entities[0].action == RateLimitAction::block && entities[0].entity_type == RateLimitedEntityType::ip && entities[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestUnbanIp) {
-    manager->ban_entities_permanently(RateLimitedEntityType::ip, {"0.0.0.1"});
+    manager->add_rule({
+        {"action", "block"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})}
+    });
     auto entities = manager->get_all_rules();
     bool found = entities[0].action == RateLimitAction::block && entities[0].entity_type == RateLimitedEntityType::ip && entities[0].entity_ids[0] == "0.0.0.1";
     EXPECT_TRUE(found);
@@ -100,7 +151,10 @@ TEST_F(RateLimitManagerTest, TestUnbanIp) {
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedIp) {
-    manager->ban_entities_permanently(RateLimitedEntityType::ip, {"0.0.0.1"});
+    manager->add_rule({
+        {"action", "block"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})}
+    });
     EXPECT_TRUE(manager->get_banned_entities(RateLimitedEntityType::ip).size() == 1);
     auto entities = manager->get_banned_entities(RateLimitedEntityType::ip);
     bool found = entities[0].entity_type == RateLimitedEntityType::ip && entities[0].value == "0.0.0.1";
@@ -108,48 +162,77 @@ TEST_F(RateLimitManagerTest, TestIsBannedIp) {
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedIpTemp) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"0.0.0.1"}, 1, 1, 1, 1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", 1},
+        {"max_requests_1h", 1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
     EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyPermanently) {
-    manager->ban_entities_permanently(RateLimitedEntityType::api_key, {"test_api_key"});
+    manager->add_rule({
+        {"action", "block"},
+        {"api_keys", nlohmann::json::array({"test"})}
+    });
     EXPECT_TRUE(manager->get_banned_entities(RateLimitedEntityType::api_key).size() == 1);
     auto entities = manager->get_banned_entities(RateLimitedEntityType::api_key);
-    bool found = entities[0].entity_type == RateLimitedEntityType::api_key && entities[0].value == "test_api_key";
+    bool found = entities[0].entity_type == RateLimitedEntityType::api_key && entities[0].value == "test";
     EXPECT_TRUE(found);
 }
 
 TEST_F(RateLimitManagerTest, TestIsBannedAPIKeyTemp) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, 1, 1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 1},
+        {"max_requests_1h", 1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestAllowAPIKey) {
-    manager->allow_entities(RateLimitedEntityType::api_key, {{"test_api_key"}});
+    manager->add_rule({
+        {"action", "allow"},
+        {"api_keys", nlohmann::json::array({"test"})}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestAllowIp) {
-    manager->allow_entities(RateLimitedEntityType::ip, {{"0.0.0.1"}});
+    manager->add_rule({
+        {"action", "allow"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestThrottleAPIKey) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 1},
+        {"max_requests_1h", 1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestDeleteRuleByID) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 1, 1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 1},
+        {"max_requests_1h", 1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     auto rules = manager->get_all_rules();
     manager->delete_rule_by_id(rules[0].id);
@@ -157,29 +240,44 @@ TEST_F(RateLimitManagerTest, TestDeleteRuleByID) {
 }
 
 TEST_F(RateLimitManagerTest, TestMinuteRateLimitAPIKey) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 5, -1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestHourRateLimitAPIKey) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, -1, 5, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", -1},
+        {"max_requests_1h", 5}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
-    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test_api_key"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
+    EXPECT_TRUE(manager->is_rate_limited({{RateLimitedEntityType::api_key, "test"}}));
 }
 
 TEST_F(RateLimitManagerTest, TestMinuteRateLimitIp) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"0.0.0.1"}, 5, -1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
@@ -190,7 +288,12 @@ TEST_F(RateLimitManagerTest, TestMinuteRateLimitIp) {
 }
 
 TEST_F(RateLimitManagerTest, TestHourRateLimitIp) {
-    manager->throttle_entities(RateLimitedEntityType::ip, {"0.0.0.1"}, -1, 5, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", -1},
+        {"max_requests_1h", 5}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 1);
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
     EXPECT_FALSE(manager->is_rate_limited({{RateLimitedEntityType::ip, "0.0.0.1"}}));
@@ -201,8 +304,18 @@ TEST_F(RateLimitManagerTest, TestHourRateLimitIp) {
 }
 
 TEST_F(RateLimitManagerTest, TestGetAllRules) {
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 5, -1, -1, -1);
-    manager->throttle_entities(RateLimitedEntityType::ip, {"0.0.0.1"}, 5, -1, -1, -1);
+    manager->add_rule({
+        {"action", "throttle"},
+        {"ip_addresses", nlohmann::json::array({"0.0.0.1"})},
+        {"max_requests_60s", -1},
+        {"max_requests_1h", 5}
+    });
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1}
+    });
     EXPECT_TRUE(manager->get_all_rules().size() == 2);
 }
 
@@ -211,9 +324,13 @@ TEST_F(RateLimitManagerTest, TestGetAllRulesEmpty) {
     EXPECT_EQ(rules.size(), 0);
 }
 
-TEST_F(RateLimitManagerTest, TestGetAllRulesJSON)
-{
-    manager->throttle_entities(RateLimitedEntityType::api_key, {"test_api_key"}, 5, -1, -1, -1);
+TEST_F(RateLimitManagerTest, TestGetAllRulesJSON) {
+    manager->add_rule({
+        {"action", "throttle"},
+        {"api_keys", nlohmann::json::array({"test"})},
+        {"max_requests_60s", 5},
+        {"max_requests_1h", -1}
+    });
     nlohmann::json rules = manager->get_all_rules_json();
     EXPECT_EQ(rules.is_array(), true);
     EXPECT_EQ(rules.size(), 1);

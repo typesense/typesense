@@ -1709,7 +1709,7 @@ bool get_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
     if(!rule_option.ok()) {
-        res->set_404();
+        res->set(rule_option.code(), rule_option.error());
         return false;
     }
 
@@ -1721,14 +1721,6 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     nlohmann::json req_json;
     uint64_t id = std::stoull(req->params["id"]);
-    const auto& ruleOption = rateLimitManager->find_rule_by_id(id);
-
-    if(!ruleOption.ok()) {
-        res->set_404();
-        return false;
-    }
-
-    rate_limit_rule_t new_rule;
 
     try {
         req_json = nlohmann::json::parse(req->body);
@@ -1737,84 +1729,25 @@ bool put_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<
         return false;
     }
 
-    auto action_op = magic_enum::enum_cast<RateLimitAction>(req_json["action"].get<std::string>());
+    const auto& edit_rule_result = rateLimitManager->edit_rule(id, req_json);
 
-    if(!action_op.has_value()) {
-        res->set_400("Invalid action");
+    if(!edit_rule_result.ok()) {
+        res->set(edit_rule_result.code(), edit_rule_result.error());
         return false;
     }
 
-    new_rule.action = action_op.value();
-
-    if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
-        res->set_400("Either `ip_addresses` or `api_keys` is required.");
-        return false;
-    }
-
-    if(req_json.count("ip_addresses") > 0) {
-        new_rule.entity_type = RateLimitedEntityType::ip;
-        for(const auto& ip: req_json["ip_addresses"]) {
-            new_rule.entity_ids.push_back(ip);
-        }
-    }
-
-    if(req_json.count("api_keys") > 0) {
-        new_rule.entity_type = RateLimitedEntityType::api_key;
-        for(const auto& api_key: req_json["api_keys"]) {
-            new_rule.entity_ids.push_back(api_key);
-        }
-    }
-
-    if(new_rule.action == RateLimitAction::throttle)
-    {
-        if(req_json.count("max_requests_60s") == 0 || req_json.count("max_requests_1h") == 0) {
-            res->set_400("Both `max_requests_60s` and `max_requests_1h` are required for throttling");
-            return false;
-        }
-
-        if(req_json["max_requests_60s"].get<int>() < 1 || req_json["max_requests_1h"].get<int>() < 1) {
-            res->set_400("Both `max_requests_60s` and `max_requests_1h` must be greater than 0");
-            return false;
-        }
-
-        new_rule.max_requests.minute_threshold = req_json["max_requests_60s"];
-        new_rule.max_requests.hour_threshold = req_json["max_requests_1h"];
-
-        if((req_json.count("auto_ban_threshold_num") > 0 && req_json.count("auto_ban_num_days") == 0) || (req_json.count("auto_ban_threshold_num") == 0 && req_json.count("auto_ban_num_days") > 0)) {
-            res->set_400("Both `auto_ban_threshold_num` and `auto_ban_num_days` are required if either is specified");
-            return false;
-        }
-
-        if(req_json.count("auto_ban_threshold_num") > 0 && req_json.count("auto_ban_num_days") > 0) {
-
-            if(req_json["auto_ban_threshold_num"].get<int>() < 1 || req_json["auto_ban_num_days"].get<int>() < 1) {
-                res->set_400("Both `auto_ban_threshold_num` and `auto_ban_num_days` must be greater than 0");
-                return false;
-            }
-
-            new_rule.auto_ban_threshold_num = req_json["auto_ban_threshold_num"];
-            new_rule.auto_ban_num_days = req_json["auto_ban_num_days"];
-        }
-    }
-
-    if(rateLimitManager->edit_rule_by_id(std::stoull(req->params["id"]), new_rule)) {
-        res->set_200("OK");
-        return true;
-    } else {
-        res->set_400("Rule for one or more entities already exist");
-        return false;
-    }
-
+    res->set_200(edit_rule_result.get().dump());
     return true;
+
 }
 
 bool del_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr<http_res>& res) {
     RateLimitManager* rateLimitManager = RateLimitManager::getInstance();
     uint64_t id = std::stoull(req->params["id"]);
-    const auto& ruleOption = rateLimitManager->find_rule_by_id(id);
+    const auto& rule_option = rateLimitManager->find_rule_by_id(id);
 
-    if(!ruleOption.ok()) {
-        res->set_404();
+    if(!rule_option.ok()) {
+        res->set(rule_option.code(), rule_option.error());
         return false;
     }
 
@@ -1834,105 +1767,13 @@ bool post_rate_limit(const std::shared_ptr<http_req>& req, const std::shared_ptr
         return false;
     }
 
-    if (req_json.count("action") == 0) {
-        res->set_400("Parameter `action` is required.");
+    auto add_rule_result = rateLimitManager->add_rule(req_json);
+
+    if(!add_rule_result.ok()) {
+        res->set(add_rule_result.code(), add_rule_result.error());
         return false;
     }
 
-    if (req_json["action"] == "allow") {
-        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
-            res->set_400("Either `ip_addresses` or `api_keys` is required.");
-            return false;
-        }
-        if (req_json.count("ip_addresses") != 0) {
-            bool rate_res = rateLimitManager->allow_entities(RateLimitedEntityType::ip,req_json["ip_addresses"].get<std::vector<std::string>>());
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        } else if (req_json.count("api_keys") != 0) {
-            bool rate_res = rateLimitManager->allow_entities(RateLimitedEntityType::api_key,req_json["api_keys"].get<std::vector<std::string>>());
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        }
-        res->set_200("OK");
-        return true;
-    } else if (req_json["action"] == "block") {
-        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
-            res->set_400("Either `ip_addresses` or `api_keys` is required.");
-            return false;
-        }
-        if (req_json.count("ip_addresses") != 0) {
-            bool rate_res = rateLimitManager->ban_entities_permanently(RateLimitedEntityType::ip,req_json["ip_addresses"].get<std::vector<std::string>>());
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        } else if (req_json.count("api_keys") != 0) {
-            bool rate_res = rateLimitManager->ban_entities_permanently(RateLimitedEntityType::api_key,req_json["api_keys"].get<std::vector<std::string>>());
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        }
-        res->set_200("OK");
-        return true;
-    } else if (req_json["action"] == "throttle") {
-        if (req_json.count("max_requests_60s") == 0 && req_json.count("max_requests_1h") == 0) {
-            res->set_400("At least  one of `max_requests_60s` or `max_requests_1h` is required.");
-            return false;
-        }
-
-        if(req_json["max_requests_60s"].get<int>() < 1 || req_json["max_requests_1h"].get<int>() < 1) {
-            res->set_400("Both `max_requests_60s` and `max_requests_1h` must be greater than 0.");
-            return false;
-        }
-
-
-        if ((req_json.count("ip_addresses") == 0 && req_json.count("api_keys") == 0) || (req_json.count("ip_addresses") > 0 && req_json.count("api_keys") > 0)) {
-            res->set_400("Either `ip_addresses` or `api_keys` is required.");
-            return false;
-        }
-
-        int64_t threshold_num = -1;
-        int64_t num_days = -1;
-
-        if((req_json.count("auto_ban_threshold_num") > 0 && req_json.count("auto_ban_num_days") == 0) || (req_json.count("auto_ban_threshold_num") == 0 && req_json.count("auto_ban_num_days") > 0)) {
-            res->set_400("Both `auto_ban_threshold_num` and `auto_ban_num_days` are required if either is specified.");
-            return false;
-        }
-
-        if(req_json.count("auto_ban_threshold_num") > 0 && req_json.count("auto_ban_num_days") > 0) {
-
-            if(req_json["auto_ban_threshold_num"].get<int>() < 0 || req_json["auto_ban_num_days"].get<int>() < 0) {
-                res->set_400("Both `auto_ban_threshold_num` and `auto_ban_num_days` must be greater than 0.");
-                return false;
-            }
-
-            threshold_num = req_json["auto_ban_threshold_num"];
-            num_days = req_json["auto_ban_num_days"];
-        }
-
-        if (req_json.count("ip_addresses") != 0) {
-            bool rate_res = rateLimitManager->throttle_entities(RateLimitedEntityType::ip, req_json["ip_addresses"].get<std::vector<std::string>>(), req_json["max_requests_60s"], req_json["max_requests_1h"], threshold_num, num_days);
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        } else if (req_json.count("api_keys") != 0) {
-            bool rate_res = rateLimitManager->throttle_entities(RateLimitedEntityType::api_key, req_json["api_keys"].get<std::vector<std::string>>(), req_json["max_requests_60s"], req_json["max_requests_1h"], threshold_num, num_days);
-            if(!rate_res){
-                // Return object already exists
-                res->set_400("Rule for one or many of the entities already exists.");
-            }
-        }
-    } else {
-        res->set_400("Invalid action.");
-        return false;
-    }
-
-    res->set_200("OK");
+    res->set_200(add_rule_result.get().dump());
     return true;
 }
