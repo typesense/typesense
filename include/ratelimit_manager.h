@@ -180,6 +180,9 @@ class RateLimitManager
         // Helper function to check if JSON rule is valid
         Option<bool> is_valid_rule(const nlohmann::json &rule_json);
 
+        // Parse JSON rule to rate_limit_rule_t
+        Option<rate_limit_rule_t> parse_rule(const nlohmann::json &rule_json);
+
         // Singleton instance
         inline static RateLimitManager *instance;
 
