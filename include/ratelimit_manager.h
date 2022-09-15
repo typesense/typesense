@@ -175,7 +175,7 @@ class RateLimitManager
 
         // Prefix for bans
         static constexpr const char* BANS_NEXT_ID = "$KBN";
-        static constexpr const char* BANS_PREFIX = "$KB";
+        static constexpr const char* BANS_PREFIX = "$KBL";
 
 
 
