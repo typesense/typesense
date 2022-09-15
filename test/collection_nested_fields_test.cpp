@@ -383,6 +383,17 @@ TEST_F(CollectionNestedFieldsTest, SearchOnFieldsOnWildcardSchema) {
     ASSERT_EQ(highlight_doc.dump(), results["hits"][0]["highlight"]["snippet"].dump());
     ASSERT_EQ(0, results["hits"][0]["highlights"].size());
 
+    // after update also the flat fields or meta should not be present on disk
+    doc["employees"]["tags"][0] = "senior plumber 2";
+    auto update_op = coll1->add(doc.dump(), UPSERT);
+    ASSERT_TRUE(add_op.ok());
+
+    raw_doc.clear();
+    coll1->get_document_from_store(0, raw_doc, true);
+    ASSERT_EQ(0, raw_doc.count(".flat"));
+    ASSERT_EQ(0, raw_doc.count("employees.tags"));
+    ASSERT_EQ(4, raw_doc.size());
+
     // search specific nested fields, only matching field is highlighted by default
     results = coll1->search("one shoe", {"locations.address.street", "employees.tags"}, "", {}, sort_fields,
                             {0}, 10, 1, FREQUENCY, {true}).get();

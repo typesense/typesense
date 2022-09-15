@@ -330,6 +330,7 @@ void Collection::batch_index(std::vector<index_record>& index_records, std::vect
 
         if(index_record.indexed.ok()) {
             if(index_record.is_update) {
+                remove_flat_fields(index_record.new_doc);
                 const std::string& serialized_json = index_record.new_doc.dump(-1, ' ', false, nlohmann::detail::error_handler_t::ignore);
                 bool write_ok = store->insert(get_seq_id_key(index_record.seq_id), serialized_json);
 
