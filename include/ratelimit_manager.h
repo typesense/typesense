@@ -10,6 +10,7 @@
 #include <magic_enum.hpp>
 #include "lru/lru.hpp"
 #include "option.h"
+#include "store.h"
 
 
 
@@ -33,7 +34,7 @@ struct rate_limit_max_requests_t {
 };
 
 struct rate_limit_rule_t {
-    uint64_t id;
+    uint32_t id;
     RateLimitAction action;
     RateLimitedEntityType entity_type;
     std::vector<std::string> entity_ids;
@@ -86,10 +87,16 @@ struct request_counter_t {
 
 // Struct to store ban information for ip addresses
 struct rate_limit_status_t {
+    uint32_t status_id;
     int64_t throttling_from;
     int64_t throttling_to;
     std::string value;
     RateLimitedEntityType entity_type;
+
+
+    const nlohmann::json to_json() const;
+
+    void parse_json(const nlohmann::json& json);
 };
 
 
@@ -148,14 +155,36 @@ class RateLimitManager
         // Clear all rules
         void clear_all();
 
+        // Set store
+        Option<bool> init(Store* store);
+
     private:    
 
         RateLimitManager() {
             rate_limit_request_counts.capacity(10000);
         }
 
+        // Store for rate limit rules
+        Store *store;
+
+        // Using a $ prefix so that these meta keys stay above record entries in a lexicographically ordered KV store
+
+        // Prefix for rate limit rules
+        static constexpr const char* RULES_NEXT_ID = "$KRLN";
+        static constexpr const char* RULES_PREFIX = "$KRLL";
+
+        // Prefix for bans
+        static constexpr const char* BANS_NEXT_ID = "$KBN";
+        static constexpr const char* BANS_PREFIX = "$KB";
+
+
+
+
         // ID of latest added rule 
-        inline static uint64_t last_rule_id = 0;
+        inline static uint32_t last_rule_id = 0;
+
+        // ID of latest added ban
+        inline static uint32_t last_ban_id = 0;
 
         // Store for rate_limit_rule_t
         std::unordered_map<uint64_t,rate_limit_rule_t> rule_store;
@@ -181,7 +210,12 @@ class RateLimitManager
         Option<bool> is_valid_rule(const nlohmann::json &rule_json);
 
         // Parse JSON rule to rate_limit_rule_t
-        Option<rate_limit_rule_t> parse_rule(const nlohmann::json &rule_json);
+        Option<rate_limit_rule_t> parse_rule(const nlohmann::json &rule_json, bool alert_if_exists = true);
+
+        // Helper function to insert rule in store
+        void insert_rule(const rate_limit_rule_t &rule);
+
+        // Helper function to 
 
         // Singleton instance
         inline static RateLimitManager *instance;

@@ -1,4 +1,5 @@
 #include "ratelimit_manager.h"
+#include "string_utils.h"
 #include "logger.h"
 #include <iterator>
 
@@ -67,9 +68,17 @@ bool RateLimitManager::is_rate_limited(const std::vector<rate_limit_entity_t> &e
             if (throttled_entities.at(entity).throttling_to > std::chrono::system_clock::to_time_t(std::chrono::system_clock::now())) {
                 return true;
             }
+
+
+            // Remove ban from DB store
+            std::string ban_key = std::string(BANS_PREFIX) + "_" + std::to_string(throttled_entities.at(entity).status_id);
+            store->remove(ban_key);
+
  
             // Remove ban
             throttled_entities.erase(entity);
+
+
 
 
             // Reset request counts
@@ -169,6 +178,14 @@ Option<nlohmann::json> RateLimitManager::find_rule_by_id(const uint64_t id) {
 
 bool RateLimitManager::delete_rule_by_id(const uint64_t id) {
     std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+    
+    const std::string rule_store_key = std::string(RULES_PREFIX) + "_" + std::to_string(id);
+
+    bool deleted = store->remove(rule_store_key);
+
+    if(!deleted) {
+        return false;
+    }
 
     // Check if a rule exists for the given ID
     if(rule_store.count(id) > 0) {
@@ -218,7 +235,8 @@ const std::vector<rate_limit_status_t> RateLimitManager::get_banned_entities(con
     for (auto & element: rule_store) {
         if (element.second.action == RateLimitAction::block && element.second.entity_type == entity_type) {
             for (auto & entity : element.second.entity_ids) {
-                banned_entities.push_back(rate_limit_status_t{0,0,entity, entity_type});
+                banned_entities.push_back(rate_limit_status_t{last_ban_id, 0, 0, entity, entity_type});
+                last_ban_id++;
             }
         }
     }
@@ -245,7 +263,15 @@ void RateLimitManager::temp_ban_entity_wrapped(const rate_limit_entity_t& entity
 
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     // Add entity to throttled_entities for the given number of days
-    throttled_entities.insert({entity, rate_limit_status_t{now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type}});
+
+    rate_limit_status_t status{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type};
+
+    std::string ban_key = std::string(BANS_PREFIX) + "_" + std::to_string(last_ban_id);
+
+    store->insert(ban_key, status.to_json().dump());
+
+    throttled_entities.insert({entity, rate_limit_status_t{last_ban_id, now, now + (number_of_days * 24 * 60 * 60), entity.entity_id, entity.entity_type}});
+    last_ban_id++;
 
 
     if(rate_limit_request_counts.contains(entity)){
@@ -274,7 +300,11 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
         rule["id"] = id;
         rule["action"] = magic_enum::enum_name(action);
         rule["entity_type"] = magic_enum::enum_name(entity_type);
-        rule["entity_ids"] = entity_ids;
+        if(entity_type == RateLimitedEntityType::ip) {
+            rule["ip_addresses"] = entity_ids;
+        } else {
+            rule["api_keys"] = entity_ids;
+        }
         
         if(max_requests.minute_threshold >= 0) {
             rule["max_requests"]["minute_threshold"] = max_requests.minute_threshold;
@@ -295,6 +325,23 @@ const nlohmann::json rate_limit_rule_t::to_json() const {
         return rule;
 }
 
+const nlohmann::json rate_limit_status_t::to_json() const {
+    nlohmann::json status;
+    status["throttling_from"] = throttling_from;
+    status["throttling_to"] = throttling_to;
+    status["value"] = value;
+    status["entity_type"] = magic_enum::enum_name(entity_type);
+    return status;
+}
+
+void rate_limit_status_t::parse_json(const nlohmann::json &json) {
+    throttling_from = json["throttling_from"];
+    throttling_to = json["throttling_to"];
+    value = json["value"];
+    entity_type = magic_enum::enum_cast<RateLimitedEntityType>(json["entity_type"].get<std::string>()).value();
+}
+
+
 Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_json) {
     std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
 
@@ -314,12 +361,21 @@ Option<nlohmann::json> RateLimitManager::add_rule(const nlohmann::json &rule_jso
 
     parsed_rule.id = last_rule_id++;
 
-    rule_store[parsed_rule.id] = parsed_rule;
+    const std::string rule_store_key = std::string(RULES_PREFIX) + "_" + std::to_string(parsed_rule.id);
 
 
-    for(const auto &entity : parsed_rule.entity_ids) {
-        rate_limit_entities.insert({rate_limit_entity_t{parsed_rule.entity_type,entity}, &rule_store.at(parsed_rule.id)});
+    bool inserted = store->insert(rule_store_key, parsed_rule.to_json().dump());
+
+
+    if(!inserted) {
+        return Option<nlohmann::json>(500, "Failed to insert rule into the DB store");
     }
+
+    store->increment(std::string(RULES_NEXT_ID), 1);
+
+    // Insert rule to rule store
+    insert_rule(parsed_rule);
+
 
     nlohmann::json response;
 
@@ -343,7 +399,8 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
         return Option<nlohmann::json>(rule_validation_result.code(), rule_validation_result.error());
     }
 
-    auto parsed_rule_option = parse_rule(rule_json);
+
+    auto parsed_rule_option = parse_rule(rule_json, false);
 
     if(!parsed_rule_option.ok()) {
         return Option<nlohmann::json>(parsed_rule_option.code(), parsed_rule_option.error());
@@ -353,6 +410,16 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
 
     parsed_rule.id = id;
 
+
+    const std::string rule_store_key = std::string(RULES_PREFIX) + "_" + std::to_string(parsed_rule.id);
+
+    bool inserted = store->insert(rule_store_key, parsed_rule.to_json().dump());
+
+
+    if(!inserted) {
+        return Option<nlohmann::json>(500, "Failed to update rule in the DB store");
+    }
+
     auto old_rule = rule_store.at(id);
 
     // Remove rule from rate limit rule pointer
@@ -360,13 +427,8 @@ Option<nlohmann::json> RateLimitManager::edit_rule(const uint64_t id, const nloh
         rate_limit_entities.erase(rate_limit_entity_t{old_rule.entity_type,entity});
     }
 
-    // Update rule in rule store
-    rule_store[id] = parsed_rule;
-
-    // Add rule from rule store to rate limit rule pointer
-    for(const auto &entity : parsed_rule.entity_ids) {
-        rate_limit_entities.insert({rate_limit_entity_t{parsed_rule.entity_type,entity}, &rule_store.at(id)});
-    }
+    // Insert new rule to rule store
+    insert_rule(parsed_rule);
 
     nlohmann::json response;
 
@@ -444,7 +506,7 @@ Option<bool> RateLimitManager::is_valid_rule(const nlohmann::json &rule_json) {
 }
 
 
-Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rule_json)
+Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rule_json, bool alert_if_exists)
 {
     rate_limit_rule_t new_rule;
 
@@ -455,7 +517,7 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
         for(const auto& ip: rule_json["ip_addresses"]) {
 
             // Check if a rule exists for the entity
-            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, ip}) > 0) {
+            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, ip}) > 0 && alert_if_exists) {
                 return Option<rate_limit_rule_t>(400, "A rule already exists for one of the entities");
             }
 
@@ -468,7 +530,7 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
         for(const auto& api_key: rule_json["api_keys"]) {
 
             // Check if a rule exists for the entity
-            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, api_key}) > 0) {
+            if (rate_limit_entities.count(rate_limit_entity_t{new_rule.entity_type, api_key}) > 0 && alert_if_exists) {
                 return Option<rate_limit_rule_t>(400, "A rule already exists for one of the entities");
             }
 
@@ -491,6 +553,97 @@ Option<rate_limit_rule_t> RateLimitManager::parse_rule(const nlohmann::json &rul
         new_rule.auto_ban_num_days = rule_json["auto_ban_num_days"];
     }
 
-
     return Option<rate_limit_rule_t>(new_rule);
 }
+
+
+void RateLimitManager::insert_rule(const rate_limit_rule_t &rule)
+{
+    rule_store[rule.id] = rule;
+
+    for(const auto &entity : rule.entity_ids) {
+        rate_limit_entities.insert({rate_limit_entity_t{rule.entity_type,entity}, &rule_store.at(rule.id)});
+    }
+}
+
+
+Option<bool> RateLimitManager::init(Store *store) {
+
+    std::unique_lock<std::shared_mutex> lock(rate_limit_mutex);
+
+    this->store = store;
+
+    // Load rules from database
+    std::string last_rule_id_str;
+    StoreStatus last_rule_id_status = store->get(std::string(RULES_NEXT_ID), last_rule_id_str);
+
+    if(last_rule_id_status == StoreStatus::ERROR) {
+        return Option<bool>(500, "Error while fetching rule next id from database.");
+    }
+    else if(last_rule_id_status == StoreStatus::FOUND) {
+        last_rule_id = StringUtils::deserialize_uint32_t(last_rule_id_str);
+    }
+    else {
+        last_rule_id = 0;
+    }
+
+    std::vector<std::string> rule_json_strs;
+
+    store->scan_fill(RULES_PREFIX, rule_json_strs);
+
+    for(const auto& rule_json_str: rule_json_strs) {
+
+        nlohmann::json rule_json = nlohmann::json::parse(rule_json_str);
+
+        Option<rate_limit_rule_t> rule_option = parse_rule(rule_json);
+
+        if(!rule_option.ok()) {
+            return Option<bool>(rule_option.code(), rule_option.error());
+        }
+
+
+
+        auto rule = rule_option.get();
+
+        rule.id = rule_json["id"];
+
+        insert_rule(rule);
+    }
+
+
+
+    // Load bans from database
+    std::string last_ban_id_str;
+    StoreStatus last_ban_id_status = store->get(BANS_NEXT_ID, last_ban_id_str);
+
+    if(last_ban_id_status == StoreStatus::ERROR) {
+        return Option<bool>(500, "Error while fetching ban next id from database.");
+    }
+    else if(last_ban_id_status == StoreStatus::FOUND) {
+        last_ban_id = StringUtils::deserialize_uint32_t(last_ban_id_str);
+    }
+    else {
+        last_ban_id = 0;
+    }
+
+    std::vector<std::string> ban_json_strs;
+
+    store->scan_fill(BANS_PREFIX, ban_json_strs);
+
+    for(const auto& ban_json_str: ban_json_strs) {
+        nlohmann::json ban_json = nlohmann::json::parse(ban_json_str);
+
+        rate_limit_status_t ban_status;
+
+        ban_status.parse_json(ban_json);
+
+        throttled_entities.insert({rate_limit_entity_t{ban_status.entity_type, ban_status.value}, ban_status});
+    }
+
+    LOG(INFO) << "Loaded " << rule_store.size() << " rate limit rules.";
+
+    LOG(INFO) << "Loaded " << throttled_entities.size() << " rate limit bans.";
+
+    return Option<bool>(true);
+}
+

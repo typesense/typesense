@@ -15,6 +15,7 @@
 #include <ifaddrs.h>
 
 #include "core_api.h"
+#include "ratelimit_manager.h"
 #include "typesense_server_utils.h"
 #include "file_utils.h"
 #include "threadpool.h"
@@ -442,6 +443,13 @@ int run_server(const Config & config, const std::string & version, void (*master
     CollectionManager & collectionManager = CollectionManager::get_instance();
     collectionManager.init(&store, &app_thread_pool, config.get_max_memory_ratio(),
                            config.get_api_key(), quit_raft_service, batch_indexer);
+    
+    RateLimitManager *rateLimitManager = RateLimitManager::getInstance();
+    auto rate_limit_manager_init = rateLimitManager->init(&store);
+
+    if(!rate_limit_manager_init.ok()) {
+        LOG(INFO) << "Failed to initialize rate limit manager: " << rate_limit_manager_init.error();
+    }
 
     // first we start the peering service
 
